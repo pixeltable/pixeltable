@@ -1,5 +1,9 @@
+import pathlib
 from typing import Optional, List, Set, Dict, Any, Type
 import re
+
+import PIL
+from PIL import Image
 
 import pandas as pd
 import sqlalchemy as sql
@@ -41,39 +45,26 @@ class Column:
         return f'{self.name}: {self.col_type.name}'
 
 
-# class Relation:
-#     def __init__(self, id: int, dir_id: int, name: str, schema: List[Column]):
-#         self.id = id
-#         self.dir_id = dir_id
-#         self.name = name
-#         self.schema = {col.name: col for col in schema}
-#
-#     def list_columns(self) -> List[Column]:
-#         return list(self.schema.values())
-#
-#     def add_column(self, c: Column) -> None:
-#         self.schema[c.name] = c
-#
-#     def drop_column(self, name: str) -> None:
-#         pass
-#
-#     def rename_column(self, old_name: str, new_name: str) -> None:
-#         pass
-#
-#
-# class View(Relation):
-#     def __init__(self, id: int, dir_id: int, name: str, schema: List[Column]):
-#         super().__init__(id, dir_id, name, schema)
-
 # base class of all addressable objects within a Db
 class SchemaObject:
     def __init__(self, obj_id: int):
         self.id = obj_id
 
+    @classmethod
+    def display_name(cls) -> str:
+        """
+        Return name displayed in error messages.
+        """
+        assert False
+
 
 class DirBase(SchemaObject):
     def __init__(self, dir_id: int):
         super().__init__(dir_id)
+
+    @classmethod
+    def display_name(cls) -> str:
+        return 'directory'
 
 
 # contains only MutableTables
@@ -108,6 +99,15 @@ class Table(SchemaObject):
         self.sa_md = sql.MetaData()
         self._create_sa_tbl()
         self.is_dropped = False
+
+    def df(self) -> 'pixeltable.dataframe.DataFrame':  # type: ignore[name-defined]
+        # local import: avoid circular imports
+        from pixeltable.dataframe import DataFrame
+        return DataFrame(self)
+
+    def show(self, *args, **kwargs) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+        from pixeltable.dataframe import DataFrame
+        return self.df().show(*args, **kwargs)
 
     def columns(self) -> List[Column]:
         return self.cols
@@ -153,6 +153,9 @@ class TableSnapshot(Table):
             snapshot_record.db_id, snapshot_record.id, snapshot_record.dir_id, snapshot_record.name,
             snapshot_record.tbl_version, cols)
 
+    @classmethod
+    def display_name(cls) -> str:
+        return 'table snapshot'
 
 class MutableTable(Table):
     def __init__(self, tbl_record: store.Table, schema_version: int, cols: List[Column]):
@@ -168,6 +171,10 @@ class MutableTable(Table):
         assert tbl_record.next_row_id is not None
         self.next_row_id = tbl_record.next_row_id
         self.schema_version = schema_version
+
+    @classmethod
+    def display_name(cls) -> str:
+        return 'table'
 
     def add_column(self, c: Column) -> None:
         self._check_is_dropped()
@@ -205,7 +212,7 @@ class MutableTable(Table):
                     sql.insert(store.StorageColumn.__table__)
                         .values(tbl_id=self.id, col_id=c.id, schema_version_add=self.schema_version))
                 self._create_col_md(conn)
-                stmt = f'ALTER TABLE {self.storage_name} ADD COLUMN {c.to_sql()}'
+                stmt = f'ALTER TABLE {self.storage_name()} ADD COLUMN {c.to_sql()}'
                 conn.execute(sql.text(stmt))
 
     def drop_column(self, name: str) -> None:
@@ -282,7 +289,7 @@ class MutableTable(Table):
                 .values(tbl_id=self.id, schema_version=self.version, col_id=c.id,
                         pos=pos, name=c.name, col_type=c.col_type, is_nullable=c.nullable, is_pk=c.primary_key))
 
-    def insert(self, data: pd.DataFrame) -> None:
+    def insert_pandas(self, data: pd.DataFrame) -> None:
         self._check_is_dropped()
         reqd_col_names = set([col.name for col in self.cols if not col.nullable])
         given_col_names = set(data.columns)
@@ -293,13 +300,31 @@ class MutableTable(Table):
         all_col_names = set([col.name for col in self.cols])
         inserted_cols = [self.cols_by_name[name] for name in all_col_names & given_col_names]
         for col in inserted_cols:
+            if col.col_type == pt_types.ColumnType.STRING and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
+                raise exc.InsertError(f'Column {col.name} requires string data')
             if col.col_type == pt_types.ColumnType.INT and not pd.api.types.is_integer_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires integer data')
             if col.col_type == pt_types.ColumnType.FLOAT and not pd.api.types.is_numeric_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires numerical data')
+            if col.col_type == pt_types.ColumnType.BOOL and not pd.api.types.is_bool_dtype(data.dtypes[col.name]):
+                raise exc.InsertError(f'Column {col.name} requires boolean data')
             if col.col_type == pt_types.ColumnType.TIMESTAMP \
                     and not pd.api.types.is_datetime64_any_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires datetime data')
+            if col.col_type == pt_types.ColumnType.IMAGE and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
+                raise exc.InsertError(f'Column {col.name} requires local file paths')
+
+        # check data:
+        # image columns: file paths exist and are valid image files
+        image_cols = [col for col in inserted_cols if col.col_type == pt_types.ColumnType.IMAGE]
+        for col in image_cols:
+            for _, path_str in data[col.name].items():
+                try:
+                    _ = Image.open(path_str)
+                except FileNotFoundError:
+                    raise exc.OperationalError(f'Column {col.name}: file does not exist: {path_str}')
+                except PIL.UnidentifiedImageError:
+                    raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
 
         # we're creating a new version
         self.version += 1
@@ -321,6 +346,9 @@ class MutableTable(Table):
                         .where(store.Table.id == self.id))
         self.next_row_id = row_id
 
+    def insert_csv(self, file_path: str) -> None:
+        pass
+
     # TODO: update() signature?
     #def update(self, data: pd.DataFrame) -> None:
 
@@ -333,6 +361,7 @@ class MutableTable(Table):
             raise exc.OperationalError('Cannot revert version 0')
         # check if the current version is referenced by a snapshot
         with orm.Session(store.engine) as session:
+            # make sure we don't have a snapshot referencing this version
             num_references = session.query(sql.func.count(store.TableSnapshot.id)) \
                 .where(store.TableSnapshot.db_id == self.db_id) \
                 .where(store.TableSnapshot.tbl_id == self.id) \
@@ -364,7 +393,6 @@ class MutableTable(Table):
                         .where(store.TableSchemaVersion.schema_version == self.schema_version))
                 self.schema_version = preceding_schema_version
 
-            self.version -= 1
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
@@ -372,6 +400,9 @@ class MutableTable(Table):
                         store.Table.current_schema_version: self.schema_version
                     })
                     .where(store.Table.id == self.id))
+
+            session.commit()
+        self.version -= 1
 
     # MODULE-LOCAL, NOT PUBLIC
     def rename(self, new_name: str) -> None:
@@ -473,10 +504,10 @@ class Path:
         """
         if self.len >= other.len or other.is_root:
             return False
-        if self.is_root:
+        if self.is_root and (other.len == 1 or not is_parent):
             return True
         is_prefix = self.components == other.components[:self.len]
-        return is_prefix and (self.len == other.len - 1 or not is_parent)
+        return is_prefix and (self.len == (other.len - 1) or not is_parent)
 
     def __str__(self) -> str:
         return '.'.join(self.components)
@@ -506,8 +537,12 @@ class PathDict:
             expected_parent_type: Type[DirBase] = DirBase) -> None:
         path_str = str(path)
         # check for existence
-        if expected is not None and path_str not in self.paths:
-            raise exc.UnknownEntityError(path_str)
+        if expected is not None:
+            if path_str not in self.paths:
+                raise exc.UnknownEntityError(path_str)
+            obj = self.paths[path_str]
+            if not isinstance(obj, expected):
+                raise exc.UnknownEntityError(f'{path_str} needs to be a {expected.display_name()}')
         if expected is None and path_str in self.paths:
             raise exc.DuplicateNameError(f'{path_str} already exists')
         # check for containing directory
@@ -516,10 +551,13 @@ class PathDict:
             raise exc.UnknownEntityError(f'Directory {str(parent_path)}')
         parent = self.paths[str(parent_path)]
         if not isinstance(parent, expected_parent_type):
-            raise exc.UnknownEntityError(f'{str(parent_path)} needs to be a directory')
+            raise exc.UnknownEntityError(f'{str(parent_path)} needs to be a {expected_parent_type.display_name()}')
 
     def get_children(self, parent: Path, child_type: Optional[Type[SchemaObject]], recursive: bool) -> List[Path]:
-        candidates = [Path(path) for path, obj in self.paths.items() if child_type is None or (obj, child_type)]
+        candidates = [
+            Path(path, empty_is_valid=True)
+            for path, obj in self.paths.items() if child_type is None or isinstance(obj, child_type)
+        ]
         result = [path for path in candidates if parent.is_ancestor(path, is_parent=(not recursive))]
         return result
 
@@ -564,11 +602,11 @@ class Db:
 
     def rename_table(self, path_str: str, new_name: str) -> None:
         path = Path(path_str)
-        self.paths.check_is_valid(path, expected=Table)
+        self.paths.check_is_valid(path, expected=MutableTable)
         if re.fullmatch(_ID_RE, new_name) is None:
             raise exc.BadFormatError(f"Invalid table name: '{new_name}'")
-        new_path = path.append(new_name)
-        self.paths.check_is_valid(new_path, expected=None)
+        new_path = path.parent.append(new_name)
+        self.paths.check_is_valid(new_path, expected=None, expected_parent_type=Dir)
 
         tbl = self.paths[path]
         assert isinstance(tbl, MutableTable)
@@ -581,7 +619,7 @@ class Db:
 
     def list_tables(self, dir_path: str = '', recursive: bool = True) -> List[str]:
         assert dir_path is not None
-        path = Path(dir_path)
+        path = Path(dir_path, empty_is_valid=True)
         self.paths.check_is_valid(path, expected=DirBase)
         return [str(p) for p in self.paths.get_children(path, child_type=Table, recursive=recursive)]
 
@@ -615,12 +653,13 @@ class Db:
                 snapshot_record = store.TableSnapshot(
                     db_id=self.id, dir_id=dir_record.id, name=tbl.name, tbl_id=tbl.id, tbl_version=tbl.version,
                     tbl_schema_version=tbl.schema_version)
+                session.add(snapshot_record)
+                session.flush()
+                assert snapshot_record.id is not None
                 cols = Table.load_cols(tbl.id, tbl.schema_version, session)
                 snapshot_path = snapshot_dir_path.append(tbl.name)
                 self.paths[snapshot_path] = TableSnapshot(snapshot_record, cols)
-                session.add(snapshot_record)
 
-            session.flush()
             session.commit()
 
     def create_dir(self, path_str: str) -> None:
