@@ -51,7 +51,7 @@ class DataFrame:
         self.tbl = tbl
         self.selected_cols = tbl.cols.copy()
 
-    def show(self, num_rows: int = 20) -> DataFrameResultSet:
+    def show(self, n: int = 20) -> DataFrameResultSet:
         with store.engine.connect() as conn:
             stmt = self._create_select_stmt()
             i = 0
@@ -60,10 +60,17 @@ class DataFrame:
                 # TODO: is there a cleaner way to get the data?
                 rows.append(row._data)
                 i += 1
-                if num_rows > 0 and i == num_rows:
+                if n > 0 and i == n:
                     break
         return DataFrameResultSet(
             rows, [col.name for col in self.selected_cols], [col.col_type for col in self.selected_cols])
+
+    def count(self) -> int:
+        stmt = sql.select(sql.func.count('*')).select_from(self.tbl.sa_tbl) \
+            .where(self.tbl.v_min_col <= self.tbl.version) \
+            .where(self.tbl.v_max_col > self.tbl.version)
+        with store.engine.connect() as conn:
+            return conn.execute(stmt).scalar_one()
 
     def _create_select_stmt(self) -> sql.sql.expression.Select:
         selected_sa_cols = [col.sa_col for col in self.selected_cols]

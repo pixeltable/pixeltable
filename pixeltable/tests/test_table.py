@@ -70,7 +70,7 @@ class TestTable:
         tbl = db.create_table('test', cols)
         df = read_data_file('imagenette2-160', 'manifest.csv')
         tbl.insert_pandas(df)
-        html_str = tbl.show(num_rows=100)._repr_html_()
+        html_str = tbl.show(n=100)._repr_html_()
         # TODO: check html_str
 
     @pytest.mark.dependency(name='test_insert')
@@ -80,7 +80,7 @@ class TestTable:
         t1 = make_tbl(db, 'test1', ['c1', 'c2'])
         data1 = create_table_data(t1)
         t1.insert_pandas(data1)
-        assert len(t1.show(num_rows=0).rows) == len(data1)
+        assert t1.count() == len(data1)
 
         # incompatible schema
         t2 = make_tbl(db, 'test2', ['c2', 'c1'])
@@ -95,13 +95,13 @@ class TestTable:
         t = make_tbl(db, 'test', ['c1', 'c2', 'c3', 'c4', 'c5'])
         t_data = create_table_data(t)
         t.insert_pandas(t_data)
-        _ = t.show(num_rows=0)
+        _ = t.show(n=0)
 
         # test querying existing table
         cl2 = pt.Client()
         db2 = cl2.get_db('test')
         t2 = db2.get_table('test')
-        _  = t2.show(num_rows=0)
+        _  = t2.show(n=0)
 
     @pytest.mark.dependency(depends=['test_insert'])
     def test_revert(self, test_db: None) -> None:
@@ -110,14 +110,14 @@ class TestTable:
         t1 = make_tbl(db, 'test1', ['c1', 'c2'])
         data1 = create_table_data(t1)
         t1.insert_pandas(data1)
-        assert len(t1.show(num_rows=0).rows) == len(data1)
+        assert t1.count() == len(data1)
         data2 = create_table_data(t1)
         t1.insert_pandas(data2)
-        assert len(t1.show(num_rows=0).rows) == len(data1) + len(data2)
+        assert t1.count() == len(data1) + len(data2)
         t1.revert()
-        assert len(t1.show(num_rows=0).rows) == len(data1)
+        assert t1.count() == len(data1)
         t1.insert_pandas(data2)
-        assert len(t1.show(num_rows=0).rows) == len(data1) + len(data2)
+        assert t1.count() == len(data1) + len(data2)
 
     @pytest.mark.dependency(depends=['test_insert'])
     def test_snapshot(self, test_db: None) -> None:
@@ -127,17 +127,17 @@ class TestTable:
         tbl = make_tbl(db, 'main.test1', ['c1', 'c2'])
         data1 = create_table_data(tbl)
         tbl.insert_pandas(data1)
-        assert len(tbl.show(num_rows=0).rows) == len(data1)
+        assert tbl.count() == len(data1)
 
         db.create_snapshot('snap', ['main.test1'])
         snap = db.get_table('snap.test1')
-        assert len(snap.show(num_rows=0).rows) == len(data1)
+        assert snap.count() == len(data1)
 
         # adding data to a base table doesn't change the snapshot
         data2 = create_table_data(tbl)
         tbl.insert_pandas(data2)
-        assert len(tbl.show(num_rows=0).rows) == len(data1) + len(data2)
-        assert len(snap.show(num_rows=0).rows) == len(data1)
+        assert tbl.count() == len(data1) + len(data2)
+        assert snap.count() == len(data1)
 
         tbl.revert()
         # can't revert a version referenced by a snapshot

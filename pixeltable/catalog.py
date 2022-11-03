@@ -109,6 +109,10 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return self.df().show(*args, **kwargs)
 
+    def count(self) -> int:  # type: ignore[name-defined, no-untyped-def]
+        from pixeltable.dataframe import DataFrame
+        return self.df().count()
+
     def columns(self) -> List[Column]:
         return self.cols
 
