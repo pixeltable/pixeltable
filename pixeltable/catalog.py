@@ -1,5 +1,5 @@
 import pathlib
-from typing import Optional, List, Set, Dict, Any, Type
+from typing import Optional, List, Set, Dict, Any, Type, NewType, Union
 import re
 
 import PIL
@@ -100,7 +100,21 @@ class Table(SchemaObject):
         self._create_sa_tbl()
         self.is_dropped = False
 
-    def df(self) -> 'pixeltable.dataframe.DataFrame':  # type: ignore[name-defined]
+    def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
+        if col_name not in self.cols_by_name:
+            raise AttributeError(f'Column {col_name} unknown')
+        col = self.cols_by_name[col_name]
+        from pixeltable.exprs import ColumnRef
+        return ColumnRef(col)
+
+    def __getitem__(self, index: object) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame']:
+        if isinstance(index, str):
+            # basically <tbl>.<colname>
+            return self.__getattr__(index)
+        from pixeltable.dataframe import DataFrame
+        return DataFrame(self).__getitem__(index)
+
+    def df(self) -> 'pixeltable.dataframe.DataFrame':
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
         return DataFrame(self)
@@ -109,7 +123,7 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return self.df().show(*args, **kwargs)
 
-    def count(self) -> int:  # type: ignore[name-defined, no-untyped-def]
+    def count(self) -> int:
         from pixeltable.dataframe import DataFrame
         return self.df().count()
 

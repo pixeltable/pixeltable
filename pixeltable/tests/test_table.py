@@ -71,6 +71,7 @@ class TestTable:
         df = read_data_file('imagenette2-160', 'manifest.csv')
         tbl.insert_pandas(df)
         html_str = tbl.show(n=100)._repr_html_()
+        print(html_str)
         # TODO: check html_str
 
     @pytest.mark.dependency(name='test_insert')
