@@ -64,3 +64,17 @@ class TestExprs:
         df = tbl[[tbl.file_path, tbl.file_path.rotate(60)]]
         _ = df.show(n=100)._repr_html_()
 
+    def test_img_members(self, test_db: None) -> None:
+        cl = pt.Client()
+        db = cl.create_db('test')
+        cols = [
+            catalog.Column('file_path', ColumnType.IMAGE, nullable=False),
+            catalog.Column('category', ColumnType.STRING, nullable=False),
+            catalog.Column('split', ColumnType.STRING, nullable=False),
+        ]
+        tbl = db.create_table('test', cols)
+        df = read_data_file('imagenette2-160', 'manifest.csv')
+        tbl.insert_pandas(df)
+        result = tbl[tbl.file_path, tbl.file_path.height, tbl.file_path.rotate(90)].show(n=100)
+        _ = result._repr_html_()
+

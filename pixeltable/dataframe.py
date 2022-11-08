@@ -186,14 +186,9 @@ class DataFrame:
                 if n > 0 and num_rows == n:
                     break
 
-        # TODO: col names
-        col_names: List[str] = []
-        for i, expr in enumerate(self.select_list):
-            if isinstance(expr, exprs.ColumnRef):
-                col_names.append(expr.col.name)
-            else:
-                col_names.append(f'col_{i}')
-
+        col_names = [expr.display_name() for expr in self.select_list]
+        # replace ''
+        col_names = [n if n != '' else f'col_{i}' for i, n in enumerate(col_names)]
         return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in self.select_list])
 
     def count(self) -> int:
@@ -218,6 +213,8 @@ class DataFrame:
         """
         if isinstance(index, exprs.Predicate):
             return DataFrame(self.tbl, select_list=self.select_list, where_clause=index)
+        if isinstance(index, tuple):
+            index = list(index)
         if isinstance(index, exprs.ColumnRef):
             index = [index]
         if isinstance(index, list):

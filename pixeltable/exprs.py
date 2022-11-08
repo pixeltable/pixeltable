@@ -39,6 +39,13 @@ class Expr(abc.ABC):
         # index of the expr's value in the SQL row; only set for exprs that can be materialized in SQL; -1: invalid
         self.sql_row_idx = -1
 
+    @abc.abstractmethod
+    def display_name(self) -> str:
+        """
+        Displayed column name in DataFrame. '': assigned by DataFrame
+        """
+        pass
+
     def equals(self, other: 'Expr') -> bool:
         """
         Subclass-specific comparison. Implemented as a function because __eq__() is needed to construct Comparisons.
@@ -79,13 +86,13 @@ class Expr(abc.ABC):
         """
         pass
 
-    def __getattr__(self, name: str) -> 'ImageMethodCall':
+    def __getattr__(self, name: str) -> 'ImageMemberAccess':
         """
         ex.: <img col>.rotate(60)
         """
         if self.col_type != ColumnType.IMAGE:
-            raise exc.OperationalError(f'Method calls not supported on type {self.col_type}: {name}')
-        return ImageMethodCall(name, self)
+            raise exc.OperationalError(f'Member access not supported on type {self.col_type}: {name}')
+        return ImageMemberAccess(name, self)
 
     def __lt__(self, other: object) -> 'Comparison':
         return self._make_comparison(ComparisonOperator.LT, other)
@@ -122,6 +129,9 @@ class ColumnRef(Expr):
         super().__init__(col.col_type)
         self.col = col
 
+    def display_name(self) -> str:
+        return self.col.name
+
     def _equals(self, other: 'ColumnRef') -> bool:
         return self.col == other.col
 
@@ -151,6 +161,9 @@ class FunctionCall(Expr):
                      'column {param_name} unknown'))
             self.col_args.append(ColumnRef(tbl.cols_by_name[param_name]))
 
+    def display_name(self) -> str:
+        return ''
+
     def _equals(self, other: 'Expr') -> bool:
         # we don't know whether self.fn and other.fn compute the same thing
         return False
@@ -167,9 +180,65 @@ class FunctionCall(Expr):
 
 
 def _create_pil_method_info() -> Dict[str, Tuple[Callable, inspect.Signature]]:
-    members = inspect.getmembers(PIL.Image.Image, inspect.isfunction)
-    public_fns = [t for t in members if not(t[0].startswith('_'))]
+    fn_members = inspect.getmembers(PIL.Image.Image, inspect.isfunction)
+    public_fns = [t for t in fn_members if not(t[0].startswith('_'))]
     return {t[0]: (t[1], inspect.signature(t[1])) for t in public_fns}
+
+def _create_pil_attr_info() -> Dict[str, ColumnType]:
+    # create random Image to inspect for attrs
+    img = PIL.Image.new('RGB', (100, 100))
+    # we're only interested in public attrs (including properties)
+    result: Dict[str, ColumnType] = {}
+    for name in [name for name in dir(img) if not callable(getattr(img, name)) and not name.startswith('_')]:
+        if getattr(img, name) is None:
+            continue
+        if isinstance(getattr(img, name), str):
+            result[name] = ColumnType.STRING
+        if isinstance(getattr(img, name), int):
+            result[name] = ColumnType.INT
+        if getattr(img, name) is dict:
+            result[name] = ColumnType.DICT
+    return result
+
+
+class ImageMemberAccess(Expr):
+    """
+    Access of either an attribute or function member of PIL.Image.Image.
+    Ex.: tbl.img_col.rotate(90), tbl.img_col.width
+    """
+    method_info = _create_pil_method_info()
+    attr_info = _create_pil_attr_info()
+
+    def __init__(self, member_name: str, caller: Expr):
+        if member_name in self.method_info:
+            super().__init__(ColumnType.IMAGE)  # TODO: should be INVALID; requires a __call__() invocation
+        elif member_name in self.attr_info:
+            super().__init__(self.attr_info[member_name])
+        else:
+            raise exc.OperationalError(f'Unknown Image member: {member_name}')
+        self.member_name = member_name
+        self.caller = caller
+
+    def display_name(self) -> str:
+        return self.member_name
+
+    # TODO: correct signature?
+    def __call__(self, *args, **kwargs) -> 'ImageMethodCall':
+        # TODO: verify signature
+        return ImageMethodCall(self.member_name, self.caller, *args, **kwargs)
+
+    def _equals(self, other: 'ImageMemberAccess') -> bool:
+        return self.caller.equals(other.caller) and self.member_name == other.member_name
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        return None
+
+    def child_exprs(self) -> List['Expr']:
+        return [self.caller]
+
+    def eval(self, data_row: List[Any]) -> None:
+        caller_val = data_row[self.caller.data_row_idx]
+        data_row[self.data_row_idx] = getattr(caller_val, self.member_name)
 
 
 class ImageMethodCall(Expr):
@@ -178,20 +247,17 @@ class ImageMethodCall(Expr):
     """
     method_info = _create_pil_method_info()
 
-    def __init__(self, method_name: str, caller: Expr):
+    def __init__(self, method_name: str, caller: Expr, *args, **kwargs):
         super().__init__(ColumnType.IMAGE)  # TODO: set to INVALID
-        if method_name not in self.method_info:
-            raise exc.OperationalError(f'Unknown method: {method_name}')
+        assert method_name in self.method_info
         self.method_name = method_name
         self.fn = self.method_info[self.method_name][0]
         self.caller = caller
-
-    # TODO: correct signature?
-    def __call__(self, *args, **kwargs) -> 'ImageMethodCall':
-        # TODO: verify signature
         self.args = args
         self.kw_args = kwargs
-        return self
+
+    def display_name(self) -> str:
+        return self.method_name
 
     def _equals(self, other: 'ImageMethodCall') -> bool:
         return self.caller.equals(other.caller) and self.method_name == other.method_name \
@@ -222,6 +288,9 @@ class Literal(Expr):
         if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
             super().__init__(ColumnType.TIMESTAMP)
         self.val = val
+
+    def display_name(self) -> str:
+        return 'Literal'
 
     def _equals(self, other: 'Literal') -> bool:
         return self.val == other.eval
@@ -263,6 +332,9 @@ class CompoundPredicate(Predicate):
         self.op1 = op1
         self.op2 = op2
 
+    def display_name(self) -> str:
+        return ''
+
     def _equals(self, other: 'CompoundPredicate') -> bool:
         return self.operator == other.operator and self.op1.equals(other.op1) \
             and ((self.op2 is None and other.op2 is None) or self.op2.equals(other.op2))
@@ -294,6 +366,9 @@ class Comparison(Predicate):
         self.operator = operator
         self.op1 = op1
         self.op2 = op2
+
+    def display_name(self) -> str:
+        return ''
 
     def _equals(self, other: 'CompoundPredicate') -> bool:
         return self.operator == other.operator and self.op1.equals(other.op1) \
