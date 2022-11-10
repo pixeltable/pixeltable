@@ -208,7 +208,7 @@ class DataFrame:
         """
         Allowed:
         - [<Predicate>]: filter operation
-        - [List[Expr]]: setting the select list
+        - [List[Expr]]/[Tuple[Expr]]: setting the select list
         - [Expr]: setting a single-col select list
         """
         if isinstance(index, exprs.Predicate):

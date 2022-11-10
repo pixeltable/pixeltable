@@ -3,6 +3,7 @@ from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
 from pixeltable import catalog
 from pixeltable.type_system import ColumnType
 from pixeltable.exprs import FunctionCall, Expr
+from pixeltable.functions.pil import a
 
 
 class TestExprs:
@@ -65,6 +66,7 @@ class TestExprs:
         _ = df.show(n=100)._repr_html_()
 
     def test_img_members(self, test_db: None) -> None:
+        print(a)
         cl = pt.Client()
         db = cl.create_db('test')
         cols = [

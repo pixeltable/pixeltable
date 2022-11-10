@@ -179,11 +179,40 @@ class FunctionCall(Expr):
         data_row[self.data_row_idx] = self.fn(*param_vals)
 
 
-def _create_pil_method_info() -> Dict[str, Tuple[Callable, inspect.Signature]]:
-    fn_members = inspect.getmembers(PIL.Image.Image, inspect.isfunction)
-    public_fns = [t for t in fn_members if not(t[0].startswith('_'))]
-    return {t[0]: (t[1], inspect.signature(t[1])) for t in public_fns}
+# this only includes methods that return something that can be displayed in pixeltable
+# and that make sense to call (counterexample: copy() doesn't make sense to call)
+# TODO: how to capture return values like List[Tuple[int, int]]?
+_PIL_METHOD_INFO: Dict[str, Tuple[Callable, ColumnType]] = {
+    'convert': (PIL.Image.Image.convert, ColumnType.IMAGE),
+    'crop': (PIL.Image.Image.crop, ColumnType.IMAGE),
+    'effect_spread': (PIL.Image.Image.effect_spread, ColumnType.IMAGE),
+    'entropy': (PIL.Image.Image.entropy, ColumnType.FLOAT),
+    'filter': (PIL.Image.Image.filter, ColumnType.IMAGE),
+    'getbands': (PIL.Image.Image.getbands, ColumnType.DICT),
+    'getbbox': (PIL.Image.Image.getbbox, ColumnType.DICT),
+    'getchannel': (PIL.Image.Image.getchannel, ColumnType.IMAGE),
+    'getcolors': (PIL.Image.Image.getcolors, ColumnType.DICT),
+    'getextrema': (PIL.Image.Image.getextrema, ColumnType.DICT),
+    'getpalette': (PIL.Image.Image.getpalette, ColumnType.DICT),
+    'getpixel': (PIL.Image.Image.getpixel, ColumnType.DICT),
+    'getprojection': (PIL.Image.Image.getprojection, ColumnType.DICT),
+    'histogram': (PIL.Image.Image.histogram, ColumnType.DICT),
+# TODO: what to do with this? it modifies the img in-place
+#    paste: <ast.Constant object at 0x7f9e9a9be3a0>
+    'point': (PIL.Image.Image.point, ColumnType.IMAGE),
+    'quantize': (PIL.Image.Image.quantize, ColumnType.IMAGE),
+    'reduce': (PIL.Image.Image.reduce, ColumnType.IMAGE),
+    'remap_palette': (PIL.Image.Image.remap_palette, ColumnType.IMAGE),
+    'resize': (PIL.Image.Image.resize, ColumnType.IMAGE),
+    'rotate': (PIL.Image.Image.rotate, ColumnType.IMAGE),
+# TODO: this returns a Tuple[Image], which we can't express
+#    split: <ast.Subscript object at 0x7f9e9a9cc9d0>
+    'transform': (PIL.Image.Image.transform, ColumnType.IMAGE),
+    'transpose': (PIL.Image.Image.transpose, ColumnType.IMAGE),
+}
 
+
+# TODO: this doesn't dig up all attrs for actual jpeg images
 def _create_pil_attr_info() -> Dict[str, ColumnType]:
     # create random Image to inspect for attrs
     img = PIL.Image.new('RGB', (100, 100))
@@ -206,11 +235,10 @@ class ImageMemberAccess(Expr):
     Access of either an attribute or function member of PIL.Image.Image.
     Ex.: tbl.img_col.rotate(90), tbl.img_col.width
     """
-    method_info = _create_pil_method_info()
     attr_info = _create_pil_attr_info()
 
     def __init__(self, member_name: str, caller: Expr):
-        if member_name in self.method_info:
+        if member_name in _PIL_METHOD_INFO:
             super().__init__(ColumnType.IMAGE)  # TODO: should be INVALID; requires a __call__() invocation
         elif member_name in self.attr_info:
             super().__init__(self.attr_info[member_name])
@@ -238,20 +266,25 @@ class ImageMemberAccess(Expr):
 
     def eval(self, data_row: List[Any]) -> None:
         caller_val = data_row[self.caller.data_row_idx]
-        data_row[self.data_row_idx] = getattr(caller_val, self.member_name)
+        try:
+            data_row[self.data_row_idx] = getattr(caller_val, self.member_name)
+        except AttributeError:
+            data_row[self.data_row_idx] = None
 
 
 class ImageMethodCall(Expr):
     """
     Ex.: tbl.img_col.rotate(90)
+    TODO:
+    - check arg types
+    - resolve Expr args in eval()
     """
-    method_info = _create_pil_method_info()
-
     def __init__(self, method_name: str, caller: Expr, *args, **kwargs):
-        super().__init__(ColumnType.IMAGE)  # TODO: set to INVALID
-        assert method_name in self.method_info
+        assert method_name in _PIL_METHOD_INFO
         self.method_name = method_name
-        self.fn = self.method_info[self.method_name][0]
+        method_info = _PIL_METHOD_INFO[self.method_name]
+        self.fn = method_info[0]
+        super().__init__(method_info[1])
         self.caller = caller
         self.args = args
         self.kw_args = kwargs
@@ -271,6 +304,9 @@ class ImageMethodCall(Expr):
 
     def eval(self, data_row: List[Any]) -> None:
         args = [data_row[self.caller.data_row_idx]]
+        if args[0] is None:
+            data_row[self.data_row_idx] = None
+            return
         args.extend(self.args)
         data_row[self.data_row_idx] = self.fn(*args, **self.kw_args)
 
@@ -370,7 +406,7 @@ class Comparison(Predicate):
     def display_name(self) -> str:
         return ''
 
-    def _equals(self, other: 'CompoundPredicate') -> bool:
+    def _equals(self, other: 'Comparison') -> bool:
         return self.operator == other.operator and self.op1.equals(other.op1) \
             and ((self.op2 is None and other.op2 is None) or self.op2.equals(other.op2))
 
