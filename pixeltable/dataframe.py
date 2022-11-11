@@ -1,6 +1,6 @@
 import base64
 from io import BytesIO
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Tuple
 import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
@@ -52,11 +52,12 @@ class EvalCtx:
     into a data row.
 
     Data row:
-    - type: List[Any]
-    - contains slots for all *materialized* exprs (ie, not for predicates that turn into the Where clause):
-    a) every DataFrame.select_list expr: occupy the first len(select_list) slots
-    b) every child expr of a), recursively: occupy the remaining slots
-    - IMAGE columns are materialized as a PIL.Image.Image
+    - List[Any]
+    - contains slots for all *materialized* exprs (ie, not for predicates that turn into the SQL Where clause):
+    a) every DataFrame.select_list expr; those occupy the first len(select_list) slots
+    b) the parts of the where clause predicate that cannot be evaluated in SQL
+    b) every child expr of a) and b), recursively
+    - IMAGE columns are materialized immediately as a PIL.Image.Image
 
     ex.: the select list [<img col 1>.alpha_composite(<img col 2>), <text col 3>]
     - sql row composition: [<file path col 1>, <file path col 2>, <text col 3>]
@@ -68,29 +69,33 @@ class EvalCtx:
       ]
     - eval_exprs: [ImageMethodCall(data_row_idx: 0, sql_row_id: -1)]
     """
-    def __init__(self, select_list: List[exprs.Expr]):
+
+    def __init__(self, select_list: List[exprs.Expr], where_clause: Optional[exprs.Predicate]):
         """
         Init for list of materialized exprs
         """
+
         # exprs needed to materialize the SQL result row
         self.sql_exprs: List[sql.sql.expression.ClauseElement] = []
-        # exprs that are materialized directly via SQL query and for which results can be copied from sql row into data row
-        self.copy_exprs: List[exprs.Expr] = []
+        # TODO: add self.literal_exprs so that we don't need to retrieve those from SQL
+        # exprs that are materialized directly via SQL query and for which results can be copied from sql row
+        # into data row
+        self.filter_copy_exprs: List[exprs.Expr] = []
+        self.select_copy_exprs: List[exprs.Expr] = []
         # exprs for which we need to call eval() to compute the value; must be called in the order stored here
-        self.eval_exprs: List[exprs.Expr] = []
+        self.filter_eval_exprs: List[exprs.Expr] = []
+        self.select_eval_exprs: List[exprs.Expr] = []
 
         # we want to avoid duplicate expr evaluation, so we keep track of unique exprs (duplicates share the
         # same data_row_idx); however, __eq__() doesn't work for sets, so we use a list here
         self.unique_exprs: List[exprs.Expr] = []
 
-        # assign slots to select list items to make sure they're at the front
-        for i, expr in enumerate(select_list):
-            #if not self._is_unique_expr(expr):
-                #raise exc.OperationalError(f'Duplicate select list item: {expr}')
-            expr.data_row_idx = i
-        self.next_data_row_idx = len(select_list)
+        self.next_data_row_idx = 0
+        # analyze where_clause first, so that it can be evaluated before the select list
+        if where_clause is not None:
+            self._analyze_expr(where_clause, self.filter_copy_exprs, self.filter_eval_exprs)
         for expr in select_list:
-            self._analyze_expr(expr)
+            self._analyze_expr(expr, self.select_copy_exprs, self.select_eval_exprs)
 
     def num_materialized(self) -> int:
         return self.next_data_row_idx
@@ -106,7 +111,7 @@ class EvalCtx:
         except StopIteration:
             return True
 
-    def _analyze_expr(self, expr: exprs.Expr) -> None:
+    def _analyze_expr(self, expr: exprs.Expr, copy_exprs: List[exprs.Expr], eval_exprs: List[exprs.Expr]) -> None:
         """
         Assign Expr.data_row_idx and Expr.sql_row_idx and update sql/copy/eval_exprs accordingly.
         """
@@ -122,18 +127,18 @@ class EvalCtx:
                 self.next_data_row_idx += 1
             expr.sql_row_idx = len(self.sql_exprs)
             self.sql_exprs.append(sql_expr)
-            self.copy_exprs.append(expr)
+            copy_exprs.append(expr)
             return
 
         # expr value needs to be computed via Expr.eval()
         child_exprs = expr.child_exprs()
         # analyze children before expr, to make sure they are eval()'d first
         for child_expr in child_exprs:
-            self._analyze_expr(child_expr)
+            self._analyze_expr(child_expr, copy_exprs, eval_exprs)
         if expr.data_row_idx < 0:
             expr.data_row_idx = self.next_data_row_idx
             self.next_data_row_idx += 1
-        self.eval_exprs.append(expr)
+        eval_exprs.append(expr)
 
 
 class DataFrame:
@@ -150,46 +155,69 @@ class DataFrame:
             self.select_list = [exprs.ColumnRef(col) for col in self.tbl.columns()]
         return EvalCtx(self.select_list)
 
+    def _copy_to_data_row(self, exprs: List[exprs.Expr], sql_row: Tuple[Any], data_row: List[Any]):
+        """
+        Copy expr values from sql to data row.
+        """
+        for expr in exprs:
+            if expr.col_type == ColumnType.IMAGE:
+                # row contains a file path that we need to open
+                file_path = sql_row[expr.sql_row_idx]
+                try:
+                    img = Image.open(file_path)
+                    img.thumbnail((128, 128))
+                    data_row[expr.data_row_idx] = img
+                except:
+                    raise exc.OperationalError(f'Error reading image file: {file_path}')
+            else:
+                data_row[expr.data_row_idx] = sql_row[expr.sql_row_idx]
+
     def show(self, n: int = 20) -> DataFrameResultSet:
-        eval_ctx = self._analyze_select_list()
-        num_items = len(self.select_list)
+        sql_where_clause: Optional[sql.sql.expression.ClauseElement] = None
+        remaining_where_clause: Optional[exprs.Predicate] = None
+        if self.where_clause is not None:
+            sql_where_clause, remaining_where_clause = self.where_clause.extract_sql_predicate()
+
+        select_list = self.select_list
+        if select_list is None:
+            select_list = [exprs.ColumnRef(col) for col in self.tbl.columns()]
+        eval_ctx = EvalCtx(select_list, remaining_where_clause)
+        num_items = len(select_list)
         # we materialize everything needed for select_list into data_rows
         data_rows: List[List] = []
 
         with store.engine.connect() as conn:
-            stmt = self._create_select_stmt(eval_ctx.sql_exprs)
+            stmt = self._create_select_stmt(eval_ctx.sql_exprs, sql_where_clause)
             num_rows = 0
 
             for row in conn.execute(stmt):
-                data_row: List[Any] = [0] * eval_ctx.num_materialized()
+                data_row: List[Any] = [None] * eval_ctx.num_materialized()
 
-                # slots we simply copy
-                for expr in eval_ctx.copy_exprs:
-                    if expr.col_type == ColumnType.IMAGE:
-                        # row contains a file path that we need to open
-                        file_path = row._data[expr.sql_row_idx]
-                        try:
-                            img = Image.open(file_path)
-                            img.thumbnail((128, 128))
-                            data_row[expr.data_row_idx] = img
-                        except:
-                            raise exc.OperationalError(f'Error reading image file: {file_path}')
-                    else:
-                        data_row[expr.data_row_idx] = row._data[expr.sql_row_idx]
+                if remaining_where_clause is not None:
+                    # we need to evaluate the remaining filter predicate first
+                    self._copy_to_data_row(eval_ctx.filter_copy_exprs, row._data, data_row)
+                    for expr in eval_ctx.filter_eval_exprs:
+                        expr.eval(data_row)
+                    if data_row[remaining_where_clause.data_row_idx] == False:
+                        continue
 
-                # slots which require eval()
-                for expr in eval_ctx.eval_exprs:
+                # materialize the select list
+                self._copy_to_data_row(eval_ctx.select_copy_exprs, row._data, data_row)
+                for expr in eval_ctx.select_eval_exprs:
                     expr.eval(data_row)
 
-                data_rows.append(data_row[:num_items])  # get rid of intermediate values we don't need for the result
+                # copy select list results into contiguous array
+                # TODO: make this unnecessary
+                result_row = [data_row[e.data_row_idx] for e in select_list]
+                data_rows.append(result_row)
                 num_rows += 1
                 if n > 0 and num_rows == n:
                     break
 
-        col_names = [expr.display_name() for expr in self.select_list]
+        col_names = [expr.display_name() for expr in select_list]
         # replace ''
         col_names = [n if n != '' else f'col_{i}' for i, n in enumerate(col_names)]
-        return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in self.select_list])
+        return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in select_list])
 
     def count(self) -> int:
         stmt = sql.select(sql.func.count('*')).select_from(self.tbl.sa_tbl) \
@@ -215,7 +243,7 @@ class DataFrame:
             return DataFrame(self.tbl, select_list=self.select_list, where_clause=index)
         if isinstance(index, tuple):
             index = list(index)
-        if isinstance(index, exprs.ColumnRef):
+        if isinstance(index, exprs.Expr):
             index = [index]
         if isinstance(index, list):
             if self.select_list is not None:
@@ -226,12 +254,12 @@ class DataFrame:
             return DataFrame(self.tbl, select_list=index, where_clause=self.where_clause)
         raise TypeError(f'Invalid index type: {type(index)}')
 
-    def _create_select_stmt(self, select_list: List[sql.sql.expression.ClauseElement]) -> sql.sql.expression.Select:
+    def _create_select_stmt(
+            self, select_list: List[sql.sql.expression.ClauseElement],
+            where_clause: Optional[sql.sql.expression.ClauseElement]) -> sql.sql.expression.Select:
         stmt = sql.select(*select_list) \
             .where(self.tbl.v_min_col <= self.tbl.version) \
             .where(self.tbl.v_max_col > self.tbl.version)
-        if self.where_clause is not None:
-            sql_where_clause = self.where_clause.sql_expr()
-            assert sql_where_clause is not None
-            stmt = stmt.where(sql_where_clause)
+        if where_clause is not None:
+            stmt = stmt.where(where_clause)
         return stmt

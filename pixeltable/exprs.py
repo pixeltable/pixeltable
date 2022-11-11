@@ -139,7 +139,6 @@ class ColumnRef(Expr):
         return self.col.sa_col
 
     def child_exprs(self) -> List['Expr']:
-        assert False
         return []
 
     def eval(self, data_row: List[Any]) -> None:
@@ -147,24 +146,39 @@ class ColumnRef(Expr):
 
 
 class FunctionCall(Expr):
-    def __init__(self, fn: Callable, tbl: Optional[catalog.Table], col_type: ColumnType):
-        super().__init__(col_type)
+    def __init__(
+            self, fn: Callable, tbl: Optional[catalog.Table], return_type: ColumnType,
+            args: Optional[List[Any]] = None):
+        """
+        If args is None, interprets fn's arguments to be column references in 'tbl'.
+        """
+        super().__init__(return_type)
         self.fn = fn
-        self.col_args: List[ColumnRef] = []
-        # make sure that fn's params are valid col names in tbl
         params = inspect.signature(self.fn).parameters
-        assert len(params) == 0 or tbl is not None
+        if args is not None:
+            if len(args) != len(params):
+                raise exc.OperationalError(
+                    f"FunctionCall: number of arguments ({len(args)} doesn't match the number of expected parameters "
+                    "({len(params)}")
+            self.args = args
+            return
+
+        self.args: List[ColumnRef] = []
+        # we're constructing ColumnRefs for the function parameters;
+        # make sure that fn's params are valid col names in tbl
+        if len(params) > 0 and tbl is None:
+            raise exc.OperationalError(f'FunctionCall is missing tbl parameter')
         for param_name in params:
             if param_name not in tbl.cols_by_name:
                 raise exc.OperationalError(
                     (f'FunctionCall: lambda argument names need to be valid column names in table {tbl.name}: '
                      'column {param_name} unknown'))
-            self.col_args.append(ColumnRef(tbl.cols_by_name[param_name]))
+            self.args.append(ColumnRef(tbl.cols_by_name[param_name]))
 
     def display_name(self) -> str:
         return ''
 
-    def _equals(self, other: 'Expr') -> bool:
+    def _equals(self, other: 'FunctionCall') -> bool:
         # we don't know whether self.fn and other.fn compute the same thing
         return False
 
@@ -172,15 +186,18 @@ class FunctionCall(Expr):
         return None
 
     def child_exprs(self) -> List['Expr']:
-        return self.col_args
+        expr_children = [arg for arg in self.args if isinstance(arg, Expr)]
+        return expr_children
 
     def eval(self, data_row: List[Any]) -> None:
-        param_vals = [data_row[col_ref.data_row_idx] for col_ref in self.col_args]
-        data_row[self.data_row_idx] = self.fn(*param_vals)
+        arg_vals = [data_row[arg.data_row_idx] if isinstance(arg, Expr) else arg for arg in self.args]
+        data_row[self.data_row_idx] = self.fn(*arg_vals)
 
 
-# this only includes methods that return something that can be displayed in pixeltable
+# This only includes methods that return something that can be displayed in pixeltable
 # and that make sense to call (counterexample: copy() doesn't make sense to call)
+# This is hardcoded here instead of being dynamically extracted from the PIL type stubs because
+# doing that is messy and it's unclear whether it has any advantages.
 # TODO: how to capture return values like List[Tuple[int, int]]?
 _PIL_METHOD_INFO: Dict[str, Tuple[Callable, ColumnType]] = {
     'convert': (PIL.Image.Image.convert, ColumnType.IMAGE),
@@ -335,15 +352,24 @@ class Literal(Expr):
         return sql.sql.expression.literal(self.val)
 
     def child_exprs(self) -> List['Expr']:
-        assert False
+        return []
 
     def eval(self, data_row: List[Any]) -> None:
-        assert False
+        data_row[self.data_row_idx] = self.val
 
 
 class Predicate(Expr):
     def __init__(self) -> None:
         super().__init__(ColumnType.BOOL)
+
+    def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional['Predicate']]:
+        """
+        Return ClauseElement for what can be evaluated in SQL and a predicate for the remainder that needs to be
+        evaluated in Python.
+        Needed to for predicate push-down into SQL.
+        """
+        e = self.sql_expr()
+        return (None, self) if e is None else (e, None)
 
     def __and__(self, other: object) -> 'CompoundPredicate':
         if not isinstance(other, Predicate):
@@ -375,25 +401,56 @@ class CompoundPredicate(Predicate):
         return self.operator == other.operator and self.op1.equals(other.op1) \
             and ((self.op2 is None and other.op2 is None) or self.op2.equals(other.op2))
 
+    def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional[Predicate]]:
+        left = self.op1.sql_expr()
+        if self.operator == LogicalOperator.NOT:
+            return (None, self) if left is None else (left, None)
+        assert self.op2 is not None
+        right = self.op2.sql_expr()
+        if (left is None or right is None) and self.operator == LogicalOperator.OR:
+            # if either side of a | can't be evaluated in SQL, we need to evaluate everything in Python
+            return (None, self)
+        if left is not None and right is not None:
+            # we can do everything in SQL
+            return (sql.and_(left, right) if self.operator == LogicalOperator.AND else sql.or_(left, right), None)
+        assert self.operator == LogicalOperator.AND
+        left_sql_pred, left_other = self.op1.extract_sql_predicate()
+        right_sql_pred, right_other = self.op2.extract_sql_predicate()
+        if left_sql_pred is None and right_sql_pred is None:
+            return (None, self)
+        assert not(left_other is None and right_other is None)  # otherwise we would have returned earlier
+        combined_sql_pred = right_sql_pred if left_sql_pred is None \
+            else (left_sql_pred if right_sql_pred is None \
+                  else sql.and_(left_sql_pred, right_sql_pred))
+        combined_other = right_other if left_other is None \
+            else (left_other if right_other is None \
+                  else CompoundPredicate(LogicalOperator.AND, left_other, right_other))
+        return (combined_sql_pred, combined_other)
+
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         left = self.op1.sql_expr()
-        assert left is not None  # TODO: implement mixed-mode predicates
+        if left is None:
+            return None
         right = None if self.op2 is None else self.op2.sql_expr()
+        if self.op2 is not None and right is None:
+            return None
         if self.operator == LogicalOperator.AND:
-            assert right is not None
             return sql.and_(left, right)
         if self.operator == LogicalOperator.OR:
-            assert right is not None
             return sql.or_(left, right)
         if self.operator == LogicalOperator.NOT:
-            assert right is None
             return sql.not_(left)
 
     def child_exprs(self) -> List['Expr']:
-        assert False
+        return [self.op1] if self.op2 is None else [self.op1, self.op2]
 
     def eval(self, data_row: List[Any]) -> None:
-        assert False
+        if self.operator == LogicalOperator.AND:
+            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] and data_row[self.op2.data_row_idx]
+        elif self.operator == LogicalOperator.OR:
+            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] or data_row[self.op2.data_row_idx]
+        elif self.operator == LogicalOperator.NOT:
+            data_row[self.data_row_idx] = not data_row[self.op1.data_row_idx]
 
 
 class Comparison(Predicate):
@@ -413,7 +470,8 @@ class Comparison(Predicate):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         left = self.op1.sql_expr()
         right = self.op2.sql_expr()
-        assert left is not None and right is not None
+        if left is None or right is None:
+            return None
         if self.operator == ComparisonOperator.LT:
             return left < right
         if self.operator == ComparisonOperator.LE:
@@ -428,7 +486,18 @@ class Comparison(Predicate):
             return left >= right
 
     def child_exprs(self) -> List['Expr']:
-        assert False
+        return [self.op1, self.op2]
 
     def eval(self, data_row: List[Any]) -> None:
-        assert False
+        if self.operator == ComparisonOperator.LT:
+            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] < data_row[self.op2.data_row_idx]
+        elif self.operator == ComparisonOperator.LE:
+            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] <= data_row[self.op2.data_row_idx]
+        elif self.operator == ComparisonOperator.EQ:
+            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] == data_row[self.op2.data_row_idx]
+        elif self.operator == ComparisonOperator.NE:
+            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] != data_row[self.op2.data_row_idx]
+        elif self.operator == ComparisonOperator.GT:
+            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] > data_row[self.op2.data_row_idx]
+        elif self.operator == ComparisonOperator.GE:
+            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] >= data_row[self.op2.data_row_idx]

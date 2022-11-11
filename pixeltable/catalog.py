@@ -1,5 +1,5 @@
 import pathlib
-from typing import Optional, List, Set, Dict, Any, Type, NewType, Union
+from typing import Optional, List, Set, Dict, Any, Type, Union, Callable
 import re
 
 import PIL
@@ -11,16 +11,28 @@ import sqlalchemy.orm as orm
 
 from pixeltable import store
 from pixeltable import exceptions as exc
-from pixeltable import type_system as pt_types
+from pixeltable.type_system import ColumnType
 
 
 _ID_RE = r'[a-zA-Z]\w*'
 _PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
 
 
+class Function:
+    def __init__(self, name: str, fn: Callable, return_type: ColumnType, arg_types: List[ColumnType]):
+        self.name = name
+        self.fn = fn
+        self.return_type = return_type
+        self.arg_types = arg_types
+
+    def __call__(self, *args, **kwargs) -> 'pixeltable.exprs.FunctionCall':
+        from pixeltable import exprs
+        return exprs.FunctionCall(self.fn, None, self.return_type, args)
+
+
 class Column:
     def __init__(
-            self, name: str, t: pt_types.ColumnType, primary_key: bool = False, nullable: bool = True,
+            self, name: str, t: ColumnType, primary_key: bool = False, nullable: bool = True,
             col_id: Optional[int] = None):
         self.name = name
         self.col_type = t
@@ -318,23 +330,23 @@ class MutableTable(Table):
         all_col_names = set([col.name for col in self.cols])
         inserted_cols = [self.cols_by_name[name] for name in all_col_names & given_col_names]
         for col in inserted_cols:
-            if col.col_type == pt_types.ColumnType.STRING and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
+            if col.col_type == ColumnType.STRING and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires string data')
-            if col.col_type == pt_types.ColumnType.INT and not pd.api.types.is_integer_dtype(data.dtypes[col.name]):
+            if col.col_type == ColumnType.INT and not pd.api.types.is_integer_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires integer data')
-            if col.col_type == pt_types.ColumnType.FLOAT and not pd.api.types.is_numeric_dtype(data.dtypes[col.name]):
+            if col.col_type == ColumnType.FLOAT and not pd.api.types.is_numeric_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires numerical data')
-            if col.col_type == pt_types.ColumnType.BOOL and not pd.api.types.is_bool_dtype(data.dtypes[col.name]):
+            if col.col_type == ColumnType.BOOL and not pd.api.types.is_bool_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires boolean data')
-            if col.col_type == pt_types.ColumnType.TIMESTAMP \
+            if col.col_type == ColumnType.TIMESTAMP \
                     and not pd.api.types.is_datetime64_any_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires datetime data')
-            if col.col_type == pt_types.ColumnType.IMAGE and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
+            if col.col_type == ColumnType.IMAGE and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires local file paths')
 
         # check data:
         # image columns: file paths exist and are valid image files
-        image_cols = [col for col in inserted_cols if col.col_type == pt_types.ColumnType.IMAGE]
+        image_cols = [col for col in inserted_cols if col.col_type == ColumnType.IMAGE]
         for col in image_cols:
             for _, path_str in data[col.name].items():
                 try:
