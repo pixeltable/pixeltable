@@ -63,13 +63,14 @@ class TestTable:
         cl = pt.Client()
         db = cl.create_db('test')
         cols = [
-            catalog.Column('file_path', ColumnType.IMAGE, nullable=False),
+            catalog.Column('img', ColumnType.IMAGE, nullable=False),
             catalog.Column('category', ColumnType.STRING, nullable=False),
             catalog.Column('split', ColumnType.STRING, nullable=False),
         ]
         tbl = db.create_table('test', cols)
-        df = read_data_file('imagenette2-160', 'manifest.csv')
-        tbl.insert_pandas(df)
+        df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        # TODO: insert a random subset
+        tbl.insert_pandas(df[:20])
         html_str = tbl.show(n=100)._repr_html_()
         print(html_str)
         # TODO: check html_str

@@ -147,8 +147,8 @@ class ColumnRef(Expr):
 
 class FunctionCall(Expr):
     def __init__(
-            self, fn: Callable, tbl: Optional[catalog.Table], return_type: ColumnType,
-            args: Optional[List[Any]] = None):
+            self, fn: Callable,  return_type: ColumnType,
+            args: Optional[List[Any]] = None, tbl: Optional[catalog.Table] = None):
         """
         If args is None, interprets fn's arguments to be column references in 'tbl'.
         """

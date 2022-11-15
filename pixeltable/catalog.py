@@ -3,31 +3,23 @@ from typing import Optional, List, Set, Dict, Any, Type, Union, Callable
 import re
 
 import PIL
+import numpy as np
 from PIL import Image
+from tqdm import tqdm
 
 import pandas as pd
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-from pixeltable import store
+from pixeltable import store, env
 from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType
+from pixeltable.utils import clip
+from pixeltable.index import VectorIndex
 
 
 _ID_RE = r'[a-zA-Z]\w*'
 _PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
-
-
-class Function:
-    def __init__(self, name: str, fn: Callable, return_type: ColumnType, arg_types: List[ColumnType]):
-        self.name = name
-        self.fn = fn
-        self.return_type = return_type
-        self.arg_types = arg_types
-
-    def __call__(self, *args, **kwargs) -> 'pixeltable.exprs.FunctionCall':
-        from pixeltable import exprs
-        return exprs.FunctionCall(self.fn, None, self.return_type, args)
 
 
 class Column:
@@ -41,6 +33,7 @@ class Column:
         self.nullable = nullable
         if self.id is not None:
             self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=self.nullable)
+        self.idx: Optional[VectorIndex] = None
 
     def to_sql(self) -> str:
         return f'{self.storage_name()} {self.col_type.to_sql()}'
@@ -48,6 +41,9 @@ class Column:
     def set_id(self, col_id: int) -> None:
         self.id = col_id
         self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=self.nullable)
+
+    def set_idx(self, idx: VectorIndex) -> None:
+        self.idx = idx
 
     def storage_name(self) -> str:
         assert self.id is not None
@@ -158,6 +154,10 @@ class Table(SchemaObject):
         sa_cols.extend([col.sa_col for col in self.cols])
         self.sa_tbl = sql.Table(self.storage_name(), self.sa_md, *sa_cols)
 
+    @classmethod
+    def _vector_idx_name(cls, tbl_id: int, col: Column) -> str:
+        return f'{tbl_id}_{col.id}'
+
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def load_cols(cls, tbl_id: int, schema_version: int, session: orm.Session) -> List[Column]:
@@ -169,6 +169,9 @@ class Table(SchemaObject):
             Column(r.name, r.col_type, primary_key=r.is_pk, nullable=r.is_nullable, col_id=r.col_id)
             for r in col_records
         ]
+        for col in cols:
+            if col.col_type == ColumnType.IMAGE:
+                col.set_idx(VectorIndex.load(cls._vector_idx_name(tbl_id, col), dim=512))
         return cols
 
 
@@ -223,7 +226,7 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with store.engine.connect() as conn:
+        with env.get_engine().connect() as conn:
             with conn.begin():
                 conn.execute(
                     sql.update(store.Table.__table__)
@@ -258,7 +261,7 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with store.engine.connect() as conn:
+        with env.get_engine().connect() as conn:
             with conn.begin():
                 conn.execute(
                     sql.update(store.Table.__table__)
@@ -297,7 +300,7 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with store.engine.connect() as conn:
+        with env.get_engine().connect() as conn:
             with conn.begin():
                 conn.execute(
                     sql.update(store.Table.__table__)
@@ -344,17 +347,22 @@ class MutableTable(Table):
             if col.col_type == ColumnType.IMAGE and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires local file paths')
 
-        # check data:
-        # image columns: file paths exist and are valid image files
+        # check image data and build index
         image_cols = [col for col in inserted_cols if col.col_type == ColumnType.IMAGE]
+        print('creating index')
+        rowids = np.arange(self.next_row_id, self.next_row_id + len(data))
         for col in image_cols:
-            for _, path_str in data[col.name].items():
+            embeddings = np.zeros((len(data), 512))
+            for i, (_, path_str) in tqdm(enumerate(data[col.name].items())):
                 try:
-                    _ = Image.open(path_str)
+                    img = Image.open(path_str)
+                    embeddings[i] = clip.encode_image(img)
                 except FileNotFoundError:
                     raise exc.OperationalError(f'Column {col.name}: file does not exist: {path_str}')
                 except PIL.UnidentifiedImageError:
                     raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
+            assert col.idx is not None
+            col.idx.insert(embeddings, rowids)
 
         # we're creating a new version
         self.version += 1
@@ -363,11 +371,12 @@ class MutableTable(Table):
         stored_data_df = pd.DataFrame(data=stored_data)
         insert_values: List[Dict[str, Any]] = []
         row_id = self.next_row_id
-        for row in stored_data_df.itertuples(index=False):
+        print('preparing data ')
+        for row in tqdm(stored_data_df.itertuples(index=False)):
             insert_values.append({'rowid': row_id, 'v_min': self.version, **row._asdict()})
             row_id += 1
 
-        with store.engine.connect() as conn:
+        with env.get_engine().connect() as conn:
             with conn.begin():
                 conn.execute(sql.insert(self.sa_tbl), insert_values)
                 conn.execute(
@@ -390,7 +399,7 @@ class MutableTable(Table):
         if self.version == 0:
             raise exc.OperationalError('Cannot revert version 0')
         # check if the current version is referenced by a snapshot
-        with orm.Session(store.engine) as session:
+        with orm.Session(env.get_engine()) as session:
             # make sure we don't have a snapshot referencing this version
             num_references = session.query(sql.func.count(store.TableSnapshot.id)) \
                 .where(store.TableSnapshot.db_id == self.db_id) \
@@ -437,7 +446,7 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     def rename(self, new_name: str) -> None:
         self._check_is_dropped()
-        with store.engine.connect() as conn:
+        with env.get_engine().connect() as conn:
             with conn.begin():
                 conn.execute(
                     sql.update(store.Table.__table__).values({store.Table.name: new_name})
@@ -446,7 +455,7 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     def drop(self) -> None:
         self._check_is_dropped()
-        with store.engine.connect() as conn:
+        with env.get_engine().connect() as conn:
             with conn.begin():
                 conn.execute(
                     sql.update(store.Table.__table__).values({store.Table.is_mutable: False})
@@ -465,7 +474,7 @@ class MutableTable(Table):
                 raise exc.DuplicateNameError(f'Duplicate column: {col_name}')
             col_names.add(col_name)
 
-        with orm.Session(store.engine) as session:
+        with orm.Session(env.get_engine()) as session:
             tbl_record = store.Table(
                 db_id=db_id, dir_id=dir_id, name=name, num_retained_versions=num_retained_versions, current_version=0,
                 current_schema_version=0, is_mutable=True, next_col_id=len(cols), next_row_id=0)
@@ -484,6 +493,10 @@ class MutableTable(Table):
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
                         col_type=col.col_type, is_nullable=col.nullable, is_pk=col.primary_key)
                 )
+
+                # for image cols, add VectorIndex for kNN search
+                if col.col_type == ColumnType.IMAGE:
+                    col.set_idx(VectorIndex.create(Table._vector_idx_name(tbl_record.id, col), 512))
             session.flush()
 
             assert tbl_record.id is not None
@@ -653,9 +666,15 @@ class Db:
         self.paths.check_is_valid(path, expected=DirBase)
         return [str(p) for p in self.paths.get_children(path, child_type=Table, recursive=recursive)]
 
-    def drop_table(self, path_str: str, force: bool = False) -> None:
+    def drop_table(self, path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
         path = Path(path_str)
-        self.paths.check_is_valid(path, expected=MutableTable)
+        try:
+            self.paths.check_is_valid(path, expected=MutableTable)
+        except Exception as e:
+            if ignore_errors:
+                return
+            else:
+                raise e
         tbl = self.paths[path]
         assert isinstance(tbl, MutableTable)
         tbl.drop()
@@ -672,7 +691,7 @@ class Db:
             assert isinstance(tbl, MutableTable)
             tbls.append(tbl)
 
-        with orm.Session(store.engine) as session:
+        with orm.Session(env.get_engine()) as session:
             dir_record = store.Dir(db_id=self.id, path=path_str, is_snapshot=True)
             session.add(dir_record)
             session.flush()
@@ -695,7 +714,7 @@ class Db:
     def create_dir(self, path_str: str) -> None:
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
-        with orm.Session(store.engine) as session:
+        with orm.Session(env.get_engine()) as session:
             dir_record = store.Dir(db_id=self.id, path=path_str, is_snapshot=False)
             session.add(dir_record)
             session.flush()
@@ -719,7 +738,7 @@ class Db:
             for dir_path in self.paths.get_children(path, child_type=DirBase, recursive=False):
                 self.rm_dir(str(dir_path), force=True)
 
-        with store.engine.connect() as conn:
+        with env.get_engine().connect() as conn:
             with conn.begin():
                 dir = self.paths[path]
                 conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.id == dir.id))
@@ -732,14 +751,14 @@ class Db:
 
     def _load_dirs(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(store.engine) as session:
+        with orm.Session(env.get_engine()) as session:
             for dir_record in session.query(store.Dir).where(store.Dir.db_id == self.id).all():
                 result[dir_record.path] = SnapshotDir(dir_record.id) if dir_record.is_snapshot else Dir(dir_record.id)
         return result
 
     def _load_tables(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(store.engine) as session:
+        with orm.Session(env.get_engine()) as session:
             # load all reachable (= mutable) tables
             q = session.query(store.Table, store.Dir.path) \
                 .join(store.Dir)\
@@ -766,7 +785,7 @@ class Db:
     @classmethod
     def create(cls, name: str) -> 'Db':
         db_id: int = -1
-        with orm.Session(store.engine) as session:
+        with orm.Session(env.get_engine()) as session:
             # check for duplicate name
             is_duplicate = session.query(sql.func.count(store.Db.id)).where(store.Db.name == name).scalar() > 0
             if is_duplicate:
@@ -789,7 +808,7 @@ class Db:
     def load(cls, name: str) -> 'Db':
         if re.fullmatch(_ID_RE, name) is None:
             raise exc.BadFormatError(f"Invalid db name: '{name}'")
-        with orm.Session(store.engine) as session:
+        with orm.Session(env.get_engine()) as session:
             try:
                 db_record = session.query(store.Db).where(store.Db.name == name).one()
                 return Db(db_record.id, db_record.name)

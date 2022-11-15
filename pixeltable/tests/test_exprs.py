@@ -1,9 +1,10 @@
 import pixeltable as pt
-from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
+from pixeltable.tests.utils import make_tbl, create_table_data
 from pixeltable import catalog
 from pixeltable.type_system import ColumnType
 from pixeltable.exprs import FunctionCall, Expr
 from pixeltable.functions.pil.image import blend
+from pixeltable.functions.clip import encode_image
 
 
 class TestExprs:
@@ -47,69 +48,45 @@ class TestExprs:
         _ = _.sql_expr()
         print(_)
 
-    def test_select_list(self, test_db: None) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
-        cols = [
-            catalog.Column('file_path', ColumnType.IMAGE, nullable=False),
-            catalog.Column('category', ColumnType.STRING, nullable=False),
-            catalog.Column('split', ColumnType.STRING, nullable=False),
-        ]
-        tbl = db.create_table('test', cols)
-        df = read_data_file('imagenette2-160', 'manifest.csv')
-        tbl.insert_pandas(df)
-        result = tbl[tbl.file_path].show(n=100)
+    def test_select_list(self, test_img_tbl: catalog.Table) -> None:
+        t = test_img_tbl
+        result = t[t.img].show(n=100)
         _ = result._repr_html_()
-        df = tbl[
-            tbl.file_path, FunctionCall(lambda file_path: file_path.rotate(60), tbl=tbl, return_type=ColumnType.IMAGE)
+        df = t[
+            t.img, FunctionCall(lambda img: img.rotate(60), tbl=t, return_type=ColumnType.IMAGE)
         ]
         _ = df.show(n=100)._repr_html_()
-        df = tbl[[tbl.file_path, tbl.file_path.rotate(60)]]
+        df = t[[t.img, t.img.rotate(60)]]
         _ = df.show(n=100)._repr_html_()
 
-    def test_img_members(self, test_db: None) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
-        cols = [
-            catalog.Column('file_path', ColumnType.IMAGE, nullable=False),
-            catalog.Column('category', ColumnType.STRING, nullable=False),
-            catalog.Column('split', ColumnType.STRING, nullable=False),
-        ]
-        tbl = db.create_table('test', cols)
-        df = read_data_file('imagenette2-160', 'manifest.csv')
-        tbl.insert_pandas(df)
-        result = tbl[tbl.file_path, tbl.file_path.height, tbl.file_path.rotate(90)].show(n=100)
+    def test_img_members(self, test_img_tbl: catalog.Table) -> None:
+        t = test_img_tbl
+        result = t[t.img, t.img.height, t.img.rotate(90)].show(n=100)
         _ = result._repr_html_()
 
-    def test_img_functions(self, test_db: None) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
-        cols = [
-            catalog.Column('file_path', ColumnType.IMAGE, nullable=False),
-            catalog.Column('category', ColumnType.STRING, nullable=False),
-            catalog.Column('split', ColumnType.STRING, nullable=False),
-        ]
-        t = db.create_table('test', cols)
-        df = read_data_file('imagenette2-160', 'manifest.csv')
-        t.insert_pandas(df)
-        result = t[blend(t.file_path, t.file_path.rotate(90), 0.5)].show(n=100)
-        _ = result._repr_html_()
-        _ = t.file_path.entropy() > 1
-        _ = _.extract_sql_predicate()
-        _ = (t.file_path.entropy() > 1) & (t.split == 'train')
-        _ = _.extract_sql_predicate()
-        _ = (t.file_path.entropy() > 1) & (t.split == 'train') & (t.split == 'val')
-        _ = _.extract_sql_predicate()
-        _ = (t.split == 'train') & (t.file_path.entropy() > 1) & (t.split == 'val') & (t.file_path.entropy() < 0)
-        _ = _.extract_sql_predicate()
-        _ = t[(t.split == 'train') & (t.category == 'n03445777')][t.file_path].show()
-        print(_)
-        result = t[t.file_path.width > 1].show()
+    def test_img_functions(self, test_img_tbl: catalog.Table) -> None:
+        t = test_img_tbl
+        result = t[blend(t.img, t.img.rotate(90), 0.5)].show(100)
         print(result)
-        result = t[(t.split == 'val') & (t.file_path.entropy() > 1) & (t.category == 'n03445777')].show()
+        result = t[encode_image(t.img)].show(10)
+        print(result)
+        _ = result._repr_html_()
+        _ = t.img.entropy() > 1
+        _ = _.extract_sql_predicate()
+        _ = (t.img.entropy() > 1) & (t.split == 'train')
+        _ = _.extract_sql_predicate()
+        _ = (t.img.entropy() > 1) & (t.split == 'train') & (t.split == 'val')
+        _ = _.extract_sql_predicate()
+        _ = (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
+        _ = _.extract_sql_predicate()
+        _ = t[(t.split == 'train') & (t.category == 'n03445777')][t.img].show()
+        print(_)
+        result = t[t.img.width > 1].show()
+        print(result)
+        result = t[(t.split == 'val') & (t.img.entropy() > 1) & (t.category == 'n03445777')].show()
         print(result)
         result = t[
-            (t.split == 'train') & (t.file_path.entropy() > 1) & (t.split == 'val') & (t.file_path.entropy() < 0)
-        ][t.file_path, t.split].show()
+            (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
+        ][t.img, t.split].show()
         print(result)
 

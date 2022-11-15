@@ -3,23 +3,15 @@ import enum
 import sqlalchemy as sql
 from sqlalchemy import Integer, String, Enum, Boolean, TIMESTAMP, BigInteger
 from sqlalchemy import ForeignKey, UniqueConstraint, ForeignKeyConstraint
-from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base
 
-from pixeltable import constants
 from pixeltable import type_system as pt_types
+from pixeltable import env
 
-engine: sql.engine.base.Engine = create_engine(f'sqlite:///{str(constants.PIXELTABLE_DB)}', echo=True, future=True)
 Base = declarative_base()
 
-
-def init_db() -> None:
+def init_db(engine: sql.engine.base.Engine) -> None:
     Base.metadata.create_all(engine)
-
-
-def set_engine(engn: sql.engine.base.Engine) -> None:
-    global engine
-    engine = engn
 
 
 class Db(Base):

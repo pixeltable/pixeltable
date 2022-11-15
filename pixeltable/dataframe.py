@@ -5,7 +5,7 @@ import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
 
-from pixeltable import catalog, store
+from pixeltable import catalog, env
 from pixeltable.type_system import ColumnType
 from pixeltable import exprs
 from pixeltable import exceptions as exc
@@ -186,7 +186,7 @@ class DataFrame:
         # we materialize everything needed for select_list into data_rows
         data_rows: List[List] = []
 
-        with store.engine.connect() as conn:
+        with env.get_engine().connect() as conn:
             stmt = self._create_select_stmt(eval_ctx.sql_exprs, sql_where_clause)
             num_rows = 0
 
@@ -227,7 +227,7 @@ class DataFrame:
             sql_where_clause = self.where_clause.sql_expr()
             assert sql_where_clause is not None
             stmt = stmt.where(sql_where_clause)
-        with store.engine.connect() as conn:
+        with env.get_engine().connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
             return result

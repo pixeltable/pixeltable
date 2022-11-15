@@ -40,9 +40,12 @@ def create_table_data(t: catalog.Table, num_rows: int = 10) -> pd.DataFrame:
         data[col.name] = col_data
     return pd.DataFrame(data=data)
 
-def read_data_file(dir_name: str, file_name: str) -> pd.DataFrame:
+def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []) -> pd.DataFrame:
     """
-    Locate dir_name, create df out of file_name, transform column 'file_name' to column 'file_path' with absolute paths
+    Locate dir_name, create df out of file_name.
+    transform columns 'file_name' to column 'file_path' with absolute paths
+    path_col_names: col names in csv file that contain file names; those will be converted to absolute paths
+    by adding the path to 'file_name' as a prefix.
     """
     glob_result = glob.glob(f'{os.getcwd()}/**/{dir_name}', recursive=True)
     assert len(glob_result) == 1, f'Could not find {dir_name}'
@@ -50,6 +53,7 @@ def read_data_file(dir_name: str, file_name: str) -> pd.DataFrame:
     data_file_path = abs_path / file_name
     assert data_file_path.is_file(), f'Not a file: {str(data_file_path)}'
     df = pd.read_csv(str(data_file_path))
-    assert 'file_name' in df.columns
-    df['file_path'] = df.apply(lambda r: str(abs_path / r['file_name']), axis=1)
-    return df
+    for col_name in path_col_names:
+        assert col_name in df.columns
+        df[col_name] = df.apply(lambda r: str(abs_path / r[col_name]), axis=1)
+        return df
