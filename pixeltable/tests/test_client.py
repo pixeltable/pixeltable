@@ -5,7 +5,7 @@ from pixeltable import exceptions as exc
 
 
 class TestClient:
-    def test_create_db(self, test_db: None) -> None:
+    def test_create_db(self, test_env) -> None:
         cl = pt.Client()
         _ = cl.create_db('test')
         with pytest.raises(exc.DuplicateNameError):

@@ -8,7 +8,7 @@ from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
 
 
 class TestTable:
-    def test_create(self, test_db: None) -> None:
+    def test_create(self, test_env) -> None:
         cl = pt.Client()
         db = cl.create_db('test')
         db.create_dir('dir1')
@@ -59,7 +59,7 @@ class TestTable:
         with pytest.raises(exc.BadFormatError):
             db.drop_table('.test2')
 
-    def test_create_images(self, test_db: None) -> None:
+    def test_create_images(self, test_env) -> None:
         cl = pt.Client()
         db = cl.create_db('test')
         cols = [
@@ -76,7 +76,7 @@ class TestTable:
         # TODO: check html_str
 
     @pytest.mark.dependency(name='test_insert')
-    def test_insert(self, test_db: None) -> None:
+    def test_insert(self, test_env) -> None:
         cl = pt.Client()
         db = cl.create_db('test')
         t1 = make_tbl(db, 'test1', ['c1', 'c2'])
@@ -91,7 +91,7 @@ class TestTable:
             t1.insert_pandas(t2_data)
 
     @pytest.mark.dependency(depends=['test_insert'])
-    def test_query(self, test_db: None) -> None:
+    def test_query(self, test_env) -> None:
         cl = pt.Client()
         db = cl.create_db('test')
         t = make_tbl(db, 'test', ['c1', 'c2', 'c3', 'c4', 'c5'])
@@ -106,7 +106,7 @@ class TestTable:
         _  = t2.show(n=0)
 
     @pytest.mark.dependency(depends=['test_insert'])
-    def test_revert(self, test_db: None) -> None:
+    def test_revert(self, test_env) -> None:
         cl = pt.Client()
         db = cl.create_db('test')
         t1 = make_tbl(db, 'test1', ['c1', 'c2'])
@@ -122,7 +122,7 @@ class TestTable:
         assert t1.count() == len(data1) + len(data2)
 
     @pytest.mark.dependency(depends=['test_insert'])
-    def test_snapshot(self, test_db: None) -> None:
+    def test_snapshot(self, test_env) -> None:
         cl = pt.Client()
         db = cl.create_db('test')
         db.create_dir('main')

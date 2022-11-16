@@ -1,51 +1,81 @@
-import pixeltable as pt
-from pixeltable.tests.utils import make_tbl, create_table_data
+import sqlalchemy as sql
+
 from pixeltable import catalog
 from pixeltable.type_system import ColumnType
-from pixeltable.exprs import FunctionCall, Expr
+from pixeltable.exprs import FunctionCall, Expr, CompoundPredicate
+from pixeltable.functions import Function
 from pixeltable.functions.pil.image import blend
 from pixeltable.functions.clip import encode_image
 
 
 class TestExprs:
-    def test_basic(self, test_db: None) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
-        t1 = make_tbl(db, 'test1', ['c1', 'c2'])
-        assert isinstance(t1['c1'] < 'a', Expr)
-        assert isinstance(t1.c1 < 'a', Expr)
-        assert isinstance(t1['c1'] <= 'a', Expr)
-        assert isinstance(t1.c1 <= 'a', Expr)
-        assert isinstance(t1['c1'] == 'a', Expr)
-        assert isinstance(t1.c1 == 'a', Expr)
-        assert isinstance(t1['c1'] != 'a', Expr)
-        assert isinstance(t1.c1 != 'a', Expr)
-        assert isinstance(t1['c1'] > 'a', Expr)
-        assert isinstance(t1.c1 > 'a', Expr)
-        assert isinstance(t1['c1'] >= 'a', Expr)
-        assert isinstance(t1.c1 >= 'a', Expr)
-        assert isinstance((t1.c1 == 'a') & (t1.c2 < 5), Expr)
-        assert isinstance((t1.c1 == 'a') | (t1.c2 < 5), Expr)
-        assert isinstance(~(t1.c1 == 'a'), Expr)
+    def test_basic(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        assert isinstance(t['c1'] < 'a', Expr)
+        assert isinstance(t.c1 < 'a', Expr)
+        assert isinstance(t['c1'] <= 'a', Expr)
+        assert isinstance(t.c1 <= 'a', Expr)
+        assert isinstance(t['c1'] == 'a', Expr)
+        assert isinstance(t.c1 == 'a', Expr)
+        assert isinstance(t['c1'] != 'a', Expr)
+        assert isinstance(t.c1 != 'a', Expr)
+        assert isinstance(t['c1'] > 'a', Expr)
+        assert isinstance(t.c1 > 'a', Expr)
+        assert isinstance(t['c1'] >= 'a', Expr)
+        assert isinstance(t.c1 >= 'a', Expr)
+        assert isinstance((t.c1 == 'a') & (t.c2 < 5), Expr)
+        assert isinstance((t.c1 == 'a') | (t.c2 < 5), Expr)
+        assert isinstance(~(t.c1 == 'a'), Expr)
 
-    def test_basic_filter(self, test_db: None) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
-        t1 = make_tbl(db, 'test1', ['c1', 'c2'])
-        data = create_table_data(t1)
-        t1.insert_pandas(data)
-        _ = t1[t1.c1 == 'test string'].show()
+    def test_compound_predicates(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        # compound predicates that can be fully evaluated in SQL
+        e = ((t.c1 == 'test string') & (t.c2 > 50)).sql_expr()
+        assert len(e.clauses) == 2
+        e = ((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)).sql_expr()
+        assert len(e.clauses) == 3
+        e = ((t.c1 == 'test string') | (t.c2 > 50)).sql_expr()
+        assert len(e.clauses) == 2
+        e = ((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0)).sql_expr()
+        assert len(e.clauses) == 3
+        e = (~(t.c1 == 'test string')).sql_expr()
+        assert isinstance(e, sql.sql.expression.BinaryExpression)
+
+        # compound predicates with Python functions
+        udf = Function(lambda a: True, ColumnType.BOOL, [ColumnType.STRING])
+        udf2 = Function(lambda a: True, ColumnType.BOOL, [ColumnType.INT])
+
+        # & can be split
+        p = (t.c1 == 'test string') & udf(t.c1)
+        assert p.sql_expr() is None
+        sql_pred, other_pred = p.extract_sql_predicate()
+        assert isinstance(sql_pred, sql.sql.expression.BinaryExpression)
+        assert isinstance(other_pred, FunctionCall)
+
+        p = (t.c1 == 'test string') & udf(t.c1) & (t.c2 > 50)
+        assert p.sql_expr() is None
+        sql_pred, other_pred = p.extract_sql_predicate()
+        assert len(sql_pred.clauses) == 2
+        assert isinstance(other_pred, FunctionCall)
+
+        p = (t.c1 == 'test string') & udf(t.c1) & (t.c2 > 50) & udf2(t.c2)
+        assert p.sql_expr() is None
+        sql_pred, other_pred = p.extract_sql_predicate()
+        assert len(sql_pred.clauses) == 2
+        assert isinstance(other_pred, CompoundPredicate)
+
+        # | cannot be split
+        p = (t.c1 == 'test string') | udf(t.c1)
+        assert p.sql_expr() is None
+        sql_pred, other_pred = p.extract_sql_predicate()
+        assert sql_pred is None
+        assert isinstance(other_pred, CompoundPredicate)
+
+    def test_basic_filter(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        _ = t[t.c1 == 'test string'].show()
         print(_)
-        _ = t1[t1.c2 > 50].show()
-        print(_)
-        _ = (t1.c1 == 'test string') & (t1.c2 > 50)
-        _ = _.sql_expr()
-        print(_)
-        _ = (t1.c1 == 'test string') | (t1.c2 > 50)
-        _ = _.sql_expr()
-        print(_)
-        _ = ~(t1.c1 == 'test string')
-        _ = _.sql_expr()
+        _ = t[t.c2 > 50].show()
         print(_)
 
     def test_select_list(self, test_img_tbl: catalog.Table) -> None:
@@ -90,3 +120,9 @@ class TestExprs:
         ][t.img, t.split].show()
         print(result)
 
+    def test_nearest(self, test_img_tbl: catalog.Table) -> None:
+        t = test_img_tbl
+        result = t[t.img].show(1)
+        img = result[0, 0]
+        result = t[t.img.nearest(img, 10)]
+        print(result)

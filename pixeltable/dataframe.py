@@ -45,6 +45,12 @@ class DataFrameResultSet:
     def _create_df(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(self.rows, columns=self.col_names)
 
+    def __getitem__(self, index: Any) -> Any:
+        if isinstance(index, tuple):
+            if len(index) != 2 or not isinstance(index[0], int) or not isinstance(index[1], int):
+                raise exc.OperationalError(f'Bad index: {index}')
+            return self.rows[index[0]][index[1]]
+
 
 class EvalCtx:
     """

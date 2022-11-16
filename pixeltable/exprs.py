@@ -4,6 +4,7 @@ import enum
 import inspect
 import typing
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple
+import operator
 
 import PIL.Image
 import sqlalchemy as sql
@@ -39,12 +40,11 @@ class Expr(abc.ABC):
         # index of the expr's value in the SQL row; only set for exprs that can be materialized in SQL; -1: invalid
         self.sql_row_idx = -1
 
-    @abc.abstractmethod
     def display_name(self) -> str:
         """
         Displayed column name in DataFrame. '': assigned by DataFrame
         """
-        pass
+        return ''
 
     def equals(self, other: 'Expr') -> bool:
         """
@@ -158,8 +158,8 @@ class FunctionCall(Expr):
         if args is not None:
             if len(args) != len(params):
                 raise exc.OperationalError(
-                    f"FunctionCall: number of arguments ({len(args)} doesn't match the number of expected parameters "
-                    "({len(params)}")
+                    f"FunctionCall: number of arguments ({len(args)}) doesn't match the number of expected parameters "
+                    f"({len(params)}")
             self.args = args
             return
 
@@ -174,9 +174,6 @@ class FunctionCall(Expr):
                     (f'FunctionCall: lambda argument names need to be valid column names in table {tbl.name}: '
                      'column {param_name} unknown'))
             self.args.append(ColumnRef(tbl.cols_by_name[param_name]))
-
-    def display_name(self) -> str:
-        return ''
 
     def _equals(self, other: 'FunctionCall') -> bool:
         # we don't know whether self.fn and other.fn compute the same thing
@@ -253,9 +250,12 @@ class ImageMemberAccess(Expr):
     Ex.: tbl.img_col.rotate(90), tbl.img_col.width
     """
     attr_info = _create_pil_attr_info()
+    special_img_predicates = ['nearest', 'matches']
 
     def __init__(self, member_name: str, caller: Expr):
-        if member_name in _PIL_METHOD_INFO:
+        if member_name in self.special_img_predicates:
+            super().__init__(ColumnType.BOOL)  # TODO: this is not correct; requires a __call__() to return a value
+        elif member_name in _PIL_METHOD_INFO:
             super().__init__(ColumnType.IMAGE)  # TODO: should be INVALID; requires a __call__() invocation
         elif member_name in self.attr_info:
             super().__init__(self.attr_info[member_name])
@@ -268,9 +268,19 @@ class ImageMemberAccess(Expr):
         return self.member_name
 
     # TODO: correct signature?
-    def __call__(self, *args, **kwargs) -> 'ImageMethodCall':
-        # TODO: verify signature
-        return ImageMethodCall(self.member_name, self.caller, *args, **kwargs)
+    def __call__(self, *args, **kwargs) -> Union['ImageMethodCall', 'NearestPredicate']:
+        if self.member_name != 'nearest':
+            # TODO: verify signature
+            return ImageMethodCall(self.member_name, self.caller, *args, **kwargs)
+        # nearest() predicate:
+        # - caller must be ColumnRef
+        # - signature is (PIL.Image.Image, int)
+        if not isinstance(self.caller, ColumnRef):
+            raise exc.OperationalError(f'nearest(): caller must be an IMAGE column')
+        if len(args) != 2 or not isinstance(args[0], PIL.Image.Image) or not isinstance(args[1], int):
+            raise exc.OperationalError(
+                f'nearest(): required signature is (PIL.Image.Image, int) (passed: ({type(args[0])}, {type(args[1])}')
+        return NearestPredicate(self.caller, args[0], args[1])
 
     def _equals(self, other: 'ImageMemberAccess') -> bool:
         return self.caller.equals(other.caller) and self.member_name == other.member_name
@@ -371,86 +381,122 @@ class Predicate(Expr):
         e = self.sql_expr()
         return (None, self) if e is None else (e, None)
 
+    def split_conjuncts(
+            self, condition: Callable[['Predicate'], bool]) -> Tuple[List['Predicate'], Optional['Predicate']]:
+        """
+        Returns clauses of a conjunction that meet condition in the first element.
+        The second element contains remaining clauses, rolled into a conjunction.
+        """
+        if condition(self):
+            return ([self], None)
+        else:
+            return ([], self)
+
     def __and__(self, other: object) -> 'CompoundPredicate':
-        if not isinstance(other, Predicate):
-            raise TypeError(f'Other needs to be a predicate: {type(other)}')
-        assert isinstance(other, Predicate)
-        return CompoundPredicate(LogicalOperator.AND, self, other)
+        if not isinstance(other, Expr):
+            raise TypeError(f'Other needs to be an expression: {type(other)}')
+        if other.col_type != ColumnType.BOOL:
+            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
+        return CompoundPredicate(LogicalOperator.AND, [self, other])
 
     def __or__(self, other: object) -> 'CompoundPredicate':
-        if not isinstance(other, Predicate):
-            raise TypeError(f'Other needs to be a predicate: {type(other)}')
-        assert isinstance(other, Predicate)
-        return CompoundPredicate(LogicalOperator.OR, self, other)
+        if not isinstance(other, Expr):
+            raise TypeError(f'Other needs to be an expression: {type(other)}')
+        if other.col_type != ColumnType.BOOL:
+            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
+        return CompoundPredicate(LogicalOperator.OR, [self, other])
 
     def __invert__(self) -> 'CompoundPredicate':
-        return CompoundPredicate(LogicalOperator.NOT, self)
+        return CompoundPredicate(LogicalOperator.NOT, [self])
 
 
 class CompoundPredicate(Predicate):
-    def __init__(self, operator: LogicalOperator, op1: Predicate, op2: Optional[Predicate] = None):
+    def __init__(self, operator: LogicalOperator, operands: List[Predicate]):
         super().__init__()
         self.operator = operator
-        self.op1 = op1
-        self.op2 = op2
+        if self.operator == LogicalOperator.NOT:
+            assert len(operands) == 1
+            self.operands = operands
+        else:
+            assert len(operands) > 1
+            self.operands: List[Predicate] = []
+            for op in operands:
+                self._merge_operand(op)
 
-    def display_name(self) -> str:
-        return ''
+    def _merge_operand(self, op: Predicate) -> None:
+        """
+        Merge this operand, if possible, otherwise simply record it.
+        """
+        if isinstance(op, CompoundPredicate) and op.operator == self.operator:
+            # this can be merged
+            for child_op in op.operands:
+                self._merge_operand(child_op)
+        else:
+            self.operands.append(op)
 
     def _equals(self, other: 'CompoundPredicate') -> bool:
-        return self.operator == other.operator and self.op1.equals(other.op1) \
-            and ((self.op2 is None and other.op2 is None) or self.op2.equals(other.op2))
+        if self.operator != other.operator or len(self.operands) != len(other.operands):
+            return False
+        for i in range(len(self.operands)):
+            if not self.operands[i].equals(other.operands[i]):
+                return False
+        return True
 
     def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional[Predicate]]:
-        left = self.op1.sql_expr()
         if self.operator == LogicalOperator.NOT:
-            return (None, self) if left is None else (left, None)
-        assert self.op2 is not None
-        right = self.op2.sql_expr()
-        if (left is None or right is None) and self.operator == LogicalOperator.OR:
-            # if either side of a | can't be evaluated in SQL, we need to evaluate everything in Python
+            e = self.operands[0].sql_expr()
+            return (None, self) if e is None else (e, None)
+
+        sql_exprs = [op.sql_expr() for op in self.operands]
+        if self.operator == LogicalOperator.OR and any(e is None for e in sql_exprs):
+            # if any clause of a | can't be evaluated in SQL, we need to evaluate everything in Python
             return (None, self)
-        if left is not None and right is not None:
+        if not(any(e is None for e in sql_exprs)):
             # we can do everything in SQL
-            return (sql.and_(left, right) if self.operator == LogicalOperator.AND else sql.or_(left, right), None)
+            return (self.sql_expr(), None)
+
         assert self.operator == LogicalOperator.AND
-        left_sql_pred, left_other = self.op1.extract_sql_predicate()
-        right_sql_pred, right_other = self.op2.extract_sql_predicate()
-        if left_sql_pred is None and right_sql_pred is None:
+        if not any(e is not None for e in sql_exprs):
+            # there's nothing that can be done in SQL
             return (None, self)
-        assert not(left_other is None and right_other is None)  # otherwise we would have returned earlier
-        combined_sql_pred = right_sql_pred if left_sql_pred is None \
-            else (left_sql_pred if right_sql_pred is None \
-                  else sql.and_(left_sql_pred, right_sql_pred))
-        combined_other = right_other if left_other is None \
-            else (left_other if right_other is None \
-                  else CompoundPredicate(LogicalOperator.AND, left_other, right_other))
+
+        sql_preds = [e for e in sql_exprs if e is not None]
+        other_preds = [self.operands[i] for i, e in enumerate(sql_exprs) if e is None]
+        assert len(sql_preds) > 0
+        combined_sql_pred = sql.and_(*sql_preds)
+        combined_other = None if len(other_preds) == 0 \
+            else (other_preds[0] if len(other_preds) == 1 \
+            else CompoundPredicate(LogicalOperator.AND, other_preds))
         return (combined_sql_pred, combined_other)
 
+    def split_conjuncts(self, condition: Callable[['Predicate'], bool]) -> Tuple[List['Predicate'], 'Predicate']:
+        if self.operator == LogicalOperator.OR or self.operator == LogicalOperator.NOT:
+            return super().split_conjuncts(condition)
+
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
-        left = self.op1.sql_expr()
-        if left is None:
+        sql_exprs = [op.sql_expr() for op in self.operands]
+        if any(e is None for e in sql_exprs):
             return None
-        right = None if self.op2 is None else self.op2.sql_expr()
-        if self.op2 is not None and right is None:
-            return None
-        if self.operator == LogicalOperator.AND:
-            return sql.and_(left, right)
-        if self.operator == LogicalOperator.OR:
-            return sql.or_(left, right)
         if self.operator == LogicalOperator.NOT:
-            return sql.not_(left)
+            assert len(sql_exprs) == 1
+            return sql.not_(sql_exprs[0])
+        assert len(sql_exprs) > 1
+        operator = sql.and_ if self.operator == LogicalOperator.AND else sql.or_
+        combined = operator(*sql_exprs)
+        return combined
 
     def child_exprs(self) -> List['Expr']:
-        return [self.op1] if self.op2 is None else [self.op1, self.op2]
+        return self.operands
 
     def eval(self, data_row: List[Any]) -> None:
-        if self.operator == LogicalOperator.AND:
-            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] and data_row[self.op2.data_row_idx]
-        elif self.operator == LogicalOperator.OR:
-            data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] or data_row[self.op2.data_row_idx]
-        elif self.operator == LogicalOperator.NOT:
-            data_row[self.data_row_idx] = not data_row[self.op1.data_row_idx]
+        if self.operator == LogicalOperator.NOT:
+            data_row[self.data_row_idx] = not data_row[self.operands[0].data_row_idx]
+        else:
+            val = True if self.operator == LogicalOperator.AND else False
+            op_function = operator.and_ if self.operator == LogicalOperator.AND else operator.or_
+            for op in self.operands:
+                val = op_function(val, data_row[op.data_row_idx])
+            data_row[self.data_row_idx] = val
 
 
 class Comparison(Predicate):
@@ -459,9 +505,6 @@ class Comparison(Predicate):
         self.operator = operator
         self.op1 = op1
         self.op2 = op2
-
-    def display_name(self) -> str:
-        return ''
 
     def _equals(self, other: 'Comparison') -> bool:
         return self.operator == other.operator and self.op1.equals(other.op1) \
@@ -501,3 +544,23 @@ class Comparison(Predicate):
             data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] > data_row[self.op2.data_row_idx]
         elif self.operator == ComparisonOperator.GE:
             data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] >= data_row[self.op2.data_row_idx]
+
+
+class NearestPredicate(Predicate):
+    def __init__(self, img_col: ColumnRef, img: PIL.Image.Image, k: int):
+        super().__init__()
+        self.img_col = img_col
+        self.img = img
+        self.k = k
+
+    def child_exprs(self) -> List['Expr']:
+        return [self.img_col]
+
+    def _equals(self, other: 'NearestPredicate') -> bool:
+        return False
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        return None
+
+    def eval(self, data_row: List[Any]) -> None:
+        assert False

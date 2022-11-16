@@ -1,7 +1,10 @@
+from typing import List, Set
+import PIL.Image
 import hnswlib
 import numpy as np
 
 from pixeltable import env
+from pixeltable.utils import clip
 
 class VectorIndex:
     def __init__(self, name: str, dim: int, idx: hnswlib.Index):
@@ -32,6 +35,22 @@ class VectorIndex:
         self.idx.add_items(data, rowids)
         filename = self._filename(self.name)
         self.idx.save_index(filename)
+
+    def search(self, img: PIL.Image.Image, num_nn: int, valid_rowids: Set[int]) -> List[int]:
+        """
+        Returns rowids of k nearest neighbors.
+        """
+        e = clip.encode_image(img)
+        assert e.shape == (512,)
+        k = num_nn
+        while True:
+            nn = self.idx.knn_query(e.reshape(1, 512), k).squeeze()
+            result = [rowid for rowid in list(nn) if rowid in valid_rowids]
+            if len(result) >= num_nn:
+                return list(result[:num_nn])
+            if len(result) == self.idx.element_count:
+                return list(result)
+            k *= 2
 
     @classmethod
     def _filename(cls, name: str) -> str:

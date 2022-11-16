@@ -7,7 +7,7 @@ from pixeltable.tests.utils import make_tbl, read_data_file
 
 
 class TestDirs:
-    def test_create(self, test_db: None) -> None:
+    def test_create(self, test_env) -> None:
         cl = pt.Client()
         db = cl.create_db('test')
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
@@ -63,7 +63,7 @@ class TestDirs:
         listing = db.list_dirs('dir1.sub1', recursive=False)
         assert listing == ['dir1.sub1.subsub1']
 
-    def test_rm(self, test_db: None) -> None:
+    def test_rm(self, test_env) -> None:
         cl = pt.Client()
         db = cl.create_db('test')
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
@@ -89,7 +89,7 @@ class TestDirs:
         with pytest.raises(exc.UnknownEntityError):
             db.list_tables('dir1')
 
-    def test_rename_tbl(self, test_db: None) -> None:
+    def test_rename_tbl(self, test_env) -> None:
         cl = pt.Client()
         db = cl.create_db('test')
         db.create_dir('dir1')
