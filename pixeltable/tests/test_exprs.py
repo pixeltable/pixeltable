@@ -122,7 +122,10 @@ class TestExprs:
 
     def test_nearest(self, test_img_tbl: catalog.Table) -> None:
         t = test_img_tbl
-        result = t[t.img].show(1)
-        img = result[0, 0]
-        result = t[t.img.nearest(img, 10)]
-        print(result)
+        probe = t[t.img, t.category].show(1)
+        img = probe[0, 0]
+        result = t[t.img.nearest(img, 10)].show(10)
+        assert len(result) == 10
+        # nearest() with one SQL predicate and one Python predicate
+        result = t[t.img.nearest(img, 10) & (t.category == probe[0, 1]) & (t.img.width > 1)].show(10)
+        assert len(result) == 10

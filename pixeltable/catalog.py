@@ -103,10 +103,26 @@ class Table(SchemaObject):
         self.cols_by_name = {col.name: col for col in cols}
         self.version = version
 
+        # we can't call _load_valid_rowids() here because the storage table may not exist yet
+        self.valid_rowids: Set[int] = set()
+
         # sqlalchemy-related metadata; used to insert and query the storage table
         self.sa_md = sql.MetaData()
         self._create_sa_tbl()
         self.is_dropped = False
+
+    def _load_valid_rowids(self) -> None:
+        if not any(col.col_type == ColumnType.IMAGE for col in self.cols):
+            return
+        with env.get_engine().connect() as conn:
+            with conn.begin():
+                stmt = sql.select(self.rowid_col) \
+                    .where(self.v_min_col <= self.version) \
+                    .where(self.v_max_col > self.version)
+                rows = conn.execute(stmt)
+                for row in rows:
+                    rowid = row[0]
+                    self.valid_rowids.add(rowid)
 
     def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
         if col_name not in self.cols_by_name:
@@ -185,6 +201,8 @@ class TableSnapshot(Table):
         super().__init__(
             snapshot_record.db_id, snapshot_record.id, snapshot_record.dir_id, snapshot_record.name,
             snapshot_record.tbl_version, cols)
+        # it's safe to call _load_valid_rowids() here because the storage table already exists
+        self._load_valid_rowids()
 
     @classmethod
     def display_name(cls) -> str:
@@ -350,7 +368,7 @@ class MutableTable(Table):
         # check image data and build index
         image_cols = [col for col in inserted_cols if col.col_type == ColumnType.IMAGE]
         print('creating index')
-        rowids = np.arange(self.next_row_id, self.next_row_id + len(data))
+        rowids = range(self.next_row_id, self.next_row_id + len(data))
         for col in image_cols:
             embeddings = np.zeros((len(data), 512))
             for i, (_, path_str) in tqdm(enumerate(data[col.name].items())):
@@ -362,7 +380,7 @@ class MutableTable(Table):
                 except PIL.UnidentifiedImageError:
                     raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
             assert col.idx is not None
-            col.idx.insert(embeddings, rowids)
+            col.idx.insert(embeddings, np.array(rowids))
 
         # we're creating a new version
         self.version += 1
@@ -370,20 +388,20 @@ class MutableTable(Table):
         stored_data = {col.storage_name(): data[col.name] for col in inserted_cols}
         stored_data_df = pd.DataFrame(data=stored_data)
         insert_values: List[Dict[str, Any]] = []
-        row_id = self.next_row_id
         print('preparing data ')
-        for row in tqdm(stored_data_df.itertuples(index=False)):
-            insert_values.append({'rowid': row_id, 'v_min': self.version, **row._asdict()})
-            row_id += 1
+        for i, row in tqdm(enumerate(stored_data_df.itertuples(index=False))):
+            insert_values.append({'rowid': rowids[i], 'v_min': self.version, **row._asdict()})
 
         with env.get_engine().connect() as conn:
             with conn.begin():
                 conn.execute(sql.insert(self.sa_tbl), insert_values)
+                self.next_row_id += len(data)
                 conn.execute(
                     sql.update(store.Table.__table__)
-                        .values({store.Table.current_version: self.version, store.Table.next_row_id: row_id})
+                        .values({store.Table.current_version: self.version, store.Table.next_row_id: self.next_row_id})
                         .where(store.Table.id == self.id))
-        self.next_row_id = row_id
+
+        self.valid_rowids.update(rowids)
 
     def insert_csv(self, file_path: str) -> None:
         pass
@@ -767,6 +785,7 @@ class Db:
             for tbl_record, dir_path in q.all():
                 cols = Table.load_cols(tbl_record.id, tbl_record.current_schema_version, session)
                 tbl = MutableTable(tbl_record, tbl_record.current_schema_version, cols)
+                tbl._load_valid_rowids()  # TODO: move this someplace more appropriate
                 path = Path(dir_path, empty_is_valid=True).append(tbl_record.name)
                 result[str(path)] = tbl
 

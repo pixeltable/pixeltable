@@ -32,6 +32,9 @@ class DataFrameResultSet:
         self.col_names = col_names
         self.col_types = col_types
 
+    def __len__(self) -> int:
+        return len(self.rows)
+
     def _repr_html_(self) -> str:
         img_col_idxs = [i for i, col_type in enumerate(self.col_types) if col_type == ColumnType.IMAGE]
         formatters = {self.col_names[i]: _format_img for i in img_col_idxs}
@@ -181,19 +184,35 @@ class DataFrame:
     def show(self, n: int = 20) -> DataFrameResultSet:
         sql_where_clause: Optional[sql.sql.expression.ClauseElement] = None
         remaining_where_clause: Optional[exprs.Predicate] = None
+        nearest_clause: Optional[exprs.NearestPredicate] = None
         if self.where_clause is not None:
             sql_where_clause, remaining_where_clause = self.where_clause.extract_sql_predicate()
+            if remaining_where_clause is not None:
+                nearest_clauses, remaining_where_clause = remaining_where_clause.split_conjuncts(
+                    lambda e: isinstance(e, exprs.NearestPredicate))
+                if len(nearest_clauses) > 1:
+                    raise exc.OperationalError(f'More than one nearest() not supported')
+                if len(nearest_clauses) == 1:
+                    nearest_clause = nearest_clauses[0]
+                    if n > 100:
+                        raise exc.OperationalError(f'Nearest() requires show(n <= 100): n={n}')
 
         select_list = self.select_list
         if select_list is None:
             select_list = [exprs.ColumnRef(col) for col in self.tbl.columns()]
+        # TODO: add ColRefs for nearest_predicates
         eval_ctx = EvalCtx(select_list, remaining_where_clause)
-        num_items = len(select_list)
         # we materialize everything needed for select_list into data_rows
         data_rows: List[List] = []
 
+        nearest_rowids: List[int] = []
+        if nearest_clause is not None:
+            assert nearest_clause.img_col.col.idx is not None
+            nearest_rowids = nearest_clause.img_col.col.idx.search(nearest_clause.img, n, self.tbl.valid_rowids)
+            _ = type(nearest_rowids)
+
         with env.get_engine().connect() as conn:
-            stmt = self._create_select_stmt(eval_ctx.sql_exprs, sql_where_clause)
+            stmt = self._create_select_stmt(eval_ctx.sql_exprs, sql_where_clause, nearest_rowids)
             num_rows = 0
 
             for row in conn.execute(stmt):
@@ -262,10 +281,14 @@ class DataFrame:
 
     def _create_select_stmt(
             self, select_list: List[sql.sql.expression.ClauseElement],
-            where_clause: Optional[sql.sql.expression.ClauseElement]) -> sql.sql.expression.Select:
+            where_clause: Optional[sql.sql.expression.ClauseElement],
+            valid_rowids: List[int]) -> sql.sql.expression.Select:
         stmt = sql.select(*select_list) \
             .where(self.tbl.v_min_col <= self.tbl.version) \
             .where(self.tbl.v_max_col > self.tbl.version)
         if where_clause is not None:
             stmt = stmt.where(where_clause)
+        if len(valid_rowids) > 0:
+            #stmt = stmt.where(sql.text(f'{str(self.tbl.rowid_col)} IN ({",".join(valid_rowids)})'))
+            stmt = stmt.where(self.tbl.rowid_col.in_(valid_rowids))
         return stmt

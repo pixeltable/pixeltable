@@ -423,6 +423,14 @@ class CompoundPredicate(Predicate):
             for op in operands:
                 self._merge_operand(op)
 
+    @classmethod
+    def make_conjunction(cls, operands: List[Predicate]) -> Optional[Predicate]:
+        if len(operands) == 0:
+            return None
+        if len(operands) == 1:
+            return operands[0]
+        return CompoundPredicate(LogicalOperator.AND, operands)
+
     def _merge_operand(self, op: Predicate) -> None:
         """
         Merge this operand, if possible, otherwise simply record it.
@@ -464,14 +472,16 @@ class CompoundPredicate(Predicate):
         other_preds = [self.operands[i] for i, e in enumerate(sql_exprs) if e is None]
         assert len(sql_preds) > 0
         combined_sql_pred = sql.and_(*sql_preds)
-        combined_other = None if len(other_preds) == 0 \
-            else (other_preds[0] if len(other_preds) == 1 \
-            else CompoundPredicate(LogicalOperator.AND, other_preds))
+        combined_other = self.make_conjunction(other_preds)
         return (combined_sql_pred, combined_other)
 
-    def split_conjuncts(self, condition: Callable[['Predicate'], bool]) -> Tuple[List['Predicate'], 'Predicate']:
+    def split_conjuncts(
+            self, condition: Callable[['Predicate'], bool]) -> Tuple[List['Predicate'], Optional['Predicate']]:
         if self.operator == LogicalOperator.OR or self.operator == LogicalOperator.NOT:
             return super().split_conjuncts(condition)
+        matches = [op for op in self.operands if condition(op)]
+        non_matches = [op for op in self.operands if not condition(op)]
+        return (matches, self.make_conjunction(non_matches))
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         sql_exprs = [op.sql_expr() for op in self.operands]

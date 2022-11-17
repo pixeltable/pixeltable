@@ -44,12 +44,14 @@ class VectorIndex:
         assert e.shape == (512,)
         k = num_nn
         while True:
-            nn = self.idx.knn_query(e.reshape(1, 512), k).squeeze()
-            result = [rowid for rowid in list(nn) if rowid in valid_rowids]
+            nn, _ = self.idx.knn_query(e.reshape(1, 512), k)
+            # tolist(): make sure result contains ints, not uint64
+            result = [rowid for rowid in nn.squeeze().tolist() if rowid in valid_rowids]
             if len(result) >= num_nn:
                 return list(result[:num_nn])
-            if len(result) == self.idx.element_count:
-                return list(result)
+            if k >= self.idx.element_count:
+                # nothing left to look for
+                return result
             k *= 2
 
     @classmethod
