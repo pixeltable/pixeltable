@@ -7,11 +7,13 @@ from typing import Union, Optional, List, Callable, Any, Dict, Tuple
 import operator
 
 import PIL.Image
+import numpy as np
 import sqlalchemy as sql
 
 from pixeltable import catalog
 from pixeltable.type_system import ColumnType
 from pixeltable import exceptions as exc
+from pixeltable.utils import clip
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -268,19 +270,29 @@ class ImageMemberAccess(Expr):
         return self.member_name
 
     # TODO: correct signature?
-    def __call__(self, *args, **kwargs) -> Union['ImageMethodCall', 'NearestPredicate']:
-        if self.member_name != 'nearest':
-            # TODO: verify signature
-            return ImageMethodCall(self.member_name, self.caller, *args, **kwargs)
-        # nearest() predicate:
-        # - caller must be ColumnRef
-        # - signature is (PIL.Image.Image, int)
-        if not isinstance(self.caller, ColumnRef):
-            raise exc.OperationalError(f'nearest(): caller must be an IMAGE column')
-        if len(args) != 2 or not isinstance(args[0], PIL.Image.Image) or not isinstance(args[1], int):
-            raise exc.OperationalError(
-                f'nearest(): required signature is (PIL.Image.Image, int) (passed: ({type(args[0])}, {type(args[1])}')
-        return NearestPredicate(self.caller, args[0], args[1])
+    def __call__(self, *args, **kwargs) -> Union['ImageMethodCall', 'ImageSimilarityPredicate']:
+        if self.member_name == 'nearest':
+            # - caller must be ColumnRef
+            # - signature is (PIL.Image.Image, int)
+            if not isinstance(self.caller, ColumnRef):
+                raise exc.OperationalError(f'nearest(): caller must be an IMAGE column')
+            if len(args) != 2 or not isinstance(args[0], PIL.Image.Image) or not isinstance(args[1], int):
+                raise exc.OperationalError(
+                    f'nearest(): required signature is (PIL.Image.Image, int) (passed: ({type(args[0])}, {type(args[1])}')
+            return ImageSimilarityPredicate(self.caller, args[1], img=args[0])
+
+        if self.member_name == 'matches':
+            # - caller must be ColumnRef
+            # - signature is (str, int)
+            if not isinstance(self.caller, ColumnRef):
+                raise exc.OperationalError(f'matches(): caller must be an IMAGE column')
+            if len(args) != 2 or not isinstance(args[0], str) or not isinstance(args[1], int):
+                raise exc.OperationalError(
+                    f'matches(): required signature is (str, int) (passed: ({type(args[0])}, {type(args[1])}')
+            return ImageSimilarityPredicate(self.caller, args[1], text=args[0])
+
+        # TODO: verify signature
+        return ImageMethodCall(self.member_name, self.caller, *args, **kwargs)
 
     def _equals(self, other: 'ImageMemberAccess') -> bool:
         return self.caller.equals(other.caller) and self.member_name == other.member_name
@@ -556,17 +568,25 @@ class Comparison(Predicate):
             data_row[self.data_row_idx] = data_row[self.op1.data_row_idx] >= data_row[self.op2.data_row_idx]
 
 
-class NearestPredicate(Predicate):
-    def __init__(self, img_col: ColumnRef, img: PIL.Image.Image, k: int):
+class ImageSimilarityPredicate(Predicate):
+    def __init__(self, img_col: ColumnRef, k: int, img: Optional[PIL.Image.Image] = None, text: Optional[str] = None):
+        assert (img is None) != (text is None)
         super().__init__()
         self.img_col = img_col
         self.img = img
+        self.text = text
         self.k = k
+
+    def embedding(self) -> np.ndarray:
+        if self.text is not None:
+            return clip.encode_text(self.text)
+        else:
+            return clip.encode_image(self.img)
 
     def child_exprs(self) -> List['Expr']:
         return [self.img_col]
 
-    def _equals(self, other: 'NearestPredicate') -> bool:
+    def _equals(self, other: 'ImageSimilarityPredicate') -> bool:
         return False
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:

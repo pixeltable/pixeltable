@@ -9,6 +9,7 @@ from pixeltable import catalog, env
 from pixeltable.type_system import ColumnType
 from pixeltable import exprs
 from pixeltable import exceptions as exc
+from pixeltable.utils import clip
 
 __all__ = [
     'DataFrame'
@@ -184,35 +185,35 @@ class DataFrame:
     def show(self, n: int = 20) -> DataFrameResultSet:
         sql_where_clause: Optional[sql.sql.expression.ClauseElement] = None
         remaining_where_clause: Optional[exprs.Predicate] = None
-        nearest_clause: Optional[exprs.NearestPredicate] = None
+        similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
         if self.where_clause is not None:
             sql_where_clause, remaining_where_clause = self.where_clause.extract_sql_predicate()
             if remaining_where_clause is not None:
-                nearest_clauses, remaining_where_clause = remaining_where_clause.split_conjuncts(
-                    lambda e: isinstance(e, exprs.NearestPredicate))
-                if len(nearest_clauses) > 1:
-                    raise exc.OperationalError(f'More than one nearest() not supported')
-                if len(nearest_clauses) == 1:
-                    nearest_clause = nearest_clauses[0]
+                similarity_clauses, remaining_where_clause = remaining_where_clause.split_conjuncts(
+                    lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
+                if len(similarity_clauses) > 1:
+                    raise exc.OperationalError(f'More than one nearest() or matches() not supported')
+                if len(similarity_clauses) == 1:
+                    nearest_clause = similarity_clauses[0]
                     if n > 100:
-                        raise exc.OperationalError(f'Nearest() requires show(n <= 100): n={n}')
+                        raise exc.OperationalError(f'nearest()/matches() requires show(n <= 100): n={n}')
 
         select_list = self.select_list
         if select_list is None:
             select_list = [exprs.ColumnRef(col) for col in self.tbl.columns()]
-        # TODO: add ColRefs for nearest_predicates
         eval_ctx = EvalCtx(select_list, remaining_where_clause)
         # we materialize everything needed for select_list into data_rows
         data_rows: List[List] = []
 
-        nearest_rowids: List[int] = []
-        if nearest_clause is not None:
-            assert nearest_clause.img_col.col.idx is not None
-            nearest_rowids = nearest_clause.img_col.col.idx.search(nearest_clause.img, n, self.tbl.valid_rowids)
-            _ = type(nearest_rowids)
+        idx_rowids: List[int] = []
+        if similarity_clause is not None:
+            assert similarity_clause.img_col.col.idx is not None
+            embed = similarity_clause.embedding()
+            idx_rowids = similarity_clause.img_col.col.idx.search(embed, n, self.tbl.valid_rowids)
+            _ = type(idx_rowids)
 
         with env.get_engine().connect() as conn:
-            stmt = self._create_select_stmt(eval_ctx.sql_exprs, sql_where_clause, nearest_rowids)
+            stmt = self._create_select_stmt(eval_ctx.sql_exprs, sql_where_clause, idx_rowids)
             num_rows = 0
 
             for row in conn.execute(stmt):

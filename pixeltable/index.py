@@ -36,15 +36,14 @@ class VectorIndex:
         filename = self._filename(self.name)
         self.idx.save_index(filename)
 
-    def search(self, img: PIL.Image.Image, num_nn: int, valid_rowids: Set[int]) -> List[int]:
+    def search(self, embed: np.ndarray, num_nn: int, valid_rowids: Set[int]) -> List[int]:
         """
         Returns rowids of k nearest neighbors.
         """
-        e = clip.encode_image(img)
-        assert e.shape == (512,)
+        assert embed.shape == (512,)
         k = num_nn
         while True:
-            nn, _ = self.idx.knn_query(e.reshape(1, 512), k)
+            nn, _ = self.idx.knn_query(embed.reshape(1, 512), k)
             # tolist(): make sure result contains ints, not uint64
             result = [rowid for rowid in nn.squeeze().tolist() if rowid in valid_rowids]
             if len(result) >= num_nn:

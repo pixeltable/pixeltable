@@ -5,7 +5,8 @@ from pixeltable.type_system import ColumnType
 from pixeltable.exprs import FunctionCall, Expr, CompoundPredicate
 from pixeltable.functions import Function
 from pixeltable.functions.pil.image import blend
-from pixeltable.functions.clip import encode_image
+from pixeltable.functions.clip import encode_image, encode_text
+from pixeltable.utils.clip import encode_text
 
 
 class TestExprs:
@@ -120,12 +121,20 @@ class TestExprs:
         ][t.img, t.split].show()
         print(result)
 
-    def test_nearest(self, test_img_tbl: catalog.Table) -> None:
+    def test_similarity(self, test_img_tbl: catalog.Table) -> None:
         t = test_img_tbl
+        data = t.show(30)
         probe = t[t.img, t.category].show(1)
         img = probe[0, 0]
         result = t[t.img.nearest(img, 10)].show(10)
         assert len(result) == 10
         # nearest() with one SQL predicate and one Python predicate
         result = t[t.img.nearest(img, 10) & (t.category == probe[0, 1]) & (t.img.width > 1)].show(10)
+        assert len(result) == 3
+
+        result = t[t.img.matches('musical instrument', 10)].show(10)
         assert len(result) == 10
+        # matches() with one SQL predicate and one Python predicate
+        french_horn_category = 'n03394916'
+        result = t[t.img.matches('musical instrument', 10) & (t.category == french_horn_category) & (t.img.width > 1)].show(10)
+        assert len(result) == 6

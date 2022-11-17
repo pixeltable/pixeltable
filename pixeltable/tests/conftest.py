@@ -1,4 +1,4 @@
-from pathlib import Path
+import numpy as np
 
 import pytest
 import sqlalchemy as sql
@@ -38,5 +38,8 @@ def test_img_tbl(tmp_path_factory) -> catalog.Table:
     ]
     tbl = db.create_table('test', cols)
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-    tbl.insert_pandas(df[:20])
+    # select rows randomly in the hope of getting a good sample of the available categories
+    rng = np.random.default_rng(17)
+    idxs = rng.choice(np.arange(len(df)), size=40, replace=False)
+    tbl.insert_pandas(df.iloc[idxs])
     return tbl
