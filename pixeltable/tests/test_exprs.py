@@ -126,15 +126,17 @@ class TestExprs:
         data = t.show(30)
         probe = t[t.img, t.category].show(1)
         img = probe[0, 0]
-        result = t[t.img.nearest(img, 10)].show(10)
+        result = t[t.img.nearest(img)].show(10)
         assert len(result) == 10
         # nearest() with one SQL predicate and one Python predicate
-        result = t[t.img.nearest(img, 10) & (t.category == probe[0, 1]) & (t.img.width > 1)].show(10)
+        result = t[t.img.nearest(img) & (t.category == probe[0, 1]) & (t.img.width > 1)].show(10)
         assert len(result) == 3
 
-        result = t[t.img.matches('musical instrument', 10)].show(10)
+        result = t[t.img.matches('musical instrument')].show(10)
         assert len(result) == 10
         # matches() with one SQL predicate and one Python predicate
         french_horn_category = 'n03394916'
-        result = t[t.img.matches('musical instrument', 10) & (t.category == french_horn_category) & (t.img.width > 1)].show(10)
+        result = t[
+            t.img.matches('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)
+        ].show(10)
         assert len(result) == 6

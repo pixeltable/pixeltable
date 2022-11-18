@@ -194,7 +194,7 @@ class DataFrame:
                 if len(similarity_clauses) > 1:
                     raise exc.OperationalError(f'More than one nearest() or matches() not supported')
                 if len(similarity_clauses) == 1:
-                    nearest_clause = similarity_clauses[0]
+                    similarity_clause = similarity_clauses[0]
                     if n > 100:
                         raise exc.OperationalError(f'nearest()/matches() requires show(n <= 100): n={n}')
 

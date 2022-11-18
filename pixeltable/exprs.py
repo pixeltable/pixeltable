@@ -271,25 +271,25 @@ class ImageMemberAccess(Expr):
 
     # TODO: correct signature?
     def __call__(self, *args, **kwargs) -> Union['ImageMethodCall', 'ImageSimilarityPredicate']:
+        call_signature = f'({",".join([type(arg).__name__ for arg in args])})'
         if self.member_name == 'nearest':
             # - caller must be ColumnRef
-            # - signature is (PIL.Image.Image, int)
+            # - signature is (PIL.Image.Image)
             if not isinstance(self.caller, ColumnRef):
                 raise exc.OperationalError(f'nearest(): caller must be an IMAGE column')
-            if len(args) != 2 or not isinstance(args[0], PIL.Image.Image) or not isinstance(args[1], int):
+            if len(args) != 1 or not isinstance(args[0], PIL.Image.Image):
                 raise exc.OperationalError(
-                    f'nearest(): required signature is (PIL.Image.Image, int) (passed: ({type(args[0])}, {type(args[1])}')
-            return ImageSimilarityPredicate(self.caller, args[1], img=args[0])
+                    f'nearest(): required signature is (PIL.Image.Image) (passed: {call_signature})')
+            return ImageSimilarityPredicate(self.caller, img=args[0])
 
         if self.member_name == 'matches':
             # - caller must be ColumnRef
-            # - signature is (str, int)
+            # - signature is (str)
             if not isinstance(self.caller, ColumnRef):
                 raise exc.OperationalError(f'matches(): caller must be an IMAGE column')
-            if len(args) != 2 or not isinstance(args[0], str) or not isinstance(args[1], int):
-                raise exc.OperationalError(
-                    f'matches(): required signature is (str, int) (passed: ({type(args[0])}, {type(args[1])}')
-            return ImageSimilarityPredicate(self.caller, args[1], text=args[0])
+            if len(args) != 1 or not isinstance(args[0], str):
+                raise exc.OperationalError(f"matches(): required signature is (str) (passed: {call_signature})")
+            return ImageSimilarityPredicate(self.caller, text=args[0])
 
         # TODO: verify signature
         return ImageMethodCall(self.member_name, self.caller, *args, **kwargs)
@@ -569,13 +569,12 @@ class Comparison(Predicate):
 
 
 class ImageSimilarityPredicate(Predicate):
-    def __init__(self, img_col: ColumnRef, k: int, img: Optional[PIL.Image.Image] = None, text: Optional[str] = None):
+    def __init__(self, img_col: ColumnRef, img: Optional[PIL.Image.Image] = None, text: Optional[str] = None):
         assert (img is None) != (text is None)
         super().__init__()
         self.img_col = img_col
         self.img = img
         self.text = text
-        self.k = k
 
     def embedding(self) -> np.ndarray:
         if self.text is not None:

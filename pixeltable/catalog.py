@@ -204,6 +204,9 @@ class TableSnapshot(Table):
         # it's safe to call _load_valid_rowids() here because the storage table already exists
         self._load_valid_rowids()
 
+    def __repr__(self) -> str:
+        return f'TableSnapshot(name={self.name})'
+
     @classmethod
     def display_name(cls) -> str:
         return 'table snapshot'
@@ -222,6 +225,9 @@ class MutableTable(Table):
         assert tbl_record.next_row_id is not None
         self.next_row_id = tbl_record.next_row_id
         self.schema_version = schema_version
+
+    def __repr__(self) -> str:
+        return f'MutableTable(name={self.name})'
 
     @classmethod
     def display_name(cls) -> str:
@@ -800,6 +806,12 @@ class Db:
                 result[str(path)] = snapshot
 
         return result
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f'Db(name={self.name})'
 
     @classmethod
     def create(cls, name: str) -> 'Db':
