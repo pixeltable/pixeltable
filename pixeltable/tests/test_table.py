@@ -3,7 +3,7 @@ import pytest
 import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable import catalog
-from pixeltable.type_system import ColumnType
+from pixeltable.type_system import StringType, IntType, FloatType, TimestampType, ImageType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
 
 
@@ -12,10 +12,10 @@ class TestTable:
         cl = pt.Client()
         db = cl.create_db('test')
         db.create_dir('dir1')
-        c1 = catalog.Column('c1', ColumnType.STRING, nullable=False)
-        c2 = catalog.Column('c2', ColumnType.INT, nullable=False)
-        c3 = catalog.Column('c3', ColumnType.FLOAT, nullable=False)
-        c4 = catalog.Column('c4', ColumnType.TIMESTAMP, nullable=False)
+        c1 = catalog.Column('c1', StringType(), nullable=False)
+        c2 = catalog.Column('c2', IntType(), nullable=False)
+        c3 = catalog.Column('c3', FloatType(), nullable=False)
+        c4 = catalog.Column('c4', TimestampType(), nullable=False)
         schema = [c1, c2, c3, c4]
         _ = db.create_table('test', schema)
         _ = db.create_table('dir1.test', schema)
@@ -43,7 +43,7 @@ class TestTable:
 
         tbl = db.get_table('test')
         assert isinstance(tbl, catalog.MutableTable)
-        tbl.add_column(catalog.Column('c5', ColumnType.INT))
+        tbl.add_column(catalog.Column('c5', IntType()))
         tbl.drop_column('c1')
         tbl.rename_column('c2', 'c17')
 
@@ -63,9 +63,9 @@ class TestTable:
         cl = pt.Client()
         db = cl.create_db('test')
         cols = [
-            catalog.Column('img', ColumnType.IMAGE, nullable=False),
-            catalog.Column('category', ColumnType.STRING, nullable=False),
-            catalog.Column('split', ColumnType.STRING, nullable=False),
+            catalog.Column('img', ImageType(), nullable=False),
+            catalog.Column('category', StringType(), nullable=False),
+            catalog.Column('split', StringType(), nullable=False),
         ]
         tbl = db.create_table('test', cols)
         df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])

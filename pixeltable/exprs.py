@@ -11,7 +11,8 @@ import numpy as np
 import sqlalchemy as sql
 
 from pixeltable import catalog
-from pixeltable.type_system import ColumnType
+from pixeltable.type_system import \
+    ColumnType, ImageType, DictType, FloatType, StringType, IntType, InvalidType, BoolType, TimestampType
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
 
@@ -73,7 +74,7 @@ class Expr(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def child_exprs(self) -> List['Expr']:
+    def dependencies(self) -> List['Expr']:
         """
         Returns all exprs whose results are needed for eval().
         Not called if sql_expr() != None
@@ -92,7 +93,7 @@ class Expr(abc.ABC):
         """
         ex.: <img col>.rotate(60)
         """
-        if self.col_type != ColumnType.IMAGE:
+        if not self.col_type.is_image_type():
             raise exc.OperationalError(f'Member access not supported on type {self.col_type}: {name}')
         return ImageMemberAccess(name, self)
 
@@ -140,7 +141,7 @@ class ColumnRef(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return self.col.sa_col
 
-    def child_exprs(self) -> List['Expr']:
+    def dependencies(self) -> List['Expr']:
         return []
 
     def eval(self, data_row: List[Any]) -> None:
@@ -184,7 +185,7 @@ class FunctionCall(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def child_exprs(self) -> List['Expr']:
+    def dependencies(self) -> List['Expr']:
         expr_children = [arg for arg in self.args if isinstance(arg, Expr)]
         return expr_children
 
@@ -198,33 +199,33 @@ class FunctionCall(Expr):
 # This is hardcoded here instead of being dynamically extracted from the PIL type stubs because
 # doing that is messy and it's unclear whether it has any advantages.
 # TODO: how to capture return values like List[Tuple[int, int]]?
-_PIL_METHOD_INFO: Dict[str, Tuple[Callable, ColumnType]] = {
-    'convert': (PIL.Image.Image.convert, ColumnType.IMAGE),
-    'crop': (PIL.Image.Image.crop, ColumnType.IMAGE),
-    'effect_spread': (PIL.Image.Image.effect_spread, ColumnType.IMAGE),
-    'entropy': (PIL.Image.Image.entropy, ColumnType.FLOAT),
-    'filter': (PIL.Image.Image.filter, ColumnType.IMAGE),
-    'getbands': (PIL.Image.Image.getbands, ColumnType.DICT),
-    'getbbox': (PIL.Image.Image.getbbox, ColumnType.DICT),
-    'getchannel': (PIL.Image.Image.getchannel, ColumnType.IMAGE),
-    'getcolors': (PIL.Image.Image.getcolors, ColumnType.DICT),
-    'getextrema': (PIL.Image.Image.getextrema, ColumnType.DICT),
-    'getpalette': (PIL.Image.Image.getpalette, ColumnType.DICT),
-    'getpixel': (PIL.Image.Image.getpixel, ColumnType.DICT),
-    'getprojection': (PIL.Image.Image.getprojection, ColumnType.DICT),
-    'histogram': (PIL.Image.Image.histogram, ColumnType.DICT),
+_PIL_METHOD_INFO: Dict[str, Tuple[Callable, ColumnType]] = {  # dict from method name to (function, return type)
+    'convert': (PIL.Image.Image.convert, ImageType()),
+    'crop': (PIL.Image.Image.crop, ImageType()),
+    'effect_spread': (PIL.Image.Image.effect_spread, ImageType()),
+    'entropy': (PIL.Image.Image.entropy, FloatType()),
+    'filter': (PIL.Image.Image.filter, ImageType()),
+    'getbands': (PIL.Image.Image.getbands, DictType()),
+    'getbbox': (PIL.Image.Image.getbbox, DictType()),
+    'getchannel': (PIL.Image.Image.getchannel, ImageType()),
+    'getcolors': (PIL.Image.Image.getcolors, DictType()),
+    'getextrema': (PIL.Image.Image.getextrema, DictType()),
+    'getpalette': (PIL.Image.Image.getpalette, DictType()),
+    'getpixel': (PIL.Image.Image.getpixel, DictType()),
+    'getprojection': (PIL.Image.Image.getprojection, DictType()),
+    'histogram': (PIL.Image.Image.histogram, DictType()),
 # TODO: what to do with this? it modifies the img in-place
 #    paste: <ast.Constant object at 0x7f9e9a9be3a0>
-    'point': (PIL.Image.Image.point, ColumnType.IMAGE),
-    'quantize': (PIL.Image.Image.quantize, ColumnType.IMAGE),
-    'reduce': (PIL.Image.Image.reduce, ColumnType.IMAGE),
-    'remap_palette': (PIL.Image.Image.remap_palette, ColumnType.IMAGE),
-    'resize': (PIL.Image.Image.resize, ColumnType.IMAGE),
-    'rotate': (PIL.Image.Image.rotate, ColumnType.IMAGE),
+    'point': (PIL.Image.Image.point, ImageType()),
+    'quantize': (PIL.Image.Image.quantize, ImageType()),
+    'reduce': (PIL.Image.Image.reduce, ImageType()),
+    'remap_palette': (PIL.Image.Image.remap_palette, ImageType()),
+    'resize': (PIL.Image.Image.resize, ImageType()),
+    'rotate': (PIL.Image.Image.rotate, ImageType()),
 # TODO: this returns a Tuple[Image], which we can't express
 #    split: <ast.Subscript object at 0x7f9e9a9cc9d0>
-    'transform': (PIL.Image.Image.transform, ColumnType.IMAGE),
-    'transpose': (PIL.Image.Image.transpose, ColumnType.IMAGE),
+    'transform': (PIL.Image.Image.transform, ImageType()),
+    'transpose': (PIL.Image.Image.transpose, ImageType()),
 }
 
 
@@ -238,11 +239,11 @@ def _create_pil_attr_info() -> Dict[str, ColumnType]:
         if getattr(img, name) is None:
             continue
         if isinstance(getattr(img, name), str):
-            result[name] = ColumnType.STRING
+            result[name] = StringType()
         if isinstance(getattr(img, name), int):
-            result[name] = ColumnType.INT
+            result[name] = IntType()
         if getattr(img, name) is dict:
-            result[name] = ColumnType.DICT
+            result[name] = DictType()
     return result
 
 
@@ -256,9 +257,9 @@ class ImageMemberAccess(Expr):
 
     def __init__(self, member_name: str, caller: Expr):
         if member_name in self.special_img_predicates:
-            super().__init__(ColumnType.BOOL)  # TODO: this is not correct; requires a __call__() to return a value
+            super().__init__(InvalidType())  # requires FunctionCall to return value
         elif member_name in _PIL_METHOD_INFO:
-            super().__init__(ColumnType.IMAGE)  # TODO: should be INVALID; requires a __call__() invocation
+            super().__init__(InvalidType())  # requires FunctionCall to return value
         elif member_name in self.attr_info:
             super().__init__(self.attr_info[member_name])
         else:
@@ -300,7 +301,7 @@ class ImageMemberAccess(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def child_exprs(self) -> List['Expr']:
+    def dependencies(self) -> List['Expr']:
         return [self.caller]
 
     def eval(self, data_row: List[Any]) -> None:
@@ -338,7 +339,7 @@ class ImageMethodCall(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def child_exprs(self) -> List['Expr']:
+    def dependencies(self) -> List['Expr']:
         return [self.caller]
 
     def eval(self, data_row: List[Any]) -> None:
@@ -353,15 +354,15 @@ class ImageMethodCall(Expr):
 class Literal(Expr):
     def __init__(self, val: LiteralPythonTypes):
         if isinstance(val, str):
-            super().__init__(ColumnType.STRING)
+            super().__init__(StringType())
         if isinstance(val, int):
-            super().__init__(ColumnType.INT)
+            super().__init__(IntType())
         if isinstance(val, float):
-            super().__init__(ColumnType.FLOAT)
+            super().__init__(FloatType())
         if isinstance(val, bool):
-            super().__init__(ColumnType.BOOL)
+            super().__init__(BoolType())
         if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
-            super().__init__(ColumnType.TIMESTAMP)
+            super().__init__(TimestampType())
         self.val = val
 
     def display_name(self) -> str:
@@ -373,7 +374,7 @@ class Literal(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return sql.sql.expression.literal(self.val)
 
-    def child_exprs(self) -> List['Expr']:
+    def dependencies(self) -> List['Expr']:
         return []
 
     def eval(self, data_row: List[Any]) -> None:
@@ -382,7 +383,7 @@ class Literal(Expr):
 
 class Predicate(Expr):
     def __init__(self) -> None:
-        super().__init__(ColumnType.BOOL)
+        super().__init__(BoolType())
 
     def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional['Predicate']]:
         """
@@ -407,14 +408,14 @@ class Predicate(Expr):
     def __and__(self, other: object) -> 'CompoundPredicate':
         if not isinstance(other, Expr):
             raise TypeError(f'Other needs to be an expression: {type(other)}')
-        if other.col_type != ColumnType.BOOL:
+        if not other.col_type.is_bool_type():
             raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
         return CompoundPredicate(LogicalOperator.AND, [self, other])
 
     def __or__(self, other: object) -> 'CompoundPredicate':
         if not isinstance(other, Expr):
             raise TypeError(f'Other needs to be an expression: {type(other)}')
-        if other.col_type != ColumnType.BOOL:
+        if not other.col_type.is_bool_type():
             raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
         return CompoundPredicate(LogicalOperator.OR, [self, other])
 
@@ -507,7 +508,7 @@ class CompoundPredicate(Predicate):
         combined = operator(*sql_exprs)
         return combined
 
-    def child_exprs(self) -> List['Expr']:
+    def dependencies(self) -> List['Expr']:
         return self.operands
 
     def eval(self, data_row: List[Any]) -> None:
@@ -550,7 +551,7 @@ class Comparison(Predicate):
         if self.operator == ComparisonOperator.GE:
             return left >= right
 
-    def child_exprs(self) -> List['Expr']:
+    def dependencies(self) -> List['Expr']:
         return [self.op1, self.op2]
 
     def eval(self, data_row: List[Any]) -> None:
@@ -582,7 +583,7 @@ class ImageSimilarityPredicate(Predicate):
         else:
             return clip.encode_image(self.img)
 
-    def child_exprs(self) -> List['Expr']:
+    def dependencies(self) -> List['Expr']:
         return [self.img_col]
 
     def _equals(self, other: 'ImageSimilarityPredicate') -> bool:

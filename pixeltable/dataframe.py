@@ -1,6 +1,6 @@
 import base64
 from io import BytesIO
-from typing import List, Optional, Any, Tuple
+from typing import List, Optional, Any, Tuple, Dict
 import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
@@ -9,7 +9,6 @@ from pixeltable import catalog, env
 from pixeltable.type_system import ColumnType
 from pixeltable import exprs
 from pixeltable import exceptions as exc
-from pixeltable.utils import clip
 
 __all__ = [
     'DataFrame'
@@ -37,16 +36,16 @@ class DataFrameResultSet:
         return len(self.rows)
 
     def _repr_html_(self) -> str:
-        img_col_idxs = [i for i, col_type in enumerate(self.col_types) if col_type == ColumnType.IMAGE]
+        img_col_idxs = [i for i, col_type in enumerate(self.col_types) if col_type.is_image_type()]
         formatters = {self.col_names[i]: _format_img for i in img_col_idxs}
         # escape=False: make sure <img> tags stay intact
         # TODO: why does mypy complain about formatters having an incorrect type?
-        return self._create_df().to_html(formatters=formatters, escape=False)  # type: ignore[arg-type]
+        return self.to_pandas().to_html(formatters=formatters, escape=False)  # type: ignore[arg-type]
 
     def __str__(self) -> str:
-        return self._create_df().to_string()
+        return self.to_pandas().to_string()
 
-    def _create_df(self) -> pd.DataFrame:
+    def to_pandas(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(self.rows, columns=self.col_names)
 
     def __getitem__(self, index: Any) -> Any:
@@ -141,10 +140,10 @@ class EvalCtx:
             return
 
         # expr value needs to be computed via Expr.eval()
-        child_exprs = expr.child_exprs()
+        dependencies = expr.dependencies()
         # analyze children before expr, to make sure they are eval()'d first
-        for child_expr in child_exprs:
-            self._analyze_expr(child_expr, copy_exprs, eval_exprs)
+        for dep in dependencies:
+            self._analyze_expr(dep, copy_exprs, eval_exprs)
         if expr.data_row_idx < 0:
             expr.data_row_idx = self.next_data_row_idx
             self.next_data_row_idx += 1
@@ -160,24 +159,19 @@ class DataFrame:
         self.select_list = select_list  # None: implies all cols
         self.where_clause = where_clause
 
-    def _analyze_select_list(self) -> EvalCtx:
-        if self.select_list is None:
-            self.select_list = [exprs.ColumnRef(col) for col in self.tbl.columns()]
-        return EvalCtx(self.select_list)
-
-    def _copy_to_data_row(self, exprs: List[exprs.Expr], sql_row: Tuple[Any], data_row: List[Any]):
+    def _copy_to_data_row(self, expr_list: List[exprs.Expr], sql_row: Tuple[Any], data_row: List[Any]):
         """
         Copy expr values from sql to data row.
         """
-        for expr in exprs:
-            if expr.col_type == ColumnType.IMAGE:
+        for expr in expr_list:
+            if expr.col_type.is_image_type():
                 # row contains a file path that we need to open
                 file_path = sql_row[expr.sql_row_idx]
                 try:
                     img = Image.open(file_path)
                     img.thumbnail((128, 128))
                     data_row[expr.data_row_idx] = img
-                except:
+                except Exception:
                     raise exc.OperationalError(f'Error reading image file: {file_path}')
             else:
                 data_row[expr.data_row_idx] = sql_row[expr.sql_row_idx]
@@ -224,7 +218,7 @@ class DataFrame:
                     self._copy_to_data_row(eval_ctx.filter_copy_exprs, row._data, data_row)
                     for expr in eval_ctx.filter_eval_exprs:
                         expr.eval(data_row)
-                    if data_row[remaining_where_clause.data_row_idx] == False:
+                    if not data_row[remaining_where_clause.data_row_idx]:
                         continue
 
                 # materialize the select list
@@ -246,6 +240,9 @@ class DataFrame:
         return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in select_list])
 
     def count(self) -> int:
+        """
+        TODO: implement as part of DataFrame.agg()
+        """
         stmt = sql.select(sql.func.count('*')).select_from(self.tbl.sa_tbl) \
             .where(self.tbl.v_min_col <= self.tbl.version) \
             .where(self.tbl.v_max_col > self.tbl.version)
@@ -256,6 +253,29 @@ class DataFrame:
         with env.get_engine().connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
+            return result
+
+    def categorical_map(self) -> Dict[str, int]:
+        """
+        Return map of distinct values in string ColumnRef to increasing integers.
+        TODO: implement as part of DataFrame.agg()
+        """
+        if self.select_list is None or len(self.select_list) != 1 \
+            or not isinstance(self.select_list[0], exprs.ColumnRef) \
+            or not self.select_list[0].col_type.is_string_type():
+            raise exc.OperationalError(f'categoricals_map() can only be applied to an individual string column')
+        assert isinstance(self.select_list[0], exprs.ColumnRef)
+        col = self.select_list[0].col
+        stmt = sql.select(sql.distinct(col.sa_col)) \
+            .where(self.tbl.v_min_col <= self.tbl.version) \
+            .where(self.tbl.v_max_col > self.tbl.version) \
+            .order_by(col.sa_col)
+        if self.where_clause is not None:
+            sql_where_clause = self.where_clause.sql_expr()
+            assert sql_where_clause is not None
+            stmt = stmt.where(sql_where_clause)
+        with env.get_engine().connect() as conn:
+            result = {row._data[0]: i for i, row in enumerate(conn.execute(stmt))}
             return result
 
     def __getitem__(self, index: object) -> 'DataFrame':

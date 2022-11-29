@@ -1,5 +1,4 @@
-import pathlib
-from typing import Optional, List, Set, Dict, Any, Type, Union, Callable
+from typing import Optional, List, Set, Dict, Any, Type, Union
 import re
 
 import PIL
@@ -50,7 +49,7 @@ class Column:
         return f'col_{self.id}'
 
     def __str__(self) -> str:
-        return f'{self.name}: {self.col_type.name}'
+        return f'{self.name}: {self.col_type}'
 
 
 # base class of all addressable objects within a Db
@@ -64,6 +63,7 @@ class SchemaObject:
         Return name displayed in error messages.
         """
         assert False
+        return ''
 
 
 class DirBase(SchemaObject):
@@ -112,7 +112,7 @@ class Table(SchemaObject):
         self.is_dropped = False
 
     def _load_valid_rowids(self) -> None:
-        if not any(col.col_type == ColumnType.IMAGE for col in self.cols):
+        if not any(col.col_type.is_image_type() for col in self.cols):
             return
         with env.get_engine().connect() as conn:
             with conn.begin():
@@ -144,11 +144,9 @@ class Table(SchemaObject):
         return DataFrame(self)
 
     def show(self, *args, **kwargs) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
-        from pixeltable.dataframe import DataFrame
         return self.df().show(*args, **kwargs)
 
     def count(self) -> int:
-        from pixeltable.dataframe import DataFrame
         return self.df().count()
 
     def columns(self) -> List[Column]:
@@ -182,11 +180,12 @@ class Table(SchemaObject):
             .where(store.SchemaColumn.schema_version == schema_version) \
             .order_by(store.SchemaColumn.pos.asc()).all()
         cols = [
-            Column(r.name, r.col_type, primary_key=r.is_pk, nullable=r.is_nullable, col_id=r.col_id)
+            Column(
+                r.name, ColumnType.make_type(r.col_type), primary_key=r.is_pk, nullable=r.is_nullable, col_id=r.col_id)
             for r in col_records
         ]
         for col in cols:
-            if col.col_type == ColumnType.IMAGE:
+            if col.col_type.is_image_type():
                 col.set_idx(VectorIndex.load(cls._vector_idx_name(tbl_id, col), dim=512))
         return cols
 
@@ -344,7 +343,7 @@ class MutableTable(Table):
             conn.execute(
                 sql.insert(store.SchemaColumn.__table__)
                 .values(tbl_id=self.id, schema_version=self.version, col_id=c.id,
-                        pos=pos, name=c.name, col_type=c.col_type, is_nullable=c.nullable, is_pk=c.primary_key))
+                        pos=pos, name=c.name, col_type=c.col_type.type_enum, is_nullable=c.nullable, is_pk=c.primary_key))
 
     def insert_pandas(self, data: pd.DataFrame) -> None:
         self._check_is_dropped()
@@ -357,22 +356,21 @@ class MutableTable(Table):
         all_col_names = set([col.name for col in self.cols])
         inserted_cols = [self.cols_by_name[name] for name in all_col_names & given_col_names]
         for col in inserted_cols:
-            if col.col_type == ColumnType.STRING and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
+            if col.col_type.is_string_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires string data')
-            if col.col_type == ColumnType.INT and not pd.api.types.is_integer_dtype(data.dtypes[col.name]):
+            if col.col_type.is_int_type() and not pd.api.types.is_integer_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires integer data')
-            if col.col_type == ColumnType.FLOAT and not pd.api.types.is_numeric_dtype(data.dtypes[col.name]):
+            if col.col_type.is_float_type() and not pd.api.types.is_numeric_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires numerical data')
-            if col.col_type == ColumnType.BOOL and not pd.api.types.is_bool_dtype(data.dtypes[col.name]):
+            if col.col_type.is_bool_type() and not pd.api.types.is_bool_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires boolean data')
-            if col.col_type == ColumnType.TIMESTAMP \
-                    and not pd.api.types.is_datetime64_any_dtype(data.dtypes[col.name]):
+            if col.col_type.is_timestamp_type() and not pd.api.types.is_datetime64_any_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires datetime data')
-            if col.col_type == ColumnType.IMAGE and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
+            if col.col_type.is_image_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires local file paths')
 
         # check image data and build index
-        image_cols = [col for col in inserted_cols if col.col_type == ColumnType.IMAGE]
+        image_cols = [col for col in inserted_cols if col.col_type.is_image_type()]
         print('creating index')
         rowids = range(self.next_row_id, self.next_row_id + len(data))
         for col in image_cols:
@@ -515,11 +513,11 @@ class MutableTable(Table):
                 session.add(
                     store.SchemaColumn(
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
-                        col_type=col.col_type, is_nullable=col.nullable, is_pk=col.primary_key)
+                        col_type=col.col_type.type_enum, is_nullable=col.nullable, is_pk=col.primary_key)
                 )
 
                 # for image cols, add VectorIndex for kNN search
-                if col.col_type == ColumnType.IMAGE:
+                if col.col_type.is_image_type():
                     col.set_idx(VectorIndex.create(Table._vector_idx_name(tbl_record.id, col), 512))
             session.flush()
 

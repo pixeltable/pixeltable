@@ -1,12 +1,11 @@
 import sqlalchemy as sql
 
 from pixeltable import catalog
-from pixeltable.type_system import ColumnType
+from pixeltable.type_system import StringType, BoolType, IntType, ImageType
 from pixeltable.exprs import FunctionCall, Expr, CompoundPredicate
-from pixeltable.functions import Function
+from pixeltable.functions import Function, dict_map
 from pixeltable.functions.pil.image import blend
-from pixeltable.functions.clip import encode_image, encode_text
-from pixeltable.utils.clip import encode_text
+from pixeltable.functions.clip import encode_image
 
 
 class TestExprs:
@@ -43,8 +42,8 @@ class TestExprs:
         assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         # compound predicates with Python functions
-        udf = Function(lambda a: True, ColumnType.BOOL, [ColumnType.STRING])
-        udf2 = Function(lambda a: True, ColumnType.BOOL, [ColumnType.INT])
+        udf = Function(lambda a: True, BoolType(), [StringType()])
+        udf2 = Function(lambda a: True, BoolType(), [IntType()])
 
         # & can be split
         p = (t.c1 == 'test string') & udf(t.c1)
@@ -84,7 +83,7 @@ class TestExprs:
         result = t[t.img].show(n=100)
         _ = result._repr_html_()
         df = t[
-            t.img, FunctionCall(lambda img: img.rotate(60), tbl=t, return_type=ColumnType.IMAGE)
+            t.img, FunctionCall(lambda img: img.rotate(60), tbl=t, return_type=ImageType())
         ]
         _ = df.show(n=100)._repr_html_()
         df = t[[t.img, t.img.rotate(60)]]
@@ -123,7 +122,7 @@ class TestExprs:
 
     def test_similarity(self, test_img_tbl: catalog.Table) -> None:
         t = test_img_tbl
-        data = t.show(30)
+        _ = t.show(30)
         probe = t[t.img, t.category].show(1)
         img = probe[0, 0]
         result = t[t.img.nearest(img)].show(10)
@@ -140,3 +139,9 @@ class TestExprs:
             t.img.matches('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)
         ].show(10)
         assert len(result) == 6
+
+    def test_categoricals_map(self, test_img_tbl: catalog.Table) -> None:
+        t = test_img_tbl
+        m = t[t.category].categorical_map()
+        _ = t[dict_map(t.category, m)].show()
+        print(_)

@@ -1,9 +1,8 @@
-from typing import List
 import pytest
 
 import pixeltable as pt
 from pixeltable import exceptions as exc
-from pixeltable.tests.utils import make_tbl, read_data_file
+from pixeltable.tests.utils import make_tbl
 
 
 class TestDirs:

@@ -1,5 +1,5 @@
 from typing import Callable, List
-from pixeltable.type_system import ColumnType
+from pixeltable.type_system import ColumnType, StringType, IntType, DictType
 
 
 class Function:
@@ -20,7 +20,10 @@ class Function:
         pass
 
 
+dict_map = Function(lambda s, d: d[s], IntType(), [StringType(), DictType()])
+
 __all__ = [
-    Function
+    Function,
+    dict_map
 ]
 

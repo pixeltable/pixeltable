@@ -9,34 +9,46 @@ import pandas as pd
 
 import pixeltable as pt
 from pixeltable import catalog
-from pixeltable.type_system import ColumnType
+from pixeltable.type_system import ColumnType, StringType, IntType, FloatType, BoolType, TimestampType
 
+def make_default_type(t: ColumnType.Type) -> ColumnType:
+    if t == ColumnType.Type.STRING:
+        return StringType()
+    if t == ColumnType.Type.INT:
+        return IntType()
+    if t == ColumnType.Type.FLOAT:
+        return FloatType()
+    if t == ColumnType.Type.BOOL:
+        return BoolType()
+    if t == ColumnType.Type.TIMESTAMP:
+        return TimestampType()
+    assert False
 
 def make_tbl(db: pt.Db, name: str = 'test', col_names: List[str] = ['c1']) -> pt.MutableTable:
     schema: List[catalog.Column] = []
     for i, col_name in enumerate(col_names):
-        schema.append(catalog.Column(f'{col_name}', ColumnType(i % len(ColumnType))))
+        schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type((i % 5) + 1))))
     return db.create_table(name, schema)
 
 def create_table_data(t: catalog.Table, num_rows: int = 10) -> pd.DataFrame:
     data: Dict[str, Any] = {}
     for col in t.columns():
         col_data: Any = None
-        if col.col_type == ColumnType.STRING:
+        if col.col_type.is_string_type():
             col_data = ['test string'] * num_rows
-        if col.col_type == ColumnType.INT:
+        if col.col_type.is_int_type():
             col_data = np.random.randint(0, 100, size=num_rows)
-        if col.col_type == ColumnType.FLOAT:
+        if col.col_type.is_float_type():
             col_data = np.random.random(size=num_rows) * 100
-        if col.col_type == ColumnType.BOOL:
+        if col.col_type.is_bool_type():
             col_data = np.random.randint(0, 2, size=num_rows)
             col_data = [False if i == 0 else True for i in col_data]
-        if col.col_type == ColumnType.TIMESTAMP:
+        if col.col_type.is_timestamp_type():
             col_data = datetime.datetime.now()
         # TODO: implement this
-        assert col.col_type != ColumnType.IMAGE
-        assert col.col_type != ColumnType.DICT
-        assert col.col_type != ColumnType.VECTOR
+        assert not col.col_type.is_image_type()
+        assert not col.col_type.is_dict_type()
+        assert not col.col_type.is_array_type()
         data[col.name] = col_data
     return pd.DataFrame(data=data)
 
