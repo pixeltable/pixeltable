@@ -27,6 +27,10 @@ class ColumnType:
     def serialize(self) -> Dict:
         return {'type': self._type.value}
 
+    #@classmethod
+    #def deserialize(cls, d: Dict) -> 'ColumnType':
+        #return None
+
     @classmethod
     def make_type(cls, t: Type) -> 'ColumnType':
         """
@@ -170,8 +174,12 @@ class ImageType(ColumnType):
         super().__init__(self.Type.IMAGE)
         assert not(width is not None and size is not None)
         assert not(height is not None and size is not None)
-        self.width = width
-        self.height = height
+        if size is not None:
+            self.width = size[0]
+            self.height = size[1]
+        else:
+            self.width = width
+            self.height = height
 
     def serialize(self) -> Dict:
         result = super().serialize()

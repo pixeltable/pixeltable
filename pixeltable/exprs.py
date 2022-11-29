@@ -12,7 +12,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog
 from pixeltable.type_system import \
-    ColumnType, ImageType, DictType, FloatType, StringType, IntType, InvalidType, BoolType, TimestampType
+    ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, DictType, ArrayType
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
 
@@ -194,38 +194,59 @@ class FunctionCall(Expr):
         data_row[self.data_row_idx] = self.fn(*arg_vals)
 
 
+def _caller_return_type(caller: Expr, *args: object) -> ColumnType:
+    return caller.col_type
+
+def _float_return_type(_: Expr, *args: object) -> ColumnType:
+    return FloatType()
+
+def _dict_return_type(_: Expr, *args: object) -> ColumnType:
+    return DictType()
+
+def _array_return_type(_: Expr, *args: object) -> ColumnType:
+    return ArrayType()
+
+def _crop_return_type(_: Expr, *args: object) -> ColumnType:
+    left, upper, right, lower = args[0]
+    return ImageType(width=(right - left), height=(lower - upper))
+
+def _resize_return_type(_: Expr, *args: object) -> ColumnType:
+    w, h = args[0]
+    return ImageType(width=w, height=h)
+
 # This only includes methods that return something that can be displayed in pixeltable
 # and that make sense to call (counterexample: copy() doesn't make sense to call)
 # This is hardcoded here instead of being dynamically extracted from the PIL type stubs because
 # doing that is messy and it's unclear whether it has any advantages.
 # TODO: how to capture return values like List[Tuple[int, int]]?
-_PIL_METHOD_INFO: Dict[str, Tuple[Callable, ColumnType]] = {  # dict from method name to (function, return type)
-    'convert': (PIL.Image.Image.convert, ImageType()),
-    'crop': (PIL.Image.Image.crop, ImageType()),
-    'effect_spread': (PIL.Image.Image.effect_spread, ImageType()),
-    'entropy': (PIL.Image.Image.entropy, FloatType()),
-    'filter': (PIL.Image.Image.filter, ImageType()),
-    'getbands': (PIL.Image.Image.getbands, DictType()),
-    'getbbox': (PIL.Image.Image.getbbox, DictType()),
-    'getchannel': (PIL.Image.Image.getchannel, ImageType()),
-    'getcolors': (PIL.Image.Image.getcolors, DictType()),
-    'getextrema': (PIL.Image.Image.getextrema, DictType()),
-    'getpalette': (PIL.Image.Image.getpalette, DictType()),
-    'getpixel': (PIL.Image.Image.getpixel, DictType()),
-    'getprojection': (PIL.Image.Image.getprojection, DictType()),
-    'histogram': (PIL.Image.Image.histogram, DictType()),
+# dict from method name to (function to compute value, function to compute return type)
+_PIL_METHOD_INFO: Dict[str, Tuple[Callable, ColumnType]] = {
+    'convert': (PIL.Image.Image.convert, _caller_return_type),
+    'crop': (PIL.Image.Image.crop, _crop_return_type),
+    'effect_spread': (PIL.Image.Image.effect_spread, _caller_return_type),
+    'entropy': (PIL.Image.Image.entropy, _float_return_type),
+    'filter': (PIL.Image.Image.filter, _caller_return_type),
+    'getbands': (PIL.Image.Image.getbands, _array_return_type),
+    'getbbox': (PIL.Image.Image.getbbox, _array_return_type),
+    'getchannel': (PIL.Image.Image.getchannel, _caller_return_type),
+    'getcolors': (PIL.Image.Image.getcolors, _array_return_type),
+    'getextrema': (PIL.Image.Image.getextrema, _array_return_type),
+    'getpalette': (PIL.Image.Image.getpalette, _array_return_type),
+    'getpixel': (PIL.Image.Image.getpixel, _array_return_type),
+    'getprojection': (PIL.Image.Image.getprojection, _array_return_type),
+    'histogram': (PIL.Image.Image.histogram, _array_return_type),
 # TODO: what to do with this? it modifies the img in-place
 #    paste: <ast.Constant object at 0x7f9e9a9be3a0>
-    'point': (PIL.Image.Image.point, ImageType()),
-    'quantize': (PIL.Image.Image.quantize, ImageType()),
-    'reduce': (PIL.Image.Image.reduce, ImageType()),
-    'remap_palette': (PIL.Image.Image.remap_palette, ImageType()),
-    'resize': (PIL.Image.Image.resize, ImageType()),
-    'rotate': (PIL.Image.Image.rotate, ImageType()),
+    'point': (PIL.Image.Image.point, _caller_return_type),
+    'quantize': (PIL.Image.Image.quantize, _caller_return_type),
+    'reduce': (PIL.Image.Image.reduce, _caller_return_type),  # TODO: this is incorrect
+    'remap_palette': (PIL.Image.Image.remap_palette, _caller_return_type),
+    'resize': (PIL.Image.Image.resize, _resize_return_type),
+    'rotate': (PIL.Image.Image.rotate, _caller_return_type),  # TODO: this is incorrect
 # TODO: this returns a Tuple[Image], which we can't express
 #    split: <ast.Subscript object at 0x7f9e9a9cc9d0>
-    'transform': (PIL.Image.Image.transform, ImageType()),
-    'transpose': (PIL.Image.Image.transpose, ImageType()),
+    'transform': (PIL.Image.Image.transform, _caller_return_type),  # TODO: this is incorrect
+    'transpose': (PIL.Image.Image.transpose, _caller_return_type),  # TODO: this is incorrect
 }
 
 
@@ -324,7 +345,8 @@ class ImageMethodCall(Expr):
         self.method_name = method_name
         method_info = _PIL_METHOD_INFO[self.method_name]
         self.fn = method_info[0]
-        super().__init__(method_info[1])
+        return_type = method_info[1](caller, *args)
+        super().__init__(return_type)
         self.caller = caller
         self.args = args
         self.kw_args = kwargs
@@ -343,6 +365,7 @@ class ImageMethodCall(Expr):
         return [self.caller]
 
     def eval(self, data_row: List[Any]) -> None:
+        # first argument is the value of the caller
         args = [data_row[self.caller.data_row_idx]]
         if args[0] is None:
             data_row[self.data_row_idx] = None

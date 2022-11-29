@@ -91,6 +91,10 @@ class TestExprs:
 
     def test_img_members(self, test_img_tbl: catalog.Table) -> None:
         t = test_img_tbl
+        result = t[t.img.crop((10, 10, 60, 60))].show(n=100)
+        result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100))].show(n=100)
+        result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100)).convert('L')].show(n=100)
+        result = t[t.img.getextrema()].show(n=100)
         result = t[t.img, t.img.height, t.img.rotate(90)].show(n=100)
         _ = result._repr_html_()
 
