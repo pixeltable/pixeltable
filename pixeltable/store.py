@@ -51,6 +51,9 @@ class Table(Base):
     # (table got dropped, but we need to keep a record of it for snapshots)
     is_mutable = sql.Column(Boolean, nullable=False)
 
+    # if True, creates vector indices for image columns
+    is_indexed = sql.Column(Boolean, nullable=False)
+
     next_col_id = sql.Column(Integer, nullable=False)  # used to assign Column.id
 
     # - used to assign the rowid column in the storage table
@@ -134,6 +137,7 @@ class TableSnapshot(Base):
     tbl_schema_version = sql.Column(BigInteger, nullable=False)
 
     __table_args__ = (
+        ForeignKeyConstraint(['tbl_id'], ['tables.id']),
         ForeignKeyConstraint(
             ['tbl_id', 'tbl_schema_version'], ['tableschemaversions.tbl_id', 'tableschemaversions.schema_version']),
     )

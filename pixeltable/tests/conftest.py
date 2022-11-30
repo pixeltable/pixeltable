@@ -24,23 +24,41 @@ def test_env(tmp_path) -> None:
 def test_tbl(test_env) -> catalog.Table:
     cl = pt.Client()
     db = cl.create_db('test')
-    t = make_tbl(db, 'test1', ['c1', 'c2', 'c3', 'c4'])
+    t = make_tbl(db, 'test_tbl', ['c1', 'c2', 'c3', 'c4'])
     data = create_table_data(t)
     t.insert_pandas(data)
     return t
 
 
-@pytest.fixture(scope='session')
-def test_img_tbl(tmp_path_factory) -> catalog.Table:
-    init_env(tmp_path_factory.mktemp('base'))
+@pytest.fixture(scope='function')
+def test_img_tbl(test_env) -> catalog.Table:
     cl = pt.Client()
-    db = cl.create_db('test')
+    db = cl.create_db('test_img')
     cols = [
         catalog.Column('img', ImageType(), nullable=False),
         catalog.Column('category', StringType(), nullable=False),
         catalog.Column('split', StringType(), nullable=False),
     ]
-    tbl = db.create_table('test', cols)
+    tbl = db.create_table('test_img_tbl', cols, indexed=False)
+    df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+    tbl.insert_pandas(df)
+    return tbl
+
+
+# TODO: figure out how to create a session-wide db
+#@pytest.fixture(scope='session')
+#def test_indexed_img_tbl(tmp_path_factory) -> catalog.Table:
+#    init_env(tmp_path_factory.mktemp('base'))
+@pytest.fixture(scope='function')
+def test_indexed_img_tbl(test_env) -> catalog.Table:
+    cl = pt.Client()
+    db = cl.create_db('test_indexed')
+    cols = [
+        catalog.Column('img', ImageType(), nullable=False),
+        catalog.Column('category', StringType(), nullable=False),
+        catalog.Column('split', StringType(), nullable=False),
+    ]
+    tbl = db.create_table('test_img_tbl', cols, indexed=True)
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     # select rows randomly in the hope of getting a good sample of the available categories
     rng = np.random.default_rng(17)
