@@ -194,25 +194,30 @@ class FunctionCall(Expr):
         data_row[self.data_row_idx] = self.fn(*arg_vals)
 
 
-def _caller_return_type(caller: Expr, *args: object) -> ColumnType:
+def _caller_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
     return caller.col_type
 
-def _float_return_type(_: Expr, *args: object) -> ColumnType:
+def _float_return_type(_: Expr, *args: object, **kwargs: object) -> ColumnType:
     return FloatType()
 
-def _dict_return_type(_: Expr, *args: object) -> ColumnType:
+def _dict_return_type(_: Expr, *args: object, **kwargs: object) -> ColumnType:
     return DictType()
 
-def _array_return_type(_: Expr, *args: object) -> ColumnType:
+def _array_return_type(_: Expr, *args: object, **kwargs: object) -> ColumnType:
     return ArrayType()
 
-def _crop_return_type(_: Expr, *args: object) -> ColumnType:
-    left, upper, right, lower = args[0]
-    return ImageType(width=(right - left), height=(lower - upper))
+def _convert_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
+    mode_str = args[0]
+    return ImageType(
+        width=caller.col_type.width, height=caller.col_type.height, mode=ImageType.Mode.from_pil_mode(mode_str))
 
-def _resize_return_type(_: Expr, *args: object) -> ColumnType:
+def _crop_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
+    left, upper, right, lower = args[0]
+    return ImageType(width=(right - left), height=(lower - upper), mode=caller.col_type.mode)
+
+def _resize_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
     w, h = args[0]
-    return ImageType(width=w, height=h)
+    return ImageType(width=w, height=h, mode=caller.col_type.mode)
 
 # This only includes methods that return something that can be displayed in pixeltable
 # and that make sense to call (counterexample: copy() doesn't make sense to call)
@@ -221,7 +226,7 @@ def _resize_return_type(_: Expr, *args: object) -> ColumnType:
 # TODO: how to capture return values like List[Tuple[int, int]]?
 # dict from method name to (function to compute value, function to compute return type)
 _PIL_METHOD_INFO: Dict[str, Tuple[Callable, ColumnType]] = {
-    'convert': (PIL.Image.Image.convert, _caller_return_type),
+    'convert': (PIL.Image.Image.convert, _convert_return_type),
     'crop': (PIL.Image.Image.crop, _crop_return_type),
     'effect_spread': (PIL.Image.Image.effect_spread, _caller_return_type),
     'entropy': (PIL.Image.Image.entropy, _float_return_type),
@@ -340,12 +345,12 @@ class ImageMethodCall(Expr):
     - check arg types
     - resolve Expr args in eval()
     """
-    def __init__(self, method_name: str, caller: Expr, *args, **kwargs):
+    def __init__(self, method_name: str, caller: Expr, *args: object, **kwargs: object):
         assert method_name in _PIL_METHOD_INFO
         self.method_name = method_name
         method_info = _PIL_METHOD_INFO[self.method_name]
         self.fn = method_info[0]
-        return_type = method_info[1](caller, *args)
+        return_type = method_info[1](caller, *args, **kwargs)
         super().__init__(return_type)
         self.caller = caller
         self.args = args

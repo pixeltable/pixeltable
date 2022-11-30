@@ -17,6 +17,26 @@ class ColumnType:
         DICT = 7
         ARRAY = 8
 
+    @enum.unique
+    class DType(enum.Enum):
+        """
+        Base type used in images and arrays
+        """
+        BOOL = 0,
+        INT8 = 1,
+        INT16 = 2,
+        INT32 = 3,
+        INT64 = 4,
+        UINT8 = 5,
+        UINT16 = 6,
+        UINT32 = 7,
+        UINT64 = 8,
+        FLOAT16 = 9,
+        FLOAT32 = 10,
+        FLOAT64 = 11
+
+    scalar_types = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP}
+
     def __init__(self, t: Type):
         self._type = t
 
@@ -36,6 +56,7 @@ class ColumnType:
         """
         TODO: replace with deserialize(d: Dict)
         """
+        assert t != cls.Type.INVALID
         if t == cls.Type.STRING:
             return StringType()
         if t == cls.Type.INT:
@@ -58,6 +79,9 @@ class ColumnType:
 
     def __eq__(self, other: object) -> bool:
         return type(self) == type(other) and self._type == other._type
+
+    def is_scalar_type(self) -> bool:
+        return self._type in self.scalar_types
 
     def is_invalid_type(self) -> bool:
         return self._type == self.Type.INVALID
@@ -166,8 +190,25 @@ class TimestampType(ColumnType):
 
 
 class ImageType(ColumnType):
+    @enum.unique
+    class Mode(enum.Enum):
+        L = 0,
+        RGB = 1
+
+        @classmethod
+        def from_pil_mode(cls, pil_mode: str) -> 'Mode':
+            if pil_mode == 'L':
+                return cls.L
+            if pil_mode == 'RGB':
+                return cls.RGB
+
+        def num_channels(self) -> int:
+            return len(self.name)
+
     def __init__(
-            self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[Tuple[int, int]] = None):
+            self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[Tuple[int, int]] = None,
+            mode: Optional[Mode] = None
+    ):
         """
         TODO: does it make sense to specify only width or height?
         """
@@ -180,10 +221,15 @@ class ImageType(ColumnType):
         else:
             self.width = width
             self.height = height
+        self.mode = mode
+
+    @property
+    def num_channels(self) -> int:
+        return None if self.mode is None else self.mode.num_channels()
 
     def serialize(self) -> Dict:
         result = super().serialize()
-        result.update({'width': self.width, 'height': self.height})
+        result.update({'width': self.width, 'height': self.height, 'mode': self.mode.value})
         return result
 
 
@@ -196,6 +242,8 @@ class ArrayType(ColumnType):
     """
     TODO: enum Dtype, dtype in ctor
     """
-    def __init__(self, shape: Optional[Tuple[int, ...]] = None):
+    def __init__(
+            self, shape: Optional[Tuple[int, ...]] = None, dtype: Optional[ColumnType.DType] = ColumnType.DType.INT32):
         super().__init__(self.Type.ARRAY)
         self.shape = shape
+        self.dtype = dtype
