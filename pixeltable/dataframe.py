@@ -139,11 +139,10 @@ class EvalCtx:
             copy_exprs.append(expr)
             return
 
-        # expr value needs to be computed via Expr.eval()
-        dependencies = expr.dependencies()
-        # analyze children before expr, to make sure they are eval()'d first
-        for dep in dependencies:
-            self._analyze_expr(dep, copy_exprs, eval_exprs)
+        # expr value needs to be computed via Expr.eval();
+        # analyze dependencies before expr, to make sure they are eval()'d first
+        for c in expr.children:
+            self._analyze_expr(c, copy_exprs, eval_exprs)
         if expr.data_row_idx < 0:
             expr.data_row_idx = self.next_data_row_idx
             self.next_data_row_idx += 1
@@ -156,8 +155,14 @@ class DataFrame:
             select_list: Optional[List[exprs.Expr]] = None,
             where_clause: Optional[exprs.Predicate] = None):
         self.tbl = tbl
-        self.select_list = select_list  # None: implies all cols
-        self.where_clause = where_clause
+        # self.select_list and self.where_clause contain execution state and therefore cannot be shared
+        self.select_list: Optional[List[exprs.Expr]] = None  # None: implies all cols
+        if select_list is not None:
+            self.select_list = [e.copy() for e in select_list]
+        self.where_clause: Optional[exprs.Predicate] = None
+        if where_clause is not None:
+            self.where_clause = where_clause.copy()
+        self.eval_ctx: Optional[EvalCtx] = None
 
     def _copy_to_data_row(self, expr_list: List[exprs.Expr], sql_row: Tuple[Any], data_row: List[Any]):
         """
@@ -197,7 +202,9 @@ class DataFrame:
         select_list = self.select_list
         if select_list is None:
             select_list = [exprs.ColumnRef(col) for col in self.tbl.columns()]
-        eval_ctx = EvalCtx(select_list, remaining_where_clause)
+        if self.eval_ctx is None:
+            # constructing the EvalCtx is not idempotent
+            self.eval_ctx = EvalCtx(select_list, remaining_where_clause)
         # we materialize everything needed for select_list into data_rows
         data_rows: List[List] = []
 
@@ -209,23 +216,23 @@ class DataFrame:
             _ = type(idx_rowids)
 
         with env.get_engine().connect() as conn:
-            stmt = self._create_select_stmt(eval_ctx.sql_exprs, sql_where_clause, idx_rowids)
+            stmt = self._create_select_stmt(self.eval_ctx.sql_exprs, sql_where_clause, idx_rowids)
             num_rows = 0
 
             for row in conn.execute(stmt):
-                data_row: List[Any] = [None] * eval_ctx.num_materialized()
+                data_row: List[Any] = [None] * self.eval_ctx.num_materialized()
 
                 if remaining_where_clause is not None:
                     # we need to evaluate the remaining filter predicate first
-                    self._copy_to_data_row(eval_ctx.filter_copy_exprs, row._data, data_row)
-                    for expr in eval_ctx.filter_eval_exprs:
+                    self._copy_to_data_row(self.eval_ctx.filter_copy_exprs, row._data, data_row)
+                    for expr in self.eval_ctx.filter_eval_exprs:
                         expr.eval(data_row)
                     if not data_row[remaining_where_clause.data_row_idx]:
                         continue
 
                 # materialize the select list
-                self._copy_to_data_row(eval_ctx.select_copy_exprs, row._data, data_row)
-                for expr in eval_ctx.select_eval_exprs:
+                self._copy_to_data_row(self.eval_ctx.select_copy_exprs, row._data, data_row)
+                for expr in self.eval_ctx.select_eval_exprs:
                     expr.eval(data_row)
 
                 # copy select list results into contiguous array
