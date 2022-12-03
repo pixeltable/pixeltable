@@ -1,6 +1,9 @@
-from typing import Any, Optional, Tuple, Dict
+import abc
+from typing import Any, Optional, Tuple, Dict, Callable, List
 import enum
+from datetime import datetime
 
+import PIL.Image
 import sqlalchemy as sql
 
 
@@ -78,7 +81,13 @@ class ColumnType:
         return self.Type.name.lower()
 
     def __eq__(self, other: object) -> bool:
-        return type(self) == type(other) and self._type == other._type
+        assert isinstance(other, ColumnType)
+        if type(self) != type(other):
+            return False
+        for member_var in vars(self).keys():
+            if getattr(self, member_var) != getattr(other, member_var):
+                return False
+        return True
 
     def is_scalar_type(self) -> bool:
         return self._type in self.scalar_types
@@ -159,6 +168,22 @@ class ColumnType:
             return sql.VARBINARY
         assert False
 
+    @staticmethod
+    def no_conversion(v: Any) -> Any:
+        """
+        Special return value of conversion_fn() that indicates that no conversion is necessary.
+        Should not be called
+        """
+        assert False
+
+    @abc.abstractmethod
+    def conversion_fn(self, target: 'ColumnType') -> Optional[Callable[[Any], Any]]:
+        """
+        Return Callable that converts a column value of type self to a value of type 'target'.
+        Returns None if conversion isn't possible.
+        """
+        return None
+
 
 class InvalidType(ColumnType):
     def __init__(self):
@@ -167,6 +192,17 @@ class InvalidType(ColumnType):
 class StringType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.STRING)
+
+    def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
+        if not target.is_timestamp_type():
+            return None
+        def convert(val: str) -> Optional[datetime]:
+            try:
+                dt = datetime.fromisoformat(val)
+                return dt
+            except ValueError:
+                return None
+        return convert
 
 
 class IntType(ColumnType):
@@ -196,11 +232,14 @@ class ImageType(ColumnType):
         RGB = 1
 
         @classmethod
-        def from_pil_mode(cls, pil_mode: str) -> 'Mode':
+        def from_pil(cls, pil_mode: str) -> 'Mode':
             if pil_mode == 'L':
                 return cls.L
             if pil_mode == 'RGB':
                 return cls.RGB
+
+        def to_pil(self) -> str:
+            return self.name
 
         def num_channels(self) -> int:
             return len(self.name)
@@ -224,13 +263,33 @@ class ImageType(ColumnType):
         self.mode = mode
 
     @property
-    def num_channels(self) -> int:
+    def num_channels(self) -> Optional[int]:
         return None if self.mode is None else self.mode.num_channels()
 
     def serialize(self) -> Dict:
         result = super().serialize()
         result.update({'width': self.width, 'height': self.height, 'mode': self.mode.value})
         return result
+
+    def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
+        if not target.is_image_type():
+            return None
+        assert isinstance(target, ImageType)
+        if (target.width is None) != (target.height is None):
+            # we can't resize only one dimension
+            return None
+        if (target.width == self.width or target.width is None) \
+            and (target.height == self.height or target.height is None) \
+            and (target.mode == self.mode or target.mode is None):
+            # nothing to do
+            return self.no_conversion
+        def convert(img: PIL.Image.Image) -> PIL.Image.Image:
+            if self.width != target.width or self.height != target.height:
+                img = img.resize((target.width, target.height))
+            if self.mode != target.mode:
+                img = img.convert(target.mode.to_pil())
+            return img
+        return convert
 
 
 class DictType(ColumnType):
@@ -247,3 +306,14 @@ class ArrayType(ColumnType):
         super().__init__(self.Type.ARRAY)
         self.shape = shape
         self.dtype = dtype
+
+
+class Function:
+    def __init__(self, eval_fn: Callable, return_type: ColumnType, param_types: Optional[List[ColumnType]]):
+        self.eval_fn = eval_fn
+        self.return_type = return_type
+        self.param_types = param_types
+
+    def __call__(self, *args: object) -> 'pixeltable.exprs.FunctionCall':
+        from pixeltable import exprs
+        return exprs.FunctionCall(self, args)

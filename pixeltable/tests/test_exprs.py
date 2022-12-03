@@ -2,9 +2,9 @@ import sqlalchemy as sql
 import pytest
 
 from pixeltable import catalog
-from pixeltable.type_system import StringType, BoolType, IntType, ImageType
-from pixeltable.exprs import FunctionCall, Expr, CompoundPredicate
-from pixeltable.functions import Function, dict_map
+from pixeltable.type_system import StringType, BoolType, IntType, ImageType, Function
+from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall
+from pixeltable.functions import udf_call, dict_map
 from pixeltable.functions.pil.image import blend
 from pixeltable.functions.clip import encode_image
 from pixeltable import exceptions as exc
@@ -84,9 +84,7 @@ class TestExprs:
         t = test_img_tbl
         result = t[t.img].show(n=100)
         _ = result._repr_html_()
-        df = t[
-            t.img, FunctionCall(lambda img: img.rotate(60), tbl=t, return_type=ImageType())
-        ]
+        df = t[t.img, udf_call(lambda img: img.rotate(60), ImageType(), tbl=t)]
         _ = df.show(n=100)._repr_html_()
         df = t[[t.img, t.img.rotate(60)]]
         _ = df.show(n=100)._repr_html_()

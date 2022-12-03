@@ -13,7 +13,8 @@ import sqlalchemy as sql
 
 from pixeltable import catalog
 from pixeltable.type_system import \
-    ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, DictType, ArrayType
+    ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, DictType, ArrayType, \
+    Function
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
 
@@ -159,38 +160,43 @@ class ColumnRef(Expr):
 
 
 class FunctionCall(Expr):
-    def __init__(
-            self, fn: Callable,  return_type: ColumnType,
-            args: Optional[List[Any]] = None, tbl: Optional[catalog.Table] = None):
-        """
-        If args is None, interprets fn's arguments to be column references in 'tbl'.
-        """
-        super().__init__(return_type)
-        self.fn = fn
-        params = inspect.signature(self.fn).parameters
-        if args is not None:
-            required_params = [p for p in params.values() if p.default == inspect.Parameter.empty]
-            if len(args) < len(required_params):
+    def __init__(self, fn: Function, args: Tuple[Any] = None):
+        super().__init__(fn.return_type)
+        self.eval_fn = fn.eval_fn
+        params = inspect.signature(self.eval_fn).parameters
+        required_params = [p for p in params.values() if p.default == inspect.Parameter.empty]
+        if len(args) < len(required_params):
+            raise exc.OperationalError(
+                f"FunctionCall: number of arguments ({len(args)}) doesn't match the number of expected parameters "
+                f"({len(params)})")
+
+        if fn.param_types is not None:
+            # check if arg types match param types and convert values, if necessary
+            if len(args) != len(fn.param_types):
                 raise exc.OperationalError(
-                    f"FunctionCall: number of arguments ({len(args)}) doesn't match the number of expected parameters "
-                    f"({len(params)})")
-        else:
-            args: List[ColumnRef] = []
-            # we're constructing ColumnRefs for the function parameters;
-            # make sure that fn's params are valid col names in tbl
-            if len(params) > 0 and tbl is None:
-                raise exc.OperationalError(f'FunctionCall is missing tbl parameter')
-            for param_name in params:
-                if param_name not in tbl.cols_by_name:
-                    raise exc.OperationalError(
-                        (f'FunctionCall: lambda argument names need to be valid column names in table {tbl.name}: '
-                         'column {param_name} unknown'))
-                args.append(ColumnRef(tbl.cols_by_name[param_name]))
+                    f"Number of arguments doesn't match parameter list: {args} vs {fn.param_types}")
+            args = list(args)
+            for i in range(len(args)):
+                if not isinstance(args[i], Expr):
+                    # TODO: check non-Expr args
+                    continue
+                if args[i].col_type == fn.param_types[i]:
+                    # nothing to do
+                    continue
+                converter = args[i].col_type.conversion_fn(fn.param_types[i])
+                if converter is None:
+                    raise exc.OperationalError(f'Cannot convert {args[i]} to {fn.param_types[i]}')
+                if converter == ColumnType.no_conversion:
+                    # nothing to do
+                    continue
+                convert_fn = Function(converter, fn.param_types[i], [args[i].col_type])
+                args[i] = FunctionCall(convert_fn, (args[i],))
+
         self.children = [arg for arg in args if isinstance(arg, Expr)]
         self.args = [arg if not isinstance(arg, Expr) else None for arg in args]
 
     def _equals(self, other: 'FunctionCall') -> bool:
-        if self.fn != other.fn:
+        if self.eval_fn != other.eval_fn:
             return False
         if len(self.args) != len(other.args):
             return False
@@ -212,7 +218,7 @@ class FunctionCall(Expr):
             if args[j] is None:
                 args[j] = data_row[self.children[i].data_row_idx]
                 i += 1
-        data_row[self.data_row_idx] = self.fn(*args)
+        data_row[self.data_row_idx] = self.eval_fn(*args)
 
 
 def _caller_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
@@ -232,7 +238,7 @@ def _convert_return_type(caller: Expr, *args: object, **kwargs: object) -> Colum
     assert isinstance(mode_str, str)
     assert isinstance(caller.col_type, ImageType)
     return ImageType(
-        width=caller.col_type.width, height=caller.col_type.height, mode=ImageType.Mode.from_pil_mode(mode_str))
+        width=caller.col_type.width, height=caller.col_type.height, mode=ImageType.Mode.from_pil(mode_str))
 
 def _crop_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
     left, upper, right, lower = args[0]
@@ -364,16 +370,14 @@ class ImageMemberAccess(Expr):
 class ImageMethodCall(FunctionCall):
     """
     Ex.: tbl.img_col.rotate(90)
-    TODO:
-    - check arg types
-    - resolve Expr args in eval()
     """
     def __init__(self, method_name: str, caller: Expr, *args: object, **kwargs: object):
         assert method_name in _PIL_METHOD_INFO
         self.method_name = method_name
         method_info = _PIL_METHOD_INFO[self.method_name]
         return_type = method_info[1](caller, *args, **kwargs)
-        super().__init__(method_info[0], return_type, [caller, *args])
+        fn = Function(method_info[0], return_type, None)
+        super().__init__(fn, (caller, *args))
         # TODO: deal with kwargs
 
     def display_name(self) -> str:

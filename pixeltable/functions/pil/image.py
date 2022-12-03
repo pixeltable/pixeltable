@@ -1,7 +1,6 @@
 import PIL.Image
 
-from pixeltable.functions import Function
-from pixeltable.type_system import FloatType, ImageType
+from pixeltable.type_system import FloatType, ImageType, Function
 
 
 alpha_composite = Function(PIL.Image.alpha_composite, ImageType(), [ImageType(), ImageType()])

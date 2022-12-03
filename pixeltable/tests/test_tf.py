@@ -3,6 +3,8 @@ import copy
 
 from pixeltable import catalog
 from pixeltable.functions import dict_map
+from pixeltable.functions.tf import TFModelFunction
+from pixeltable.type_system import ImageType
 import pixeltable.tf
 
 
@@ -42,3 +44,12 @@ class TestTf:
         self.verify_type(df, ds)
         for row in ds:
             pass
+
+    def test_model_fn(self, test_img_tbl: catalog.Table) -> None:
+        model = tf.keras.applications.resnet50.ResNet50()
+        preprocess = tf.keras.applications.resnet50.preprocess_input
+        model_udf = TFModelFunction(model, ImageType(size=(224, 224), mode=ImageType.Mode.RGB), preprocess=preprocess)
+        t = test_img_tbl
+        df = t[model_udf(t.img)]
+        res = df.show(1)
+        print(res)
