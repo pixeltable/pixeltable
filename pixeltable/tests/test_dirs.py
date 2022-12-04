@@ -3,12 +3,12 @@ import pytest
 import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable.tests.utils import make_tbl
+from pixeltable import catalog
 
 
 class TestDirs:
-    def test_create(self, test_env) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
+    def test_create(self, test_db: catalog.Db) -> None:
+        db = test_db
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             db.create_dir(name)
@@ -62,9 +62,8 @@ class TestDirs:
         listing = db.list_dirs('dir1.sub1', recursive=False)
         assert listing == ['dir1.sub1.subsub1']
 
-    def test_rm(self, test_env) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
+    def test_rm(self, test_db: catalog.Db) -> None:
+        db = test_db
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             db.create_dir(name)
@@ -88,9 +87,8 @@ class TestDirs:
         with pytest.raises(exc.UnknownEntityError):
             db.list_tables('dir1')
 
-    def test_rename_tbl(self, test_env) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
+    def test_rename_tbl(self, test_db: catalog.Db) -> None:
+        db = test_db
         db.create_dir('dir1')
         make_tbl(db, 'dir1.t1')
         assert db.list_tables('dir1') == ['dir1.t1']

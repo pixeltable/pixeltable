@@ -6,7 +6,6 @@ from sqlalchemy import ForeignKey, UniqueConstraint, ForeignKeyConstraint
 from sqlalchemy.orm import declarative_base
 
 from pixeltable import type_system as pt_types
-from pixeltable import env
 
 Base = declarative_base()
 
@@ -95,7 +94,8 @@ class StorageColumn(Base):
 class TableSchemaVersion(Base):
     __tablename__ = 'tableschemaversions'
 
-    tbl_id = sql.Column(Integer, ForeignKey('tables.id'), primary_key=True, nullable=False)
+    # use_alter=True: avoid warning about an FK constraint cycle between Table and TableSchemaVersion
+    tbl_id = sql.Column(Integer, ForeignKey('tables.id', use_alter=True), primary_key=True, nullable=False)
     schema_version = sql.Column(BigInteger, primary_key=True, nullable=False)
     preceding_schema_version = sql.Column(BigInteger, nullable=False)
 

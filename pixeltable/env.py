@@ -40,16 +40,14 @@ def get_engine() -> sql.engine.base.Engine:
     assert __sa_engine is not None
     return __sa_engine
 
-def init_env(home_parent: Optional[Path] = Path.home(), engine: Optional[sql.engine.base.Engine] = None) -> None:
+def init_env(home_parent: Optional[Path] = Path.home(), echo: bool = False) -> None:
     set_home(home_parent / '.pixeltable')
     if __home.exists() and not __home.is_dir():
         raise RuntimeError(f'{__home} is not a directory')
 
     global __sa_engine
-    if engine is not None:
-        __sa_engine = engine
-    elif __sa_engine is None:
-        __sa_engine = sql.create_engine(f'sqlite:///{str(__db_path)}', echo=False, future=True)
+    if __sa_engine is None:
+        __sa_engine = sql.create_engine(f'sqlite:///{str(__db_path)}', echo=echo, future=True)
 
     if not __home.exists():
         print(f'creating {__home}')
@@ -60,3 +58,7 @@ def init_env(home_parent: Optional[Path] = Path.home(), engine: Optional[sql.eng
         with sqlite3.connect(__db_path):
             from pixeltable import store
             store.init_db(__sa_engine)
+
+def teardown_env() -> None:
+    from pixeltable import store
+    store.Base.metadata.drop_all(__sa_engine)

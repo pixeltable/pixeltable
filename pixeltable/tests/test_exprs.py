@@ -80,8 +80,8 @@ class TestExprs:
         _ = t[t.c2 > 50].show()
         print(_)
 
-    def test_select_list(self, test_img_tbl: catalog.Table) -> None:
-        t = test_img_tbl
+    def test_select_list(self, img_tbl) -> None:
+        t = img_tbl
         result = t[t.img].show(n=100)
         _ = result._repr_html_()
         df = t[t.img, udf_call(lambda img: img.rotate(60), ImageType(), tbl=t)]
@@ -89,8 +89,8 @@ class TestExprs:
         df = t[[t.img, t.img.rotate(60)]]
         _ = df.show(n=100)._repr_html_()
 
-    def test_img_members(self, test_img_tbl: catalog.Table) -> None:
-        t = test_img_tbl
+    def test_img_members(self, img_tbl) -> None:
+        t = img_tbl
         result = t[t.img.crop((10, 10, 60, 60))].show(n=100)
         result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100))].show(n=100)
         result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100)).convert('L')].show(n=100)
@@ -98,8 +98,8 @@ class TestExprs:
         result = t[t.img, t.img.height, t.img.rotate(90)].show(n=100)
         _ = result._repr_html_()
 
-    def test_img_functions(self, test_img_tbl: catalog.Table) -> None:
-        t = test_img_tbl
+    def test_img_functions(self, img_tbl) -> None:
+        t = img_tbl
         result = t[blend(t.img, t.img.rotate(90), 0.5)].show(100)
         print(result)
         result = t[encode_image(t.img)].show(10)
@@ -124,8 +124,14 @@ class TestExprs:
         ][t.img, t.split].show()
         print(result)
 
-    def test_similarity(self, test_indexed_img_tbl: catalog.Table, test_img_tbl: catalog.Table) -> None:
-        t = test_indexed_img_tbl
+    def test_categoricals_map(self, img_tbl) -> None:
+        t = img_tbl
+        m = t[t.category].categorical_map()
+        _ = t[dict_map(t.category, m)].show()
+        print(_)
+
+    def test_similarity(self, indexed_img_tbl: catalog.Table) -> None:
+        t = indexed_img_tbl
         _ = t.show(30)
         probe = t[t.img, t.category].show(1)
         img = probe[0, 0]
@@ -145,14 +151,14 @@ class TestExprs:
         ].show(10)
         #assert len(result) == 6
 
-        t = test_img_tbl
+    # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
+    # doesn't get created; why?
+    def test_similarity2(self, img_tbl: catalog.Table) -> None:
+        t = img_tbl
+        probe = t[t.img].show(1)
+        img = probe[0, 0]
+
         with pytest.raises(exc.OperationalError):
             _ = t[t.img.nearest(img)].show(10)
         with pytest.raises(exc.OperationalError):
             _ = t[t.img.matches('musical instrument')].show(10)
-
-    def test_categoricals_map(self, test_img_tbl: catalog.Table) -> None:
-        t = test_img_tbl
-        m = t[t.category].categorical_map()
-        _ = t[dict_map(t.category, m)].show()
-        print(_)

@@ -1,7 +1,6 @@
 import numpy as np
 
 import pytest
-import sqlalchemy as sql
 
 import pixeltable as pt
 import pixeltable.catalog as catalog
@@ -9,56 +8,59 @@ from pixeltable.type_system import StringType, ImageType
 from pixeltable.tests.utils import read_data_file, make_tbl, create_table_data
 
 
-def init_env(tmp_path) -> None:
-    engine = sql.create_engine('sqlite:///:memory:', echo=True)
+@pytest.fixture(scope='session')
+def init_db(tmp_path_factory) -> None:
     from pixeltable import env
-    env.init_env(tmp_path, engine)
+    # this also runs create_all()
+    env.init_env(tmp_path_factory.mktemp('base'), echo=True)
+    yield
+    env.teardown_env()
 
 
 @pytest.fixture(scope='function')
-def test_env(tmp_path) -> None:
-    init_env(tmp_path)
-
-
-@pytest.fixture(scope='function')
-def test_tbl(test_env) -> catalog.Table:
+def test_db(init_db: None) -> pt.Db:
     cl = pt.Client()
-    db = cl.create_db('test')
-    t = make_tbl(db, 'test_tbl', ['c1', 'c2', 'c3', 'c4'])
+    db = cl.create_db(f'test')
+    yield db
+    cl.drop_db(db.name, force=True)
+
+
+@pytest.fixture(scope='function')
+def test_tbl(test_db: pt.Db) -> catalog.Table:
+    t = make_tbl(test_db, 'test_tbl', ['c1', 'c2', 'c3', 'c4'])
     data = create_table_data(t)
     t.insert_pandas(data)
     return t
 
 
 @pytest.fixture(scope='function')
-def test_img_tbl(test_env) -> catalog.Table:
-    cl = pt.Client()
-    db = cl.create_db('test_img')
+def img_tbl(test_db: pt.Db) -> catalog.Table:
     cols = [
         catalog.Column('img', ImageType(), nullable=False),
         catalog.Column('category', StringType(), nullable=False),
         catalog.Column('split', StringType(), nullable=False),
     ]
-    tbl = db.create_table('test_img_tbl', cols, indexed=False)
+    # this table is not indexed in order to avoid the cost of computing embeddings
+    tbl = test_db.create_table('test_img_tbl', cols, indexed=False)
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     tbl.insert_pandas(df)
     return tbl
 
 
-# TODO: figure out how to create a session-wide db
+# TODO: why does this not work with a session scope? (some user tables don't get created with create_all())
 #@pytest.fixture(scope='session')
-#def test_indexed_img_tbl(tmp_path_factory) -> catalog.Table:
-#    init_env(tmp_path_factory.mktemp('base'))
+#def indexed_img_tbl(init_db: None) -> catalog.Table:
+#    cl = pt.Client()
+#    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')
-def test_indexed_img_tbl(test_env) -> catalog.Table:
-    cl = pt.Client()
-    db = cl.create_db('test_indexed')
+def indexed_img_tbl(test_db: pt.Db) -> catalog.Table:
+    db = test_db
     cols = [
         catalog.Column('img', ImageType(), nullable=False),
         catalog.Column('category', StringType(), nullable=False),
         catalog.Column('split', StringType(), nullable=False),
     ]
-    tbl = db.create_table('test_img_tbl', cols, indexed=True)
+    tbl = db.create_table('test_indexed_img_tbl', cols, indexed=True)
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     # select rows randomly in the hope of getting a good sample of the available categories
     rng = np.random.default_rng(17)

@@ -623,6 +623,9 @@ class PathDict:
         if not isinstance(parent, expected_parent_type):
             raise exc.UnknownEntityError(f'{str(parent_path)} needs to be a {expected_parent_type.display_name()}')
 
+    def get(self, path_type: Type[SchemaObject]) -> List[Path]:
+        return [obj for _, obj in self.paths.items() if isinstance(obj, path_type)]
+
     def get_children(self, parent: Path, child_type: Optional[Type[SchemaObject]], recursive: bool) -> List[Path]:
         candidates = [
             Path(path, empty_is_valid=True)
@@ -852,3 +855,21 @@ class Db:
                 return Db(db_record.id, db_record.name)
             except sql.exc.NoResultFound:
                 raise exc.UnknownEntityError(f'Db {name}')
+
+    def delete(self) -> None:
+        """
+        Delete db and all associated data.
+        """
+        with env.get_engine().begin() as conn:
+            conn.execute(sql.delete(store.TableSnapshot.__table__).where(store.TableSnapshot.db_id == self.id))
+            tbls_stmt = sql.select(store.Table.id).where(store.Table.db_id == self.id)
+            conn.execute(sql.delete(store.SchemaColumn.__table__).where(store.SchemaColumn.tbl_id.in_(tbls_stmt)))
+            conn.execute(sql.delete(store.StorageColumn.__table__).where(store.StorageColumn.tbl_id.in_(tbls_stmt)))
+            conn.execute(
+                sql.delete(store.TableSchemaVersion.__table__).where(store.TableSchemaVersion.tbl_id.in_(tbls_stmt)))
+            conn.execute(sql.delete(store.Table.__table__).where(store.Table.db_id == self.id))
+            conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.db_id == self.id))
+            conn.execute(sql.delete(store.Db.__table__).where(store.Db.id == self.id))
+            # delete all data tables
+            for tbl in self.paths.get(MutableTable):
+                tbl.sa_md.drop_all(bind=conn)

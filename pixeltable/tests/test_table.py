@@ -8,9 +8,8 @@ from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
 
 
 class TestTable:
-    def test_create(self, test_env) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
+    def test_create(self, test_db: catalog.Db) -> None:
+        db = test_db
         db.create_dir('dir1')
         c1 = catalog.Column('c1', StringType(), nullable=False)
         c2 = catalog.Column('c2', IntType(), nullable=False)
@@ -59,9 +58,8 @@ class TestTable:
         with pytest.raises(exc.BadFormatError):
             db.drop_table('.test2')
 
-    def test_create_images(self, test_env) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
+    def test_create_images(self, test_db: catalog.Db) -> None:
+        db = test_db
         cols = [
             catalog.Column('img', ImageType(), nullable=False),
             catalog.Column('category', StringType(), nullable=False),
@@ -76,9 +74,8 @@ class TestTable:
         # TODO: check html_str
 
     @pytest.mark.dependency(name='test_insert')
-    def test_insert(self, test_env) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
+    def test_insert(self, test_db: catalog.Db) -> None:
+        db = test_db
         t1 = make_tbl(db, 'test1', ['c1', 'c2'])
         data1 = create_table_data(t1)
         t1.insert_pandas(data1)
@@ -91,9 +88,8 @@ class TestTable:
             t1.insert_pandas(t2_data)
 
     @pytest.mark.dependency(depends=['test_insert'])
-    def test_query(self, test_env) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
+    def test_query(self, test_db: catalog.Db) -> None:
+        db = test_db
         t = make_tbl(db, 'test', ['c1', 'c2', 'c3', 'c4', 'c5'])
         t_data = create_table_data(t)
         t.insert_pandas(t_data)
@@ -106,9 +102,8 @@ class TestTable:
         _  = t2.show(n=0)
 
     @pytest.mark.dependency(depends=['test_insert'])
-    def test_revert(self, test_env) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
+    def test_revert(self, test_db: catalog.Db) -> None:
+        db = test_db
         t1 = make_tbl(db, 'test1', ['c1', 'c2'])
         data1 = create_table_data(t1)
         t1.insert_pandas(data1)
@@ -122,9 +117,8 @@ class TestTable:
         assert t1.count() == len(data1) + len(data2)
 
     @pytest.mark.dependency(depends=['test_insert'])
-    def test_snapshot(self, test_env) -> None:
-        cl = pt.Client()
-        db = cl.create_db('test')
+    def test_snapshot(self, test_db: catalog.Db) -> None:
+        db = test_db
         db.create_dir('main')
         tbl = make_tbl(db, 'main.test1', ['c1', 'c2'])
         data1 = create_table_data(tbl)

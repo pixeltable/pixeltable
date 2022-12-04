@@ -18,10 +18,18 @@ class Client:
         env.init_env()
 
     def create_db(self, name: str) -> catalog.Db:
-        return catalog.Db.create(name)
+        db = catalog.Db.create(name)
+        self.db_cache[name] = db
+        return db
 
     def drop_db(self, name: str, force: bool = False) -> None:
-        pass
+        if not force:
+            return
+        if name in self.db_cache:
+            self.db_cache[name].delete()
+            del self.db_cache[name]
+        else:
+            catalog.Db.load(name).delete()
 
     def get_db(self, name: str) -> catalog.Db:
         if name in self.db_cache:

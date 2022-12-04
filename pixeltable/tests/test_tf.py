@@ -23,8 +23,8 @@ class TestTf:
             if col_type.is_image_type():
                 assert ds.element_spec[i].shape == (col_type.height, col_type.width, col_type.num_channels)
 
-    def test_basic(self, test_img_tbl: catalog.Table) -> None:
-        t = test_img_tbl
+    def test_basic(self, img_tbl: catalog.Table) -> None:
+        t = img_tbl
         m = t[t.category].categorical_map()
         # image types with increasingly specific dimensions
         df = t[t.img, dict_map(t.category, m)]
@@ -45,11 +45,11 @@ class TestTf:
         for row in ds:
             pass
 
-    def test_model_fn(self, test_img_tbl: catalog.Table) -> None:
+    def test_model_fn(self, img_tbl: catalog.Table) -> None:
         model = tf.keras.applications.resnet50.ResNet50()
         preprocess = tf.keras.applications.resnet50.preprocess_input
         model_udf = TFModelFunction(model, ImageType(size=(224, 224), mode=ImageType.Mode.RGB), preprocess=preprocess)
-        t = test_img_tbl
+        t = img_tbl
         df = t[model_udf(t.img)]
         res = df.show(1)
         print(res)
