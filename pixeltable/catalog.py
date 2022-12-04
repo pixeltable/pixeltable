@@ -198,9 +198,12 @@ class TableSnapshot(Table):
         assert snapshot_record.dir_id is not None
         assert snapshot_record.name is not None
         assert snapshot_record.tbl_version is not None
+        # the id of this SchemaObject is TableSnapshot.tbl_id, not TableSnapshot.id: we use tbl_id to construct
+        # the name of the data table
         super().__init__(
-            snapshot_record.db_id, snapshot_record.id, snapshot_record.dir_id, snapshot_record.name,
+            snapshot_record.db_id, snapshot_record.tbl_id, snapshot_record.dir_id, snapshot_record.name,
             snapshot_record.tbl_version, is_indexed, cols)
+        self.snapshot_tbl_id = snapshot_record.id
         # it's safe to call _load_valid_rowids() here because the storage table already exists
         self._load_valid_rowids()
 
@@ -510,16 +513,19 @@ class MutableTable(Table):
             tbl_version_record = store.TableSchemaVersion(
                 tbl_id=tbl_record.id, schema_version=0, preceding_schema_version=0)
             session.add(tbl_version_record)
+            session.flush()  # avoid FK violations in Postgres
             print(f'creating table {name}, id={tbl_record.id}')
 
             for pos, col in enumerate(cols):
                 col.set_id(pos)
                 session.add(store.StorageColumn(tbl_id=tbl_record.id, col_id=col.id, schema_version_add=0))
+                session.flush()  # avoid FK violations in Postgres
                 session.add(
                     store.SchemaColumn(
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
                         col_type=col.col_type.type_enum, is_nullable=col.nullable, is_pk=col.primary_key)
                 )
+                session.flush()  # avoid FK violations in Postgres
 
                 # for image cols, add VectorIndex for kNN search
                 if is_indexed and col.col_type.is_image_type():
@@ -754,26 +760,24 @@ class Db:
             self.paths[path] = Dir(dir_record.id)
             session.commit()
 
-    def rm_dir(self, path_str: str, force: bool = False) -> None:
+    def rm_dir(self, path_str: str) -> None:
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=Dir)
 
-        if not force:
-            # make sure it's empty
-            if len(self.paths.get_children(path, child_type=None, recursive=True)) > 0:
-                raise exc.DirectoryNotEmptyError(f'Directory {path_str}')
-        else:
-            # delete tables
-            for tbl_path in self.paths.get_children(path, child_type=Table, recursive=True):
-                self.drop_table(str(tbl_path), force=True)
-            # rm subdirs
-            for dir_path in self.paths.get_children(path, child_type=DirBase, recursive=False):
-                self.rm_dir(str(dir_path), force=True)
+        # make sure it's empty
+        if len(self.paths.get_children(path, child_type=None, recursive=True)) > 0:
+            raise exc.DirectoryNotEmptyError(f'Directory {path_str}')
+        # TODO: figure out how to make force=True work in the presence of snapshots
+#        # delete tables
+#        for tbl_path in self.paths.get_children(path, child_type=Table, recursive=True):
+#            self.drop_table(str(tbl_path), force=True)
+#        # rm subdirs
+#        for dir_path in self.paths.get_children(path, child_type=DirBase, recursive=False):
+#            self.rm_dir(str(dir_path), force=True)
 
-        with env.get_engine().connect() as conn:
-            with conn.begin():
-                dir = self.paths[path]
-                conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.id == dir.id))
+        with env.get_engine().begin() as conn:
+            dir = self.paths[path]
+            conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.id == dir.id))
         del self.paths[path]
 
     def list_dirs(self, path_str: str = '', recursive: bool = True) -> List[str]:

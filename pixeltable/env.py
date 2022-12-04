@@ -1,7 +1,7 @@
 from typing import Optional
-import sqlite3
 from pathlib import Path
 import sqlalchemy as sql
+from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 
 
 __home: Optional[Path] = None
@@ -46,8 +46,10 @@ def init_env(home_parent: Optional[Path] = Path.home(), echo: bool = False) -> N
         raise RuntimeError(f'{__home} is not a directory')
 
     global __sa_engine
+    engine_url = 'postgresql:///test'
+    #engine_url = f'sqlite:///{str(__db_path)}'
     if __sa_engine is None:
-        __sa_engine = sql.create_engine(f'sqlite:///{str(__db_path)}', echo=echo, future=True)
+        __sa_engine = sql.create_engine(engine_url, echo=echo, future=True)
 
     if not __home.exists():
         print(f'creating {__home}')
@@ -55,10 +57,11 @@ def init_env(home_parent: Optional[Path] = Path.home(), echo: bool = False) -> N
         _ = __home
         __img_dir.mkdir()
         __nnidx_dir.mkdir()
-        with sqlite3.connect(__db_path):
-            from pixeltable import store
-            store.init_db(__sa_engine)
+        if not database_exists(__sa_engine.url):
+            create_database(__sa_engine.url)
+        from pixeltable import store
+        store.Base.metadata.create_all(__sa_engine)
 
 def teardown_env() -> None:
-    from pixeltable import store
-    store.Base.metadata.drop_all(__sa_engine)
+    engine_url = 'postgresql:///test'
+    drop_database(engine_url)

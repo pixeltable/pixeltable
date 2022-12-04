@@ -9,9 +9,6 @@ from pixeltable import type_system as pt_types
 
 Base = declarative_base()
 
-def init_db(engine: sql.engine.base.Engine) -> None:
-    Base.metadata.create_all(engine)
-
 
 class Db(Base):
     __tablename__ = 'dbs'
@@ -60,12 +57,21 @@ class Table(Base):
     next_row_id = sql.Column(BigInteger, nullable=False)
 
     __table_args__ = (
-        ForeignKeyConstraint(
-            ['id', 'current_schema_version'], ['tableschemaversions.tbl_id', 'tableschemaversions.schema_version']),
+        #ForeignKeyConstraint(
+            #['id', 'current_schema_version'], ['tableschemaversions.tbl_id', 'tableschemaversions.schema_version']),
     )
 
     def storage_name(self) -> str:
         return f'tbl_{self.db_id}_{self.id}'
+
+
+# versioning: each table schema change results in a new record
+class TableSchemaVersion(Base):
+    __tablename__ = 'tableschemaversions'
+
+    tbl_id = sql.Column(Integer, ForeignKey('tables.id'), primary_key=True, nullable=False)
+    schema_version = sql.Column(BigInteger, primary_key=True, nullable=False)
+    preceding_schema_version = sql.Column(BigInteger, nullable=False)
 
 
 # - records the physical schema of a table, ie, the columns that are actually stored
@@ -88,16 +94,6 @@ class StorageColumn(Base):
         ForeignKeyConstraint(
             ['tbl_id', 'schema_version_drop'], ['tableschemaversions.tbl_id', 'tableschemaversions.schema_version'])
     )
-
-
-# versioning: each table schema change results in a new record
-class TableSchemaVersion(Base):
-    __tablename__ = 'tableschemaversions'
-
-    # use_alter=True: avoid warning about an FK constraint cycle between Table and TableSchemaVersion
-    tbl_id = sql.Column(Integer, ForeignKey('tables.id', use_alter=True), primary_key=True, nullable=False)
-    schema_version = sql.Column(BigInteger, primary_key=True, nullable=False)
-    preceding_schema_version = sql.Column(BigInteger, nullable=False)
 
 
 # - records the logical (user-visible) schema of a table

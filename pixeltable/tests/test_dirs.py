@@ -81,11 +81,6 @@ class TestDirs:
 
         with pytest.raises(exc.DirectoryNotEmptyError):
             db.rm_dir('dir1')
-        db.rm_dir('dir1', force=True)
-        with pytest.raises(exc.UnknownEntityError):
-            db.list_dirs('dir1')
-        with pytest.raises(exc.UnknownEntityError):
-            db.list_tables('dir1')
 
     def test_rename_tbl(self, test_db: catalog.Db) -> None:
         db = test_db
