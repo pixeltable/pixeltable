@@ -374,23 +374,33 @@ class MutableTable(Table):
                 raise exc.InsertError(f'Column {col.name} requires datetime data')
             if col.col_type.is_image_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires local file paths')
+            if col.col_type.is_dict_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
+                raise exc.InsertError(f'Column {col.name} requires dictionary data')
 
         rowids = range(self.next_row_id, self.next_row_id + len(data))
-        if self.is_indexed:
-            # check image data and build index
-            image_cols = [col for col in inserted_cols if col.col_type.is_image_type()]
-            for col in image_cols:
+
+        # check data
+        for col in inserted_cols:
+            # image cols: make sure file path points to a valid image file; build index if col is indexed
+            if col.col_type.is_image_type():
                 embeddings = np.zeros((len(data), 512))
                 for i, (_, path_str) in tqdm(enumerate(data[col.name].items())):
                     try:
                         img = Image.open(path_str)
-                        embeddings[i] = clip.encode_image(img)
+                        if self.is_indexed:
+                            embeddings[i] = clip.encode_image(img)
                     except FileNotFoundError:
                         raise exc.OperationalError(f'Column {col.name}: file does not exist: {path_str}')
                     except PIL.UnidentifiedImageError:
                         raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
-                assert col.idx is not None
-                col.idx.insert(embeddings, np.array(rowids))
+                if self.is_indexed:
+                    assert col.idx is not None
+                    col.idx.insert(embeddings, np.array(rowids))
+
+            if col.col_type.is_dict_type():
+                for _, d in data[col.name].items():
+                    if not isinstance(d, dict):
+                        raise exc.OperationalError(f'Value for column {col.name} is not a valid dict: {d} ')
 
         # we're creating a new version
         self.version += 1

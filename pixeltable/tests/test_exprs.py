@@ -80,6 +80,15 @@ class TestExprs:
         _ = t[t.c2 > 50].show()
         print(_)
 
+    def test_dicts(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        _ = t[t.c6.detections['*'].iscrowd].show()
+        print(_)
+        _ = t[t.c6.detections['*'].bounding_box].show()
+        print(_)
+        _ = t[t.c6.detections['*'].bounding_box[0]].show()
+        print(_)
+
     def test_select_list(self, img_tbl) -> None:
         t = img_tbl
         result = t[t.img].show(n=100)
@@ -88,6 +97,9 @@ class TestExprs:
         _ = df.show(n=100)._repr_html_()
         df = t[[t.img, t.img.rotate(60)]]
         _ = df.show(n=100)._repr_html_()
+
+        with pytest.raises(exc.OperationalError):
+            _ = t[t.img.rotate]
 
     def test_img_members(self, img_tbl) -> None:
         t = img_tbl

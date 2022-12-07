@@ -48,8 +48,9 @@ class TestTf:
     def test_model_fn(self, img_tbl: catalog.Table) -> None:
         model = tf.keras.applications.resnet50.ResNet50()
         preprocess = tf.keras.applications.resnet50.preprocess_input
-        model_udf = TFModelFunction(model, ImageType(size=(224, 224), mode=ImageType.Mode.RGB), preprocess=preprocess)
+        model_udf = TFModelFunction(
+            model, ImageType(size=(224, 224), mode=ImageType.Mode.RGB), output_shape=(1000,),preprocess=preprocess)
         t = img_tbl
         df = t[model_udf(t.img)]
         res = df.show(1)
-        print(res)
+        _ = res._repr_html_()

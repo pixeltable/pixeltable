@@ -27,11 +27,47 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
 def make_tbl(db: pt.Db, name: str = 'test', col_names: List[str] = ['c1']) -> pt.MutableTable:
     schema: List[catalog.Column] = []
     for i, col_name in enumerate(col_names):
-        schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type((i % 5) + 1))))
+        schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type(i % 5))))
     return db.create_table(name, schema)
 
 def create_table_data(t: catalog.Table, num_rows: int = 10) -> pd.DataFrame:
     data: Dict[str, Any] = {}
+    sample_dict = {
+        'detections': [{
+            'id': '637e8e073b28441a453564cf',
+            'attributes': {},
+            'tags': [],
+            'label': 'potted plant',
+            'bounding_box': [
+                0.37028125,
+                0.3345305164319249,
+                0.038593749999999996,
+                0.16314553990610328,
+            ],
+            'mask': None,
+            'confidence': None,
+            'index': None,
+            'supercategory': 'furniture',
+            'iscrowd': 0,
+        }, {
+            'id': '637e8e073b28441a453564cf',
+            'attributes': {},
+            'tags': [],
+            'label': 'potted plant',
+            'bounding_box': [
+                0.37028125,
+                0.3345305164319249,
+                0.038593749999999996,
+                0.16314553990610328,
+            ],
+            'mask': None,
+            'confidence': None,
+            'index': None,
+            'supercategory': 'furniture',
+            'iscrowd': 0,
+        }]
+    }
+
     for col in t.columns():
         col_data: Any = None
         if col.col_type.is_string_type():
@@ -45,9 +81,10 @@ def create_table_data(t: catalog.Table, num_rows: int = 10) -> pd.DataFrame:
             col_data = [False if i == 0 else True for i in col_data]
         if col.col_type.is_timestamp_type():
             col_data = datetime.datetime.now()
+        if col.col_type.is_dict_type():
+            col_data = [sample_dict] * num_rows
         # TODO: implement this
         assert not col.col_type.is_image_type()
-        assert not col.col_type.is_dict_type()
         assert not col.col_type.is_array_type()
         data[col.name] = col_data
     return pd.DataFrame(data=data)

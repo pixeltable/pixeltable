@@ -8,13 +8,14 @@ from typing import Union, Optional, List, Callable, Any, Dict, Tuple
 import operator
 
 import PIL.Image
+import jmespath
 import numpy as np
 import sqlalchemy as sql
 
 from pixeltable import catalog
 from pixeltable.type_system import \
     ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, DictType, ArrayType, \
-    Function
+    Function, UnknownType
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
 
@@ -145,6 +146,11 @@ class ColumnRef(Expr):
     def __init__(self, col: catalog.Column):
         super().__init__(col.col_type)
         self.col = col
+
+    def __getattr__(self, name: str) -> Expr:
+        if self.col_type.is_dict_type():
+            return DictPath(self).__getattr__(name)
+        return super().__getattr__(name)
 
     def display_name(self) -> str:
         return self.col.name
@@ -327,9 +333,12 @@ class ImageMemberAccess(Expr):
     def display_name(self) -> str:
         return self.member_name
 
+    def _caller(self) -> Expr:
+        return self.children[0]
+
     # TODO: correct signature?
     def __call__(self, *args, **kwargs) -> Union['ImageMethodCall', 'ImageSimilarityPredicate']:
-        caller = self.children[0]
+        caller = self._caller()
         call_signature = f'({",".join([type(arg).__name__ for arg in args])})'
         if self.member_name == 'nearest':
             # - caller must be ColumnRef
@@ -360,7 +369,7 @@ class ImageMemberAccess(Expr):
         return None
 
     def eval(self, data_row: List[Any]) -> None:
-        caller_val = data_row[self.children[0].data_row_idx]
+        caller_val = data_row[self._caller().data_row_idx]
         try:
             data_row[self.data_row_idx] = getattr(caller_val, self.member_name)
         except AttributeError:
@@ -382,6 +391,64 @@ class ImageMethodCall(FunctionCall):
 
     def display_name(self) -> str:
         return self.method_name
+
+
+class DictPath(Expr):
+    def __init__(self, anchor: ColumnRef, path_elements: List[str] = []):
+        super().__init__(UnknownType())
+        self.children = [anchor]
+        self.path_elements: List[Union[str, int]] = path_elements
+        self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 1 else None
+
+    def _anchor(self) -> Expr:
+        return self.children[0]
+
+    def __getattr__(self, name: str) -> 'DictPath':
+        assert isinstance(name, str)
+        return DictPath(self._anchor(), self.path_elements + [name])
+
+    def __getitem__(self, index: object) -> 'DictPath':
+        if isinstance(index, str) and index != '*':
+            raise exc.OperationalError(f'A DictType path index ')
+        return DictPath(self._anchor(), self.path_elements + [index])
+
+    def display_name(self) -> str:
+        return f'{self._anchor().col.name}.{self._json_path()}'
+
+    def _equals(self, other: 'DictPath') -> bool:
+        return self.path_elements == other.path_elements
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        """
+        Postgres appears to have a bug: jsonb_path_query('{a: [{b: 0}, {b: 1}]}', '$.a.b') returns
+        *two* rows (each containing col val 0), not a single row with [0, 0].
+        We need to use a workaround: retrieve the entire dict, then use jmespath to extract the path correctly.
+        """
+        #path_str = '$.' + '.'.join(self.path_elements)
+        #assert isinstance(self._anchor(), ColumnRef)
+        #return sql.func.jsonb_path_query(self._anchor().col.sa_col, path_str)
+        return None
+
+    def _json_path(self) -> str:
+        assert len(self.path_elements) > 0
+        first_element = self.path_elements[0]
+        assert isinstance(first_element, str) and first_element != '*'
+        result: List[str] = [first_element]
+        for element in self.path_elements[1:]:
+            if element == '*':
+                result.append('[*]')
+            elif isinstance(element, str):
+                result.append(f'.{element}')
+            elif isinstance(element, int):
+                result.append(f'[{element}]')
+        return ''.join(result)
+
+    def eval(self, data_row: List[Any]) -> None:
+        assert self.compiled_path is not None  # there should always be at least one path element
+        _ = self._json_path()
+        dict_val = data_row[self._anchor().data_row_idx]
+        val = self.compiled_path.search(dict_val)
+        data_row[self.data_row_idx] = val
 
 
 class Literal(Expr):

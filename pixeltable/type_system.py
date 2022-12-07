@@ -10,15 +10,20 @@ import sqlalchemy as sql
 class ColumnType:
     @enum.unique
     class Type(enum.Enum):
-        INVALID = 0
-        STRING = 1
-        INT = 2
-        FLOAT = 3
-        BOOL = 4
-        TIMESTAMP = 5
-        IMAGE = 6
-        DICT = 7
-        ARRAY = 8
+        STRING = 0
+        INT = 1
+        FLOAT = 2
+        BOOL = 3
+        TIMESTAMP = 4
+        IMAGE = 5
+        DICT = 6
+        ARRAY = 7
+
+        # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
+        INVALID = 8
+
+        # Dict path yield values for which the type is only known at runtime
+        UNKNOWN = 9
 
     @enum.unique
     class DType(enum.Enum):
@@ -95,6 +100,9 @@ class ColumnType:
     def is_invalid_type(self) -> bool:
         return self._type == self.Type.INVALID
 
+    def is_unknown_type(self) -> bool:
+        return self._type == self.Type.UNKNOWN
+
     def is_string_type(self) -> bool:
         return self._type == self.Type.STRING
 
@@ -163,7 +171,7 @@ class ColumnType:
             # the URL
             return sql.String
         if self._type == self.Type.DICT:
-            return sql.String
+            return sql.dialects.postgresql.JSONB
         if self._type == self.Type.ARRAY:
             return sql.VARBINARY
         assert False
@@ -188,6 +196,10 @@ class ColumnType:
 class InvalidType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.INVALID)
+
+class UnknownType(ColumnType):
+    def __init__(self):
+        super().__init__(self.Type.UNKNOWN)
 
 class StringType(ColumnType):
     def __init__(self):

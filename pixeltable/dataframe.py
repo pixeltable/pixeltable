@@ -306,6 +306,9 @@ class DataFrame:
             for expr in index:
                 if not isinstance(expr, exprs.Expr):
                     raise exc.OperationalError(f'Invalid expression in []: {expr}')
+                if expr.col_type.is_invalid_type():
+                    raise exc.OperationalError(f'Invalid type: {expr}')
+                # TODO: check that ColumnRefs in expr refer to self.tbl
             return DataFrame(self.tbl, select_list=index, where_clause=self.where_clause)
         raise TypeError(f'Invalid index type: {type(index)}')
 
