@@ -81,7 +81,7 @@ def create_table_data(t: catalog.Table, num_rows: int = 10) -> pd.DataFrame:
             col_data = [False if i == 0 else True for i in col_data]
         if col.col_type.is_timestamp_type():
             col_data = datetime.datetime.now()
-        if col.col_type.is_dict_type():
+        if col.col_type.is_json_type():
             col_data = [sample_dict] * num_rows
         # TODO: implement this
         assert not col.col_type.is_image_type()

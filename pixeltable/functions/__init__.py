@@ -1,7 +1,7 @@
 from typing import Callable, List, Optional
 import inspect
 
-from pixeltable.type_system import StringType, IntType, DictType, Function
+from pixeltable.type_system import StringType, IntType, JsonType, Function, ColumnType
 from pixeltable import catalog
 from pixeltable import exprs
 import pixeltable.exceptions as exc
@@ -24,10 +24,14 @@ def udf_call(eval_fn: Callable, return_type: exprs.ColumnType, tbl: Optional[cat
     fn = Function(eval_fn, return_type, None)
     return exprs.FunctionCall(fn, args)
 
+def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
+    expr.col_type = target_type
+    return expr
 
-dict_map = Function(lambda s, d: d[s], IntType(), [StringType(), DictType()])
+dict_map = Function(lambda s, d: d[s], IntType(), [StringType(), JsonType()])
 
 __all__ = [
     udf_call,
+    cast,
     dict_map
 ]

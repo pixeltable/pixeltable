@@ -374,7 +374,7 @@ class MutableTable(Table):
                 raise exc.InsertError(f'Column {col.name} requires datetime data')
             if col.col_type.is_image_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires local file paths')
-            if col.col_type.is_dict_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
+            if col.col_type.is_json_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires dictionary data')
 
         rowids = range(self.next_row_id, self.next_row_id + len(data))
@@ -397,10 +397,11 @@ class MutableTable(Table):
                     assert col.idx is not None
                     col.idx.insert(embeddings, np.array(rowids))
 
-            if col.col_type.is_dict_type():
-                for _, d in data[col.name].items():
-                    if not isinstance(d, dict):
-                        raise exc.OperationalError(f'Value for column {col.name} is not a valid dict: {d} ')
+            if col.col_type.is_json_type():
+                for idx, d in data[col.name].items():
+                    if not isinstance(d, dict) and not isinstance(d, list):
+                        raise exc.OperationalError(
+                            f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
         # we're creating a new version
         self.version += 1

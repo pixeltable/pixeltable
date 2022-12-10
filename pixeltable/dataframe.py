@@ -303,7 +303,11 @@ class DataFrame:
         if isinstance(index, list):
             if self.select_list is not None:
                 raise exc.OperationalError(f'[] for column selection is only allowed once')
-            for expr in index:
+            # analyze select list; wrap literals with the corresponding expressions and update it in place
+            for i in range(len(index)):
+                expr = index[i]
+                if isinstance(expr, dict):
+                    index[i] = expr = exprs.InlineDict(expr)
                 if not isinstance(expr, exprs.Expr):
                     raise exc.OperationalError(f'Invalid expression in []: {expr}')
                 if expr.col_type.is_invalid_type():

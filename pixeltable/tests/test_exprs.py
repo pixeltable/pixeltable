@@ -2,9 +2,9 @@ import sqlalchemy as sql
 import pytest
 
 from pixeltable import catalog
-from pixeltable.type_system import StringType, BoolType, IntType, ImageType, Function
+from pixeltable.type_system import StringType, BoolType, IntType, ImageType, Function, ArrayType, ColumnType
 from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall
-from pixeltable.functions import udf_call, dict_map
+from pixeltable.functions import udf_call, dict_map, cast
 from pixeltable.functions.pil.image import blend
 from pixeltable.functions.clip import encode_image
 from pixeltable import exceptions as exc
@@ -80,13 +80,29 @@ class TestExprs:
         _ = t[t.c2 > 50].show()
         print(_)
 
+    def test_inline_dict(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        df = t[[{'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}}]]
+        result = df.show()
+        print(result)
+
     def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        _ = t[t.c6.detections['*'].iscrowd].show()
+        # top-level is dict
+        _ = t[t.c6.f1]
+        _ = _.show()
         print(_)
-        _ = t[t.c6.detections['*'].bounding_box].show()
-        print(_)
-        _ = t[t.c6.detections['*'].bounding_box[0]].show()
+        #_ = t[t.c6.f2].show()
+        #_ = t[t.c6.f5].show()
+        _ = t[t.c6.f6.f8].show()
+        _ = t[cast(t.c6.f6.f8, ArrayType((4,), ColumnType.Type.FLOAT))].show()
+
+        # top-level is array
+        #_ = t[t.c7['*'].f1].show()
+        #_ = t[t.c7['*'].f2].show()
+        #_ = t[t.c7['*'].f5].show()
+        _ = t[t.c7['*'].f6.f8].show()
+        _ = t[cast(t.c7['*'].f6.f8, ArrayType((2, 4), ColumnType.Type.FLOAT))].show()
         print(_)
 
     def test_select_list(self, img_tbl) -> None:

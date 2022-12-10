@@ -1,10 +1,13 @@
 import abc
-from typing import Any, Optional, Tuple, Dict, Callable, List
+from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import enum
 from datetime import datetime
 
+import tensorflow as tf
 import PIL.Image
 import sqlalchemy as sql
+
+from pixeltable import exceptions as exc
 
 
 class ColumnType:
@@ -16,7 +19,7 @@ class ColumnType:
         BOOL = 3
         TIMESTAMP = 4
         IMAGE = 5
-        DICT = 6
+        JSON = 6
         ARRAY = 7
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
@@ -24,6 +27,17 @@ class ColumnType:
 
         # Dict path yield values for which the type is only known at runtime
         UNKNOWN = 9
+
+        def to_tf(self) -> tf.dtypes.DType:
+            if self == self.STRING:
+                return tf.string
+            if self == self.INT:
+                return tf.int64
+            if self == self.FLOAT:
+                return tf.float32
+            if self == self.BOOL:
+                return tf.bool
+            raise TypeError(f'Cannot convert {self} to TensorFlow')
 
     @enum.unique
     class DType(enum.Enum):
@@ -64,7 +78,7 @@ class ColumnType:
         """
         TODO: replace with deserialize(d: Dict)
         """
-        assert t != cls.Type.INVALID
+        assert t != cls.Type.INVALID and t != cls.Type.ARRAY
         if t == cls.Type.STRING:
             return StringType()
         if t == cls.Type.INT:
@@ -77,10 +91,8 @@ class ColumnType:
             return TimestampType()
         if t == cls.Type.IMAGE:
             return ImageType()
-        if t == cls.Type.DICT:
-            return DictType()
-        if t == cls.Type.ARRAY:
-            return ArrayType()
+        if t == cls.Type.JSON:
+            return JsonType()
 
     def __str__(self) -> str:
         return self.Type.name.lower()
@@ -121,8 +133,8 @@ class ColumnType:
     def is_image_type(self) -> bool:
         return self._type == self.Type.IMAGE
 
-    def is_dict_type(self) -> bool:
-        return self._type == self.Type.DICT
+    def is_json_type(self) -> bool:
+        return self._type == self.Type.JSON
 
     def is_array_type(self) -> bool:
         return self._type == self.Type.ARRAY
@@ -145,7 +157,7 @@ class ColumnType:
         if self._type == self.Type.IMAGE:
             # the URL
             return 'VARCHAR'
-        if self._type == self.Type.DICT:
+        if self._type == self.Type.JSON:
             return 'VARCHAR'
         if self._type == self.Type.ARRAY:
             return 'BLOB'
@@ -170,7 +182,7 @@ class ColumnType:
         if self._type == self.Type.IMAGE:
             # the URL
             return sql.String
-        if self._type == self.Type.DICT:
+        if self._type == self.Type.JSON:
             return sql.dialects.postgresql.JSONB
         if self._type == self.Type.ARRAY:
             return sql.VARBINARY
@@ -184,7 +196,6 @@ class ColumnType:
         """
         assert False
 
-    @abc.abstractmethod
     def conversion_fn(self, target: 'ColumnType') -> Optional[Callable[[Any], Any]]:
         """
         Return Callable that converts a column value of type self to a value of type 'target'.
@@ -192,14 +203,26 @@ class ColumnType:
         """
         return None
 
+    @abc.abstractmethod
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        pass
+
 
 class InvalidType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.INVALID)
 
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        raise TypeError(f'Invalid type cannot be converted to Tensorflow')
+
+
 class UnknownType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.UNKNOWN)
+
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        raise TypeError(f'Unknown type cannot be converted to Tensorflow')
+
 
 class StringType(ColumnType):
     def __init__(self):
@@ -216,25 +239,43 @@ class StringType(ColumnType):
                 return None
         return convert
 
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        return tf.TensorSpec(shape=(), dtype=tf.string)
+
 
 class IntType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.INT)
+
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        # TODO: how to specify the correct int subtype?
+        return tf.TensorSpec(shape=(), dtype=tf.int64)
 
 
 class FloatType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.FLOAT)
 
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        # TODO: how to specify the correct float subtype?
+        return tf.TensorSpec(shape=(), dtype=tf.float32)
+
 
 class BoolType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.BOOL)
 
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        # TODO: how to specify the correct int subtype?
+        return tf.TensorSpec(shape=(), dtype=tf.bool)
+
 
 class TimestampType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.TIMESTAMP)
+
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        raise TypeError(f'Timestamp type cannot be converted to Tensorflow')
 
 
 class ImageType(ColumnType):
@@ -303,21 +344,30 @@ class ImageType(ColumnType):
             return img
         return convert
 
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        return tf.TensorSpec(shape=(self.height, self.width, self.num_channels), dtype=tf.uint8)
 
-class DictType(ColumnType):
-    def __init__(self):
-        super().__init__(self.Type.DICT)
+
+class JsonType(ColumnType):
+    def __init__(self, type_spec: Optional[Dict[str, ColumnType]] = None):
+        super().__init__(self.Type.JSON)
+        self.type_spec = type_spec
+
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        if self.type_spec is None:
+            raise TypeError(f'Cannot convert {self.__class__.__name__} with missing type spec to TensorFlow')
+        return {k: v.to_tf() for k, v in self.type_spec.items()}
 
 
 class ArrayType(ColumnType):
-    """
-    TODO: enum Dtype, dtype in ctor
-    """
     def __init__(
-            self, shape: Optional[Tuple[int, ...]] = None, dtype: Optional[ColumnType.DType] = ColumnType.DType.INT32):
+            self, shape: Tuple[int, ...], dtype: ColumnType.Type):
         super().__init__(self.Type.ARRAY)
         self.shape = shape
         self.dtype = dtype
+
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        return tf.TensorSpec(shape=self.shape, dtype=self._type.to_tf())
 
 
 class Function:

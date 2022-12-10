@@ -45,6 +45,11 @@ class TestTf:
         for row in ds:
             pass
 
+        df = t[[{'a': t.img.convert('RGB').resize((224, 224)), 'b': dict_map(t.category, m)}]]
+        ds = pixeltable.tf.to_dataset(df).batch(32)
+        for row in ds:
+            pass
+
     def test_model_fn(self, img_tbl: catalog.Table) -> None:
         model = tf.keras.applications.resnet50.ResNet50()
         preprocess = tf.keras.applications.resnet50.preprocess_input

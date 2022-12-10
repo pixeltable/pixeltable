@@ -40,9 +40,7 @@ def get_engine() -> sql.engine.base.Engine:
     assert __sa_engine is not None
     return __sa_engine
 
-def init_env(
-        home_parent: Optional[Path] = Path.home(), db_name: str = 'pixeltable', echo: bool = False,
-        reinit: bool = False) -> None:
+def init_env(home_parent: Optional[Path] = Path.home(), db_name: str = 'pixeltable', echo: bool = False) -> None:
     set_home(home_parent / '.pixeltable')
     if __home.exists() and not __home.is_dir():
         raise RuntimeError(f'{__home} is not a directory')
@@ -56,8 +54,7 @@ def init_env(
         _ = __home
         __img_dir.mkdir()
         __nnidx_dir.mkdir()
-        if reinit:
-            teardown_env(db_name)
+        teardown_env(db_name)
         if not database_exists(db_url):
             create_database(db_url)
         __sa_engine = sql.create_engine(db_url, echo=echo, future=True)

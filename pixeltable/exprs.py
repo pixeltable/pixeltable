@@ -4,7 +4,7 @@ import datetime
 import enum
 import inspect
 import typing
-from typing import Union, Optional, List, Callable, Any, Dict, Tuple
+from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set
 import operator
 
 import PIL.Image
@@ -14,7 +14,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog
 from pixeltable.type_system import \
-    ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, DictType, ArrayType, \
+    ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType, ArrayType, \
     Function, UnknownType
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
@@ -39,6 +39,13 @@ class LogicalOperator(enum.Enum):
 
 
 class Expr(abc.ABC):
+    """
+    Rules for using state in subclasses:
+    - all state except for children and data/sql_row_idx is shared between copies of an Expr
+    - data/sql_row_idx is set during analysis (DataFrame.show())
+    - during eval(), children can only be accessed via self.children; any Exprs outside of that won't
+      have data_row_idx set
+    """
     def __init__(self, col_type: ColumnType):
         self.col_type = col_type
         # index of the expr's value in the data row; set for all materialized exprs; -1: invalid
@@ -78,6 +85,12 @@ class Expr(abc.ABC):
         result.sql_row_idx = -1
         for i in range(len(self.children)):
             self.children[i] = self.children[i].copy()
+        return result
+
+    def __deepcopy__(self, memo={}) -> 'Expr':
+        # we don't need to create an actual deep copy because all state other than execution state is read-only
+        result = self.copy()
+        memo[id(self)] = result
         return result
 
     @abc.abstractmethod
@@ -148,9 +161,14 @@ class ColumnRef(Expr):
         self.col = col
 
     def __getattr__(self, name: str) -> Expr:
-        if self.col_type.is_dict_type():
-            return DictPath(self).__getattr__(name)
+        if self.col_type.is_json_type():
+            return JsonPath(self).__getattr__(name)
         return super().__getattr__(name)
+
+    def __getitem__(self, index: object) -> Expr:
+        if self.col_type.is_json_type():
+            return JsonPath(self).__getitem__(index)
+        return super().__getitem__(index)
 
     def display_name(self) -> str:
         return self.col.name
@@ -230,15 +248,6 @@ class FunctionCall(Expr):
 def _caller_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
     return caller.col_type
 
-def _float_return_type(_: Expr, *args: object, **kwargs: object) -> ColumnType:
-    return FloatType()
-
-def _dict_return_type(_: Expr, *args: object, **kwargs: object) -> ColumnType:
-    return DictType()
-
-def _array_return_type(_: Expr, *args: object, **kwargs: object) -> ColumnType:
-    return ArrayType()
-
 def _convert_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
     mode_str = args[0]
     assert isinstance(mode_str, str)
@@ -262,21 +271,22 @@ def _resize_return_type(caller: Expr, *args: object, **kwargs: object) -> Column
 # doing that is messy and it's unclear whether it has any advantages.
 # TODO: how to capture return values like List[Tuple[int, int]]?
 # dict from method name to (function to compute value, function to compute return type)
-_PIL_METHOD_INFO: Dict[str, Tuple[Callable, Callable]] = {
+# TODO: JsonTypes() where it should be ArrayType(): need to determine the shape and base type
+_PIL_METHOD_INFO: Dict[str, Tuple[Callable, Union[ColumnType, Callable]]] = {
     'convert': (PIL.Image.Image.convert, _convert_return_type),
     'crop': (PIL.Image.Image.crop, _crop_return_type),
     'effect_spread': (PIL.Image.Image.effect_spread, _caller_return_type),
-    'entropy': (PIL.Image.Image.entropy, _float_return_type),
+    'entropy': (PIL.Image.Image.entropy, FloatType()),
     'filter': (PIL.Image.Image.filter, _caller_return_type),
-    'getbands': (PIL.Image.Image.getbands, _array_return_type),
-    'getbbox': (PIL.Image.Image.getbbox, _array_return_type),
+    'getbands': (PIL.Image.Image.getbands, ArrayType((None,), ColumnType.Type.STRING)),
+    'getbbox': (PIL.Image.Image.getbbox, ArrayType((4,), ColumnType.Type.INT)),
     'getchannel': (PIL.Image.Image.getchannel, _caller_return_type),
-    'getcolors': (PIL.Image.Image.getcolors, _array_return_type),
-    'getextrema': (PIL.Image.Image.getextrema, _array_return_type),
-    'getpalette': (PIL.Image.Image.getpalette, _array_return_type),
-    'getpixel': (PIL.Image.Image.getpixel, _array_return_type),
-    'getprojection': (PIL.Image.Image.getprojection, _array_return_type),
-    'histogram': (PIL.Image.Image.histogram, _array_return_type),
+    'getcolors': (PIL.Image.Image.getcolors, JsonType()),
+    'getextrema': (PIL.Image.Image.getextrema, JsonType()),
+    'getpalette': (PIL.Image.Image.getpalette, JsonType()),
+    'getpixel': (PIL.Image.Image.getpixel, JsonType()),
+    'getprojection': (PIL.Image.Image.getprojection, JsonType()),
+    'histogram': (PIL.Image.Image.histogram, JsonType()),
 # TODO: what to do with this? it modifies the img in-place
 #    paste: <ast.Constant object at 0x7f9e9a9be3a0>
     'point': (PIL.Image.Image.point, _caller_return_type),
@@ -306,7 +316,7 @@ def _create_pil_attr_info() -> Dict[str, ColumnType]:
         if isinstance(getattr(img, name), int):
             result[name] = IntType()
         if getattr(img, name) is dict:
-            result[name] = DictType()
+            result[name] = JsonType()
     return result
 
 
@@ -384,7 +394,10 @@ class ImageMethodCall(FunctionCall):
         assert method_name in _PIL_METHOD_INFO
         self.method_name = method_name
         method_info = _PIL_METHOD_INFO[self.method_name]
-        return_type = method_info[1](caller, *args, **kwargs)
+        if isinstance(method_info[1], ColumnType):
+            return_type = method_info[1]
+        else:
+            return_type = method_info[1](caller, *args, **kwargs)
         fn = Function(method_info[0], return_type, None)
         super().__init__(fn, (caller, *args))
         # TODO: deal with kwargs
@@ -393,29 +406,30 @@ class ImageMethodCall(FunctionCall):
         return self.method_name
 
 
-class DictPath(Expr):
+class JsonPath(Expr):
     def __init__(self, anchor: ColumnRef, path_elements: List[str] = []):
-        super().__init__(UnknownType())
+        super().__init__(JsonType())
         self.children = [anchor]
         self.path_elements: List[Union[str, int]] = path_elements
-        self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 1 else None
+        self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
 
     def _anchor(self) -> Expr:
+        assert isinstance(self.children[0], ColumnRef)
         return self.children[0]
 
-    def __getattr__(self, name: str) -> 'DictPath':
+    def __getattr__(self, name: str) -> 'JsonPath':
         assert isinstance(name, str)
-        return DictPath(self._anchor(), self.path_elements + [name])
+        return JsonPath(self._anchor(), self.path_elements + [name])
 
-    def __getitem__(self, index: object) -> 'DictPath':
+    def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, str) and index != '*':
-            raise exc.OperationalError(f'A DictType path index ')
-        return DictPath(self._anchor(), self.path_elements + [index])
+            raise exc.OperationalError(f'Invalid json list index: {index}')
+        return JsonPath(self._anchor(), self.path_elements + [index])
 
     def display_name(self) -> str:
         return f'{self._anchor().col.name}.{self._json_path()}'
 
-    def _equals(self, other: 'DictPath') -> bool:
+    def _equals(self, other: 'JsonPath') -> bool:
         return self.path_elements == other.path_elements
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
@@ -431,21 +445,18 @@ class DictPath(Expr):
 
     def _json_path(self) -> str:
         assert len(self.path_elements) > 0
-        first_element = self.path_elements[0]
-        assert isinstance(first_element, str) and first_element != '*'
-        result: List[str] = [first_element]
-        for element in self.path_elements[1:]:
+        result: List[str] = []
+        for element in self.path_elements:
             if element == '*':
                 result.append('[*]')
             elif isinstance(element, str):
-                result.append(f'.{element}')
+                result.append(f'{"." if len(result) > 0 else ""}{element}')
             elif isinstance(element, int):
                 result.append(f'[{element}]')
         return ''.join(result)
 
     def eval(self, data_row: List[Any]) -> None:
         assert self.compiled_path is not None  # there should always be at least one path element
-        _ = self._json_path()
         dict_val = data_row[self._anchor().data_row_idx]
         val = self.compiled_path.search(dict_val)
         data_row[self.data_row_idx] = val
@@ -476,6 +487,55 @@ class Literal(Expr):
 
     def eval(self, data_row: List[Any]) -> None:
         data_row[self.data_row_idx] = self.val
+
+
+class InlineDict(Expr):
+    """
+    Dictionary 'literal' which can use Exprs as values.
+    """
+    def __init__(self, d: Dict):
+        super().__init__(JsonType())  # we need to call this in order to populate self.children
+        # dict_items contains
+        # - for Expr fields: (key, index into children, None)
+        # - for non-Expr fields: (key, -1, value)
+        self.dict_items: List[Tuple[str, int, Any]] = []
+        for key, val in d.items():
+            if not isinstance(key, str):
+                raise exc.OperationalError(f'Dictionary requires string keys, {key} has type {type(key)}')
+            val = copy.deepcopy(val)
+            if isinstance(val, dict):
+                val = InlineDict(val)
+            if isinstance(val, Expr):
+                self.dict_items.append((key, len(self.children), None))
+                self.children.append(val)
+            else:
+                self.dict_items.append((key, -1, val))
+
+        self.type_spec: Optional[Dict[str, ColumnType]] = {}
+        for key, idx, _ in self.dict_items:
+            if idx == -1:
+                # TODO: implement type inference for values
+                self.type_spec = None
+                break
+            self.type_spec[key] = self.children[idx].col_type
+        self.col_type = JsonType(self.type_spec)
+
+
+    def _equals(self, other: 'InlineDict') -> bool:
+        return self.dict_items == other.dict_items
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        return None
+
+    def eval(self, data_row: List[Any]) -> None:
+        result = {}
+        for key, idx, val in self.dict_items:
+            assert isinstance(key, str)
+            if idx >= 0:
+                result[key] = data_row[self.children[idx].data_row_idx]
+            else:
+                result[key] = copy.deepcopy(val)
+        data_row[self.data_row_idx] = result
 
 
 class Predicate(Expr):
