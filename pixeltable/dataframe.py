@@ -308,6 +308,8 @@ class DataFrame:
                 expr = index[i]
                 if isinstance(expr, dict):
                     index[i] = expr = exprs.InlineDict(expr)
+                if isinstance(expr, list):
+                    index[i] = expr = exprs.InlineArray(expr)
                 if not isinstance(expr, exprs.Expr):
                     raise exc.OperationalError(f'Invalid expression in []: {expr}')
                 if expr.col_type.is_invalid_type():

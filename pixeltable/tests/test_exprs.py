@@ -127,6 +127,15 @@ class TestExprs:
         result = df.show()
         print(result)
 
+    def test_inline_array(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        result = t[[ [[t.c2, 1], [t.c2, 2]] ]].show()
+        t = result.col_types[0]
+        assert t.is_array_type()
+        assert isinstance(t, ArrayType)
+        assert t.shape == (2, 2)
+        assert t.dtype == ColumnType.Type.INT
+
     def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # top-level is dict

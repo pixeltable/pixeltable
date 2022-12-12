@@ -590,6 +590,65 @@ class InlineDict(Expr):
         data_row[self.data_row_idx] = result
 
 
+class InlineArray(Expr):
+    """
+    Array 'literal' which can use Exprs as values.
+    """
+    def __init__(self, elements: Tuple):
+        # we need to call this in order to populate self.children
+        super().__init__(ArrayType((len(elements),), ColumnType.Type.INT))
+
+        # elements contains
+        # - for Expr elements: (index into children, None)
+        # - for non-Expr elements: (-1, value)
+        self.elements: List[Tuple[int, Any]] = []
+        for el in elements:
+            el = copy.deepcopy(el)
+            if isinstance(el, list):
+                el = InlineArray(el)
+            if isinstance(el, Expr):
+                self.elements.append((len(self.children), None))
+                self.children.append(el)
+            else:
+                self.elements.append((-1, el))
+
+        element_type = InvalidType()
+        for idx, val in self.elements:
+            if idx >= 0:
+                element_type = ColumnType.supertype(element_type, self.children[idx].col_type)
+            else:
+                element_type = ColumnType.supertype(element_type, ColumnType.get_value_type(val))
+            if element_type is None:
+                # there is no common element type: this is a json value, not an array
+                # TODO: make sure this doesn't contain Images
+                self.col_type = JsonType()
+                return
+
+        if element_type.is_scalar_type():
+            self.col_type = ArrayType((len(self.elements),), element_type.type_enum)
+        elif element_type.is_array_type():
+            assert isinstance(element_type, ArrayType)
+            self.col_type = ArrayType((len(self.elements), *element_type.shape), element_type.dtype)
+        elif element_type.is_dict_type():
+            self.col_type = JsonType()
+
+
+    def _equals(self, other: 'InlineDict') -> bool:
+        return self.elements == other.elements
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        return None
+
+    def eval(self, data_row: List[Any]) -> None:
+        result = [None] * len(self.elements)
+        for i, (child_idx, val) in enumerate(self.elements):
+            if child_idx >= 0:
+                result[i] = data_row[self.children[child_idx].data_row_idx]
+            else:
+                result[i] = copy.deepcopy(val)
+        data_row[self.data_row_idx] = result
+
+
 class Predicate(Expr):
     def __init__(self) -> None:
         super().__init__(BoolType())

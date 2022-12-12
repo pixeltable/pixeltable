@@ -1,7 +1,7 @@
 import abc
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import enum
-from datetime import datetime
+import datetime
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -26,6 +26,10 @@ class ColumnType:
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 8
 
+        common_supertypes: Dict[Tuple['Type', 'Type'], 'Type'] = {
+            (BOOL, INT): INT, (BOOL, FLOAT): FLOAT, (INT, FLOAT): FLOAT,
+        }
+
         def to_tf(self) -> tf.dtypes.DType:
             if self == self.STRING:
                 return tf.string
@@ -36,6 +40,19 @@ class ColumnType:
             if self == self.BOOL:
                 return tf.bool
             raise TypeError(f'Cannot convert {self} to TensorFlow')
+
+        @classmethod
+        def supertype(cls, type1: 'Type', type2: 'Type') -> Optional['Type']:
+            if type1 == type2:
+                return type1
+            t = cls.common_supertypes.get((type1, type2))
+            if t is not None:
+                return t
+            t = cls.common_supertypes.get((type2, type1))
+            if t is not None:
+                return t
+            return None
+
 
     @enum.unique
     class DType(enum.Enum):
@@ -104,6 +121,50 @@ class ColumnType:
             if getattr(self, member_var) != getattr(other, member_var):
                 return False
         return True
+
+    @classmethod
+    def supertype(cls, type1: 'ColumnType', type2: 'ColumnType') -> Optional['ColumnType']:
+        if type1 == type2:
+            return type1
+
+        if type1.is_invalid_type():
+            return type2
+        if type2.is_invalid_type():
+            return type1
+
+        if type1.is_scalar_type() and type2.is_scalar_type():
+            t = cls.Type.supertype(type1._type, type2._type)
+            if t is not None:
+                return cls.make_type(t)
+            return None
+
+        if type1._type == type2._type:
+            return cls._supertype(type1, type2)
+
+        return None
+
+    @classmethod
+    @abc.abstractmethod
+    def _supertype(cls, type1: 'ColumnType', type2: 'ColumnType') -> Optional['ColumnType']:
+        """
+        Class-specific implementation of determining the supertype. type1 and type2 are from the same subclass of
+        ColumnType.
+        """
+        pass
+
+
+    @classmethod
+    def get_value_type(cls, val: Any) -> 'ColumnType':
+        if isinstance(val, str):
+            return StringType()
+        if isinstance(val, int):
+            return IntType()
+        if isinstance(val, float):
+            return FloatType()
+        if isinstance(val, bool):
+            return BoolType()
+        if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
+            return TimestampType()
 
     def is_scalar_type(self) -> bool:
         return self._type in self.scalar_types
@@ -224,7 +285,7 @@ class StringType(ColumnType):
             return None
         def convert(val: str) -> Optional[datetime]:
             try:
-                dt = datetime.fromisoformat(val)
+                dt = datetime.datetime.fromisoformat(val)
                 return dt
             except ValueError:
                 return None
@@ -356,6 +417,15 @@ class ArrayType(ColumnType):
         super().__init__(self.Type.ARRAY)
         self.shape = shape
         self.dtype = dtype
+
+    def _supertype(cls, type1: 'ArrayType', type2: 'ArrayType') -> Optional['ArrayType']:
+        if len(type1.shape) != len(type2.shape):
+            return None
+        base_type = ColumnType.supertype(type1.dtype, type2.dtype)
+        if base_type is None:
+            return None
+        shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
+        return ArrayType(tuple(shape), base_type)
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         return tf.TensorSpec(shape=self.shape, dtype=self._type.to_tf())
