@@ -1,9 +1,9 @@
 from typing import Any, Tuple, List, Generator
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 
-import pixeltable.exceptions as exc
 from pixeltable.dataframe import DataFrame
-from pixeltable.type_system import ColumnType
 import pixeltable.utils.tf as tf_utils
 
 

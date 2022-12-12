@@ -61,7 +61,21 @@ def test_tbl(test_db: pt.Db) -> catalog.Table:
     c3_data = [float(i) for i in range(num_rows)]
     c4_data = [bool(i % 2) for i in range(num_rows)]
     c5_data = [datetime.datetime.now()] * num_rows
-    c6_data = [d1] * num_rows
+    c6_data = []
+    for i in range(num_rows):
+        d = {
+            'f1': f'test string {i}',
+            'f2': i,
+            'f3': float(i),
+            'f4': bool(i % 2),
+            'f5': [1.0, 2.0, 3.0, 4.0],
+            'f6': {
+                'f7': 'test string 2',
+                'f8': [1.0, 2.0, 3.0, 4.0],
+            },
+        }
+        c6_data.append(d)
+
     c7_data = [d2] * num_rows
     data = {'c1': c1_data, 'c2': c2_data, 'c3': c3_data, 'c4': c4_data, 'c5': c5_data, 'c6': c6_data, 'c7': c7_data}
     pd_df = pd.DataFrame(data=data)

@@ -80,6 +80,47 @@ class TestExprs:
         _ = t[t.c2 > 50].show()
         print(_)
 
+    def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+
+        for op1, op2 in [(t.c2, t.c2), (t.c3, t.c3)]:
+            _ = t[op1 + op2].show()
+            _ = t[op1 - op2].show()
+            _ = t[op1 * op2].show()
+            _ = t[op1 > 0][op1 / op2].show()
+
+        # non-numeric types
+        for op1, op2 in [
+            (t.c1, t.c2), (t.c1, 1), (t.c2, t.c1), (t.c2, 'a'),
+            (t.c1, t.c3), (t.c1, 1.0), (t.c3, t.c1), (t.c3, 'a')
+        ]:
+            with pytest.raises(exc.OperationalError):
+                _ = t[op1 + op2]
+            with pytest.raises(exc.OperationalError):
+                _ = t[op1 - op2]
+            with pytest.raises(exc.OperationalError):
+                _ = t[op1 * op2]
+            with pytest.raises(exc.OperationalError):
+                _ = t[op1 / op2]
+
+        # TODO: test division; requires predicate
+        for op1, op2 in [(t.c6.f2, t.c6.f2), (t.c6.f3, t.c6.f3)]:
+            _ = t[op1 + op2].show()
+            _ = t[op1 - op2].show()
+            _ = t[op1 * op2].show()
+
+        for op1, op2 in [
+            (t.c6.f1, t.c6.f2), (t.c6.f1, t.c6.f3), (t.c6.f1, 1), (t.c6.f1, 1.0),
+            (t.c6.f2, t.c6.f1), (t.c6.f3, t.c6.f1), (t.c6.f2, 'a'), (t.c6.f3, 'a'),
+        ]:
+            with pytest.raises(exc.OperationalError):
+                _ = t[op1 + op2].show()
+            with pytest.raises(exc.OperationalError):
+                _ = t[op1 - op2].show()
+            with pytest.raises(exc.OperationalError):
+                _ = t[op1 * op2].show()
+
+
     def test_inline_dict(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         df = t[[{'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}}]]

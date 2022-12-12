@@ -4,7 +4,7 @@ import datetime
 import enum
 import inspect
 import typing
-from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set
+from typing import Union, Optional, List, Callable, Any, Dict, Tuple
 import operator
 
 import PIL.Image
@@ -15,7 +15,7 @@ import sqlalchemy as sql
 from pixeltable import catalog
 from pixeltable.type_system import \
     ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType, ArrayType, \
-    Function, UnknownType
+    Function
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
 
@@ -24,18 +24,47 @@ LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.da
 
 
 class ComparisonOperator(enum.Enum):
-    LT = 1
-    LE = 2
-    EQ = 3
-    NE = 4
-    GT = 5
-    GE = 6
+    LT = 0
+    LE = 1
+    EQ = 2
+    NE = 3
+    GT = 4
+    GE = 5
+
+    def __str__(self) -> str:
+        if self == self.LT:
+            return '<'
+        if self == self.LE:
+            return '<='
+        if self == self.EQ:
+            return '=='
+        if self == self.GT:
+            return '>'
+        if self == self.GE:
+            return '>='
 
 
 class LogicalOperator(enum.Enum):
-    AND = 1
-    OR = 2
-    NOT = 3
+    AND = 0
+    OR = 1
+    NOT = 2
+
+
+class ArithmeticOperator(enum.Enum):
+    ADD = 0
+    SUB = 1
+    MUL = 2
+    DIV = 3
+
+    def __str__(self) -> str:
+        if self == self.ADD:
+            return '+'
+        if self == self.SUB:
+            return '-'
+        if self == self.MUL:
+            return '*'
+        if self == self.DIV:
+            return '/'
 
 
 class Expr(abc.ABC):
@@ -152,6 +181,29 @@ class Expr(abc.ABC):
             return Comparison(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return Comparison(op, self, Literal(other))  # type: ignore[arg-type]
+        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+
+    def __add__(self, other: object) -> 'ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
+
+    def __sub__(self, other: object) -> 'ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
+
+    def __mul__(self, other: object) -> 'ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
+
+    def __truediv__(self, other: object) -> 'ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.DIV, other)
+
+    def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'ArithmeticExpr':
+        """
+        other: Union[Expr, LiteralPythonTypes]
+        """
+        # TODO: check for compatibility
+        if isinstance(other, Expr):
+            return ArithmeticExpr(op, self, other)
+        if isinstance(other, typing.get_args(LiteralPythonTypes)):
+            return ArithmeticExpr(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
 
@@ -413,7 +465,7 @@ class JsonPath(Expr):
         self.path_elements: List[Union[str, int]] = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
 
-    def _anchor(self) -> Expr:
+    def _anchor(self) -> ColumnRef:
         assert isinstance(self.children[0], ColumnRef)
         return self.children[0]
 
@@ -745,3 +797,65 @@ class ImageSimilarityPredicate(Predicate):
 
     def eval(self, data_row: List[Any]) -> None:
         assert False
+
+
+class ArithmeticExpr(Expr):
+    """
+    Allows arithmetic exprs on json paths
+    """
+    def __init__(self, operator: ArithmeticOperator, op1: Expr, op2: Expr):
+        if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
+            raise exc.OperationalError(f'{operator} requires numeric type: {op1} has type {op1.col_type}')
+        if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
+            raise exc.OperationalError(f'{operator} requires numeric type: {op2} has type {op2.col_type}')
+        # TODO: determine most specific common supertype
+        if op1.col_type.is_json_type() or op2.col_type.is_json_type():
+            # we assume it's a float
+            super().__init__(FloatType())
+        else:
+            super().__init__(op1.col_type)
+        self.operator = operator
+        self.children = [op1, op2]
+
+    def _equals(self, other: 'ArithmeticOp') -> bool:
+        return self.operator == other.operator
+
+    @property
+    def _op1(self) -> Expr:
+        return self.children[0]
+
+    @property
+    def _op2(self) -> Expr:
+        return self.children[1]
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        left = self._op1.sql_expr()
+        right = self._op2.sql_expr()
+        if left is None or right is None:
+            return None
+        if self.operator == ArithmeticOperator.ADD:
+            return left + right
+        if self.operator == ArithmeticOperator.SUB:
+            return left - right
+        if self.operator == ArithmeticOperator.MUL:
+            return left * right
+        if self.operator == ArithmeticOperator.DIV:
+            return left / right
+
+    def eval(self, data_row: List[Any]) -> None:
+        op1_val = data_row[self._op1.data_row_idx]
+        op2_val = data_row[self._op2.data_row_idx]
+        # check types if we couldn't do that prior to execution
+        if self._op1.col_type.is_json_type() and not isinstance(op1_val, int) and not isinstance(op1_val, float):
+            raise exc.OperationalError(f'{operator} requires numeric type: {self._op1} has type {self._op1.col_type}')
+        if self._op2.col_type.is_json_type() and not isinstance(op2_val, int) and not isinstance(op2_val, float):
+            raise exc.OperationalError(f'{operator} requires numeric type: {self._op2} has type {self._op2.col_type}')
+
+        if self.operator == ArithmeticOperator.ADD:
+            data_row[self.data_row_idx] = op1_val + op2_val
+        elif self.operator == ArithmeticOperator.SUB:
+            data_row[self.data_row_idx] = op1_val - op2_val
+        elif self.operator == ArithmeticOperator.MUL:
+            data_row[self.data_row_idx] = op1_val * op2_val
+        elif self.operator == ArithmeticOperator.DIV:
+            data_row[self.data_row_idx] = op1_val / op2_val

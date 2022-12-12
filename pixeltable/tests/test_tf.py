@@ -1,5 +1,6 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
-import copy
 
 from pixeltable import catalog
 from pixeltable.functions import dict_map

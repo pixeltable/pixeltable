@@ -3,11 +3,12 @@ from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import enum
 from datetime import datetime
 
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 import PIL.Image
 import sqlalchemy as sql
 
-from pixeltable import exceptions as exc
 
 
 class ColumnType:
@@ -24,9 +25,6 @@ class ColumnType:
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 8
-
-        # Dict path yield values for which the type is only known at runtime
-        UNKNOWN = 9
 
         def to_tf(self) -> tf.dtypes.DType:
             if self == self.STRING:
@@ -58,6 +56,7 @@ class ColumnType:
         FLOAT64 = 11
 
     scalar_types = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP}
+    numeric_types = {Type.INT, Type.FLOAT}
 
     def __init__(self, t: Type):
         self._type = t
@@ -95,7 +94,7 @@ class ColumnType:
             return JsonType()
 
     def __str__(self) -> str:
-        return self.Type.name.lower()
+        return self._type.name.lower()
 
     def __eq__(self, other: object) -> bool:
         assert isinstance(other, ColumnType)
@@ -109,11 +108,11 @@ class ColumnType:
     def is_scalar_type(self) -> bool:
         return self._type in self.scalar_types
 
+    def is_numeric_type(self) -> bool:
+        return self._type in self.numeric_types
+
     def is_invalid_type(self) -> bool:
         return self._type == self.Type.INVALID
-
-    def is_unknown_type(self) -> bool:
-        return self._type == self.Type.UNKNOWN
 
     def is_string_type(self) -> bool:
         return self._type == self.Type.STRING
@@ -214,14 +213,6 @@ class InvalidType(ColumnType):
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         raise TypeError(f'Invalid type cannot be converted to Tensorflow')
-
-
-class UnknownType(ColumnType):
-    def __init__(self):
-        super().__init__(self.Type.UNKNOWN)
-
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
-        raise TypeError(f'Unknown type cannot be converted to Tensorflow')
 
 
 class StringType(ColumnType):
@@ -361,7 +352,7 @@ class JsonType(ColumnType):
 
 class ArrayType(ColumnType):
     def __init__(
-            self, shape: Tuple[int, ...], dtype: ColumnType.Type):
+            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType.Type):
         super().__init__(self.Type.ARRAY)
         self.shape = shape
         self.dtype = dtype
