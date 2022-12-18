@@ -3,7 +3,7 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 
-from  pixeltable.type_system import ColumnType
+from  pixeltable.type_system import ColumnType, JsonType
 
 TF_DTYPES = {
     # ColumnType.DType.INT8: tf.int8,
@@ -26,3 +26,8 @@ def to_tensor(v: Any, t: ColumnType) -> tf.Tensor:
         return tf.cast(tf.keras.utils.img_to_array(v), tf.uint8)
     if t.is_array_type():
         return tf.convert_to_tensor(v, dtype=TF_DTYPES[t.dtype])
+    if t.is_json_type():
+        assert isinstance(v, dict)
+        assert isinstance(t, JsonType)
+        assert t.type_spec is not None
+        return {key: to_tensor(val, t.type_spec[key]) for key, val in v.items()}

@@ -4,7 +4,7 @@ import datetime
 import enum
 import inspect
 import typing
-from typing import Union, Optional, List, Callable, Any, Dict, Tuple
+from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set
 import operator
 
 import PIL.Image
@@ -70,18 +70,25 @@ class ArithmeticOperator(enum.Enum):
 class Expr(abc.ABC):
     """
     Rules for using state in subclasses:
-    - all state except for children and data/sql_row_idx is shared between copies of an Expr
+    - all state except for components and data/sql_row_idx is shared between copies of an Expr
     - data/sql_row_idx is set during analysis (DataFrame.show())
-    - during eval(), children can only be accessed via self.children; any Exprs outside of that won't
+    - during eval(), components can only be accessed via self.components; any Exprs outside of that won't
       have data_row_idx set
     """
     def __init__(self, col_type: ColumnType):
         self.col_type = col_type
         # index of the expr's value in the data row; set for all materialized exprs; -1: invalid
+        # not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
         self.data_row_idx = -1
         # index of the expr's value in the SQL row; only set for exprs that can be materialized in SQL; -1: invalid
         self.sql_row_idx = -1
-        self.children: List[Expr] = []  # all exprs that this one depends on for the purpose of eval()
+        self.components: List[Expr] = []  # the subexprs that are needed to construct this expr
+
+    def dependencies(self) -> List['Expr']:
+        """
+        Returns all exprs that need to have been evaluated before eval() can be called on this one.
+        """
+        return self.components
 
     def display_name(self) -> str:
         """
@@ -95,10 +102,10 @@ class Expr(abc.ABC):
         """
         if type(self) != type(other):
             return False
-        if len(self.children) != len(other.children):
+        if len(self.components) != len(other.components):
             return False
-        for i in range(len(self.children)):
-            if not self.children[i].equals(other.children[i]):
+        for i in range(len(self.components)):
+            if not self.components[i].equals(other.components[i]):
                 return False
         return self._equals(other)
 
@@ -112,8 +119,8 @@ class Expr(abc.ABC):
         result.__dict__.update(self.__dict__)
         result.data_row_idx = -1
         result.sql_row_idx = -1
-        for i in range(len(self.children)):
-            self.children[i] = self.children[i].copy()
+        for i in range(len(self.components)):
+            self.components[i] = self.components[i].copy()
         return result
 
     def __deepcopy__(self, memo={}) -> 'Expr':
@@ -141,7 +148,7 @@ class Expr(abc.ABC):
     @abc.abstractmethod
     def eval(self, data_row: List[Any]) -> None:
         """
-        Compute the expr value for data_row and store the result in data_row[data_row_id].
+        Compute the expr value for data_row and store the result in data_row[data_row_idx].
         Not called if sql_expr() != None.
         """
         pass
@@ -268,7 +275,7 @@ class FunctionCall(Expr):
                 convert_fn = Function(converter, fn.param_types[i], [args[i].col_type])
                 args[i] = FunctionCall(convert_fn, (args[i],))
 
-        self.children = [arg for arg in args if isinstance(arg, Expr)]
+        self.components = [arg for arg in args if isinstance(arg, Expr)]
         self.args = [arg if not isinstance(arg, Expr) else None for arg in args]
 
     def _equals(self, other: 'FunctionCall') -> bool:
@@ -292,7 +299,7 @@ class FunctionCall(Expr):
         i = 0
         for j in range(len(args)):
             if args[j] is None:
-                args[j] = data_row[self.children[i].data_row_idx]
+                args[j] = data_row[self.components[i].data_row_idx]
                 i += 1
         data_row[self.data_row_idx] = self.eval_fn(*args)
 
@@ -390,13 +397,13 @@ class ImageMemberAccess(Expr):
         else:
             raise exc.OperationalError(f'Unknown Image member: {member_name}')
         self.member_name = member_name
-        self.children = [caller]
+        self.components = [caller]
 
     def display_name(self) -> str:
         return self.member_name
 
     def _caller(self) -> Expr:
-        return self.children[0]
+        return self.components[0]
 
     # TODO: correct signature?
     def __call__(self, *args, **kwargs) -> Union['ImageMethodCall', 'ImageSimilarityPredicate']:
@@ -461,13 +468,13 @@ class ImageMethodCall(FunctionCall):
 class JsonPath(Expr):
     def __init__(self, anchor: ColumnRef, path_elements: List[str] = []):
         super().__init__(JsonType())
-        self.children = [anchor]
+        self.components = [anchor]
         self.path_elements: List[Union[str, int]] = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
 
     def _anchor(self) -> ColumnRef:
-        assert isinstance(self.children[0], ColumnRef)
-        return self.children[0]
+        assert isinstance(self.components[0], ColumnRef)
+        return self.components[0]
 
     def __getattr__(self, name: str) -> 'JsonPath':
         assert isinstance(name, str)
@@ -546,9 +553,9 @@ class InlineDict(Expr):
     Dictionary 'literal' which can use Exprs as values.
     """
     def __init__(self, d: Dict):
-        super().__init__(JsonType())  # we need to call this in order to populate self.children
+        super().__init__(JsonType())  # we need to call this in order to populate self.components
         # dict_items contains
-        # - for Expr fields: (key, index into children, None)
+        # - for Expr fields: (key, index into components, None)
         # - for non-Expr fields: (key, -1, value)
         self.dict_items: List[Tuple[str, int, Any]] = []
         for key, val in d.items():
@@ -558,8 +565,8 @@ class InlineDict(Expr):
             if isinstance(val, dict):
                 val = InlineDict(val)
             if isinstance(val, Expr):
-                self.dict_items.append((key, len(self.children), None))
-                self.children.append(val)
+                self.dict_items.append((key, len(self.components), None))
+                self.components.append(val)
             else:
                 self.dict_items.append((key, -1, val))
 
@@ -569,7 +576,7 @@ class InlineDict(Expr):
                 # TODO: implement type inference for values
                 self.type_spec = None
                 break
-            self.type_spec[key] = self.children[idx].col_type
+            self.type_spec[key] = self.components[idx].col_type
         self.col_type = JsonType(self.type_spec)
 
 
@@ -584,7 +591,7 @@ class InlineDict(Expr):
         for key, idx, val in self.dict_items:
             assert isinstance(key, str)
             if idx >= 0:
-                result[key] = data_row[self.children[idx].data_row_idx]
+                result[key] = data_row[self.components[idx].data_row_idx]
             else:
                 result[key] = copy.deepcopy(val)
         data_row[self.data_row_idx] = result
@@ -595,27 +602,27 @@ class InlineArray(Expr):
     Array 'literal' which can use Exprs as values.
     """
     def __init__(self, elements: Tuple):
-        # we need to call this in order to populate self.children
+        # we need to call this in order to populate self.components
         super().__init__(ArrayType((len(elements),), ColumnType.Type.INT))
 
         # elements contains
-        # - for Expr elements: (index into children, None)
+        # - for Expr elements: (index into components, None)
         # - for non-Expr elements: (-1, value)
         self.elements: List[Tuple[int, Any]] = []
         for el in elements:
             el = copy.deepcopy(el)
             if isinstance(el, list):
-                el = InlineArray(el)
+                el = InlineArray(tuple(el))
             if isinstance(el, Expr):
-                self.elements.append((len(self.children), None))
-                self.children.append(el)
+                self.elements.append((len(self.components), None))
+                self.components.append(el)
             else:
                 self.elements.append((-1, el))
 
         element_type = InvalidType()
         for idx, val in self.elements:
             if idx >= 0:
-                element_type = ColumnType.supertype(element_type, self.children[idx].col_type)
+                element_type = ColumnType.supertype(element_type, self.components[idx].col_type)
             else:
                 element_type = ColumnType.supertype(element_type, ColumnType.get_value_type(val))
             if element_type is None:
@@ -629,7 +636,7 @@ class InlineArray(Expr):
         elif element_type.is_array_type():
             assert isinstance(element_type, ArrayType)
             self.col_type = ArrayType((len(self.elements), *element_type.shape), element_type.dtype)
-        elif element_type.is_dict_type():
+        elif element_type.is_json_type():
             self.col_type = JsonType()
 
 
@@ -643,7 +650,7 @@ class InlineArray(Expr):
         result = [None] * len(self.elements)
         for i, (child_idx, val) in enumerate(self.elements):
             if child_idx >= 0:
-                result[i] = data_row[self.children[child_idx].data_row_idx]
+                result[i] = data_row[self.components[child_idx].data_row_idx]
             else:
                 result[i] = copy.deepcopy(val)
         data_row[self.data_row_idx] = result
@@ -669,9 +676,9 @@ class Predicate(Expr):
         The second element contains remaining clauses, rolled into a conjunction.
         """
         if condition(self):
-            return ([self], None)
+            return [self], None
         else:
-            return ([], self)
+            return [], self
 
     def __and__(self, other: object) -> 'CompoundPredicate':
         if not isinstance(other, Expr):
@@ -695,10 +702,10 @@ class CompoundPredicate(Predicate):
     def __init__(self, operator: LogicalOperator, operands: List[Predicate]):
         super().__init__()
         self.operator = operator
-        # operands are stored in self.children
+        # operands are stored in self.components
         if self.operator == LogicalOperator.NOT:
             assert len(operands) == 1
-            self.children = operands
+            self.components = operands
         else:
             assert len(operands) > 1
             self.operands: List[Predicate] = []
@@ -719,49 +726,49 @@ class CompoundPredicate(Predicate):
         """
         if isinstance(operand, CompoundPredicate) and operand.operator == self.operator:
             # this can be merged
-            for child_op in operand.children:
+            for child_op in operand.components:
                 self._merge_operand(child_op)
         else:
-            self.children.append(operand)
+            self.components.append(operand)
 
     def _equals(self, other: 'CompoundPredicate') -> bool:
         return self.operator == other.operator
 
     def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional[Predicate]]:
         if self.operator == LogicalOperator.NOT:
-            e = self.children[0].sql_expr()
+            e = self.components[0].sql_expr()
             return (None, self) if e is None else (e, None)
 
-        sql_exprs = [op.sql_expr() for op in self.children]
+        sql_exprs = [op.sql_expr() for op in self.components]
         if self.operator == LogicalOperator.OR and any(e is None for e in sql_exprs):
             # if any clause of a | can't be evaluated in SQL, we need to evaluate everything in Python
-            return (None, self)
+            return None, self
         if not(any(e is None for e in sql_exprs)):
             # we can do everything in SQL
-            return (self.sql_expr(), None)
+            return self.sql_expr(), None
 
         assert self.operator == LogicalOperator.AND
         if not any(e is not None for e in sql_exprs):
             # there's nothing that can be done in SQL
-            return (None, self)
+            return None, self
 
         sql_preds = [e for e in sql_exprs if e is not None]
-        other_preds = [self.children[i] for i, e in enumerate(sql_exprs) if e is None]
+        other_preds = [self.components[i] for i, e in enumerate(sql_exprs) if e is None]
         assert len(sql_preds) > 0
         combined_sql_pred = sql.and_(*sql_preds)
         combined_other = self.make_conjunction(other_preds)
-        return (combined_sql_pred, combined_other)
+        return combined_sql_pred, combined_other
 
     def split_conjuncts(
             self, condition: Callable[['Predicate'], bool]) -> Tuple[List['Predicate'], Optional['Predicate']]:
         if self.operator == LogicalOperator.OR or self.operator == LogicalOperator.NOT:
             return super().split_conjuncts(condition)
-        matches = [op for op in self.children if condition(op)]
-        non_matches = [op for op in self.children if not condition(op)]
+        matches = [op for op in self.components if condition(op)]
+        non_matches = [op for op in self.components if not condition(op)]
         return (matches, self.make_conjunction(non_matches))
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
-        sql_exprs = [op.sql_expr() for op in self.children]
+        sql_exprs = [op.sql_expr() for op in self.components]
         if any(e is None for e in sql_exprs):
             return None
         if self.operator == LogicalOperator.NOT:
@@ -774,11 +781,11 @@ class CompoundPredicate(Predicate):
 
     def eval(self, data_row: List[Any]) -> None:
         if self.operator == LogicalOperator.NOT:
-            data_row[self.data_row_idx] = not data_row[self.children[0].data_row_idx]
+            data_row[self.data_row_idx] = not data_row[self.components[0].data_row_idx]
         else:
             val = True if self.operator == LogicalOperator.AND else False
             op_function = operator.and_ if self.operator == LogicalOperator.AND else operator.or_
-            for op in self.children:
+            for op in self.components:
                 val = op_function(val, data_row[op.data_row_idx])
             data_row[self.data_row_idx] = val
 
@@ -787,18 +794,18 @@ class Comparison(Predicate):
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
         super().__init__()
         self.operator = operator
-        self.children = [op1, op2]
+        self.components = [op1, op2]
 
     def _equals(self, other: 'Comparison') -> bool:
         return self.operator == other.operator
 
     @property
     def _op1(self) -> Expr:
-        return self.children[0]
+        return self.components[0]
 
     @property
     def _op2(self) -> Expr:
-        return self.children[1]
+        return self.components[1]
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         left = self._op1.sql_expr()
@@ -838,7 +845,7 @@ class ImageSimilarityPredicate(Predicate):
         assert (img is None) != (text is None)
         super().__init__()
         self.img_col = img_col
-        self.children = [img_col]
+        self.components = [img_col]
         self.img = img
         self.text = text
 
@@ -874,18 +881,18 @@ class ArithmeticExpr(Expr):
         else:
             super().__init__(op1.col_type)
         self.operator = operator
-        self.children = [op1, op2]
+        self.components = [op1, op2]
 
-    def _equals(self, other: 'ArithmeticOp') -> bool:
+    def _equals(self, other: 'ArithmeticExpr') -> bool:
         return self.operator == other.operator
 
     @property
     def _op1(self) -> Expr:
-        return self.children[0]
+        return self.components[0]
 
     @property
     def _op2(self) -> Expr:
-        return self.children[1]
+        return self.components[1]
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         left = self._op1.sql_expr()
@@ -918,3 +925,162 @@ class ArithmeticExpr(Expr):
             data_row[self.data_row_idx] = op1_val * op2_val
         elif self.operator == ArithmeticOperator.DIV:
             data_row[self.data_row_idx] = op1_val / op2_val
+
+
+class ExprEvaluator:
+    """
+    Materializes values for a list of output exprs, subject to passing a filter.
+    """
+    def __init__(self, output_exprs: List[Expr], filter: Optional[Predicate]):
+        # TODO: add self.literal_exprs so that we don't need to retrieve those from SQL
+        # exprs that are materialized directly via SQL query and for which results can be copied from sql row
+        # into data row
+        self.filter_copy_exprs: List[Expr] = []
+        self.output_copy_exprs: List[Expr] = []
+        # exprs for which we need to call eval() to compute the value; must be called in the order stored here
+        self.filter_eval_exprs: List[Expr] = []
+        self.output_eval_exprs: List[Expr] = []
+        self.filter = filter
+
+        unique_ids: Set[int] = set()
+        # analyze filter first, so that it can be evaluated before output_exprs
+        if filter is not None:
+            self._analyze_expr(filter, self.filter_copy_exprs, self.filter_eval_exprs, unique_ids)
+        for expr in output_exprs:
+            self._analyze_expr(expr, self.output_copy_exprs, self.output_eval_exprs, unique_ids)
+
+    def _analyze_expr(self, expr: Expr, copy_exprs: List[Expr], eval_exprs: List[Expr], unique_ids: Set[int]) -> None:
+        """
+        Determine unique dependencies of expr and accumulate those in copy_exprs and eval_exprs.
+        """
+        if expr.data_row_idx in unique_ids:
+            return
+        unique_ids.add(expr.data_row_idx)
+
+        if expr.sql_row_idx >= 0:
+            # this can be copied, no need to look at its dependencies
+            copy_exprs.append(expr)
+            return
+
+        for d in expr.dependencies():
+            self._analyze_expr(d, copy_exprs, eval_exprs, unique_ids)
+        # make sure to eval() this after its dependencies
+        eval_exprs.append(expr)
+
+    def eval(self, sql_row: Tuple[Any], data_row: List[Any]) -> bool:
+        """
+        If the filter predicate evaluates to True, populates the data_row slots of the output_exprs.
+        """
+        if self.filter is not None:
+            # we need to evaluate the remaining filter predicate first
+            self._copy_to_data_row(self.filter_copy_exprs, sql_row, data_row)
+            for expr in self.filter_eval_exprs:
+                expr.eval(data_row)
+            if not data_row[self.filter.data_row_idx]:
+                return False
+
+        # materialize output_exprs
+        self._copy_to_data_row(self.output_copy_exprs, sql_row, data_row)
+        for expr in self.output_eval_exprs:
+            expr.eval(data_row)
+        return True
+
+    def _copy_to_data_row(self, exprs: List[Expr], sql_row: Tuple[Any], data_row: List[Any]):
+        """
+        Copy expr values from sql to data row.
+        """
+        for expr in exprs:
+            assert expr.sql_row_idx != -1
+            if expr.col_type.is_image_type():
+                # row contains a file path that we need to open
+                file_path = sql_row[expr.sql_row_idx]
+                try:
+                    img = PIL.Image.open(file_path)
+                    img.thumbnail((128, 128))
+                    data_row[expr.data_row_idx] = img
+                except Exception:
+                    raise exc.OperationalError(f'Error reading image file: {file_path}')
+            else:
+                data_row[expr.data_row_idx] = sql_row[expr.sql_row_idx]
+
+
+class ExprEvalCtx:
+    """
+    Represents the parameters necessary to materialize List[Expr] from a sql query result row
+    into a data row.
+
+    Data row:
+    - List[Any]
+    - contains slots for all materialized component exprs (ie, not for predicates that turn into the SQL Where clause):
+    a) every DataFrame.select_list expr
+    b) the parts of the where clause predicate that cannot be evaluated in SQL
+    b) every component expr of a) and b), recursively
+    - IMAGE columns are materialized immediately as a PIL.Image.Image
+
+    ex.: the select list [<img col 1>.alpha_composite(<img col 2>), <text col 3>]
+    - sql row composition: [<file path col 1>, <file path col 2>, <text col 3>]
+    - data row composition: [Image, str, Image, Image]
+    - copy_exprs: [
+        ColumnRef(data_row_idx: 2, sql_row_idx: 0, col: <col 1>)
+        ColumnRef(data_row_idx: 3, sql_row_idx: 1, col: <col 2>)
+        ColumnRef(data_row_idx: 1, sql_row_idx: 2, col: <col 3>)
+      ]
+    - eval_exprs: [ImageMethodCall(data_row_idx: 0, sql_row_id: -1)]
+    """
+
+    def __init__(self, output_exprs: List[Expr], filter: Optional[Predicate]):
+        """
+        Init for list of materialized exprs
+        """
+
+        # objects needed to materialize the SQL result row
+        self.sql_exprs: List[sql.sql.expression.ClauseElement] = []
+        # we want to avoid duplicate expr evaluation, so we keep track of unique exprs (duplicates share the
+        # same data_row_idx); however, __eq__() doesn't work for sets, so we use a list here
+        self.unique_exprs: List[Expr] = []
+        self.next_data_row_idx = 0
+
+        if filter is not None:
+            self._analyze_expr(filter)
+        for expr in output_exprs:
+            self._analyze_expr(expr)
+
+    def num_materialized(self) -> int:
+        return self.next_data_row_idx
+
+    def _is_unique_expr(self, expr: Expr) -> bool:
+        """
+        If False, sets expr.data/sql_row_idx to that of the already-recorded duplicate.
+        """
+        try:
+            existing = next(e for e in self.unique_exprs if e.equals(expr))
+            expr.data_row_idx = existing.data_row_idx
+            expr.sql_row_idx = existing.sql_row_idx
+            return False
+        except StopIteration:
+            return True
+
+    def _analyze_expr(self, expr: Expr) -> None:
+        """
+        Assign Expr.data_row_idx and Expr.sql_row_idx
+        """
+        if not self._is_unique_expr(expr):
+            # nothing left to do
+            return
+        self.unique_exprs.append(expr)
+
+        sql_expr = expr.sql_expr()
+        if sql_expr is not None:
+            if expr.data_row_idx < 0:
+                expr.data_row_idx = self.next_data_row_idx
+                self.next_data_row_idx += 1
+            expr.sql_row_idx = len(self.sql_exprs)
+            self.sql_exprs.append(sql_expr)
+            return
+
+        # expr value needs to be computed via Expr.eval()
+        for c in expr.components:
+            self._analyze_expr(c)
+        if expr.data_row_idx < 0:
+            expr.data_row_idx = self.next_data_row_idx
+            self.next_data_row_idx += 1

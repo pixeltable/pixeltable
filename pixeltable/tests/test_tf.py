@@ -25,6 +25,7 @@ class TestTf:
                 assert ds.element_spec[i].shape == (col_type.height, col_type.width, col_type.num_channels)
 
     def test_basic(self, img_tbl: catalog.Table) -> None:
+        # TODO: test all data types
         t = img_tbl
         m = t[t.category].categorical_map()
         # image types with increasingly specific dimensions
@@ -50,6 +51,12 @@ class TestTf:
         ds = pixeltable.tf.to_dataset(df).batch(32)
         for row in ds:
             pass
+
+        df = t[[t.img.convert('RGB').resize((224, 224)), {'b': dict_map(t.category, m)}]]
+        ds = pixeltable.tf.to_dataset(df).batch(32)
+        for row in ds:
+            pass
+
 
     def test_model_fn(self, img_tbl: catalog.Table) -> None:
         model = tf.keras.applications.resnet50.ResNet50()

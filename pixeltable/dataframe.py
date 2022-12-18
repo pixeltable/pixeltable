@@ -1,6 +1,6 @@
 import base64
 from io import BytesIO
-from typing import List, Optional, Any, Tuple, Dict
+from typing import List, Optional, Any, Dict
 import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
@@ -55,100 +55,6 @@ class DataFrameResultSet:
             return self.rows[index[0]][index[1]]
 
 
-class EvalCtx:
-    """
-    Represents the parameters necessary to materialize List[Expr] from a sql query result row
-    into a data row.
-
-    Data row:
-    - List[Any]
-    - contains slots for all *materialized* exprs (ie, not for predicates that turn into the SQL Where clause):
-    a) every DataFrame.select_list expr; those occupy the first len(select_list) slots
-    b) the parts of the where clause predicate that cannot be evaluated in SQL
-    b) every child expr of a) and b), recursively
-    - IMAGE columns are materialized immediately as a PIL.Image.Image
-
-    ex.: the select list [<img col 1>.alpha_composite(<img col 2>), <text col 3>]
-    - sql row composition: [<file path col 1>, <file path col 2>, <text col 3>]
-    - data row composition: [Image, str, Image, Image]
-    - copy_exprs: [
-        ColumnRef(data_row_idx: 2, sql_row_idx: 0, col: <col 1>)
-        ColumnRef(data_row_idx: 3, sql_row_idx: 1, col: <col 2>)
-        ColumnRef(data_row_idx: 1, sql_row_idx: 2, col: <col 3>)
-      ]
-    - eval_exprs: [ImageMethodCall(data_row_idx: 0, sql_row_id: -1)]
-    """
-
-    def __init__(self, select_list: List[exprs.Expr], where_clause: Optional[exprs.Predicate]):
-        """
-        Init for list of materialized exprs
-        """
-
-        # exprs needed to materialize the SQL result row
-        self.sql_exprs: List[sql.sql.expression.ClauseElement] = []
-        # TODO: add self.literal_exprs so that we don't need to retrieve those from SQL
-        # exprs that are materialized directly via SQL query and for which results can be copied from sql row
-        # into data row
-        self.filter_copy_exprs: List[exprs.Expr] = []
-        self.select_copy_exprs: List[exprs.Expr] = []
-        # exprs for which we need to call eval() to compute the value; must be called in the order stored here
-        self.filter_eval_exprs: List[exprs.Expr] = []
-        self.select_eval_exprs: List[exprs.Expr] = []
-
-        # we want to avoid duplicate expr evaluation, so we keep track of unique exprs (duplicates share the
-        # same data_row_idx); however, __eq__() doesn't work for sets, so we use a list here
-        self.unique_exprs: List[exprs.Expr] = []
-
-        self.next_data_row_idx = 0
-        # analyze where_clause first, so that it can be evaluated before the select list
-        if where_clause is not None:
-            self._analyze_expr(where_clause, self.filter_copy_exprs, self.filter_eval_exprs)
-        for expr in select_list:
-            self._analyze_expr(expr, self.select_copy_exprs, self.select_eval_exprs)
-
-    def num_materialized(self) -> int:
-        return self.next_data_row_idx
-
-    def _is_unique_expr(self, expr: exprs.Expr) -> bool:
-        """
-        If False, sets expr.data_row_idx to that of the already-recorded duplicate.
-        """
-        try:
-            existing = next(e for e in self.unique_exprs if e.equals(expr))
-            expr.data_row_idx = existing.data_row_idx
-            return False
-        except StopIteration:
-            return True
-
-    def _analyze_expr(self, expr: exprs.Expr, copy_exprs: List[exprs.Expr], eval_exprs: List[exprs.Expr]) -> None:
-        """
-        Assign Expr.data_row_idx and Expr.sql_row_idx and update sql/copy/eval_exprs accordingly.
-        """
-        if not self._is_unique_expr(expr):
-            # nothing left to do
-            return
-        self.unique_exprs.append(expr)
-
-        sql_expr = expr.sql_expr()
-        if sql_expr is not None:
-            if expr.data_row_idx < 0:
-                expr.data_row_idx = self.next_data_row_idx
-                self.next_data_row_idx += 1
-            expr.sql_row_idx = len(self.sql_exprs)
-            self.sql_exprs.append(sql_expr)
-            copy_exprs.append(expr)
-            return
-
-        # expr value needs to be computed via Expr.eval();
-        # analyze dependencies before expr, to make sure they are eval()'d first
-        for c in expr.children:
-            self._analyze_expr(c, copy_exprs, eval_exprs)
-        if expr.data_row_idx < 0:
-            expr.data_row_idx = self.next_data_row_idx
-            self.next_data_row_idx += 1
-        eval_exprs.append(expr)
-
-
 class DataFrame:
     def __init__(
             self, tbl: catalog.Table,
@@ -162,24 +68,7 @@ class DataFrame:
         self.where_clause: Optional[exprs.Predicate] = None
         if where_clause is not None:
             self.where_clause = where_clause.copy()
-        self.eval_ctx: Optional[EvalCtx] = None
-
-    def _copy_to_data_row(self, expr_list: List[exprs.Expr], sql_row: Tuple[Any], data_row: List[Any]):
-        """
-        Copy expr values from sql to data row.
-        """
-        for expr in expr_list:
-            if expr.col_type.is_image_type():
-                # row contains a file path that we need to open
-                file_path = sql_row[expr.sql_row_idx]
-                try:
-                    img = Image.open(file_path)
-                    img.thumbnail((128, 128))
-                    data_row[expr.data_row_idx] = img
-                except Exception:
-                    raise exc.OperationalError(f'Error reading image file: {file_path}')
-            else:
-                data_row[expr.data_row_idx] = sql_row[expr.sql_row_idx]
+        self.eval_ctx: Optional[exprs.ExprEvalCtx] = None
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         sql_where_clause: Optional[sql.sql.expression.ClauseElement] = None
@@ -204,36 +93,26 @@ class DataFrame:
             select_list = [exprs.ColumnRef(col) for col in self.tbl.columns()]
         if self.eval_ctx is None:
             # constructing the EvalCtx is not idempotent
-            self.eval_ctx = EvalCtx(select_list, remaining_where_clause)
+            self.eval_ctx = exprs.ExprEvalCtx(select_list, remaining_where_clause)
         # we materialize everything needed for select_list into data_rows
         data_rows: List[List] = []
 
-        idx_rowids: List[int] = []
+        idx_rowids: List[int] = []  # rowids returned by index lookup
         if similarity_clause is not None:
+            # do index lookup
             assert similarity_clause.img_col.col.idx is not None
             embed = similarity_clause.embedding()
             idx_rowids = similarity_clause.img_col.col.idx.search(embed, n, self.tbl.valid_rowids)
-            _ = type(idx_rowids)
 
         with env.get_engine().connect() as conn:
             stmt = self._create_select_stmt(self.eval_ctx.sql_exprs, sql_where_clause, idx_rowids)
             num_rows = 0
+            evaluator = exprs.ExprEvaluator(select_list, remaining_where_clause)
 
             for row in conn.execute(stmt):
                 data_row: List[Any] = [None] * self.eval_ctx.num_materialized()
-
-                if remaining_where_clause is not None:
-                    # we need to evaluate the remaining filter predicate first
-                    self._copy_to_data_row(self.eval_ctx.filter_copy_exprs, row._data, data_row)
-                    for expr in self.eval_ctx.filter_eval_exprs:
-                        expr.eval(data_row)
-                    if not data_row[remaining_where_clause.data_row_idx]:
-                        continue
-
-                # materialize the select list
-                self._copy_to_data_row(self.eval_ctx.select_copy_exprs, row._data, data_row)
-                for expr in self.eval_ctx.select_eval_exprs:
-                    expr.eval(data_row)
+                if not evaluator.eval(row._data, data_row):
+                    continue
 
                 # copy select list results into contiguous array
                 # TODO: make this unnecessary
@@ -309,7 +188,7 @@ class DataFrame:
                 if isinstance(expr, dict):
                     index[i] = expr = exprs.InlineDict(expr)
                 if isinstance(expr, list):
-                    index[i] = expr = exprs.InlineArray(expr)
+                    index[i] = expr = exprs.InlineArray(tuple(expr))
                 if not isinstance(expr, exprs.Expr):
                     raise exc.OperationalError(f'Invalid expression in []: {expr}')
                 if expr.col_type.is_invalid_type():

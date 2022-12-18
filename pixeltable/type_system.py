@@ -428,7 +428,7 @@ class ArrayType(ColumnType):
         return ArrayType(tuple(shape), base_type)
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
-        return tf.TensorSpec(shape=self.shape, dtype=self._type.to_tf())
+        return tf.TensorSpec(shape=self.shape, dtype=self.dtype.to_tf())
 
 
 class Function:
