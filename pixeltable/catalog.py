@@ -5,6 +5,7 @@ import PIL
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
+import pathlib
 
 import pandas as pd
 import sqlalchemy as sql
@@ -13,7 +14,7 @@ import sqlalchemy.orm as orm
 from pixeltable import store, env
 from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType
-from pixeltable.utils import clip
+from pixeltable.utils import clip, video
 from pixeltable.index import VectorIndex
 
 
@@ -89,7 +90,8 @@ class SnapshotDir(DirBase):
 
 class Table(SchemaObject):
     #def __init__(self, tbl_record: store.Table, schema: List[Column]):
-    def __init__(self, db_id: int, tbl_id: int, dir_id: int, name: str, version: int, is_indexed: bool, cols: List[Column]):
+    def __init__(
+            self, db_id: int, tbl_id: int, dir_id: int, name: str, version: int, is_indexed: bool, cols: List[Column]):
         super().__init__(tbl_id)
         self.db_id = db_id
         self.dir_id = dir_id
@@ -351,17 +353,53 @@ class MutableTable(Table):
                 .values(tbl_id=self.id, schema_version=self.version, col_id=c.id,
                         pos=pos, name=c.name, col_type=c.col_type.type_enum, is_nullable=c.nullable, is_pk=c.primary_key))
 
-    def insert_pandas(self, data: pd.DataFrame) -> None:
+    def insert_pandas(
+            self, data: pd.DataFrame, video_column: Optional[str] = None, frame_column: Optional[str] = None,
+            frame_idx_column: Optional[str] = None, fps: int = 0
+    ) -> None:
+        """
+        If video_column is given:
+        - this is expected to be the name of a string column that contains paths to video files
+        - each row (containing a video) is expanded into one row per extracted frame (at the rate of the fps parameter)
+        - frame_column is expected to be an image column, and it receives the extracted frame
+        - frame_idx_column is expected to be an integer column, and it receives the frame index (starting at 0)
+
+        """
         self._check_is_dropped()
+        all_col_names = set([col.name for col in self.cols])
         reqd_col_names = set([col.name for col in self.cols if not col.nullable])
         given_col_names = set(data.columns)
+        if video_column is not None and (frame_column is None or frame_idx_column is None):
+            raise exc.OperationalError(
+                f'Frame extraction requires frame_column and frame_idx_column arguments to be set')
+        if frame_column is not None:
+            given_col_names.add(frame_column)
+        if frame_idx_column is not None:
+            given_col_names.add(frame_idx_column)
         if not(reqd_col_names <= given_col_names):
             raise exc.InsertError(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')
+        if not(given_col_names <= all_col_names):
+            raise exc.InsertError(f'Unknown columns: {", ".join(given_col_names - all_col_names)}')
+
+        if video_column is not None:
+            if video_column not in data.columns:
+                raise exc.OperationalError(f'Column {video_column} missing in DataFrame')
+            if not self.cols_by_name[video_column].col_type.is_string_type():
+                raise exc.OperationalError(f'Video_column parameter needs to be of type string')
+        if frame_column is not None:
+            if frame_column in data.columns:
+                raise exc.OperationalError(f'Column {frame_column} is computed and must not appear in DataFrame')
+            if not self.cols_by_name[frame_column].col_type.is_image_type():
+                raise exc.OperationalError(f'Frame_column parameter needs to be of type image')
+        if frame_idx_column is not None:
+            if frame_idx_column in data.columns:
+                raise exc.OperationalError(f'Column {frame_idx_column} is computed and must not appear in DataFrame')
+            if not self.cols_by_name[frame_idx_column].col_type.is_int_type():
+                raise exc.OperationalError(f'Frame_idx_column parameter needs to be of type int')
 
         # check types
-        all_col_names = set([col.name for col in self.cols])
-        inserted_cols = [self.cols_by_name[name] for name in all_col_names & given_col_names]
-        for col in inserted_cols:
+        provided_cols = [self.cols_by_name[name] for name in data.columns]
+        for col in provided_cols:
             if col.col_type.is_string_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires string data')
             if col.col_type.is_int_type() and not pd.api.types.is_integer_dtype(data.dtypes[col.name]):
@@ -377,10 +415,35 @@ class MutableTable(Table):
             if col.col_type.is_json_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires dictionary data')
 
+        # frame extraction from videos
+        if video_column is not None:
+            video_col = self.cols_by_name[video_column]
+            # check data: video_column needs to contain valid file paths
+            for idx, path_str in data[video_column].items():
+                path = pathlib.Path(path_str)
+                if not path.is_file():
+                    raise exc.OperationalError(
+                        f'For frame extraction, value for column {col.name} in row {idx} requires a valid '
+                        f'file path: {path}')
+
+            # expand each row in 'data' into one row per frame, adding columns frame_column and frame_idx_column
+            expanded_rows: List[Dict] = []
+            for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
+                input_row = input_tuple._asdict()
+                path = input_row[video_column]
+                # we need to generate a unique prefix for each set of frames corresponding to a single video
+                frame_path_prefix =\
+                    env.get_img_dir() / f'frame_{self.id}_{video_col.id}_{self.next_row_id + input_row_idx}'
+                frame_paths = video.extract_frames(path, frame_path_prefix, fps)
+                frame_rows = [{frame_column: p, frame_idx_column: i, **input_row} for i, p in enumerate(frame_paths)]
+                expanded_rows.extend(frame_rows)
+            data = pd.DataFrame.from_dict(expanded_rows, orient='columns')
+
         rowids = range(self.next_row_id, self.next_row_id + len(data))
 
-        # check data
-        for col in inserted_cols:
+        # check data and update image indices
+        data_cols = [self.cols_by_name[name] for name in data.columns]
+        for col in data_cols:
             # image cols: make sure file path points to a valid image file; build index if col is indexed
             if col.col_type.is_image_type():
                 embeddings = np.zeros((len(data), 512))
@@ -406,7 +469,7 @@ class MutableTable(Table):
         # we're creating a new version
         self.version += 1
         # construct new df with the storage column names, in order to iterate over it more easily
-        stored_data = {col.storage_name(): data[col.name] for col in inserted_cols}
+        stored_data = {col.storage_name(): data[col.name] for col in data_cols}
         stored_data_df = pd.DataFrame(data=stored_data)
         insert_values: List[Dict[str, Any]] = []
         print('preparing data ')

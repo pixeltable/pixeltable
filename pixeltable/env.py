@@ -31,6 +31,11 @@ def get_nnidx_dir() -> Path:
 
 def set_home(home: Path) -> None:
     global __home, __db_path, __img_dir, __nnidx_dir
+
+    # for running tests, we need to ignore the call to init_env() when creating a Client
+    if __home is not None:
+        return
+
     __home = home
     __db_path = __home / 'db.sqlite3'
     __img_dir = __home / 'images'

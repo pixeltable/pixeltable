@@ -106,3 +106,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
         assert col_name in df.columns
         df[col_name] = df.apply(lambda r: str(abs_path / r[col_name]), axis=1)
         return df
+
+def get_video_files() -> List[str]:
+    glob_result = glob.glob(f'{os.getcwd()}/**/videos/*.mp4', recursive=False)
+    return glob_result
