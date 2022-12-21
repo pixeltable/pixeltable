@@ -401,6 +401,7 @@ class ImageType(ColumnType):
 
 
 class JsonType(ColumnType):
+    # TODO: type_spec also needs to be able to express lists
     def __init__(self, type_spec: Optional[Dict[str, ColumnType]] = None):
         super().__init__(self.Type.JSON)
         self.type_spec = type_spec

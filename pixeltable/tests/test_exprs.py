@@ -3,7 +3,8 @@ import pytest
 
 from pixeltable import catalog
 from pixeltable.type_system import StringType, BoolType, IntType, ImageType, Function, ArrayType, ColumnType
-from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall
+from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, JsonMapper
+from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import udf_call, dict_map, cast
 from pixeltable.functions.pil.image import blend
 from pixeltable.functions.clip import encode_image
@@ -135,6 +136,22 @@ class TestExprs:
         assert isinstance(t, ArrayType)
         assert t.shape == (2, 2)
         assert t.dtype == ColumnType.Type.INT
+
+    def test_json_mapper(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        # top-level is dict
+        df = t[t.c6.f5['*'] >> (R + 1)]
+        res = df.show()
+        print(res)
+        _ = t[t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]]
+        _ = _.show()
+        print(_)
+        # target expr contains global-scope dependency
+        df = t[
+            t.c6.f5['*'] >> (R * t.c6.f5[1])
+        ]
+        res = df.show()
+        print(res)
 
     def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

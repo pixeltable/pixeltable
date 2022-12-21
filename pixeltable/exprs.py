@@ -67,6 +67,25 @@ class ArithmeticOperator(enum.Enum):
             return '/'
 
 
+class ExprScope:
+    """
+    Representation of the scope in which an Expr needs to be evaluated. Used to determine nesting of scopes.
+    parent is None: outermost scope
+    """
+    def __init__(self, parent: Optional['ExprScope']):
+        self.parent = parent
+
+    def is_contained_in(self, other: 'ExprScope') -> bool:
+        if self == other:
+            return True
+        if self.parent is None:
+            return False
+        return self.parent.is_contained_in(other)
+
+
+_GLOBAL_SCOPE = ExprScope(None)
+
+
 class Expr(abc.ABC):
     """
     Rules for using state in subclasses:
@@ -89,6 +108,24 @@ class Expr(abc.ABC):
         Returns all exprs that need to have been evaluated before eval() can be called on this one.
         """
         return self.components
+
+    def scope(self) -> ExprScope:
+        # by default this is the innermost scope of any of our components
+        result = _GLOBAL_SCOPE
+        for c in self.components:
+            c_scope = c.scope()
+            if c_scope.is_contained_in(result):
+                result = c_scope
+        return result
+
+    def bind_rel_paths(self, mapper: Optional['JsonMapper'] = None) -> None:
+        """
+        Binds relative JsonPaths to mapper.
+        This needs to be done in a separate phase after __init__(), because RelativeJsonPath()(-1) cannot be resolved
+        by the immediately containing JsonMapper during initialization.
+        """
+        for c in self.components:
+            c.bind_rel_paths(mapper)
 
     def display_name(self) -> str:
         """
@@ -138,7 +175,7 @@ class Expr(abc.ABC):
         """
         If this expr can be materialized directly in SQL:
         - returns a ClauseElement
-        - eval() will not be called
+        - eval() will not be called (exception: Literal)
         Otherwise
         - returns None
         - eval() will be called
@@ -149,7 +186,7 @@ class Expr(abc.ABC):
     def eval(self, data_row: List[Any]) -> None:
         """
         Compute the expr value for data_row and store the result in data_row[data_row_idx].
-        Not called if sql_expr() != None.
+        Not called if sql_expr() != None (exception: Literal).
         """
         pass
 
@@ -466,27 +503,67 @@ class ImageMethodCall(FunctionCall):
 
 
 class JsonPath(Expr):
-    def __init__(self, anchor: ColumnRef, path_elements: List[str] = []):
+    def __init__(self, anchor: Optional[ColumnRef], path_elements: List[str] = [], scope_idx: int = 0):
+        """
+        anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
+        scope_idx: for relative paths, index of referenced JsonMapper
+        (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
+        """
         super().__init__(JsonType())
-        self.components = [anchor]
+        if anchor is not None:
+            self.components = [anchor]
         self.path_elements: List[Union[str, int]] = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
+        self.scope_idx = scope_idx
 
-    def _anchor(self) -> ColumnRef:
-        assert isinstance(self.components[0], ColumnRef)
-        return self.components[0]
+    @property
+    def _anchor(self) -> Optional[Expr]:
+        return None if len(self.components) == 0 else self.components[0]
+
+    def set_anchor(self, anchor: Expr) -> None:
+        assert len(self.components) == 0
+        self.components = [anchor]
+
+    def is_relative_path(self) -> bool:
+        return self._anchor is None
+
+    def bind_rel_paths(self, mapper: Optional['JsonMapper'] = None) -> None:
+        if not self.is_relative_path():
+            return
+        # TODO: take scope_idx into account
+        self.set_anchor(mapper.scope_anchor)
+
+    def __call__(self, *args: object, **kwargs: object) -> 'JsonPath':
+        """
+        Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
+        """
+        if not self.is_relative_path():
+            raise exc.OperationalError(f'() for an absolute path is invalid')
+        if len(args) != 1 or not isinstance(args[0], int) or args[0] >= 0:
+            raise exc.OperationalError(f'R() requires a negative index')
+        return JsonPath(None, [], args[0])
 
     def __getattr__(self, name: str) -> 'JsonPath':
         assert isinstance(name, str)
-        return JsonPath(self._anchor(), self.path_elements + [name])
+        return JsonPath(self._anchor, self.path_elements + [name])
 
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, str) and index != '*':
             raise exc.OperationalError(f'Invalid json list index: {index}')
-        return JsonPath(self._anchor(), self.path_elements + [index])
+        return JsonPath(self._anchor, self.path_elements + [index])
+
+    def __rshift__(self, other: object) -> 'JsonMapper':
+        if isinstance(other, dict):
+            other = InlineDict(other)
+        elif isinstance(other, list):
+            other = InlineArray(tuple(other))
+        if not isinstance(other, Expr):
+            raise exc.OperationalError(f'>> requires an expression on the right-hand side, found {type(other)}')
+        return JsonMapper(self, other)
 
     def display_name(self) -> str:
-        return f'{self._anchor().col.name}.{self._json_path()}'
+        anchor_name = self._anchor.display_name() if self._anchor is not None else ''
+        return f'{anchor_name}.{self._json_path()}'
 
     def _equals(self, other: 'JsonPath') -> bool:
         return self.path_elements == other.path_elements
@@ -515,10 +592,13 @@ class JsonPath(Expr):
         return ''.join(result)
 
     def eval(self, data_row: List[Any]) -> None:
-        assert self.compiled_path is not None  # there should always be at least one path element
-        dict_val = data_row[self._anchor().data_row_idx]
-        val = self.compiled_path.search(dict_val)
+        val = data_row[self._anchor.data_row_idx]
+        if self.compiled_path is not None:
+            val = self.compiled_path.search(val)
         data_row[self.data_row_idx] = val
+
+
+RELATIVE_PATH_ROOT = JsonPath(None)
 
 
 class Literal(Expr):
@@ -542,9 +622,12 @@ class Literal(Expr):
         return self.val == other.eval
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        # we need to return something here so that we can generate a Where clause for predicates
+        # that involve literals (like Where c > 0)
         return sql.sql.expression.literal(self.val)
 
     def eval(self, data_row: List[Any]) -> None:
+        # this will be called, even though sql_expr() does not return None
         data_row[self.data_row_idx] = self.val
 
 
@@ -913,9 +996,9 @@ class ArithmeticExpr(Expr):
         op2_val = data_row[self._op2.data_row_idx]
         # check types if we couldn't do that prior to execution
         if self._op1.col_type.is_json_type() and not isinstance(op1_val, int) and not isinstance(op1_val, float):
-            raise exc.OperationalError(f'{operator} requires numeric type: {self._op1} has type {self._op1.col_type}')
+            raise exc.OperationalError(f'{self.operator} requires numeric type: {self._op1} has type {type(op1_val)}')
         if self._op2.col_type.is_json_type() and not isinstance(op2_val, int) and not isinstance(op2_val, float):
-            raise exc.OperationalError(f'{operator} requires numeric type: {self._op2} has type {self._op2.col_type}')
+            raise exc.OperationalError(f'{self.operator} requires numeric type: {self._op2} has type {type(op2_val)}')
 
         if self.operator == ArithmeticOperator.ADD:
             data_row[self.data_row_idx] = op1_val + op2_val
@@ -925,6 +1008,115 @@ class ArithmeticExpr(Expr):
             data_row[self.data_row_idx] = op1_val * op2_val
         elif self.operator == ArithmeticOperator.DIV:
             data_row[self.data_row_idx] = op1_val / op2_val
+
+
+class ObjectRef(Expr):
+    """
+    Reference to an intermediate result, such as the "scope variable" produced by a JsonMapper.
+    The object is generated/materialized elsewhere and establishes a new scope.
+    """
+    def __init__(self, scope: ExprScope):
+        # TODO: do we need an Unknown type after all?
+        super().__init__(JsonType())  # JsonType: this could be anything
+        self._scope = scope
+
+    def scope(self) -> ExprScope:
+        return self._scope
+
+    def _equals(self, other: 'ObjectRef') -> bool:
+        return self._scope == other._scope
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        return None
+
+    def eval(self, data_row: List[Any]) -> None:
+        # this will be called, but the value has already been materialized elsewhere
+        pass
+
+
+class JsonMapper(Expr):
+    """
+    JsonMapper transforms the list output of a JsonPath by applying a target expr to every element of the list.
+    The target expr would typically contain relative JsonPaths, which are bound to an ObjectRef, which in turn
+    is populated by JsonMapper.eval(). The JsonMapper effectively creates a new scope for its target expr.
+    """
+    def __init__(self, src_expr: Expr, target_expr: Expr):
+        # TODO: type spec should be List[target_expr.col_type]
+        super().__init__(JsonType())
+
+        # we're creating a new scope, but we don't know yet whether this is nested within another JsonMapper;
+        # this gets resolved in bind_rel_paths(); for now we assume we're in the global scope
+        self.target_expr_scope = ExprScope(_GLOBAL_SCOPE)
+
+        scope_anchor = ObjectRef(self.target_expr_scope)
+        self.components = [src_expr, target_expr, scope_anchor]
+        self.parent_mapper: Optional[JsonMapper] = None
+        self.evaluator: Optional[ExprEvaluator] = None
+
+    def bind_rel_paths(self, mapper: Optional['JsonMapper']) -> None:
+        self._src_expr.bind_rel_paths(mapper)
+        self._target_expr.bind_rel_paths(self)
+        self.parent_mapper = mapper
+        parent_scope = _GLOBAL_SCOPE if mapper is None else mapper.target_expr_scope
+        self.target_expr_scope.parent = parent_scope
+
+    def scope(self) -> ExprScope:
+        # need to ignore target_expr
+        return self._src_expr.scope()
+
+    def dependencies(self) -> List['Expr']:
+        result = [self._src_expr]
+        result.extend(self._target_dependencies(self._target_expr))
+        return result
+
+    def _target_dependencies(self, e: Expr) -> List['Expr']:
+        """
+        Return all subexprs of e of which the scope isn't contained in target_expr_scope.
+        Those need to be evaluated before us.
+        """
+        expr_scope = e.scope()
+        if not expr_scope.is_contained_in(self.target_expr_scope):
+            return [e]
+        result: List[Expr] = []
+        for c in e.components:
+            result.extend(self._target_dependencies(c))
+        return result
+
+    @property
+    def _src_expr(self) -> Expr:
+        return self.components[0]
+
+    @property
+    def _target_expr(self) -> Expr:
+        return self.components[1]
+
+    @property
+    def scope_anchor(self) -> Expr:
+        return self.components[2]
+
+    def _equals(self, other: 'JsonMapper') -> bool:
+        return True
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        return None
+
+    def eval(self, data_row: List[Any]) -> None:
+        # this will be called, but the value has already been materialized elsewhere
+        src = data_row[self._src_expr.data_row_idx]
+        if not isinstance(src, list):
+            # invalid/non-list src path
+            data_row[self.data_row_idx] = None
+            return
+
+        result = [None] * len(src)
+        if self.evaluator is None:
+            self.evaluator = ExprEvaluator([self._target_expr], None)
+        for i, val in enumerate(src):
+            data_row[self.scope_anchor.data_row_idx] = val
+            # materialize target_expr
+            self.evaluator.eval((), data_row)
+            result[i] = data_row[self._target_expr.data_row_idx]
+        data_row[self.data_row_idx] = result
 
 
 class ExprEvaluator:
@@ -945,13 +1137,16 @@ class ExprEvaluator:
         unique_ids: Set[int] = set()
         # analyze filter first, so that it can be evaluated before output_exprs
         if filter is not None:
-            self._analyze_expr(filter, self.filter_copy_exprs, self.filter_eval_exprs, unique_ids)
+            self._analyze_expr(filter, filter.scope(), self.filter_copy_exprs, self.filter_eval_exprs, unique_ids)
         for expr in output_exprs:
-            self._analyze_expr(expr, self.output_copy_exprs, self.output_eval_exprs, unique_ids)
+            self._analyze_expr(expr, expr.scope(), self.output_copy_exprs, self.output_eval_exprs, unique_ids)
 
-    def _analyze_expr(self, expr: Expr, copy_exprs: List[Expr], eval_exprs: List[Expr], unique_ids: Set[int]) -> None:
+    def _analyze_expr(
+            self, expr: Expr, scope: ExprScope, copy_exprs: List[Expr], eval_exprs: List[Expr], unique_ids: Set[int]
+    ) -> None:
         """
         Determine unique dependencies of expr and accumulate those in copy_exprs and eval_exprs.
+        Dependencies that are not in 'scope' are assumed to have been materialized already and are ignored.
         """
         if expr.data_row_idx in unique_ids:
             return
@@ -963,7 +1158,9 @@ class ExprEvaluator:
             return
 
         for d in expr.dependencies():
-            self._analyze_expr(d, copy_exprs, eval_exprs, unique_ids)
+            if d.scope() != scope:
+                continue
+            self._analyze_expr(d, scope, copy_exprs, eval_exprs, unique_ids)
         # make sure to eval() this after its dependencies
         eval_exprs.append(expr)
 
@@ -1070,7 +1267,9 @@ class ExprEvalCtx:
         self.unique_exprs.append(expr)
 
         sql_expr = expr.sql_expr()
-        if sql_expr is not None:
+        # if this can be materialized via SQL we don't need to look at its components;
+        # we special-case Literals because we don't want to have to materialize them via SQL
+        if sql_expr is not None and not isinstance(expr, Literal):
             if expr.data_row_idx < 0:
                 expr.data_row_idx = self.next_data_row_idx
                 self.next_data_row_idx += 1
