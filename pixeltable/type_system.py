@@ -83,11 +83,32 @@ class ColumnType:
         return self._type
 
     def serialize(self) -> Dict:
-        return {'type': self._type.value}
+        """
+        Turn Expr object into a dict that can be passed to json.dumps().
+        """
+        return {
+            '_classname': self.__class__.__name__,
+            **self._serialize(),
+        }
 
-    #@classmethod
-    #def deserialize(cls, d: Dict) -> 'ColumnType':
-        #return None
+    def _serialize(self) -> Dict:
+        return {}
+
+    @classmethod
+    def deserialize(cls, d: Dict) -> 'ColumnType':
+        """
+        Turn dict that was produced by calling Expr.serialize() into an instance of the correct ColumnType subclass.
+        """
+        assert '_classname' in d
+        type_class = globals()[d['_classname']]
+        return type_class._deserialize(d)
+
+    @classmethod
+    def _deserialize(cls, d: Dict) -> 'ColumnType':
+        """
+        Default implementation: simply invokes c'tor without arguments
+        """
+        return cls()
 
     @classmethod
     def make_type(cls, t: Type) -> 'ColumnType':
@@ -371,10 +392,17 @@ class ImageType(ColumnType):
     def num_channels(self) -> Optional[int]:
         return None if self.mode is None else self.mode.num_channels()
 
-    def serialize(self) -> Dict:
-        result = super().serialize()
-        result.update({'width': self.width, 'height': self.height, 'mode': self.mode.value})
+    def _serialize(self) -> Dict:
+        result = super()._serialize()
+        result.update(width=self.width, height=self.height, mode=self.mode.value)
         return result
+
+    @classmethod
+    def _deserialize(cls, d: Dict) -> 'ColumnType':
+        assert 'width' in d
+        assert 'height' in d
+        assert 'mode' in d
+        return cls(width=d['width'], height=d['height'], mode=cls.Mode(d['mode']))
 
     def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
         if not target.is_image_type():
@@ -406,6 +434,22 @@ class JsonType(ColumnType):
         super().__init__(self.Type.JSON)
         self.type_spec = type_spec
 
+    def _serialize(self) -> Dict:
+        result = super()._serialize()
+        if self.type_spec is not None:
+            type_spec_dict = {field_name: field_type.serialize() for field_name, field_type in self.type_spec.items()}
+            result.update({'type_spec': type_spec_dict})
+        return result
+
+    @classmethod
+    def _deserialize(cls, d: Dict) -> 'ColumnType':
+        type_spec = None
+        if 'type_spec' in d:
+            type_spec = {
+                field_name: cls.deserialize(field_type_dict) for field_name, field_type_dict in d['type_spec'].items()
+            }
+        return cls(type_spec)
+
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         if self.type_spec is None:
             raise TypeError(f'Cannot convert {self.__class__.__name__} with missing type spec to TensorFlow')
@@ -427,6 +471,19 @@ class ArrayType(ColumnType):
             return None
         shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
         return ArrayType(tuple(shape), base_type)
+
+    def _serialize(self) -> Dict:
+        result = super()._serialize()
+        result.update(shape=list(self.shape), dtype=self.dtype.value)
+        return result
+
+    @classmethod
+    def _deserialize(cls, d: Dict) -> 'ColumnType':
+        assert 'shape' in d
+        assert 'dtype' in d
+        shape = tuple(d['shape'])
+        dtype = cls.Type(d['dtype'])
+        return cls(shape, dtype)
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         return tf.TensorSpec(shape=self.shape, dtype=self.dtype.to_tf())

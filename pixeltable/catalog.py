@@ -355,7 +355,7 @@ class MutableTable(Table):
 
     def insert_pandas(
             self, data: pd.DataFrame, video_column: Optional[str] = None, frame_column: Optional[str] = None,
-            frame_idx_column: Optional[str] = None, fps: int = 0
+            frame_idx_column: Optional[str] = None, fps: int = 1
     ) -> None:
         """
         If video_column is given:
@@ -401,19 +401,21 @@ class MutableTable(Table):
         provided_cols = [self.cols_by_name[name] for name in data.columns]
         for col in provided_cols:
             if col.col_type.is_string_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires string data')
+                raise exc.InsertError(f'Column {col.name} requires string data but contains {data.dtypes[col.name]}')
             if col.col_type.is_int_type() and not pd.api.types.is_integer_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires integer data')
+                raise exc.InsertError(f'Column {col.name} requires integer data but contains {data.dtypes[col.name]}')
             if col.col_type.is_float_type() and not pd.api.types.is_numeric_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires numerical data')
+                raise exc.InsertError(f'Column {col.name} requires numerical data but contains {data.dtypes[col.name]}')
             if col.col_type.is_bool_type() and not pd.api.types.is_bool_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires boolean data')
+                raise exc.InsertError(f'Column {col.name} requires boolean data but contains {data.dtypes[col.name]}')
             if col.col_type.is_timestamp_type() and not pd.api.types.is_datetime64_any_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires datetime data')
+                raise exc.InsertError(f'Column {col.name} requires datetime data but contains {data.dtypes[col.name]}')
             if col.col_type.is_image_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires local file paths')
+                raise exc.InsertError(
+                    f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
             if col.col_type.is_json_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires dictionary data')
+                raise exc.InsertError(
+                    f'Column {col.name} requires dictionary data but contains {data.dtypes[col.name]}')
 
         # frame extraction from videos
         if video_column is not None:

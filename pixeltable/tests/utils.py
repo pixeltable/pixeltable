@@ -108,5 +108,5 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
         return df
 
 def get_video_files() -> List[str]:
-    glob_result = glob.glob(f'{os.getcwd()}/**/videos/*.mp4', recursive=False)
+    glob_result = glob.glob(f'{os.getcwd()}/**/videos/*.mp4', recursive=True)
     return glob_result

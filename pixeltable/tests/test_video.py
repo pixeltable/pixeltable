@@ -2,10 +2,9 @@ import pytest
 import pandas as pd
 
 import pixeltable as pt
-import pixeltable.utils.video as v
 from pixeltable.type_system import StringType, IntType, ImageType
 from pixeltable.tests.utils import get_video_files
-from pixeltable import env, catalog
+from pixeltable import catalog
 
 
 class TestVideo:

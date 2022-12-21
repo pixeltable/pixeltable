@@ -20,7 +20,7 @@ def extract_frames(video_path_str: str, output_path_prefix: str, fps: int = 0) -
     s = ffmpeg.input(video_path)
     if fps > 0:
         s = s.filter('fps', fps)
-    s = s.output(output_path_str)
+    s = s.output(output_path_str, loglevel='quiet')
     try:
         s.run()
     except ffmpeg.Error:
