@@ -2,6 +2,7 @@ import abc
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import enum
 import datetime
+import json
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -82,39 +83,31 @@ class ColumnType:
     def type_enum(self) -> Type:
         return self._type
 
-    def serialize(self) -> Dict:
-        """
-        Turn Expr object into a dict that can be passed to json.dumps().
-        """
-        return {
+    def serialize(self) -> str:
+        return json.dumps({
             '_classname': self.__class__.__name__,
             **self._serialize(),
-        }
+        })
 
     def _serialize(self) -> Dict:
         return {}
 
     @classmethod
-    def deserialize(cls, d: Dict) -> 'ColumnType':
-        """
-        Turn dict that was produced by calling Expr.serialize() into an instance of the correct ColumnType subclass.
-        """
-        assert '_classname' in d
-        type_class = globals()[d['_classname']]
-        return type_class._deserialize(d)
+    def deserialize(cls, type_str: str) -> 'ColumnType':
+        type_dict = json.loads(type_str)
+        assert '_classname' in type_dict
+        type_class = globals()[type_dict['_classname']]
+        return type_class._deserialize(type_dict)
 
     @classmethod
     def _deserialize(cls, d: Dict) -> 'ColumnType':
         """
-        Default implementation: simply invokes c'tor without arguments
+        Default implementation: simply invoke c'tor without arguments
         """
         return cls()
 
     @classmethod
     def make_type(cls, t: Type) -> 'ColumnType':
-        """
-        TODO: replace with deserialize(d: Dict)
-        """
         assert t != cls.Type.INVALID and t != cls.Type.ARRAY
         if t == cls.Type.STRING:
             return StringType()
@@ -394,7 +387,7 @@ class ImageType(ColumnType):
 
     def _serialize(self) -> Dict:
         result = super()._serialize()
-        result.update(width=self.width, height=self.height, mode=self.mode.value)
+        result.update(width=self.width, height=self.height, mode=self.mode.value if self.mode is not None else None)
         return result
 
     @classmethod
@@ -402,7 +395,8 @@ class ImageType(ColumnType):
         assert 'width' in d
         assert 'height' in d
         assert 'mode' in d
-        return cls(width=d['width'], height=d['height'], mode=cls.Mode(d['mode']))
+        mode_val = d['mode']
+        return cls(width=d['width'], height=d['height'], mode=cls.Mode(mode_val) if mode_val is not None else None)
 
     def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
         if not target.is_image_type():

@@ -107,8 +107,7 @@ class SchemaColumn(Base):
     col_id = sql.Column(Integer, primary_key=True, nullable=False)
     pos = sql.Column(Integer, nullable=False)  # position in table, starting at 0
     name = sql.Column(String, nullable=False)
-    # TODO: replace with varchar column to encode ColumnType.serialize()
-    col_type = sql.Column(Enum(pt_types.ColumnType.Type), nullable=False)
+    col_type = sql.Column(String, nullable=False)
     is_nullable = sql.Column(Boolean, nullable=False)
     is_pk = sql.Column(Boolean, nullable=False)
 

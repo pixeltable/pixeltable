@@ -184,7 +184,8 @@ class Table(SchemaObject):
             .order_by(store.SchemaColumn.pos.asc()).all()
         cols = [
             Column(
-                r.name, ColumnType.make_type(r.col_type), primary_key=r.is_pk, nullable=r.is_nullable, col_id=r.col_id)
+                r.name, ColumnType.deserialize(r.col_type), primary_key=r.is_pk, nullable=r.is_nullable,
+                col_id=r.col_id)
             for r in col_records
         ]
         if is_indexed:
@@ -350,8 +351,9 @@ class MutableTable(Table):
         for pos, c in enumerate(self.cols):
             conn.execute(
                 sql.insert(store.SchemaColumn.__table__)
-                .values(tbl_id=self.id, schema_version=self.version, col_id=c.id,
-                        pos=pos, name=c.name, col_type=c.col_type.type_enum, is_nullable=c.nullable, is_pk=c.primary_key))
+                .values(
+                    tbl_id=self.id, schema_version=self.version, col_id=c.id, pos=pos, name=c.name,
+                    col_type=c.col_type.serialize(), is_nullable=c.nullable, is_pk=c.primary_key))
 
     def insert_pandas(
             self, data: pd.DataFrame, video_column: Optional[str] = None, frame_column: Optional[str] = None,
@@ -599,7 +601,7 @@ class MutableTable(Table):
                 session.add(
                     store.SchemaColumn(
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
-                        col_type=col.col_type.type_enum, is_nullable=col.nullable, is_pk=col.primary_key)
+                        col_type=col.col_type.serialize(), is_nullable=col.nullable, is_pk=col.primary_key)
                 )
                 session.flush()  # avoid FK violations in Postgres
 

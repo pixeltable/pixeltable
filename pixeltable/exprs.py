@@ -190,6 +190,31 @@ class Expr(abc.ABC):
         """
         pass
 
+    def serialize(self) -> Dict:
+        """
+        Turn Expr object into a dict that can be passed to json.dumps().
+        """
+        return {
+            '_classname': self.__class__.__name__,
+            **self._serialize(),
+        }
+
+    def _serialize(self) -> Dict:
+        return {}
+
+    @classmethod
+    def deserialize(cls, d: Dict, t: catalog.Table) -> 'Expr':
+        """
+        Turn dict that was produced by calling Expr.serialize() into an instance of the correct Expr subclass.
+        """
+        assert '_classname' in d
+        type_class = globals()[d['_classname']]
+        return type_class._deserialize(d, t)
+
+    @classmethod
+    def _deserialize(cls, d: Dict, t: catalog.Table) -> 'Expr':
+        assert False, 'not implemented'
+
     def __getattr__(self, name: str) -> 'ImageMemberAccess':
         """
         ex.: <img col>.rotate(60)
@@ -278,6 +303,13 @@ class ColumnRef(Expr):
     def eval(self, data_row: List[Any]) -> None:
         assert False
 
+    def _serialize(self) -> Dict:
+        return {'col_id': self.col.id}
+
+    @classmethod
+    def _deserialize(cls, d: Dict, t: catalog.Table) -> 'Expr':
+        assert 'col_id' in d
+        return cls(t.cols_by_name[d['col_id']])
 
 class FunctionCall(Expr):
     def __init__(self, fn: Function, args: Tuple[Any] = None):
