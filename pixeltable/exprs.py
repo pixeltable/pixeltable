@@ -6,6 +6,7 @@ import inspect
 import typing
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set
 import operator
+import json
 
 import PIL.Image
 import jmespath
@@ -190,29 +191,42 @@ class Expr(abc.ABC):
         """
         pass
 
-    def serialize(self) -> Dict:
+    def serialize(self) -> str:
+        return json.dumps(self.as_dict())
+
+    def as_dict(self) -> Dict:
         """
         Turn Expr object into a dict that can be passed to json.dumps().
+        Subclasses override _as_dict().
         """
         return {
             '_classname': self.__class__.__name__,
-            **self._serialize(),
+            **self._as_dict(),
         }
 
-    def _serialize(self) -> Dict:
+    def _as_dict(self) -> Dict:
+        if len(self.components) > 0:
+            return {'components': [c.as_dict() for c in self.components]}
         return {}
 
     @classmethod
-    def deserialize(cls, d: Dict, t: catalog.Table) -> 'Expr':
+    def deserialize(cls, dict_str: str, t: catalog.Table) -> 'Expr':
+        return cls.from_dict(json.loads(dict_str), t)
+
+    @classmethod
+    def from_dict(cls, d: Dict, t: catalog.Table) -> 'Expr':
         """
-        Turn dict that was produced by calling Expr.serialize() into an instance of the correct Expr subclass.
+        Turn dict that was produced by calling Expr.as_dict() into an instance of the correct Expr subclass.
         """
         assert '_classname' in d
         type_class = globals()[d['_classname']]
-        return type_class._deserialize(d, t)
+        components: List[Expr] = []
+        if 'components' in d:
+            components = [cls.from_dict(component_dict, t) for component_dict in d['components']]
+        return type_class._from_dict(d, components, t)
 
     @classmethod
-    def _deserialize(cls, d: Dict, t: catalog.Table) -> 'Expr':
+    def _from_dict(cls, d: Dict, components: List['Expr'], t: catalog.Table) -> 'Expr':
         assert False, 'not implemented'
 
     def __getattr__(self, name: str) -> 'ImageMemberAccess':
@@ -303,13 +317,13 @@ class ColumnRef(Expr):
     def eval(self, data_row: List[Any]) -> None:
         assert False
 
-    def _serialize(self) -> Dict:
+    def _as_dict(self) -> Dict:
         return {'col_id': self.col.id}
 
     @classmethod
-    def _deserialize(cls, d: Dict, t: catalog.Table) -> 'Expr':
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> 'Expr':
         assert 'col_id' in d
-        return cls(t.cols_by_name[d['col_id']])
+        return cls(t.cols_by_id[d['col_id']])
 
 class FunctionCall(Expr):
     def __init__(self, fn: Function, args: Tuple[Any] = None):
@@ -474,6 +488,15 @@ class ImageMemberAccess(Expr):
     def _caller(self) -> Expr:
         return self.components[0]
 
+    def _as_dict(self) -> Dict:
+        return {'member_name': self.member_name, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'member_name' in d
+        assert len(components) == 1
+        return cls(d['member_name'], components[0])
+
     # TODO: correct signature?
     def __call__(self, *args, **kwargs) -> Union['ImageMethodCall', 'ImageSimilarityPredicate']:
         caller = self._caller()
@@ -547,6 +570,17 @@ class JsonPath(Expr):
         self.path_elements: List[Union[str, int]] = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         self.scope_idx = scope_idx
+
+    def _as_dict(self) -> Dict:
+        return {'path_elements': self.path_elements, 'scope_idx': self.scope_idx, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'path_elements' in d
+        assert 'scope_idx' in d
+        assert len(components) <= 1
+        anchor = components[0] if len(components) == 1 else None
+        return cls(anchor, d['path_elements'], d['scope_idx'])
 
     @property
     def _anchor(self) -> Optional[Expr]:
@@ -651,7 +685,7 @@ class Literal(Expr):
         return 'Literal'
 
     def _equals(self, other: 'Literal') -> bool:
-        return self.val == other.eval
+        return self.val == other.val
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         # we need to return something here so that we can generate a Where clause for predicates
@@ -661,6 +695,14 @@ class Literal(Expr):
     def eval(self, data_row: List[Any]) -> None:
         # this will be called, even though sql_expr() does not return None
         data_row[self.data_row_idx] = self.val
+
+    def _as_dict(self) -> Dict:
+        return {'val': self.val, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'val' in d
+        return cls(d['val'])
 
 
 class InlineDict(Expr):
@@ -710,6 +752,20 @@ class InlineDict(Expr):
             else:
                 result[key] = copy.deepcopy(val)
         data_row[self.data_row_idx] = result
+
+    def _as_dict(self) -> Dict:
+        return {'dict_items': self.dict_items, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'dict_items' in d
+        arg: Dict[str, Any] = {}
+        for key, idx, val in d['dict_items']:
+            if idx >= 0:
+                arg[key] = components[idx]
+            else:
+                arg[key] = val
+        return cls(arg)
 
 
 class InlineArray(Expr):
@@ -769,6 +825,20 @@ class InlineArray(Expr):
             else:
                 result[i] = copy.deepcopy(val)
         data_row[self.data_row_idx] = result
+
+    def _as_dict(self) -> Dict:
+        return {'elements': self.elements, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'elements' in d
+        arg: List[Any] = []
+        for idx, val in d['elements']:
+            if idx >= 0:
+                arg.append(components[idx])
+            else:
+                arg.append(val)
+        return cls(tuple(arg))
 
 
 class Predicate(Expr):
@@ -904,6 +974,14 @@ class CompoundPredicate(Predicate):
                 val = op_function(val, data_row[op.data_row_idx])
             data_row[self.data_row_idx] = val
 
+    def _as_dict(self) -> Dict:
+        return {'operator': self.operator.value, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'operator' in d
+        return cls(LogicalOperator(d['operator']), components)
+
 
 class Comparison(Predicate):
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
@@ -954,6 +1032,14 @@ class Comparison(Predicate):
         elif self.operator == ComparisonOperator.GE:
             data_row[self.data_row_idx] = data_row[self._op1.data_row_idx] >= data_row[self._op2.data_row_idx]
 
+    def _as_dict(self) -> Dict:
+        return {'operator': self.operator.value, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'operator' in d
+        return cls(ComparisonOperator(d['operator']), components[0], components[1])
+
 
 class ImageSimilarityPredicate(Predicate):
     def __init__(self, img_col: ColumnRef, img: Optional[PIL.Image.Image] = None, text: Optional[str] = None):
@@ -978,6 +1064,18 @@ class ImageSimilarityPredicate(Predicate):
 
     def eval(self, data_row: List[Any]) -> None:
         assert False
+
+    def _as_dict(self) -> Dict:
+        assert False, 'not implemented'
+        # TODO: convert self.img into a serializable string
+        return {'img': self.img, 'text': self.text, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'img' in d
+        assert 'text' in d
+        assert len(components) == 1
+        return cls(components[0], d['img'], d['text'])
 
 
 class ArithmeticExpr(Expr):
@@ -1041,6 +1139,15 @@ class ArithmeticExpr(Expr):
         elif self.operator == ArithmeticOperator.DIV:
             data_row[self.data_row_idx] = op1_val / op2_val
 
+    def _as_dict(self) -> Dict:
+        return {'operator': self.operator.value, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'operator' in d
+        assert len(components) == 2
+        return cls(ArithmeticOperator(d['operator']), components[0], components[1])
+
 
 class ObjectRef(Expr):
     """
@@ -1056,7 +1163,8 @@ class ObjectRef(Expr):
         return self._scope
 
     def _equals(self, other: 'ObjectRef') -> bool:
-        return self._scope == other._scope
+        # each one is specific to a JsonMapper and the scope associated with that
+        return False
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
@@ -1114,6 +1222,14 @@ class JsonMapper(Expr):
             result.extend(self._target_dependencies(c))
         return result
 
+    def equals(self, other: 'Expr') -> bool:
+        """
+        We override equals() because we need to avoid comparing our scope anchor.
+        """
+        if type(self) != type(other):
+            return False
+        return self._src_expr.equals(other._src_expr) and self._target_expr.equals(other._target_expr)
+
     @property
     def _src_expr(self) -> Expr:
         return self.components[0]
@@ -1149,6 +1265,17 @@ class JsonMapper(Expr):
             self.evaluator.eval((), data_row)
             result[i] = data_row[self._target_expr.data_row_idx]
         data_row[self.data_row_idx] = result
+
+    def _as_dict(self) -> Dict:
+        """
+        We need to avoid serializing component[2], which is an ObjectRef.
+        """
+        return {'components': [c.as_dict() for c in self.components[0:2]]}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert len(components) == 2
+        return cls(components[0], components[1])
 
 
 class ExprEvaluator:

@@ -84,23 +84,30 @@ class ColumnType:
         return self._type
 
     def serialize(self) -> str:
-        return json.dumps({
-            '_classname': self.__class__.__name__,
-            **self._serialize(),
-        })
+        return json.dumps(self.as_dict())
 
-    def _serialize(self) -> Dict:
+    def as_dict(self) -> Dict:
+        return {
+            '_classname': self.__class__.__name__,
+            **self._as_dict(),
+        }
+
+    def _as_dict(self) -> Dict:
         return {}
 
     @classmethod
     def deserialize(cls, type_str: str) -> 'ColumnType':
         type_dict = json.loads(type_str)
-        assert '_classname' in type_dict
-        type_class = globals()[type_dict['_classname']]
-        return type_class._deserialize(type_dict)
+        return cls.from_dict(type_dict)
 
     @classmethod
-    def _deserialize(cls, d: Dict) -> 'ColumnType':
+    def from_dict(cls, type_dict: Dict) -> 'ColumnType':
+        assert '_classname' in type_dict
+        type_class = globals()[type_dict['_classname']]
+        return type_class._from_dict(type_dict)
+
+    @classmethod
+    def _from_dict(cls, d: Dict) -> 'ColumnType':
         """
         Default implementation: simply invoke c'tor without arguments
         """
@@ -385,13 +392,13 @@ class ImageType(ColumnType):
     def num_channels(self) -> Optional[int]:
         return None if self.mode is None else self.mode.num_channels()
 
-    def _serialize(self) -> Dict:
-        result = super()._serialize()
+    def _as_dict(self) -> Dict:
+        result = super()._as_dict()
         result.update(width=self.width, height=self.height, mode=self.mode.value if self.mode is not None else None)
         return result
 
     @classmethod
-    def _deserialize(cls, d: Dict) -> 'ColumnType':
+    def _from_dict(cls, d: Dict) -> 'ColumnType':
         assert 'width' in d
         assert 'height' in d
         assert 'mode' in d
@@ -428,15 +435,15 @@ class JsonType(ColumnType):
         super().__init__(self.Type.JSON)
         self.type_spec = type_spec
 
-    def _serialize(self) -> Dict:
-        result = super()._serialize()
+    def _as_dict(self) -> Dict:
+        result = super()._as_dict()
         if self.type_spec is not None:
             type_spec_dict = {field_name: field_type.serialize() for field_name, field_type in self.type_spec.items()}
             result.update({'type_spec': type_spec_dict})
         return result
 
     @classmethod
-    def _deserialize(cls, d: Dict) -> 'ColumnType':
+    def _from_dict(cls, d: Dict) -> 'ColumnType':
         type_spec = None
         if 'type_spec' in d:
             type_spec = {
@@ -466,13 +473,13 @@ class ArrayType(ColumnType):
         shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
         return ArrayType(tuple(shape), base_type)
 
-    def _serialize(self) -> Dict:
-        result = super()._serialize()
+    def _as_dict(self) -> Dict:
+        result = super()._as_dict()
         result.update(shape=list(self.shape), dtype=self.dtype.value)
         return result
 
     @classmethod
-    def _deserialize(cls, d: Dict) -> 'ColumnType':
+    def _from_dict(cls, d: Dict) -> 'ColumnType':
         assert 'shape' in d
         assert 'dtype' in d
         shape = tuple(d['shape'])

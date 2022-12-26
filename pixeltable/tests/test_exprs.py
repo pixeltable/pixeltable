@@ -3,7 +3,7 @@ import pytest
 
 from pixeltable import catalog
 from pixeltable.type_system import StringType, BoolType, IntType, ImageType, Function, ArrayType, ColumnType
-from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, JsonMapper
+from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import udf_call, dict_map, cast
 from pixeltable.functions.pil.image import blend
@@ -257,3 +257,26 @@ class TestExprs:
             _ = t[t.img.nearest(img)].show(10)
         with pytest.raises(exc.OperationalError):
             _ = t[t.img.matches('musical instrument')].show(10)
+
+    def test_serialization(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        test_exprs = [
+            t.c1,
+            t.c7['*'].f1,
+            Literal('test'),
+            InlineDict({
+                'a': t.c1, 'b': t.c6.f1, 'c': 17,
+                'd': InlineDict({'e': t.c2}),
+                'f': InlineArray((t.c3, t.c3))
+            }),
+            InlineArray([[t.c2, t.c2], [t.c2, t.c2]]),
+            t.c2 > 5,
+            ~(t.c2 > 5),
+            (t.c2 > 5) & (t.c1 == 'test'),
+            (t.c2 > 5) | (t.c1 == 'test'),
+            t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
+        ]
+        for e in test_exprs:
+            e_serialized = e.serialize()
+            e_deserialized = Expr.deserialize(e_serialized, t)
+            assert e.equals(e_deserialized)

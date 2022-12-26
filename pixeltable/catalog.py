@@ -103,6 +103,7 @@ class Table(SchemaObject):
             assert col.id is not None
         self.cols = cols
         self.cols_by_name = {col.name: col for col in cols}
+        self.cols_by_id = {col.id: col for col in cols}
         self.version = version
         self.is_indexed = is_indexed
 
@@ -252,6 +253,7 @@ class MutableTable(Table):
         self.next_col_id += 1
         self.cols.append(c)
         self.cols_by_name[c.name] = c
+        self.cols_by_id[c.id] = c
 
         # we're creating a new schema version
         self.version += 1
@@ -287,6 +289,7 @@ class MutableTable(Table):
         col = self.cols_by_name[name]
         self.cols.remove(col)
         del self.cols_by_name[name]
+        del self.cols_by_id[col.id]
 
         # we're creating a new schema version
         self.version += 1
