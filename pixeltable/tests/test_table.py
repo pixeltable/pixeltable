@@ -108,11 +108,11 @@ class TestTable:
         c3 = catalog.Column('c3', JsonType(), nullable=False)
         schema = [c1, c2, c3]
         t = db.create_table('test', schema)
-        t.add_column(catalog.Column('c4', value_expr=t.c1 + 1, nullable=False))
-        t.add_column(catalog.Column('c5', value_expr=t.c4 + 1, nullable=False))
-        t.add_column(catalog.Column('c6', value_expr=t.c1 / t.c2, nullable=False))
-        t.add_column(catalog.Column('c7', value_expr=t.c6 * t.c2, nullable=False))
-        t.add_column(catalog.Column('c8', value_expr=t.c3['*'].f1, nullable=False))
+        t.add_column(catalog.Column('c4', value_expr=t.c1 + 1))
+        t.add_column(catalog.Column('c5', value_expr=t.c4 + 1))
+        t.add_column(catalog.Column('c6', value_expr=t.c1 / t.c2))
+        t.add_column(catalog.Column('c7', value_expr=t.c6 * t.c2))
+        t.add_column(catalog.Column('c8', value_expr=t.c3.detections['*'].bounding_box))
         assert len(t.c1.col.dependent_cols) == 2
         assert len(t.c2.col.dependent_cols) == 2
         assert len(t.c3.col.dependent_cols) == 1
@@ -121,6 +121,15 @@ class TestTable:
         assert len(t.c6.col.dependent_cols) == 1
         assert len(t.c7.col.dependent_cols) == 0
         assert len(t.c8.col.dependent_cols) == 0
+
+        data_df = create_table_data(t, ['c1', 'c2', 'c3'], num_rows=10)
+        t.insert_pandas(data_df)
+        _ = t.show()
+
+        # not allowed to pass values for computed cols
+        with pytest.raises(exc.InsertError):
+            data_df = create_table_data(t, num_rows=10)
+            t.insert_pandas(data_df)
 
         # can't drop c4: c5 depends on it
         with pytest.raises(exc.OperationalError):

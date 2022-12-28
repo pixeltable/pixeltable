@@ -112,7 +112,7 @@ class DataFrame:
             evaluator = exprs.ExprEvaluator(select_list, remaining_where_clause)
 
             for row in conn.execute(stmt):
-                data_row: List[Any] = [None] * self.eval_ctx.num_materialized()
+                data_row: List[Any] = [None] * self.eval_ctx.num_materialized
                 if not evaluator.eval(row._data, data_row):
                     continue
 

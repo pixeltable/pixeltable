@@ -323,7 +323,8 @@ class ColumnRef(Expr):
         return self.col.sa_col
 
     def eval(self, data_row: List[Any]) -> None:
-        assert False
+        # we get called while materializing computed cols
+        pass
 
     def _as_dict(self) -> Dict:
         return {'col_id': self.col.id}
@@ -332,6 +333,7 @@ class ColumnRef(Expr):
     def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> 'Expr':
         assert 'col_id' in d
         return cls(t.cols_by_id[d['col_id']])
+
 
 class FunctionCall(Expr):
     def __init__(self, fn: Function, args: Tuple[Any] = None):
@@ -1100,7 +1102,7 @@ class ArithmeticExpr(Expr):
             # we assume it's a float
             super().__init__(FloatType())
         else:
-            super().__init__(op1.col_type)
+            super().__init__(ColumnType.supertype(op1.col_type, op2.col_type))
         self.operator = operator
         self.components = [op1, op2]
 
@@ -1289,8 +1291,19 @@ class JsonMapper(Expr):
 class ExprEvaluator:
     """
     Materializes values for a list of output exprs, subject to passing a filter.
+
+    ex.: the select list [<img col 1>.alpha_composite(<img col 2>), <text col 3>]
+    - sql row composition: [<file path col 1>, <file path col 2>, <text col 3>]
+    - data row composition: [Image, str, Image, Image]
+    - copy_exprs: [
+        ColumnRef(data_row_idx: 2, sql_row_idx: 0, col: <col 1>)
+        ColumnRef(data_row_idx: 3, sql_row_idx: 1, col: <col 2>)
+        ColumnRef(data_row_idx: 1, sql_row_idx: 2, col: <col 3>)
+      ]
+    - eval_exprs: [ImageMethodCall(data_row_idx: 0, sql_row_id: -1)]
     """
-    def __init__(self, output_exprs: List[Expr], filter: Optional[Predicate]):
+
+    def __init__(self, output_exprs: List[Expr], filter: Optional[Predicate], with_sql: bool = True):
         # TODO: add self.literal_exprs so that we don't need to retrieve those from SQL
         # exprs that are materialized directly via SQL query and for which results can be copied from sql row
         # into data row
@@ -1370,8 +1383,8 @@ class ExprEvaluator:
 
 class ExprEvalCtx:
     """
-    Represents the parameters necessary to materialize List[Expr] from a sql query result row
-    into a data row.
+    Assigns execution state necessary to materialize a list of Exprs into a data row:
+    - Expr.sql_/data_row_idx
 
     Data row:
     - List[Any]
@@ -1384,17 +1397,13 @@ class ExprEvalCtx:
     ex.: the select list [<img col 1>.alpha_composite(<img col 2>), <text col 3>]
     - sql row composition: [<file path col 1>, <file path col 2>, <text col 3>]
     - data row composition: [Image, str, Image, Image]
-    - copy_exprs: [
-        ColumnRef(data_row_idx: 2, sql_row_idx: 0, col: <col 1>)
-        ColumnRef(data_row_idx: 3, sql_row_idx: 1, col: <col 2>)
-        ColumnRef(data_row_idx: 1, sql_row_idx: 2, col: <col 3>)
-      ]
-    - eval_exprs: [ImageMethodCall(data_row_idx: 0, sql_row_id: -1)]
     """
 
     def __init__(self, output_exprs: List[Expr], filter: Optional[Predicate]):
         """
-        Init for list of materialized exprs
+        Init for list of materialized exprs and a possible filter.
+        with_sql == True: if an expr e has a e.sql_expr(), its components do not need to be materialized
+        (and consequently also don't get data_row_idx assigned) and the expr value is produced via a Select stmt
         """
 
         # objects needed to materialize the SQL result row
@@ -1409,6 +1418,7 @@ class ExprEvalCtx:
         for expr in output_exprs:
             self._analyze_expr(expr)
 
+    @property
     def num_materialized(self) -> int:
         return self.next_data_row_idx
 
@@ -1426,7 +1436,7 @@ class ExprEvalCtx:
 
     def _analyze_expr(self, expr: Expr) -> None:
         """
-        Assign Expr.data_row_idx and Expr.sql_row_idx
+        Assign Expr.data_row_idx and Expr.sql_row_idx.
         """
         if not self._is_unique_expr(expr):
             # nothing left to do
@@ -1445,6 +1455,61 @@ class ExprEvalCtx:
             return
 
         # expr value needs to be computed via Expr.eval()
+        for c in expr.components:
+            self._analyze_expr(c)
+        if expr.data_row_idx < 0:
+            expr.data_row_idx = self.next_data_row_idx
+            self.next_data_row_idx += 1
+
+
+class ComputedColEvalCtx:
+    """
+    EvalCtx for computed cols:
+    - referenced inputs are not supplied via SQL
+    - a col's ColumnRef and value_expr need to share the same data_row_idx
+    """
+
+    def __init__(self, computed_col_info: List[Tuple[ColumnRef, Expr]]):
+        """
+        computed_col_info: list of (ref to col, value_expr of col)
+        """
+
+        # we want to avoid duplicate expr evaluation, so we keep track of unique exprs (duplicates share the
+        # same data_row_idx); however, __eq__() doesn't work for sets, so we use a list here
+        self.unique_exprs: List[Expr] = []
+        self.next_data_row_idx = 0
+
+        for col_ref, expr in computed_col_info:
+            self._analyze_expr(expr)
+            # the expr materializes the value of that column
+            col_ref.data_row_idx = expr.data_row_idx
+            # future references to that column will use the already-assigned data_row_idx
+            self.unique_exprs.append(col_ref)
+
+    @property
+    def num_materialized(self) -> int:
+        return self.next_data_row_idx
+
+    def _is_unique_expr(self, expr: Expr) -> bool:
+        """
+        If False, sets expr.data/sql_row_idx to that of the already-recorded duplicate.
+        """
+        try:
+            existing = next(e for e in self.unique_exprs if e.equals(expr))
+            expr.data_row_idx = existing.data_row_idx
+            expr.sql_row_idx = existing.sql_row_idx
+            return False
+        except StopIteration:
+            return True
+
+    def _analyze_expr(self, expr: Expr) -> None:
+        """
+        Assign Expr.data_row_idx.
+        """
+        if not self._is_unique_expr(expr):
+            # nothing left to do
+            return
+        self.unique_exprs.append(expr)
         for c in expr.components:
             self._analyze_expr(c)
         if expr.data_row_idx < 0:

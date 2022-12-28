@@ -46,7 +46,8 @@ class Column:
         self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us
         self.id = col_id
         self.primary_key = primary_key
-        self.nullable = nullable
+        # computed cols are always nullable
+        self.nullable = nullable or self.value_expr is not None or self.value_expr_str is not None
         self.sa_col: Optional[sql.schema.Column] = None
         self.idx: Optional[VectorIndex] = None
 
@@ -449,8 +450,8 @@ class MutableTable(Table):
 
         """
         self._check_is_dropped()
-        all_col_names = set([col.name for col in self.cols])
-        reqd_col_names = set([col.name for col in self.cols if not col.nullable])
+        all_col_names = {col.name for col in self.cols}
+        reqd_col_names = {col.name for col in self.cols if not col.nullable}
         given_col_names = set(data.columns)
         if video_column is not None and (frame_column is None or frame_idx_column is None):
             raise exc.OperationalError(
@@ -463,6 +464,10 @@ class MutableTable(Table):
             raise exc.InsertError(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')
         if not(given_col_names <= all_col_names):
             raise exc.InsertError(f'Unknown columns: {", ".join(given_col_names - all_col_names)}')
+        computed_col_names = {col.name for col in self.cols if col.value_expr is not None}
+        if len(computed_col_names & given_col_names) > 0:
+            raise exc.InsertError(
+                f'Provided values for computed columns: {", ".join(computed_col_names & given_col_names)}')
 
         if video_column is not None:
             if video_column not in data.columns:
@@ -551,15 +556,42 @@ class MutableTable(Table):
                         raise exc.OperationalError(
                             f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
+        # prepare state for computed cols
+        from pixeltable import exprs
+        eval_ctx: Optional[exprs.ComputedColEvalCtx] = None
+        evaluator: Optional[exprs.ExprEvaluator] = None
+        input_col_refs: List[exprs.ColumnRef] = []  # columns needed as input for computing value_exprs
+        computed_cols = [col for col in self.cols if col.value_expr is not None]
+        if len(computed_cols) > 0:
+            value_exprs = [c.value_expr for c in computed_cols]
+            eval_ctx = exprs.ComputedColEvalCtx([(exprs.ColumnRef(c), c.value_expr) for c in computed_cols])
+            evaluator = exprs.ExprEvaluator(value_exprs, None, with_sql=False)
+            input_col_refs = [
+                e for e in evaluator.output_eval_exprs
+                # we're looking for ColumnRefs to Columns that aren't themselves computed
+                if isinstance(e, exprs.ColumnRef) and e.col.value_expr is None
+            ]
+
         # we're creating a new version
         self.version += 1
         # construct new df with the storage column names, in order to iterate over it more easily
         stored_data = {col.storage_name(): data[col.name] for col in data_cols}
         stored_data_df = pd.DataFrame(data=stored_data)
         insert_values: List[Dict[str, Any]] = []
-        print('preparing data ')
-        for i, row in tqdm(enumerate(stored_data_df.itertuples(index=False))):
-            insert_values.append({'rowid': rowids[i], 'v_min': self.version, **row._asdict()})
+        for i, row in enumerate(stored_data_df.itertuples(index=False)):
+            row_dict = {'rowid': rowids[i], 'v_min': self.version, **row._asdict()}
+
+            if len(computed_cols) > 0:
+                # materialize computed column values
+                data_row = [None] * eval_ctx.num_materialized
+                # copy inputs
+                for col_ref in input_col_refs:
+                    data_row[col_ref.data_row_idx] = row_dict[col_ref.col.storage_name()]
+                evaluator.eval((), data_row)
+                computed_vals_dict = {c.storage_name(): data_row[c.value_expr.data_row_idx] for c in computed_cols}
+                row_dict.update(computed_vals_dict)
+
+            insert_values.append(row_dict)
 
         with env.get_engine().connect() as conn:
             with conn.begin():

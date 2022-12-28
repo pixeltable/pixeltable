@@ -27,10 +27,6 @@ class ColumnType:
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 8
 
-        common_supertypes: Dict[Tuple['Type', 'Type'], 'Type'] = {
-            (BOOL, INT): INT, (BOOL, FLOAT): FLOAT, (INT, FLOAT): FLOAT,
-        }
-
         def to_tf(self) -> tf.dtypes.DType:
             if self == self.STRING:
                 return tf.string
@@ -43,13 +39,17 @@ class ColumnType:
             raise TypeError(f'Cannot convert {self} to TensorFlow')
 
         @classmethod
-        def supertype(cls, type1: 'Type', type2: 'Type') -> Optional['Type']:
+        def supertype(
+                cls, type1: 'Type', type2: 'Type',
+                # we need to pass this in because we can't easily add it as a class member
+                common_supertypes: Dict[Tuple['Type', 'Type'], 'Type']
+        ) -> Optional['Type']:
             if type1 == type2:
                 return type1
-            t = cls.common_supertypes.get((type1, type2))
+            t = common_supertypes.get((type1, type2))
             if t is not None:
                 return t
-            t = cls.common_supertypes.get((type2, type1))
+            t = common_supertypes.get((type2, type1))
             if t is not None:
                 return t
             return None
@@ -75,6 +75,11 @@ class ColumnType:
 
     scalar_types = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP}
     numeric_types = {Type.INT, Type.FLOAT}
+    common_supertypes: Dict[Tuple[Type, Type], Type] = {
+        (Type.BOOL, Type.INT): Type.INT,
+        (Type.BOOL, Type.FLOAT): Type.FLOAT,
+        (Type.INT, Type.FLOAT): Type.FLOAT,
+    }
 
     def __init__(self, t: Type):
         self._type = t
@@ -154,7 +159,7 @@ class ColumnType:
             return type1
 
         if type1.is_scalar_type() and type2.is_scalar_type():
-            t = cls.Type.supertype(type1._type, type2._type)
+            t = cls.Type.supertype(type1._type, type2._type, cls.common_supertypes)
             if t is not None:
                 return cls.make_type(t)
             return None
@@ -239,7 +244,7 @@ class ColumnType:
             # the URL
             return 'VARCHAR'
         if self._type == self.Type.JSON:
-            return 'VARCHAR'
+            return 'JSONB'
         if self._type == self.Type.ARRAY:
             return 'BLOB'
         assert False

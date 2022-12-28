@@ -30,7 +30,7 @@ def make_tbl(db: pt.Db, name: str = 'test', col_names: List[str] = ['c1']) -> pt
         schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type(i % 5))))
     return db.create_table(name, schema)
 
-def create_table_data(t: catalog.Table, num_rows: int = 10) -> pd.DataFrame:
+def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int = 10) -> pd.DataFrame:
     data: Dict[str, Any] = {}
     sample_dict = {
         'detections': [{
@@ -68,7 +68,11 @@ def create_table_data(t: catalog.Table, num_rows: int = 10) -> pd.DataFrame:
         }]
     }
 
-    for col in t.columns:
+    if len(col_names) == 0:
+        col_names = [c.name for c in t.columns]
+
+    for col_name in col_names:
+        col = t.cols_by_name[col_name]
         col_data: Any = None
         if col.col_type.is_string_type():
             col_data = ['test string'] * num_rows
