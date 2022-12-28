@@ -3,7 +3,7 @@ import pytest
 
 from pixeltable import catalog
 from pixeltable.type_system import StringType, BoolType, IntType, ImageType, Function, ArrayType, ColumnType
-from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray
+from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import udf_call, dict_map, cast
 from pixeltable.functions.pil.image import blend
@@ -280,3 +280,15 @@ class TestExprs:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized, t)
             assert e.equals(e_deserialized)
+
+    def test_subexprs(self, img_tbl: catalog.Table) -> None:
+        t = img_tbl
+        e = t.img
+        subexprs = [s for s in e.subexprs()]
+        assert len(subexprs) == 1
+        e = t.img.rotate(90).resize((224, 224))
+        subexprs = [s for s in e.subexprs()]
+        assert len(subexprs) == 3
+        subexprs = [s for s in e.subexprs() if isinstance(s, ColumnRef)]
+        assert len(subexprs) == 1
+        assert t.img.equals(subexprs[0])

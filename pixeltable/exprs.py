@@ -4,7 +4,7 @@ import datetime
 import enum
 import inspect
 import typing
-from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set
+from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator
 import operator
 import json
 
@@ -166,6 +166,14 @@ class Expr(abc.ABC):
         result = self.copy()
         memo[id(self)] = result
         return result
+
+    def subexprs(self) -> Generator['Expr', None, None]:
+        """
+        Iterate over all subexprs, including self.
+        """
+        for c in self.components:
+            yield from c.subexprs()
+        yield self
 
     @abc.abstractmethod
     def _equals(self, other: 'Expr') -> bool:

@@ -3,7 +3,7 @@ import pytest
 import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable import catalog
-from pixeltable.type_system import StringType, IntType, FloatType, TimestampType, ImageType
+from pixeltable.type_system import StringType, IntType, FloatType, TimestampType, ImageType, JsonType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
 
 
@@ -100,6 +100,43 @@ class TestTable:
         db2 = cl2.get_db('test')
         t2 = db2.get_table('test')
         _  = t2.show(n=0)
+
+    def test_computed_cols(self, test_db: catalog.Db) -> None:
+        db = test_db
+        c1 = catalog.Column('c1', IntType(), nullable=False)
+        c2 = catalog.Column('c2', FloatType(), nullable=False)
+        c3 = catalog.Column('c3', JsonType(), nullable=False)
+        schema = [c1, c2, c3]
+        t = db.create_table('test', schema)
+        t.add_column(catalog.Column('c4', value_expr=t.c1 + 1, nullable=False))
+        t.add_column(catalog.Column('c5', value_expr=t.c4 + 1, nullable=False))
+        t.add_column(catalog.Column('c6', value_expr=t.c1 / t.c2, nullable=False))
+        t.add_column(catalog.Column('c7', value_expr=t.c6 * t.c2, nullable=False))
+        t.add_column(catalog.Column('c8', value_expr=t.c3['*'].f1, nullable=False))
+        assert len(t.c1.col.dependent_cols) == 2
+        assert len(t.c2.col.dependent_cols) == 2
+        assert len(t.c3.col.dependent_cols) == 1
+        assert len(t.c4.col.dependent_cols) == 1
+        assert len(t.c5.col.dependent_cols) == 0
+        assert len(t.c6.col.dependent_cols) == 1
+        assert len(t.c7.col.dependent_cols) == 0
+        assert len(t.c8.col.dependent_cols) == 0
+
+        # can't drop c4: c5 depends on it
+        with pytest.raises(exc.OperationalError):
+            t.drop_column('c4')
+        t.drop_column('c5')
+        # now it works
+        t.drop_column('c4')
+
+        # test loading from store
+        cl2 = pt.Client()
+        db2 = cl2.get_db('test')
+        t2 = db2.get_table('test')
+        assert len(t.columns) == len(t2.columns)
+        for i in range(len(t.columns)):
+            if t.columns[i].value_expr is not None:
+                assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
 
     @pytest.mark.dependency(depends=['test_insert'])
     def test_revert(self, test_db: catalog.Db) -> None:

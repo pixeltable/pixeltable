@@ -90,7 +90,7 @@ class DataFrame:
 
         select_list = self.select_list
         if select_list is None:
-            select_list = [exprs.ColumnRef(col) for col in self.tbl.columns()]
+            select_list = [exprs.ColumnRef(col) for col in self.tbl.columns]
         for item in select_list:
             item.bind_rel_paths(None)
         if self.eval_ctx is None:

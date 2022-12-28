@@ -110,6 +110,7 @@ class SchemaColumn(Base):
     col_type = sql.Column(String, nullable=False)
     is_nullable = sql.Column(Boolean, nullable=False)
     is_pk = sql.Column(Boolean, nullable=False)
+    value_expr = sql.Column(String, nullable=True)  # json
 
     __table_args__ = (
         UniqueConstraint('tbl_id', 'schema_version', 'pos'),

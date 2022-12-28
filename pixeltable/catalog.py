@@ -1,4 +1,4 @@
-from typing import Optional, List, Set, Dict, Any, Type, Union
+from typing import Optional, List, Set, Dict, Any, Type, Union, Tuple
 import re
 
 import PIL
@@ -24,22 +24,39 @@ _PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
 
 class Column:
     def __init__(
-            self, name: str, t: ColumnType, primary_key: bool = False, nullable: bool = True,
-            col_id: Optional[int] = None):
+            self, name: str, col_type: Optional[ColumnType] = None, value_expr: Optional['Expr'] = None,
+            primary_key: bool = False, nullable: bool = True, col_id: Optional[int] = None,
+            value_expr_str: Optional[str] = None):
+        """
+        Computed columns: those have a non-None value_expr
+        - when constructed by the user: parameter 'value_expr' was constructed explicitly and is passed in;
+          parameter 'value_expr_str' is None
+        - when loaded from store: parameter 'value_expr_str' is the serialized form; parameter 'value_expr' is None
+        """
         self.name = name
-        self.col_type = t
+        assert (col_type is None) != (value_expr is None)
+        assert not(value_expr_str is not None and value_expr is not None)
+        assert not(col_type is None and value_expr is None)
+        if col_type is None:
+            self.col_type = value_expr.col_type
+        else:
+            self.col_type = col_type
+        self.value_expr = value_expr.copy() if value_expr is not None else None
+        self.value_expr_str = value_expr_str  # stored here so it's easily accessible for the Table c'tor
+        self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us
         self.id = col_id
         self.primary_key = primary_key
         self.nullable = nullable
-        if self.id is not None:
-            self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=self.nullable)
+        self.sa_col: Optional[sql.schema.Column] = None
         self.idx: Optional[VectorIndex] = None
 
     def to_sql(self) -> str:
         return f'{self.storage_name()} {self.col_type.to_sql()}'
 
-    def set_id(self, col_id: int) -> None:
-        self.id = col_id
+    def create_sa_col(self) -> None:
+        """
+        This needs to be recreated for every new table schema version.
+        """
         self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=self.nullable)
 
     def set_idx(self, idx: VectorIndex) -> None:
@@ -51,6 +68,14 @@ class Column:
 
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Column):
+            return False
+        if self.sa_col is None or other.sa_col is None:
+            return False
+        # if they point to the same table column, they're the same
+        return str(self.sa_col) == str(other.sa_col)
 
 
 # base class of all addressable objects within a Db
@@ -115,6 +140,26 @@ class Table(SchemaObject):
         self._create_sa_tbl()
         self.is_dropped = False
 
+        # make sure to traverse columns ordered by position = order in which cols were created;
+        # this guarantees that references always point backwards
+        for col in self.cols:
+            if col.value_expr is not None or col.value_expr_str is not None:
+                self._create_value_expr(col)
+
+    def _create_value_expr(self, col: Column) -> None:
+        """
+        Set col.value_expr and update Column.dependent_cols for all cols referenced in value_expr
+        """
+        from pixeltable.exprs import Expr, ColumnRef
+        if col.value_expr is None:
+            assert col.value_expr_str is not None
+            col.value_expr = Expr.deserialize(col.value_expr_str, self)
+
+        refd_col_ids = [e.col.id for e in col.value_expr.subexprs() if isinstance(e, ColumnRef)]
+        refd_cols = [self.cols_by_id[id] for id in refd_col_ids]
+        for refd_col in refd_cols:
+            refd_col.dependent_cols.append(col)
+
     def _load_valid_rowids(self) -> None:
         if not any(col.col_type.is_image_type() for col in self.cols):
             return
@@ -153,6 +198,7 @@ class Table(SchemaObject):
     def count(self) -> int:
         return self.df().count()
 
+    @property
     def columns(self) -> List[Column]:
         return self.cols
 
@@ -169,7 +215,13 @@ class Table(SchemaObject):
         self.v_max_col = \
             sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(store.Table.MAX_VERSION))
         sa_cols = [self.rowid_col, self.v_min_col, self.v_max_col]
+        # re-create sql.Columns for each column, regardless of whether it already has sa_col set: it was bound
+        # to the last sql.Table version we created and cannot be reused
+        for col in self.cols:
+            col.create_sa_col()
         sa_cols.extend([col.sa_col for col in self.cols])
+        if hasattr(self, 'sa_tbl'):
+            self.sa_md.remove(self.sa_tbl)
         self.sa_tbl = sql.Table(self.storage_name(), self.sa_md, *sa_cols)
 
     @classmethod
@@ -179,6 +231,9 @@ class Table(SchemaObject):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def load_cols(cls, tbl_id: int, schema_version: int, is_indexed: bool, session: orm.Session) -> List[Column]:
+        """
+        Returns loaded cols.
+        """
         col_records = session.query(store.SchemaColumn) \
             .where(store.SchemaColumn.tbl_id == tbl_id) \
             .where(store.SchemaColumn.schema_version == schema_version) \
@@ -186,7 +241,7 @@ class Table(SchemaObject):
         cols = [
             Column(
                 r.name, ColumnType.deserialize(r.col_type), primary_key=r.is_pk, nullable=r.is_nullable,
-                col_id=r.col_id)
+                col_id=r.col_id, value_expr_str=r.value_expr)
             for r in col_records
         ]
         if is_indexed:
@@ -254,6 +309,8 @@ class MutableTable(Table):
         self.cols.append(c)
         self.cols_by_name[c.name] = c
         self.cols_by_id[c.id] = c
+        if c.value_expr is not None:
+            self._create_value_expr(c)
 
         # we're creating a new schema version
         self.version += 1
@@ -281,15 +338,33 @@ class MutableTable(Table):
                 self._create_col_md(conn)
                 stmt = f'ALTER TABLE {self.storage_name()} ADD COLUMN {c.to_sql()}'
                 conn.execute(sql.text(stmt))
+        self._create_sa_tbl()
 
     def drop_column(self, name: str) -> None:
         self._check_is_dropped()
         if name not in self.cols_by_name:
             raise exc.UnknownEntityError
         col = self.cols_by_name[name]
+        if len(col.dependent_cols) > 0:
+            raise exc.OperationalError(
+                f'Cannot drop column {name} because the following columns depend on it:\n',
+                f'{", ".join([c.name for c in col.dependent_cols])}')
+
+        if col.value_expr is not None:
+            # update Column.dependent_cols
+            for c in self.cols:
+                if c == col:
+                    break
+                try:
+                    c.dependent_cols.remove(col)
+                except ValueError:
+                    # ignore
+                    pass
+
         self.cols.remove(col)
         del self.cols_by_name[name]
         del self.cols_by_id[col.id]
+
 
         # we're creating a new schema version
         self.version += 1
@@ -316,6 +391,7 @@ class MutableTable(Table):
                         .where(store.StorageColumn.tbl_id == self.id)
                         .where(store.StorageColumn.col_id == col.id))
                 self._create_col_md(conn)
+        self._create_sa_tbl()
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         self._check_is_dropped()
@@ -352,11 +428,13 @@ class MutableTable(Table):
 
     def _create_col_md(self, conn: sql.engine.base.Connection) -> None:
         for pos, c in enumerate(self.cols):
+            value_expr_str = c.value_expr.serialize() if c.value_expr is not None else None
             conn.execute(
                 sql.insert(store.SchemaColumn.__table__)
                 .values(
                     tbl_id=self.id, schema_version=self.version, col_id=c.id, pos=pos, name=c.name,
-                    col_type=c.col_type.serialize(), is_nullable=c.nullable, is_pk=c.primary_key))
+                    col_type=c.col_type.serialize(), is_nullable=c.nullable, is_pk=c.primary_key,
+                    value_expr=value_expr_str))
 
     def insert_pandas(
             self, data: pd.DataFrame, video_column: Optional[str] = None, frame_column: Optional[str] = None,
@@ -598,13 +676,16 @@ class MutableTable(Table):
             print(f'creating table {name}, id={tbl_record.id}')
 
             for pos, col in enumerate(cols):
-                col.set_id(pos)
+                col.id = pos
                 session.add(store.StorageColumn(tbl_id=tbl_record.id, col_id=col.id, schema_version_add=0))
                 session.flush()  # avoid FK violations in Postgres
+                value_expr_str = col.value_expr.serialize() if col.value_expr is not None else None
                 session.add(
                     store.SchemaColumn(
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
-                        col_type=col.col_type.serialize(), is_nullable=col.nullable, is_pk=col.primary_key)
+                        col_type=col.col_type.serialize(), is_nullable=col.nullable, is_pk=col.primary_key,
+                        value_expr=value_expr_str
+                    )
                 )
                 session.flush()  # avoid FK violations in Postgres
 
@@ -825,8 +906,9 @@ class Db:
                 session.flush()
                 assert snapshot_record.id is not None
                 cols = Table.load_cols(tbl.id, tbl.schema_version, tbl.is_indexed, session)
+                snapshot = TableSnapshot(snapshot_record, tbl.is_indexed, cols)
                 snapshot_path = snapshot_dir_path.append(tbl.name)
-                self.paths[snapshot_path] = TableSnapshot(snapshot_record, tbl.is_indexed, cols)
+                self.paths[snapshot_path] = snapshot
 
             session.commit()
 
@@ -882,7 +964,8 @@ class Db:
                 .where(store.Table.db_id == self.id) \
                 .where(store.Table.is_mutable == True)
             for tbl_record, dir_path in q.all():
-                cols = Table.load_cols(tbl_record.id, tbl_record.current_schema_version, tbl_record.is_indexed, session)
+                cols = Table.load_cols(
+                    tbl_record.id, tbl_record.current_schema_version, tbl_record.is_indexed, session)
                 tbl = MutableTable(tbl_record, tbl_record.current_schema_version, cols)
                 tbl._load_valid_rowids()  # TODO: move this someplace more appropriate
                 path = Path(dir_path, empty_is_valid=True).append(tbl_record.name)

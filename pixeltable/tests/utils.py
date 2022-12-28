@@ -68,7 +68,7 @@ def create_table_data(t: catalog.Table, num_rows: int = 10) -> pd.DataFrame:
         }]
     }
 
-    for col in t.columns():
+    for col in t.columns:
         col_data: Any = None
         if col.col_type.is_string_type():
             col_data = ['test string'] * num_rows
