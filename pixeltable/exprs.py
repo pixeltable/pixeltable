@@ -365,7 +365,7 @@ class FunctionCall(Expr):
                 if converter == ColumnType.no_conversion:
                     # nothing to do
                     continue
-                convert_fn = Function(converter, fn.param_types[i], [args[i].col_type])
+                convert_fn = Function(fn.param_types[i], [args[i].col_type], eval_fn=converter)
                 args[i] = FunctionCall(convert_fn, (args[i],))
 
         self.components = [arg for arg in args if isinstance(arg, Expr)]
@@ -559,7 +559,7 @@ class ImageMethodCall(FunctionCall):
             return_type = method_info[1]
         else:
             return_type = method_info[1](caller, *args, **kwargs)
-        fn = Function(method_info[0], return_type, None)
+        fn = Function(return_type, None, eval_fn=method_info[0])
         super().__init__(fn, (caller, *args))
         # TODO: deal with kwargs
 
@@ -1381,6 +1381,29 @@ class ExprEvaluator:
                 data_row[expr.data_row_idx] = sql_row[expr.sql_row_idx]
 
 
+class UniqueExprSet:
+    """
+    We want to avoid duplicate expr evaluation, so we keep track of unique exprs (duplicates share the
+    same data_row_idx). However, __eq__() doesn't work for sets, so we use a list here.
+    """
+    def __init__(self):
+        self.unique_exprs: List[Expr] = []
+
+    def add(self, expr: Expr) -> bool:
+        """
+        If expr is not unique, sets expr.data/sql_row_idx to that of the already-recorded duplicate and returns
+        False, otherwise returns True.
+        """
+        try:
+            existing = next(e for e in self.unique_exprs if e.equals(expr))
+            expr.data_row_idx = existing.data_row_idx
+            expr.sql_row_idx = existing.sql_row_idx
+            return False
+        except StopIteration:
+            self.unique_exprs.append(expr)
+            return True
+
+
 class ExprEvalCtx:
     """
     Assigns execution state necessary to materialize a list of Exprs into a data row:
@@ -1408,9 +1431,7 @@ class ExprEvalCtx:
 
         # objects needed to materialize the SQL result row
         self.sql_exprs: List[sql.sql.expression.ClauseElement] = []
-        # we want to avoid duplicate expr evaluation, so we keep track of unique exprs (duplicates share the
-        # same data_row_idx); however, __eq__() doesn't work for sets, so we use a list here
-        self.unique_exprs: List[Expr] = []
+        self.unique_exprs = UniqueExprSet()
         self.next_data_row_idx = 0
 
         if filter is not None:
@@ -1422,26 +1443,13 @@ class ExprEvalCtx:
     def num_materialized(self) -> int:
         return self.next_data_row_idx
 
-    def _is_unique_expr(self, expr: Expr) -> bool:
-        """
-        If False, sets expr.data/sql_row_idx to that of the already-recorded duplicate.
-        """
-        try:
-            existing = next(e for e in self.unique_exprs if e.equals(expr))
-            expr.data_row_idx = existing.data_row_idx
-            expr.sql_row_idx = existing.sql_row_idx
-            return False
-        except StopIteration:
-            return True
-
     def _analyze_expr(self, expr: Expr) -> None:
         """
         Assign Expr.data_row_idx and Expr.sql_row_idx.
         """
-        if not self._is_unique_expr(expr):
+        if not self.unique_exprs.add(expr):
             # nothing left to do
             return
-        self.unique_exprs.append(expr)
 
         sql_expr = expr.sql_expr()
         # if this can be materialized via SQL we don't need to look at its components;
@@ -1476,7 +1484,7 @@ class ComputedColEvalCtx:
 
         # we want to avoid duplicate expr evaluation, so we keep track of unique exprs (duplicates share the
         # same data_row_idx); however, __eq__() doesn't work for sets, so we use a list here
-        self.unique_exprs: List[Expr] = []
+        self.unique_exprs = UniqueExprSet()
         self.next_data_row_idx = 0
 
         for col_ref, expr in computed_col_info:
@@ -1484,32 +1492,19 @@ class ComputedColEvalCtx:
             # the expr materializes the value of that column
             col_ref.data_row_idx = expr.data_row_idx
             # future references to that column will use the already-assigned data_row_idx
-            self.unique_exprs.append(col_ref)
+            self.unique_exprs.add(col_ref)
 
     @property
     def num_materialized(self) -> int:
         return self.next_data_row_idx
 
-    def _is_unique_expr(self, expr: Expr) -> bool:
-        """
-        If False, sets expr.data/sql_row_idx to that of the already-recorded duplicate.
-        """
-        try:
-            existing = next(e for e in self.unique_exprs if e.equals(expr))
-            expr.data_row_idx = existing.data_row_idx
-            expr.sql_row_idx = existing.sql_row_idx
-            return False
-        except StopIteration:
-            return True
-
     def _analyze_expr(self, expr: Expr) -> None:
         """
         Assign Expr.data_row_idx.
         """
-        if not self._is_unique_expr(expr):
+        if not self.unique_exprs.add(expr):
             # nothing left to do
             return
-        self.unique_exprs.append(expr)
         for c in expr.components:
             self._analyze_expr(c)
         if expr.data_row_idx < 0:

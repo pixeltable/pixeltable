@@ -21,14 +21,14 @@ def udf_call(eval_fn: Callable, return_type: exprs.ColumnType, tbl: Optional[cat
                 (f'udf_call(): lambda argument names need to be valid column names in table {tbl.name}: '
                  f'column {param_name} unknown'))
         args.append(exprs.ColumnRef(tbl.cols_by_name[param_name]))
-    fn = Function(eval_fn, return_type, None)
+    fn = Function(return_type, None, eval_fn=eval_fn)
     return exprs.FunctionCall(fn, args)
 
 def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
     expr.col_type = target_type
     return expr
 
-dict_map = Function(lambda s, d: d[s], IntType(), [StringType(), JsonType()])
+dict_map = Function(IntType(), [StringType(), JsonType()], eval_fn=lambda s, d: d[s])
 
 __all__ = [
     udf_call,

@@ -1,8 +1,6 @@
-import PIL.Image
-
 from pixeltable.type_system import FloatType, ImageType, Function
 
 
-alpha_composite = Function(PIL.Image.alpha_composite, ImageType(), [ImageType(), ImageType()])
-blend = Function(PIL.Image.blend, ImageType(), [ImageType(), ImageType(), FloatType()])
-composite = Function(PIL.Image.composite, ImageType(), [ImageType(), ImageType(), ImageType()])
+alpha_composite = Function(ImageType(), [ImageType(), ImageType()], module_name='PIL.Image', symbol='alpha_composite')
+blend = Function(ImageType(), [ImageType(), ImageType(), FloatType()], module_name='PIL.Image', symbol='blend')
+composite = Function(ImageType(), [ImageType(), ImageType(), ImageType()], module_name='PIL.Image', symbol='composite')

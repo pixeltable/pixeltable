@@ -128,15 +128,8 @@ class TestTable:
 
         # not allowed to pass values for computed cols
         with pytest.raises(exc.InsertError):
-            data_df = create_table_data(t, num_rows=10)
-            t.insert_pandas(data_df)
-
-        # can't drop c4: c5 depends on it
-        with pytest.raises(exc.OperationalError):
-            t.drop_column('c4')
-        t.drop_column('c5')
-        # now it works
-        t.drop_column('c4')
+            data_df2 = create_table_data(t, num_rows=10)
+            t.insert_pandas(data_df2)
 
         # test loading from store
         cl2 = pt.Client()
@@ -146,6 +139,22 @@ class TestTable:
         for i in range(len(t.columns)):
             if t.columns[i].value_expr is not None:
                 assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
+
+        # make sure we're still seeing the same data
+        tbl_df = t2.show().to_pandas()
+        for c in ['c1', 'c2', 'c3']:
+            assert tbl_df[c].equals(data_df[c])
+
+        t2.insert_pandas(data_df)
+        res = t2.show(0)
+        tbl_df = t2.show(0).to_pandas()
+
+        # can't drop c4: c5 depends on it
+        with pytest.raises(exc.OperationalError):
+            t.drop_column('c4')
+        t.drop_column('c5')
+        # now it works
+        t.drop_column('c4')
 
     @pytest.mark.dependency(depends=['test_insert'])
     def test_revert(self, test_db: catalog.Db) -> None:

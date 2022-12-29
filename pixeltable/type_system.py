@@ -3,6 +3,7 @@ from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import enum
 import datetime
 import json
+import importlib
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -496,10 +497,28 @@ class ArrayType(ColumnType):
 
 
 class Function:
-    def __init__(self, eval_fn: Callable, return_type: ColumnType, param_types: Optional[List[ColumnType]]):
-        self.eval_fn = eval_fn
+    """
+    A Function's executable function is specified either directly or as module/symbol.
+    In the former case, the function needs to be pickled and stored for serialization.
+    In the latter case, the executable function is resolved in init().
+    """
+    def __init__(
+            self, return_type: ColumnType, param_types: Optional[List[ColumnType]],
+            module_name: Optional[str] = None, symbol: Optional[str] = None, eval_fn: Optional[Callable] = None):
+        assert (module_name is None) == (symbol is None)
+        assert (module_name is None) != (eval_fn is None)
         self.return_type = return_type
         self.param_types = param_types
+        self.module_name = module_name
+        self.symbol = symbol
+        if module_name is not None:
+            # resolve module_name and symbol
+            obj = importlib.import_module(module_name)
+            for el in symbol.split('.'):
+                obj = getattr(obj, el)
+            self.eval_fn = obj
+        else:
+            self.eval_fn = eval_fn
 
     def __call__(self, *args: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs

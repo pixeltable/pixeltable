@@ -45,8 +45,8 @@ class TestExprs:
         assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         # compound predicates with Python functions
-        udf = Function(lambda a: True, BoolType(), [StringType()])
-        udf2 = Function(lambda a: True, BoolType(), [IntType()])
+        udf = Function(BoolType(), [StringType()], eval_fn=lambda a: True)
+        udf2 = Function(BoolType(), [IntType()], eval_fn=lambda a: True)
 
         # & can be split
         p = (t.c1 == 'test string') & udf(t.c1)
