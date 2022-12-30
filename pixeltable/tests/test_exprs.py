@@ -258,8 +258,9 @@ class TestExprs:
         with pytest.raises(exc.OperationalError):
             _ = t[t.img.matches('musical instrument')].show(10)
 
-    def test_serialization(self, test_tbl: catalog.Table) -> None:
+    def test_serialization(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
         t = test_tbl
+        img_t = img_tbl
         test_exprs = [
             t.c1,
             t.c7['*'].f1,
@@ -279,6 +280,15 @@ class TestExprs:
         for e in test_exprs:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized, t)
+            assert e.equals(e_deserialized)
+
+        img_test_exprs = [
+            img_t.img.width,
+            img_t.img.rotate(90),
+        ]
+        for e in img_test_exprs:
+            e_serialized = e.serialize()
+            e_deserialized = Expr.deserialize(e_serialized, img_t)
             assert e.equals(e_deserialized)
 
     def test_subexprs(self, img_tbl: catalog.Table) -> None:

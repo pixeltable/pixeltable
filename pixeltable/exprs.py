@@ -338,8 +338,8 @@ class ColumnRef(Expr):
 class FunctionCall(Expr):
     def __init__(self, fn: Function, args: Tuple[Any] = None):
         super().__init__(fn.return_type)
-        self.eval_fn = fn.eval_fn
-        params = inspect.signature(self.eval_fn).parameters
+        self.fn = fn
+        params = inspect.signature(self._eval_fn).parameters
         required_params = [p for p in params.values() if p.default == inspect.Parameter.empty]
         if len(args) < len(required_params):
             raise exc.OperationalError(
@@ -371,14 +371,16 @@ class FunctionCall(Expr):
         self.components = [arg for arg in args if isinstance(arg, Expr)]
         self.args = [arg if not isinstance(arg, Expr) else None for arg in args]
 
+    @property
+    def _eval_fn(self) -> Callable:
+        return self.fn.eval_fn
+
     def _equals(self, other: 'FunctionCall') -> bool:
-        if self.eval_fn != other.eval_fn:
+        if self._eval_fn != other._eval_fn:
             return False
         if len(self.args) != len(other.args):
             return False
         for i in range(len(self.args)):
-            if (self.args[i] is None) != (other.args[i] is None):
-                return False
             if self.args[i] != other.args[i]:
                 return False
         return True
@@ -394,7 +396,18 @@ class FunctionCall(Expr):
             if args[j] is None:
                 args[j] = data_row[self.components[i].data_row_idx]
                 i += 1
-        data_row[self.data_row_idx] = self.eval_fn(*args)
+        data_row[self.data_row_idx] = self._eval_fn(*args)
+
+    def _as_dict(self) -> Dict:
+        return {'fn': self.fn.as_dict(), 'args': self.args, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> 'Expr':
+        assert 'fn' in d
+        assert 'args' in d
+        # reassemble args
+        args = [arg if arg is not None else components[i] for i, arg in enumerate(d['args'])]
+        return cls(Function.from_dict(d['fn']), args)
 
 
 def _caller_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
@@ -424,33 +437,33 @@ def _resize_return_type(caller: Expr, *args: object, **kwargs: object) -> Column
 # TODO: how to capture return values like List[Tuple[int, int]]?
 # dict from method name to (function to compute value, function to compute return type)
 # TODO: JsonTypes() where it should be ArrayType(): need to determine the shape and base type
-_PIL_METHOD_INFO: Dict[str, Tuple[Callable, Union[ColumnType, Callable]]] = {
-    'convert': (PIL.Image.Image.convert, _convert_return_type),
-    'crop': (PIL.Image.Image.crop, _crop_return_type),
-    'effect_spread': (PIL.Image.Image.effect_spread, _caller_return_type),
-    'entropy': (PIL.Image.Image.entropy, FloatType()),
-    'filter': (PIL.Image.Image.filter, _caller_return_type),
-    'getbands': (PIL.Image.Image.getbands, ArrayType((None,), ColumnType.Type.STRING)),
-    'getbbox': (PIL.Image.Image.getbbox, ArrayType((4,), ColumnType.Type.INT)),
-    'getchannel': (PIL.Image.Image.getchannel, _caller_return_type),
-    'getcolors': (PIL.Image.Image.getcolors, JsonType()),
-    'getextrema': (PIL.Image.Image.getextrema, JsonType()),
-    'getpalette': (PIL.Image.Image.getpalette, JsonType()),
-    'getpixel': (PIL.Image.Image.getpixel, JsonType()),
-    'getprojection': (PIL.Image.Image.getprojection, JsonType()),
-    'histogram': (PIL.Image.Image.histogram, JsonType()),
+_PIL_METHOD_INFO: Dict[str, Union[ColumnType, Callable]] = {
+    'convert': _convert_return_type,
+    'crop': _crop_return_type,
+    'effect_spread': _caller_return_type,
+    'entropy': FloatType(),
+    'filter': _caller_return_type,
+    'getbands': ArrayType((None,), ColumnType.Type.STRING),
+    'getbbox': ArrayType((4,), ColumnType.Type.INT),
+    'getchannel': _caller_return_type,
+    'getcolors': JsonType(),
+    'getextrema': JsonType(),
+    'getpalette': JsonType(),
+    'getpixel': JsonType(),
+    'getprojection': JsonType(),
+    'histogram': JsonType(),
 # TODO: what to do with this? it modifies the img in-place
 #    paste: <ast.Constant object at 0x7f9e9a9be3a0>
-    'point': (PIL.Image.Image.point, _caller_return_type),
-    'quantize': (PIL.Image.Image.quantize, _caller_return_type),
-    'reduce': (PIL.Image.Image.reduce, _caller_return_type),  # TODO: this is incorrect
-    'remap_palette': (PIL.Image.Image.remap_palette, _caller_return_type),
-    'resize': (PIL.Image.Image.resize, _resize_return_type),
-    'rotate': (PIL.Image.Image.rotate, _caller_return_type),  # TODO: this is incorrect
+    'point': _caller_return_type,
+    'quantize': _caller_return_type,
+    'reduce': _caller_return_type,  # TODO: this is incorrect
+    'remap_palette': _caller_return_type,
+    'resize': _resize_return_type,
+    'rotate': _caller_return_type,  # TODO: this is incorrect
 # TODO: this returns a Tuple[Image], which we can't express
 #    split: <ast.Subscript object at 0x7f9e9a9cc9d0>
-    'transform': (PIL.Image.Image.transform, _caller_return_type),  # TODO: this is incorrect
-    'transpose': (PIL.Image.Image.transpose, _caller_return_type),  # TODO: this is incorrect
+    'transform': _caller_return_type,  # TODO: this is incorrect
+    'transpose': _caller_return_type,  # TODO: this is incorrect
 }
 
 
@@ -495,6 +508,7 @@ class ImageMemberAccess(Expr):
     def display_name(self) -> str:
         return self.member_name
 
+    @property
     def _caller(self) -> Expr:
         return self.components[0]
 
@@ -509,7 +523,7 @@ class ImageMemberAccess(Expr):
 
     # TODO: correct signature?
     def __call__(self, *args, **kwargs) -> Union['ImageMethodCall', 'ImageSimilarityPredicate']:
-        caller = self._caller()
+        caller = self._caller
         call_signature = f'({",".join([type(arg).__name__ for arg in args])})'
         if self.member_name == 'nearest':
             # - caller must be ColumnRef
@@ -540,7 +554,7 @@ class ImageMemberAccess(Expr):
         return None
 
     def eval(self, data_row: List[Any]) -> None:
-        caller_val = data_row[self._caller().data_row_idx]
+        caller_val = data_row[self._caller.data_row_idx]
         try:
             data_row[self.data_row_idx] = getattr(caller_val, self.member_name)
         except AttributeError:
@@ -555,16 +569,33 @@ class ImageMethodCall(FunctionCall):
         assert method_name in _PIL_METHOD_INFO
         self.method_name = method_name
         method_info = _PIL_METHOD_INFO[self.method_name]
-        if isinstance(method_info[1], ColumnType):
-            return_type = method_info[1]
+        if isinstance(method_info, ColumnType):
+            return_type = method_info
         else:
-            return_type = method_info[1](caller, *args, **kwargs)
-        fn = Function(return_type, None, eval_fn=method_info[0])
+            return_type = method_info(caller, *args, **kwargs)
+        # TODO: register correct parameters
+        fn = Function(return_type, None, module_name='PIL.Image', symbol=f'Image.{method_name}')
         super().__init__(fn, (caller, *args))
         # TODO: deal with kwargs
 
     def display_name(self) -> str:
         return self.method_name
+
+    def _as_dict(self) -> Dict:
+        return {'method_name': self.method_name, 'args': self.args, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> 'Expr':
+        """
+        We're implementing this, instead of letting FunctionCall handle it, in order to return an
+        ImageMethodCall instead of a FunctionCall, which is useful for testing that a serialize()/deserialize()
+        roundtrip ends up with the same Expr.
+        """
+        assert 'method_name' in d
+        assert 'args' in d
+        # reassemble args, but skip args[0], which is our caller
+        args = [arg if arg is not None else components[i+1] for i, arg in enumerate(d['args'][1:])]
+        return cls(d['method_name'], components[0], *args)
 
 
 class JsonPath(Expr):

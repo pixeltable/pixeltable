@@ -523,3 +523,26 @@ class Function:
     def __call__(self, *args: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs
         return exprs.FunctionCall(self, args)
+
+    def as_dict(self) -> Dict:
+        # at the moment we can't deserialize Functions that only have an eval_fn
+        assert self.module_name is not None and self.symbol is not None
+        return {
+            'return_type': self.return_type.as_dict(),
+            'param_types': [t.as_dict() for t in self.param_types] if self.param_types is not None else None,
+            'module_name': self.module_name,
+            'symbol': self.symbol
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict) -> 'Function':
+        assert 'return_type' in d
+        return_type = ColumnType.from_dict(d['return_type'])
+        assert 'param_types' in d
+        if d['param_types'] is None:
+            param_types = None
+        else:
+            param_types = [ColumnType.from_dict(type_dict) for type_dict in d['param_types']]
+        assert 'module_name' in d
+        assert 'symbol' in d
+        return cls(return_type, param_types, d['module_name'], d['symbol'])
