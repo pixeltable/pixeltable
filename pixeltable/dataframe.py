@@ -82,9 +82,11 @@ class DataFrame:
                 if len(similarity_clauses) > 1:
                     raise exc.OperationalError(f'More than one nearest() or matches() not supported')
                 if len(similarity_clauses) == 1:
-                    if not self.tbl.is_indexed:
-                        raise exc.OperationalError(f'nearest()/matches() not available for unindexed table')
                     similarity_clause = similarity_clauses[0]
+                    img_col = similarity_clause.img_col_ref.col
+                    if not img_col.is_indexed:
+                        raise exc.OperationalError(
+                            f'nearest()/matches() not available for unindexed column {img_col.name}')
                     if n > 100:
                         raise exc.OperationalError(f'nearest()/matches() requires show(n <= 100): n={n}')
 
@@ -102,9 +104,9 @@ class DataFrame:
         idx_rowids: List[int] = []  # rowids returned by index lookup
         if similarity_clause is not None:
             # do index lookup
-            assert similarity_clause.img_col.col.idx is not None
+            assert similarity_clause.img_col_ref.col.idx is not None
             embed = similarity_clause.embedding()
-            idx_rowids = similarity_clause.img_col.col.idx.search(embed, n, self.tbl.valid_rowids)
+            idx_rowids = similarity_clause.img_col_ref.col.idx.search(embed, n, self.tbl.valid_rowids)
 
         with env.get_engine().connect() as conn:
             stmt = self._create_select_stmt(self.eval_ctx.sql_exprs, sql_where_clause, idx_rowids)

@@ -86,12 +86,12 @@ def test_tbl(test_db: pt.Db) -> catalog.Table:
 @pytest.fixture(scope='function')
 def img_tbl(test_db: pt.Db) -> catalog.Table:
     cols = [
-        catalog.Column('img', ImageType(), nullable=False),
+        catalog.Column('img', ImageType(), nullable=False, indexed=False),
         catalog.Column('category', StringType(), nullable=False),
         catalog.Column('split', StringType(), nullable=False),
     ]
     # this table is not indexed in order to avoid the cost of computing embeddings
-    tbl = test_db.create_table('test_img_tbl', cols, indexed=False)
+    tbl = test_db.create_table('test_img_tbl', cols)
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     tbl.insert_pandas(df)
     return tbl
@@ -106,11 +106,11 @@ def img_tbl(test_db: pt.Db) -> catalog.Table:
 def indexed_img_tbl(test_db: pt.Db) -> catalog.Table:
     db = test_db
     cols = [
-        catalog.Column('img', ImageType(), nullable=False),
+        catalog.Column('img', ImageType(), nullable=False, indexed=True),
         catalog.Column('category', StringType(), nullable=False),
         catalog.Column('split', StringType(), nullable=False),
     ]
-    tbl = db.create_table('test_indexed_img_tbl', cols, indexed=True)
+    tbl = db.create_table('test_indexed_img_tbl', cols)
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     # select rows randomly in the hope of getting a good sample of the available categories
     rng = np.random.default_rng(17)

@@ -26,17 +26,19 @@ class Column:
     def __init__(
             self, name: str, col_type: Optional[ColumnType] = None, value_expr: Optional['Expr'] = None,
             primary_key: bool = False, nullable: bool = True, col_id: Optional[int] = None,
-            value_expr_str: Optional[str] = None):
+            value_expr_str: Optional[str] = None, indexed: bool = False):
         """
         Computed columns: those have a non-None value_expr
         - when constructed by the user: parameter 'value_expr' was constructed explicitly and is passed in;
           parameter 'value_expr_str' is None
         - when loaded from store: parameter 'value_expr_str' is the serialized form; parameter 'value_expr' is None
+
+        indexed: only valid for image columns; if true, maintains an NN index for this column
         """
         self.name = name
-        assert (col_type is None) != (value_expr is None)
+        if (col_type is None) == (value_expr is None):
+            raise exc.Error(f'Column {name}: exactly one of col_type or value_expr must be set')
         assert not(value_expr_str is not None and value_expr is not None)
-        assert not(col_type is None and value_expr is None)
         if col_type is None:
             self.col_type = value_expr.col_type
         else:
@@ -49,6 +51,10 @@ class Column:
         # computed cols are always nullable
         self.nullable = nullable or self.value_expr is not None or self.value_expr_str is not None
         self.sa_col: Optional[sql.schema.Column] = None
+
+        if indexed and not self.col_type.is_image_type():
+            raise exc.Error(f'Column {name}: indexed=True requires ImageType')
+        self.is_indexed = indexed
         self.idx: Optional[VectorIndex] = None
 
     def to_sql(self) -> str:
@@ -117,7 +123,7 @@ class SnapshotDir(DirBase):
 class Table(SchemaObject):
     #def __init__(self, tbl_record: store.Table, schema: List[Column]):
     def __init__(
-            self, db_id: int, tbl_id: int, dir_id: int, name: str, version: int, is_indexed: bool, cols: List[Column]):
+            self, db_id: int, tbl_id: int, dir_id: int, name: str, version: int, cols: List[Column]):
         super().__init__(tbl_id)
         self.db_id = db_id
         self.dir_id = dir_id
@@ -131,7 +137,6 @@ class Table(SchemaObject):
         self.cols_by_name = {col.name: col for col in cols}
         self.cols_by_id = {col.id: col for col in cols}
         self.version = version
-        self.is_indexed = is_indexed
 
         # we can't call _load_valid_rowids() here because the storage table may not exist yet
         self.valid_rowids: Set[int] = set()
@@ -231,7 +236,7 @@ class Table(SchemaObject):
 
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
-    def load_cols(cls, tbl_id: int, schema_version: int, is_indexed: bool, session: orm.Session) -> List[Column]:
+    def load_cols(cls, tbl_id: int, schema_version: int, session: orm.Session) -> List[Column]:
         """
         Returns loaded cols.
         """
@@ -242,17 +247,17 @@ class Table(SchemaObject):
         cols = [
             Column(
                 r.name, ColumnType.deserialize(r.col_type), primary_key=r.is_pk, nullable=r.is_nullable,
-                col_id=r.col_id, value_expr_str=r.value_expr)
+                col_id=r.col_id, value_expr_str=r.value_expr, indexed=r.is_indexed)
             for r in col_records
         ]
-        if is_indexed:
-            for col in [col for col in cols if col.col_type.is_image_type()]:
+        for col in [col for col in cols if col.col_type.is_image_type()]:
+            if col.is_indexed:
                 col.set_idx(VectorIndex.load(cls._vector_idx_name(tbl_id, col), dim=512))
         return cols
 
 
 class TableSnapshot(Table):
-    def __init__(self, snapshot_record: store.TableSnapshot, is_indexed: bool, cols: List[Column]):
+    def __init__(self, snapshot_record: store.TableSnapshot, cols: List[Column]):
         assert snapshot_record.db_id is not None
         assert snapshot_record.id is not None
         assert snapshot_record.dir_id is not None
@@ -262,7 +267,7 @@ class TableSnapshot(Table):
         # the name of the data table
         super().__init__(
             snapshot_record.db_id, snapshot_record.tbl_id, snapshot_record.dir_id, snapshot_record.name,
-            snapshot_record.tbl_version, is_indexed, cols)
+            snapshot_record.tbl_version, cols)
         self.snapshot_tbl_id = snapshot_record.id
         # it's safe to call _load_valid_rowids() here because the storage table already exists
         self._load_valid_rowids()
@@ -282,14 +287,12 @@ class MutableTable(Table):
         assert tbl_record.name is not None
         assert tbl_record.current_version is not None
         super().__init__(
-            tbl_record.db_id, tbl_record.id, tbl_record.dir_id, tbl_record.name, tbl_record.current_version,
-            tbl_record.is_indexed, cols)
+            tbl_record.db_id, tbl_record.id, tbl_record.dir_id, tbl_record.name, tbl_record.current_version, cols)
         assert tbl_record.next_col_id is not None
         self.next_col_id = tbl_record.next_col_id
         assert tbl_record.next_row_id is not None
         self.next_row_id = tbl_record.next_row_id
         self.schema_version = schema_version
-        self.is_indexed = tbl_record.is_indexed
 
     def __repr__(self) -> str:
         return f'MutableTable(name={self.name})'
@@ -435,7 +438,7 @@ class MutableTable(Table):
                 .values(
                     tbl_id=self.id, schema_version=self.version, col_id=c.id, pos=pos, name=c.name,
                     col_type=c.col_type.serialize(), is_nullable=c.nullable, is_pk=c.primary_key,
-                    value_expr=value_expr_str))
+                    value_expr=value_expr_str, is_indexed=c.is_indexed))
 
     def insert_pandas(
             self, data: pd.DataFrame, video_column: Optional[str] = None, frame_column: Optional[str] = None,
@@ -540,13 +543,13 @@ class MutableTable(Table):
                 for i, (_, path_str) in tqdm(enumerate(data[col.name].items())):
                     try:
                         img = Image.open(path_str)
-                        if self.is_indexed:
+                        if col.is_indexed:
                             embeddings[i] = clip.encode_image(img)
                     except FileNotFoundError:
                         raise exc.OperationalError(f'Column {col.name}: file does not exist: {path_str}')
                     except PIL.UnidentifiedImageError:
                         raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
-                if self.is_indexed:
+                if col.is_indexed:
                     assert col.idx is not None
                     col.idx.insert(embeddings, np.array(rowids))
 
@@ -654,7 +657,7 @@ class MutableTable(Table):
                     .where(store.TableSchemaVersion.tbl_id == self.id) \
                     .where(store.TableSchemaVersion.schema_version == self.schema_version) \
                     .scalar()
-                self.cols = self.load_cols(self.id, preceding_schema_version, self.is_indexed, session)
+                self.cols = self.load_cols(self.id, preceding_schema_version, session)
                 conn.execute(
                     sql.delete(store.TableSchemaVersion.__table__)
                         .where(store.TableSchemaVersion.tbl_id == self.id)
@@ -693,7 +696,7 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def create(
-        cls, db_id: int, dir_id: int, name: str, num_retained_versions: int, cols: List[Column], is_indexed: bool
+        cls, db_id: int, dir_id: int, name: str, num_retained_versions: int, cols: List[Column]
     ) -> 'MutableTable':
         # make sure col names are unique ids (within the table)j
         col_names: Set[str] = set()
@@ -707,7 +710,7 @@ class MutableTable(Table):
         with orm.Session(env.get_engine()) as session:
             tbl_record = store.Table(
                 db_id=db_id, dir_id=dir_id, name=name, num_retained_versions=num_retained_versions, current_version=0,
-                current_schema_version=0, is_mutable=True, is_indexed=is_indexed, next_col_id=len(cols), next_row_id=0)
+                current_schema_version=0, is_mutable=True, next_col_id=len(cols), next_row_id=0)
             session.add(tbl_record)
             session.flush()  # sets tbl_record.id
 
@@ -726,13 +729,13 @@ class MutableTable(Table):
                     store.SchemaColumn(
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
                         col_type=col.col_type.serialize(), is_nullable=col.nullable, is_pk=col.primary_key,
-                        value_expr=value_expr_str
+                        value_expr=value_expr_str, is_indexed=col.is_indexed
                     )
                 )
                 session.flush()  # avoid FK violations in Postgres
 
                 # for image cols, add VectorIndex for kNN search
-                if is_indexed and col.col_type.is_image_type():
+                if col.is_indexed and col.col_type.is_image_type():
                     col.set_idx(VectorIndex.create(Table._vector_idx_name(tbl_record.id, col), 512))
             session.flush()
 
@@ -854,13 +857,13 @@ class Db:
         self.paths.update(self._load_tables())
 
     def create_table(
-            self, path_str: str, schema: List[Column], num_retained_versions: int = 10, indexed: bool = True
+            self, path_str: str, schema: List[Column], num_retained_versions: int = 10
     ) -> MutableTable:
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
         dir = self.paths[path.parent]
 
-        tbl = MutableTable.create(self.id, dir.id, path.name, num_retained_versions, schema, indexed)
+        tbl = MutableTable.create(self.id, dir.id, path.name, num_retained_versions, schema)
         self.paths[path] = tbl
         return tbl
 
@@ -947,8 +950,8 @@ class Db:
                 session.add(snapshot_record)
                 session.flush()
                 assert snapshot_record.id is not None
-                cols = Table.load_cols(tbl.id, tbl.schema_version, tbl.is_indexed, session)
-                snapshot = TableSnapshot(snapshot_record, tbl.is_indexed, cols)
+                cols = Table.load_cols(tbl.id, tbl.schema_version, session)
+                snapshot = TableSnapshot(snapshot_record, cols)
                 snapshot_path = snapshot_dir_path.append(tbl.name)
                 self.paths[snapshot_path] = snapshot
 
@@ -1007,21 +1010,21 @@ class Db:
                 .where(store.Table.is_mutable == True)
             for tbl_record, dir_path in q.all():
                 cols = Table.load_cols(
-                    tbl_record.id, tbl_record.current_schema_version, tbl_record.is_indexed, session)
+                    tbl_record.id, tbl_record.current_schema_version, session)
                 tbl = MutableTable(tbl_record, tbl_record.current_schema_version, cols)
                 tbl._load_valid_rowids()  # TODO: move this someplace more appropriate
                 path = Path(dir_path, empty_is_valid=True).append(tbl_record.name)
                 result[str(path)] = tbl
 
             # load all table snapshots
-            q = session.query(store.TableSnapshot, store.Table.is_indexed, store.Dir.path) \
+            q = session.query(store.TableSnapshot, store.Dir.path) \
                 .select_from(store.TableSnapshot) \
                 .join(store.Table) \
                 .join(store.Dir) \
                 .where(store.TableSnapshot.db_id == self.id)
-            for snapshot_record, is_indexed, dir_path in q.all():
-                cols = Table.load_cols(snapshot_record.tbl_id, snapshot_record.tbl_schema_version, is_indexed, session)
-                snapshot = TableSnapshot(snapshot_record, is_indexed, cols)
+            for snapshot_record, dir_path in q.all():
+                cols = Table.load_cols(snapshot_record.tbl_id, snapshot_record.tbl_schema_version, session)
+                snapshot = TableSnapshot(snapshot_record, cols)
                 path = Path(dir_path, empty_is_valid=True).append(snapshot_record.name)
                 result[str(path)] = snapshot
 

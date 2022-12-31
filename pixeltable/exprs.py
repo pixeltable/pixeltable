@@ -488,7 +488,7 @@ def _create_pil_attr_info() -> Dict[str, ColumnType]:
 class ImageMemberAccess(Expr):
     """
     Access of either an attribute or function member of PIL.Image.Image.
-    Ex.: tbl.img_col.rotate(90), tbl.img_col.width
+    Ex.: tbl.img_col_ref.rotate(90), tbl.img_col_ref.width
     """
     attr_info = _create_pil_attr_info()
     special_img_predicates = ['nearest', 'matches']
@@ -563,7 +563,7 @@ class ImageMemberAccess(Expr):
 
 class ImageMethodCall(FunctionCall):
     """
-    Ex.: tbl.img_col.rotate(90)
+    Ex.: tbl.img_col_ref.rotate(90)
     """
     def __init__(self, method_name: str, caller: Expr, *args: object, **kwargs: object):
         assert method_name in _PIL_METHOD_INFO
@@ -1086,7 +1086,7 @@ class ImageSimilarityPredicate(Predicate):
     def __init__(self, img_col: ColumnRef, img: Optional[PIL.Image.Image] = None, text: Optional[str] = None):
         assert (img is None) != (text is None)
         super().__init__()
-        self.img_col = img_col
+        self.img_col_ref = img_col
         self.components = [img_col]
         self.img = img
         self.text = text

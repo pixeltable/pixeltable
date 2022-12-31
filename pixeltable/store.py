@@ -47,9 +47,6 @@ class Table(Base):
     # (table got dropped, but we need to keep a record of it for snapshots)
     is_mutable = sql.Column(Boolean, nullable=False)
 
-    # if True, creates vector indices for image columns
-    is_indexed = sql.Column(Boolean, nullable=False)
-
     next_col_id = sql.Column(Integer, nullable=False)  # used to assign Column.id
 
     # - used to assign the rowid column in the storage table
@@ -111,6 +108,8 @@ class SchemaColumn(Base):
     is_nullable = sql.Column(Boolean, nullable=False)
     is_pk = sql.Column(Boolean, nullable=False)
     value_expr = sql.Column(String, nullable=True)  # json
+    # if True, creates vector index for this column
+    is_indexed = sql.Column(Boolean, nullable=False)
 
     __table_args__ = (
         UniqueConstraint('tbl_id', 'schema_version', 'pos'),
