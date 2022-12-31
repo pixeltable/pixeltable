@@ -562,6 +562,7 @@ class MutableTable(Table):
         evaluator: Optional[exprs.ExprEvaluator] = None
         input_col_refs: List[exprs.ColumnRef] = []  # columns needed as input for computing value_exprs
         computed_cols = [col for col in self.cols if col.value_expr is not None]
+        computed_img_cols = [col for col in computed_cols if col.col_type.is_image_type()]
         if len(computed_cols) > 0:
             value_exprs = [c.value_expr for c in computed_cols]
             eval_ctx = exprs.ComputedColEvalCtx([(exprs.ColumnRef(c), c.value_expr) for c in computed_cols])
@@ -587,7 +588,16 @@ class MutableTable(Table):
                 # copy inputs
                 for col_ref in input_col_refs:
                     data_row[col_ref.data_row_idx] = row_dict[col_ref.col.storage_name()]
+                    # load image, if this is a file path
+                    if col_ref.col_type.is_image_type():
+                        data_row[col_ref.data_row_idx] = PIL.Image.open(data_row[col_ref.data_row_idx])
                 evaluator.eval((), data_row)
+                # for computed image cols, replace PIL.Image with filename
+                for c in computed_img_cols:
+                    img = data_row[c.value_expr.data_row_idx]
+                    img_path = env.get_img_dir() / f'img_{self.id}_{c.id}_{self.version}_{rowids[i]}.jpg'
+                    img.save(img_path)
+                    data_row[c.value_expr.data_row_idx] = str(img_path)
                 computed_vals_dict = {c.storage_name(): data_row[c.value_expr.data_row_idx] for c in computed_cols}
                 row_dict.update(computed_vals_dict)
 

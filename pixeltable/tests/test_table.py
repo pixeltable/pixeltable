@@ -113,6 +113,8 @@ class TestTable:
         t.add_column(catalog.Column('c6', value_expr=t.c1 / t.c2))
         t.add_column(catalog.Column('c7', value_expr=t.c6 * t.c2))
         t.add_column(catalog.Column('c8', value_expr=t.c3.detections['*'].bounding_box))
+
+        # Column.dependent_cols are computed correctly
         assert len(t.c1.col.dependent_cols) == 2
         assert len(t.c2.col.dependent_cols) == 2
         assert len(t.c3.col.dependent_cols) == 1
@@ -140,11 +142,7 @@ class TestTable:
             if t.columns[i].value_expr is not None:
                 assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
 
-        # make sure we're still seeing the same data
-        tbl_df = t2.show().to_pandas()
-        for c in ['c1', 'c2', 'c3']:
-            assert tbl_df[c].equals(data_df[c])
-
+        # make sure we can still insert data and that computed cols are still set correctly
         t2.insert_pandas(data_df)
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
@@ -155,6 +153,32 @@ class TestTable:
         t.drop_column('c5')
         # now it works
         t.drop_column('c4')
+
+    def test_computed_img_cols(self, test_db: catalog.Db) -> None:
+        db = test_db
+        c1 = catalog.Column('img', ImageType(), nullable=False)
+        schema = [c1]
+        t = db.create_table('test', schema)
+        t.add_column(catalog.Column('c2', value_expr=t.img.width))
+        t.add_column(catalog.Column('c3', value_expr=t.img.rotate(90)))
+
+        data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        t.insert_pandas(data_df.loc[0:20, ['img']])
+        _ = t.show()
+
+        # # test loading from store
+        # cl2 = pt.Client()
+        # db2 = cl2.get_db('test')
+        # t2 = db2.get_table('test')
+        # assert len(t.columns) == len(t2.columns)
+        # for i in range(len(t.columns)):
+        #     if t.columns[i].value_expr is not None:
+        #         assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
+        #
+        # # make sure we can still insert data and that computed cols are still set correctly
+        # t2.insert_pandas(data_df)
+        # res = t2.show(0)
+        # tbl_df = t2.show(0).to_pandas()
 
     @pytest.mark.dependency(depends=['test_insert'])
     def test_revert(self, test_db: catalog.Db) -> None:
