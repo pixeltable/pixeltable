@@ -169,15 +169,14 @@ class Table(SchemaObject):
     def _load_valid_rowids(self) -> None:
         if not any(col.col_type.is_image_type() for col in self.cols):
             return
-        with env.get_engine().connect() as conn:
-            with conn.begin():
-                stmt = sql.select(self.rowid_col) \
-                    .where(self.v_min_col <= self.version) \
-                    .where(self.v_max_col > self.version)
-                rows = conn.execute(stmt)
-                for row in rows:
-                    rowid = row[0]
-                    self.valid_rowids.add(rowid)
+        stmt = sql.select(self.rowid_col) \
+            .where(self.v_min_col <= self.version) \
+            .where(self.v_max_col > self.version)
+        with env.get_engine().begin() as conn:
+            rows = conn.execute(stmt)
+            for row in rows:
+                rowid = row[0]
+                self.valid_rowids.add(rowid)
 
     def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
         if col_name not in self.cols_by_name:
@@ -321,27 +320,26 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with env.get_engine().connect() as conn:
-            with conn.begin():
-                conn.execute(
-                    sql.update(store.Table.__table__)
-                        .values({
-                            store.Table.current_version: self.version,
-                            store.Table.current_schema_version: self.schema_version,
-                            store.Table.next_col_id: self.next_col_id
-                        })
-                        .where(store.Table.id == self.id))
-                conn.execute(
-                    sql.insert(store.TableSchemaVersion.__table__)
-                        .values(
-                            tbl_id=self.id, schema_version=self.schema_version,
-                            preceding_schema_version=preceding_schema_version))
-                conn.execute(
-                    sql.insert(store.StorageColumn.__table__)
-                        .values(tbl_id=self.id, col_id=c.id, schema_version_add=self.schema_version))
-                self._create_col_md(conn)
-                stmt = f'ALTER TABLE {self.storage_name()} ADD COLUMN {c.to_sql()}'
-                conn.execute(sql.text(stmt))
+        with env.get_engine().begin() as conn:
+            conn.execute(
+                sql.update(store.Table.__table__)
+                    .values({
+                        store.Table.current_version: self.version,
+                        store.Table.current_schema_version: self.schema_version,
+                        store.Table.next_col_id: self.next_col_id
+                    })
+                    .where(store.Table.id == self.id))
+            conn.execute(
+                sql.insert(store.TableSchemaVersion.__table__)
+                    .values(
+                        tbl_id=self.id, schema_version=self.schema_version,
+                        preceding_schema_version=preceding_schema_version))
+            conn.execute(
+                sql.insert(store.StorageColumn.__table__)
+                    .values(tbl_id=self.id, col_id=c.id, schema_version_add=self.schema_version))
+            self._create_col_md(conn)
+            stmt = f'ALTER TABLE {self.storage_name()} ADD COLUMN {c.to_sql()}'
+            conn.execute(sql.text(stmt))
         self._create_sa_tbl()
 
     def drop_column(self, name: str) -> None:
@@ -375,26 +373,25 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with env.get_engine().connect() as conn:
-            with conn.begin():
-                conn.execute(
-                    sql.update(store.Table.__table__)
-                        .values({
-                            store.Table.current_version: self.version,
-                            store.Table.current_schema_version: self.schema_version
-                        })
-                        .where(store.Table.id == self.id))
-                conn.execute(
-                    sql.insert(store.TableSchemaVersion.__table__)
-                        .values(
-                            tbl_id=self.id, schema_version=self.schema_version,
-                            preceding_schema_version=preceding_schema_version))
-                conn.execute(
-                    sql.update(store.StorageColumn.__table__)
-                        .values({store.StorageColumn.schema_version_drop: self.schema_version})
-                        .where(store.StorageColumn.tbl_id == self.id)
-                        .where(store.StorageColumn.col_id == col.id))
-                self._create_col_md(conn)
+        with env.get_engine().begin() as conn:
+            conn.execute(
+                sql.update(store.Table.__table__)
+                    .values({
+                        store.Table.current_version: self.version,
+                        store.Table.current_schema_version: self.schema_version
+                    })
+                    .where(store.Table.id == self.id))
+            conn.execute(
+                sql.insert(store.TableSchemaVersion.__table__)
+                    .values(
+                        tbl_id=self.id, schema_version=self.schema_version,
+                        preceding_schema_version=preceding_schema_version))
+            conn.execute(
+                sql.update(store.StorageColumn.__table__)
+                    .values({store.StorageColumn.schema_version_drop: self.schema_version})
+                    .where(store.StorageColumn.tbl_id == self.id)
+                    .where(store.StorageColumn.col_id == col.id))
+            self._create_col_md(conn)
         self._create_sa_tbl()
 
     def rename_column(self, old_name: str, new_name: str) -> None:
@@ -415,20 +412,19 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with env.get_engine().connect() as conn:
-            with conn.begin():
-                conn.execute(
-                    sql.update(store.Table.__table__)
-                        .values({
-                            store.Table.current_version: self.version,
-                            store.Table.current_schema_version: self.schema_version
-                        })
-                        .where(store.Table.id == self.id))
-                conn.execute(
-                    sql.insert(store.TableSchemaVersion.__table__)
-                        .values(tbl_id=self.id, schema_version=self.schema_version,
-                                preceding_schema_version=preceding_schema_version))
-                self._create_col_md(conn)
+        with env.get_engine().begin() as conn:
+            conn.execute(
+                sql.update(store.Table.__table__)
+                    .values({
+                        store.Table.current_version: self.version,
+                        store.Table.current_schema_version: self.schema_version
+                    })
+                    .where(store.Table.id == self.id))
+            conn.execute(
+                sql.insert(store.TableSchemaVersion.__table__)
+                    .values(tbl_id=self.id, schema_version=self.schema_version,
+                            preceding_schema_version=preceding_schema_version))
+            self._create_col_md(conn)
 
     def _create_col_md(self, conn: sql.engine.base.Connection) -> None:
         for pos, c in enumerate(self.cols):
@@ -606,14 +602,13 @@ class MutableTable(Table):
 
             insert_values.append(row_dict)
 
-        with env.get_engine().connect() as conn:
-            with conn.begin():
-                conn.execute(sql.insert(self.sa_tbl), insert_values)
-                self.next_row_id += len(data)
-                conn.execute(
-                    sql.update(store.Table.__table__)
-                        .values({store.Table.current_version: self.version, store.Table.next_row_id: self.next_row_id})
-                        .where(store.Table.id == self.id))
+        with env.get_engine().begin() as conn:
+            conn.execute(sql.insert(self.sa_tbl), insert_values)
+            self.next_row_id += len(data)
+            conn.execute(
+                sql.update(store.Table.__table__)
+                    .values({store.Table.current_version: self.version, store.Table.next_row_id: self.next_row_id})
+                    .where(store.Table.id == self.id))
 
         self.valid_rowids.update(rowids)
 
@@ -678,20 +673,18 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     def rename(self, new_name: str) -> None:
         self._check_is_dropped()
-        with env.get_engine().connect() as conn:
-            with conn.begin():
-                conn.execute(
-                    sql.update(store.Table.__table__).values({store.Table.name: new_name})
-                        .where(store.Table.id == self.id))
+        with env.get_engine().begin() as conn:
+            conn.execute(
+                sql.update(store.Table.__table__).values({store.Table.name: new_name})
+                    .where(store.Table.id == self.id))
 
     # MODULE-LOCAL, NOT PUBLIC
     def drop(self) -> None:
         self._check_is_dropped()
-        with env.get_engine().connect() as conn:
-            with conn.begin():
-                conn.execute(
-                    sql.update(store.Table.__table__).values({store.Table.is_mutable: False})
-                        .where(store.Table.id == self.id))
+        with env.get_engine().begin() as conn:
+            conn.execute(
+                sql.update(store.Table.__table__).values({store.Table.is_mutable: False})
+                    .where(store.Table.id == self.id))
 
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod

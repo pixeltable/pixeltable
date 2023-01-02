@@ -4,8 +4,9 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 
 
-from pixeltable.type_system import ColumnType, ArrayType, Function
+from pixeltable.type_system import ColumnType, ArrayType
 import pixeltable.utils.tf as tf_utils
+from pixeltable.function import Function
 
 def TFModelFunction(
         model: tf.keras.Model, param_type: ColumnType, output_shape: Optional[Tuple[int, ...]] = None,

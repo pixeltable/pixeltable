@@ -1,4 +1,5 @@
-from pixeltable.type_system import StringType, ImageType, ArrayType, Function, ColumnType
+from pixeltable.type_system import StringType, ImageType, ArrayType, ColumnType
+from pixeltable.function import Function
 
 
 encode_image = Function(

@@ -156,7 +156,7 @@ class TestTable:
 
     def test_computed_img_cols(self, test_db: catalog.Db) -> None:
         db = test_db
-        c1 = catalog.Column('img', ImageType(), nullable=False)
+        c1 = catalog.Column('img', ImageType(), nullable=False, indexed=True)
         schema = [c1]
         t = db.create_table('test', schema)
         t.add_column(catalog.Column('c2', value_expr=t.img.width))
@@ -166,19 +166,20 @@ class TestTable:
         t.insert_pandas(data_df.loc[0:20, ['img']])
         _ = t.show()
 
-        # # test loading from store
-        # cl2 = pt.Client()
-        # db2 = cl2.get_db('test')
-        # t2 = db2.get_table('test')
-        # assert len(t.columns) == len(t2.columns)
-        # for i in range(len(t.columns)):
-        #     if t.columns[i].value_expr is not None:
-        #         assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
-        #
-        # # make sure we can still insert data and that computed cols are still set correctly
-        # t2.insert_pandas(data_df)
-        # res = t2.show(0)
-        # tbl_df = t2.show(0).to_pandas()
+        # test loading from store
+        cl2 = pt.Client()
+        db2 = cl2.get_db('test')
+        t2 = db2.get_table('test')
+        assert len(t.columns) == len(t2.columns)
+        for i in range(len(t.columns)):
+            if t.columns[i].value_expr is not None:
+                assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
+
+        # make sure we can still insert data and that computed cols are still set correctly
+        t2.insert_pandas(data_df.loc[0:20, ['img']])
+        res = t2.show(0)
+        tbl_df = t2.show(0).to_pandas()
+        print(tbl_df)
 
     @pytest.mark.dependency(depends=['test_insert'])
     def test_revert(self, test_db: catalog.Db) -> None:

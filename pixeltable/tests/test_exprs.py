@@ -2,7 +2,8 @@ import sqlalchemy as sql
 import pytest
 
 from pixeltable import catalog
-from pixeltable.type_system import StringType, BoolType, IntType, ImageType, Function, ArrayType, ColumnType
+from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType
+from pixeltable.function import Function
 from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import udf_call, dict_map, cast

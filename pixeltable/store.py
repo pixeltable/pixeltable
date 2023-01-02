@@ -1,7 +1,7 @@
 import enum
 
 import sqlalchemy as sql
-from sqlalchemy import Integer, String, Enum, Boolean, TIMESTAMP, BigInteger
+from sqlalchemy import Integer, String, Enum, Boolean, TIMESTAMP, BigInteger, LargeBinary
 from sqlalchemy import ForeignKey, UniqueConstraint, ForeignKeyConstraint
 from sqlalchemy.orm import declarative_base
 
@@ -104,7 +104,7 @@ class SchemaColumn(Base):
     col_id = sql.Column(Integer, primary_key=True, nullable=False)
     pos = sql.Column(Integer, nullable=False)  # position in table, starting at 0
     name = sql.Column(String, nullable=False)
-    col_type = sql.Column(String, nullable=False)
+    col_type = sql.Column(String, nullable=False)  # json
     is_nullable = sql.Column(Boolean, nullable=False)
     is_pk = sql.Column(Boolean, nullable=False)
     value_expr = sql.Column(String, nullable=True)  # json
@@ -136,6 +136,24 @@ class TableSnapshot(Base):
         ForeignKeyConstraint(
             ['tbl_id', 'tbl_schema_version'], ['tableschemaversions.tbl_id', 'tableschemaversions.schema_version']),
     )
+
+
+class Function(Base):
+    """
+    User-defined functions that are not library functions (ie, aren't available at runtime as a symbol in a known
+    module).
+    Functions without a name are anonymous functions used in the definition of a computed column.
+    Functions that have names are also assigned to a database and directory.
+    """
+    __tablename__ = 'functions'
+
+    id = sql.Column(Integer, primary_key=True, autoincrement=True, nullable=False)
+    db_id = sql.Column(Integer, ForeignKey('dbs.id'), nullable=True)
+    dir_id = sql.Column(Integer, ForeignKey('dirs.id'), nullable=True)
+    name = sql.Column(String, nullable=True)
+    pickled_obj = sql.Column(LargeBinary, nullable=False)
+    return_type = sql.Column(String, nullable=False)  # json
+    param_types = sql.Column(String, nullable=False)  # json
 
 
 class OpCodes(enum.Enum):

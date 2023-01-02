@@ -15,8 +15,8 @@ import sqlalchemy as sql
 
 from pixeltable import catalog
 from pixeltable.type_system import \
-    ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType, ArrayType, \
-    Function
+    ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType, ArrayType
+from pixeltable.function import Function
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
 

@@ -1,7 +1,8 @@
 from typing import Callable, List, Optional
 import inspect
 
-from pixeltable.type_system import StringType, IntType, JsonType, Function, ColumnType
+from pixeltable.type_system import StringType, IntType, JsonType, ColumnType
+from pixeltable.function import Function
 from pixeltable import catalog
 from pixeltable import exprs
 import pixeltable.exceptions as exc

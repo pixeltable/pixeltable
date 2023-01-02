@@ -1,4 +1,5 @@
-from pixeltable.type_system import FloatType, ImageType, Function
+from pixeltable.type_system import FloatType, ImageType
+from pixeltable.function import Function
 
 
 alpha_composite = Function(ImageType(), [ImageType(), ImageType()], module_name='PIL.Image', symbol='alpha_composite')

@@ -92,6 +92,10 @@ class ColumnType:
     def serialize(self) -> str:
         return json.dumps(self.as_dict())
 
+    @classmethod
+    def serialize_list(cls, type_list: List['ColumnType']) -> str:
+        return json.dumps([t.as_dict() for t in type_list])
+
     def as_dict(self) -> Dict:
         return {
             '_classname': self.__class__.__name__,
@@ -105,6 +109,11 @@ class ColumnType:
     def deserialize(cls, type_str: str) -> 'ColumnType':
         type_dict = json.loads(type_str)
         return cls.from_dict(type_dict)
+
+    @classmethod
+    def deserialize_list(cls, type_list_str: str) -> List['ColumnType']:
+        type_dict_list = json.loads(type_list_str)
+        return [cls.from_dict(type_dict) for type_dict in type_dict_list]
 
     @classmethod
     def from_dict(cls, type_dict: Dict) -> 'ColumnType':
@@ -494,55 +503,3 @@ class ArrayType(ColumnType):
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         return tf.TensorSpec(shape=self.shape, dtype=self.dtype.to_tf())
-
-
-class Function:
-    """
-    A Function's executable function is specified either directly or as module/symbol.
-    In the former case, the function needs to be pickled and stored for serialization.
-    In the latter case, the executable function is resolved in init().
-    """
-    def __init__(
-            self, return_type: ColumnType, param_types: Optional[List[ColumnType]],
-            module_name: Optional[str] = None, symbol: Optional[str] = None, eval_fn: Optional[Callable] = None):
-        assert (module_name is None) == (symbol is None)
-        assert (module_name is None) != (eval_fn is None)
-        self.return_type = return_type
-        self.param_types = param_types
-        self.module_name = module_name
-        self.symbol = symbol
-        if module_name is not None:
-            # resolve module_name and symbol
-            obj = importlib.import_module(module_name)
-            for el in symbol.split('.'):
-                obj = getattr(obj, el)
-            self.eval_fn = obj
-        else:
-            self.eval_fn = eval_fn
-
-    def __call__(self, *args: object) -> 'pixeltable.exprs.FunctionCall':
-        from pixeltable import exprs
-        return exprs.FunctionCall(self, args)
-
-    def as_dict(self) -> Dict:
-        # at the moment we can't deserialize Functions that only have an eval_fn
-        assert self.module_name is not None and self.symbol is not None
-        return {
-            'return_type': self.return_type.as_dict(),
-            'param_types': [t.as_dict() for t in self.param_types] if self.param_types is not None else None,
-            'module_name': self.module_name,
-            'symbol': self.symbol
-        }
-
-    @classmethod
-    def from_dict(cls, d: Dict) -> 'Function':
-        assert 'return_type' in d
-        return_type = ColumnType.from_dict(d['return_type'])
-        assert 'param_types' in d
-        if d['param_types'] is None:
-            param_types = None
-        else:
-            param_types = [ColumnType.from_dict(type_dict) for type_dict in d['param_types']]
-        assert 'module_name' in d
-        assert 'symbol' in d
-        return cls(return_type, param_types, d['module_name'], d['symbol'])
