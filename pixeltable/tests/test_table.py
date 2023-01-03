@@ -1,10 +1,14 @@
 import pytest
+import math
 
 import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable import catalog
 from pixeltable.type_system import StringType, IntType, FloatType, TimestampType, ImageType, JsonType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
+from pixeltable.exprs import FunctionCall
+from pixeltable.function import Function
+from pixeltable.functions import udf_call
 
 
 class TestTable:
@@ -108,15 +112,16 @@ class TestTable:
         c3 = catalog.Column('c3', JsonType(), nullable=False)
         schema = [c1, c2, c3]
         t = db.create_table('test', schema)
-        t.add_column(catalog.Column('c4', value_expr=t.c1 + 1))
-        t.add_column(catalog.Column('c5', value_expr=t.c4 + 1))
-        t.add_column(catalog.Column('c6', value_expr=t.c1 / t.c2))
-        t.add_column(catalog.Column('c7', value_expr=t.c6 * t.c2))
-        t.add_column(catalog.Column('c8', value_expr=t.c3.detections['*'].bounding_box))
+        t.add_column(catalog.Column('c4', computed_with=t.c1 + 1))
+        t.add_column(catalog.Column('c5', computed_with=t.c4 + 1))
+        t.add_column(catalog.Column('c6', computed_with=t.c1 / t.c2))
+        t.add_column(catalog.Column('c7', computed_with=t.c6 * t.c2))
+        t.add_column(catalog.Column('c8', computed_with=t.c3.detections['*'].bounding_box))
+        t.add_column(catalog.Column('c9', FloatType(), computed_with=lambda c2: math.sqrt(c2)))
 
         # Column.dependent_cols are computed correctly
         assert len(t.c1.col.dependent_cols) == 2
-        assert len(t.c2.col.dependent_cols) == 2
+        assert len(t.c2.col.dependent_cols) == 3
         assert len(t.c3.col.dependent_cols) == 1
         assert len(t.c4.col.dependent_cols) == 1
         assert len(t.c5.col.dependent_cols) == 0
@@ -148,19 +153,63 @@ class TestTable:
         tbl_df = t2.show(0).to_pandas()
 
         # can't drop c4: c5 depends on it
-        with pytest.raises(exc.OperationalError):
+        with pytest.raises(exc.Error):
             t.drop_column('c4')
         t.drop_column('c5')
         # now it works
         t.drop_column('c4')
+
+    def test_computed_cols_create(self, test_db: catalog.Db) -> None:
+        db = test_db
+        c1 = catalog.Column('c1', IntType(), nullable=False)
+        c2 = catalog.Column('c2', FloatType(), nullable=False)
+        c3 = catalog.Column('c3', FloatType(), nullable=False, computed_with=lambda c2: math.sqrt(c2))
+        schema = [c1, c2, c3]
+        t = db.create_table('test', schema)
+
+        # Column.dependent_cols are computed correctly
+        assert len(t.c1.col.dependent_cols) == 0
+        assert len(t.c2.col.dependent_cols) == 1
+
+        data_df = create_table_data(t, ['c1', 'c2'], num_rows=10)
+        t.insert_pandas(data_df)
+        _ = t.show()
+
+        # not allowed to pass values for computed cols
+        with pytest.raises(exc.InsertError):
+            data_df2 = create_table_data(t, num_rows=10)
+            t.insert_pandas(data_df2)
+        # computed col references non-existent col
+        with pytest.raises(exc.Error):
+            c1 = catalog.Column('c1', IntType(), nullable=False)
+            c2 = catalog.Column('c2', FloatType(), nullable=False)
+            c3 = catalog.Column('c3', FloatType(), nullable=False, computed_with=lambda c2: math.sqrt(c2))
+            _ = db.create_table('test2', [c1, c3, c2])
+        # can't drop a col that a computed col depends on
+        with pytest.raises(exc.Error):
+            t.drop_column('c2')
+
+        # test loading from store
+        cl2 = pt.Client()
+        db2 = cl2.get_db('test')
+        t2 = db2.get_table('test')
+        assert len(t.columns) == len(t2.columns)
+        for i in range(len(t.columns)):
+            if t.columns[i].value_expr is not None:
+                assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
+
+        # make sure we can still insert data and that computed cols are still set correctly
+        t2.insert_pandas(data_df)
+        res = t2.show(0)
+        tbl_df = t2.show(0).to_pandas()
 
     def test_computed_img_cols(self, test_db: catalog.Db) -> None:
         db = test_db
         c1 = catalog.Column('img', ImageType(), nullable=False, indexed=True)
         schema = [c1]
         t = db.create_table('test', schema)
-        t.add_column(catalog.Column('c2', value_expr=t.img.width))
-        t.add_column(catalog.Column('c3', value_expr=t.img.rotate(90)))
+        t.add_column(catalog.Column('c2', computed_with=t.img.width))
+        t.add_column(catalog.Column('c3', computed_with=t.img.rotate(90)))
 
         data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         t.insert_pandas(data_df.loc[0:20, ['img']])

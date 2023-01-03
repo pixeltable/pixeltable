@@ -1,5 +1,6 @@
-from typing import Optional, List, Set, Dict, Any, Type, Union, Tuple
+from typing import Optional, List, Set, Dict, Any, Type, Union, Callable
 import re
+import inspect
 
 import PIL
 import numpy as np
@@ -16,6 +17,7 @@ from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType
 from pixeltable.utils import clip, video
 from pixeltable.index import VectorIndex
+from pixeltable.function import Function
 
 
 _ID_RE = r'[a-zA-Z]\w*'
@@ -24,32 +26,52 @@ _PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
 
 class Column:
     def __init__(
-            self, name: str, col_type: Optional[ColumnType] = None, value_expr: Optional['Expr'] = None,
+            self, name: str, col_type: Optional[ColumnType] = None,
+            computed_with: Optional[Union['Expr', Callable]] = None,
             primary_key: bool = False, nullable: bool = True, col_id: Optional[int] = None,
             value_expr_str: Optional[str] = None, indexed: bool = False):
         """
-        Computed columns: those have a non-None value_expr
-        - when constructed by the user: parameter 'value_expr' was constructed explicitly and is passed in;
-          parameter 'value_expr_str' is None
-        - when loaded from store: parameter 'value_expr_str' is the serialized form; parameter 'value_expr' is None
+        Computed columns: those have a non-None computed_with argument
+        - when constructed by the user: 'computed_with' was constructed explicitly and is passed in;
+          'value_expr_str' is None and col_type is None
+        - when loaded from store: 'value_expr_str' is the serialized form and col_type is set;
+          'computed_with' is None
+        Computed_with is a Callable:
+        - the callable's parameter names must correspond to existing columns in the table for which this Column
+          is being used
+        - col_type needs to be set to the callable's return type
 
         indexed: only valid for image columns; if true, maintains an NN index for this column
         """
+        from pixeltable import exprs
         self.name = name
-        if (col_type is None) == (value_expr is None):
-            raise exc.Error(f'Column {name}: exactly one of col_type or value_expr must be set')
-        assert not(value_expr_str is not None and value_expr is not None)
+        if col_type is None and computed_with is None:
+            raise exc.Error(f'Column {name}: col_type is required if computed_with is not specified')
+        if col_type is None and not isinstance(computed_with, exprs.Expr):
+            raise exc.Error(f'Column {name}: col_type is required if computed_with is a Callable')
+        assert not(value_expr_str is not None and computed_with is not None)
+
         if col_type is None:
-            self.col_type = value_expr.col_type
+            self.col_type = computed_with.col_type
         else:
             self.col_type = col_type
-        self.value_expr = value_expr.copy() if value_expr is not None else None
+
+        self.value_expr: Optional['Expr'] = None
+        self.compute_func: Optional[Callable] = None
+        if computed_with is not None:
+            if not isinstance(computed_with, exprs.Expr):
+                # we need to turn the computed_with function into an Expr, but we need to wait until we're
+                # assigned to a Table
+                self.compute_func = computed_with
+            else:
+                self.value_expr = computed_with.copy()
+
         self.value_expr_str = value_expr_str  # stored here so it's easily accessible for the Table c'tor
         self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us
         self.id = col_id
         self.primary_key = primary_key
         # computed cols are always nullable
-        self.nullable = nullable or self.value_expr is not None or self.value_expr_str is not None
+        self.nullable = nullable or computed_with is not None or value_expr_str is not None
         self.sa_col: Optional[sql.schema.Column] = None
 
         if indexed and not self.col_type.is_image_type():
@@ -150,11 +172,12 @@ class Table(SchemaObject):
         # this guarantees that references always point backwards
         for col in self.cols:
             if col.value_expr is not None or col.value_expr_str is not None:
-                self._create_value_expr(col)
+                self._record_value_expr(col)
 
-    def _create_value_expr(self, col: Column) -> None:
+    def _record_value_expr(self, col: Column) -> None:
         """
-        Set col.value_expr and update Column.dependent_cols for all cols referenced in value_expr
+        Update Column.dependent_cols for all cols referenced in col.value_expr.
+        Creates col.value_expr if it doesn't exist yet.
         """
         from pixeltable.exprs import Expr, ColumnRef
         if col.value_expr is None:
@@ -309,11 +332,16 @@ class MutableTable(Table):
         assert self.next_col_id is not None
         c.id = self.next_col_id
         self.next_col_id += 1
+
+        if c.compute_func is not None:
+            # create value_expr from compute_func
+            self._create_value_expr(c, self.cols_by_name)
+        if c.value_expr is not None:
+            self._record_value_expr(c)
+
         self.cols.append(c)
         self.cols_by_name[c.name] = c
         self.cols_by_id[c.id] = c
-        if c.value_expr is not None:
-            self._create_value_expr(c)
 
         # we're creating a new schema version
         self.version += 1
@@ -348,7 +376,7 @@ class MutableTable(Table):
             raise exc.UnknownEntityError
         col = self.cols_by_name[name]
         if len(col.dependent_cols) > 0:
-            raise exc.OperationalError(
+            raise exc.Error(
                 f'Cannot drop column {name} because the following columns depend on it:\n',
                 f'{", ".join([c.name for c in col.dependent_cols])}')
 
@@ -686,6 +714,26 @@ class MutableTable(Table):
                 sql.update(store.Table.__table__).values({store.Table.is_mutable: False})
                     .where(store.Table.id == self.id))
 
+    @classmethod
+    def _create_value_expr(cls, col: Column, existing_cols: Dict[str, Column]) -> None:
+        """
+        Create col.value_expr, given col.compute_func.
+        Interprets compute_func's parameters to be references to columns and construct ColumnRefs as args.
+        Does not update Column.dependent_cols.
+        """
+        assert col.value_expr is None
+        assert col.compute_func is not None
+        from pixeltable import exprs
+        params = inspect.signature(col.compute_func).parameters
+        args: List[exprs.ColumnRef] = []
+        for param_name in params:
+            if param_name not in existing_cols:
+                raise exc.Error(
+                    f'Column {col.name}: compute_with parameter refers to an unknown column: {param_name}')
+            args.append(exprs.ColumnRef(existing_cols[param_name]))
+        fn = Function(col.col_type, [arg.col_type for arg in args], eval_fn=col.compute_func)
+        col.value_expr = exprs.FunctionCall(fn, args)
+
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def create(
@@ -713,10 +761,14 @@ class MutableTable(Table):
             session.flush()  # avoid FK violations in Postgres
             print(f'creating table {name}, id={tbl_record.id}')
 
+            cols_by_name: Dict[str, Column] = {}  # records the cols we have seen so far
             for pos, col in enumerate(cols):
                 col.id = pos
                 session.add(store.StorageColumn(tbl_id=tbl_record.id, col_id=col.id, schema_version_add=0))
                 session.flush()  # avoid FK violations in Postgres
+                if col.value_expr is None and col.compute_func is not None:
+                    cls._create_value_expr(col, cols_by_name)
+                # Column.dependent_cols for existing cols is wrong at this point, but Table.init() will set it correctly
                 value_expr_str = col.value_expr.serialize() if col.value_expr is not None else None
                 session.add(
                     store.SchemaColumn(
@@ -730,6 +782,8 @@ class MutableTable(Table):
                 # for image cols, add VectorIndex for kNN search
                 if col.is_indexed and col.col_type.is_image_type():
                     col.set_idx(VectorIndex.create(Table._vector_idx_name(tbl_record.id, col), 512))
+
+                cols_by_name[col.name] = col
             session.flush()
 
             assert tbl_record.id is not None

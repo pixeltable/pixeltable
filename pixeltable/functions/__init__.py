@@ -8,7 +8,7 @@ from pixeltable import exprs
 import pixeltable.exceptions as exc
 
 
-def udf_call(eval_fn: Callable, return_type: exprs.ColumnType, tbl: Optional[catalog.Table]) -> exprs.FunctionCall:
+def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.Table]) -> exprs.FunctionCall:
     """
     Interprets eval_fn's parameters to be references to columns in 'tbl' and construct ColumnRefs as args.
     """
@@ -22,7 +22,7 @@ def udf_call(eval_fn: Callable, return_type: exprs.ColumnType, tbl: Optional[cat
                 (f'udf_call(): lambda argument names need to be valid column names in table {tbl.name}: '
                  f'column {param_name} unknown'))
         args.append(exprs.ColumnRef(tbl.cols_by_name[param_name]))
-    fn = Function(return_type, None, eval_fn=eval_fn)
+    fn = Function(return_type, [arg.col_type for arg in args], eval_fn=eval_fn)
     return exprs.FunctionCall(fn, args)
 
 def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
