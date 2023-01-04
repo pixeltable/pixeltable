@@ -1,4 +1,5 @@
 import enum
+import platform
 
 import sqlalchemy as sql
 from sqlalchemy import Integer, String, Enum, Boolean, TIMESTAMP, BigInteger, LargeBinary
@@ -144,6 +145,8 @@ class Function(Base):
     module).
     Functions without a name are anonymous functions used in the definition of a computed column.
     Functions that have names are also assigned to a database and directory.
+    We store the Python version under which a Function was created (and the callable pickled) in order to warn
+    against version mismatches.
     """
     __tablename__ = 'functions'
 
@@ -151,9 +154,11 @@ class Function(Base):
     db_id = sql.Column(Integer, ForeignKey('dbs.id'), nullable=True)
     dir_id = sql.Column(Integer, ForeignKey('dirs.id'), nullable=True)
     name = sql.Column(String, nullable=True)
-    pickled_obj = sql.Column(LargeBinary, nullable=False)
     return_type = sql.Column(String, nullable=False)  # json
     param_types = sql.Column(String, nullable=False)  # json
+    pickled_obj = sql.Column(LargeBinary, nullable=False)
+    python_version = sql.Column(
+        String, nullable=False, default=platform.python_version, onupdate=platform.python_version)
 
 
 class OpCodes(enum.Enum):

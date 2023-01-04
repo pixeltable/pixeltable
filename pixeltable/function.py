@@ -34,14 +34,17 @@ class Function:
             self.eval_fn = eval_fn
         self.id = id
 
+    def is_library_function(self) -> bool:
+        return self.module_name is not None
+
     def __call__(self, *args: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs
         return exprs.FunctionCall(self, args)
 
     def as_dict(self) -> Dict:
         if self.module_name is None and self.id is None:
-            # this is not a library function and therefore needs to be in the store
-            Registry.get().create_function(self)
+            # this is not a library function and the absence of an assigned id indicates that it's not in the store yet
+            FunctionRegistry.get().create_function(self)
             assert self.id is not None
         return {
             'return_type': self.return_type.as_dict(),
@@ -66,22 +69,22 @@ class Function:
 
         if d['id'] is not None:
             assert d['module_name'] is None
-            return Registry.get().get_function(d['id'])
+            return FunctionRegistry.get().get_function(d['id'])
         else:
             return cls(return_type, param_types, module_name=d['module_name'], symbol=d['symbol'])
 
 
-class Registry:
+class FunctionRegistry:
     """
     A central registry for all Functions. Handles interactions with the backing store.
     Function are loaded from the store on demand.
     """
-    _instance: Optional['Registry'] = None
+    _instance: Optional['FunctionRegistry'] = None
 
     @classmethod
-    def get(cls) -> 'Registry':
+    def get(cls) -> 'FunctionRegistry':
         if cls._instance is None:
-            cls._instance = Registry()
+            cls._instance = FunctionRegistry()
         return cls._instance
 
     def __init__(self):
@@ -99,13 +102,12 @@ class Registry:
                 .where(store.Function.id == id)
             with env.get_engine().begin() as conn:
                 rows = conn.execute(stmt)
-                for row in rows:
-                    return_type = ColumnType.deserialize(row[0])
-                    param_types = ColumnType.deserialize_list(row[1])
-                    eval_fn = cloudpickle.loads(row[2])
-                    func = Function(return_type, param_types, eval_fn=eval_fn)
-                    self.fns_by_id[id] = func
-                    break
+                row = next(rows)
+                return_type = ColumnType.deserialize(row[0])
+                param_types = ColumnType.deserialize_list(row[1])
+                eval_fn = cloudpickle.loads(row[2])
+                func = Function(return_type, param_types, eval_fn=eval_fn)
+                self.fns_by_id[id] = func
         assert id in self.fns_by_id
         return self.fns_by_id[id]
 

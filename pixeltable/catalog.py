@@ -17,7 +17,7 @@ from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType
 from pixeltable.utils import clip, video
 from pixeltable.index import VectorIndex
-from pixeltable.function import Function
+from pixeltable.function import Function, FunctionRegistry
 
 
 _ID_RE = r'[a-zA-Z]\w*'
@@ -140,6 +140,17 @@ class Dir(DirBase):
 class SnapshotDir(DirBase):
     def __init__(self, dir_id: int):
         super().__init__(dir_id)
+
+
+class NamedFunction(SchemaObject):
+    """
+    Contains references to functions that are named and have a path within a db.
+    The Function itself is stored in the FunctionRegistry.
+    """
+    def __init__(self, id: int, dir_id: int, name: str):
+        super().__init__(id)
+        self.dir_id = dir_id
+        self.name = name
 
 
 class Table(SchemaObject):
@@ -902,6 +913,7 @@ class Db:
         self.paths = PathDict()
         self.paths.update(self._load_dirs())
         self.paths.update(self._load_tables())
+        self.paths.update(self._load_function_md())
 
     def create_table(
             self, path_str: str, schema: List[Column], num_retained_versions: int = 10
@@ -920,20 +932,6 @@ class Db:
         obj = self.paths[path]
         assert isinstance(obj, Table)
         return obj
-
-    # TODO: move into path_utils.py
-    @classmethod
-    def _get_parent_path(cls, path: str) -> str:
-        if re.fullmatch(_PATH_RE, path) is None:
-            raise exc.BadFormatError(f"Invalid path: '{path}'")
-        path_components = path.split('.')
-        return '' if len(path_components) == 1 else '.'.join(path_components[:-1])
-
-    @classmethod
-    def _create_path(cls, dir_path: str, name: str) -> str:
-        if dir_path != '' and re.fullmatch(_PATH_RE, dir_path) is None:
-            raise exc.BadFormatError(f"Invalid path: '{dir_path}'")
-        return name if dir_path == '' else f'{dir_path}.{name}'
 
     def rename_table(self, path_str: str, new_name: str) -> None:
         path = Path(path_str)
@@ -1040,6 +1038,42 @@ class Db:
         self.paths.check_is_valid(path, expected=DirBase)
         return [str(p) for p in self.paths.get_children(path, child_type=DirBase, recursive=recursive)]
 
+    def create_function(self, path_str: str, func: Function) -> None:
+        if func.is_library_function():
+            raise exc.Error(f'Cannot create a named function for a library function')
+        path = Path(path_str)
+        self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
+        dir = self.paths[path.parent]
+
+        FunctionRegistry.get().create_function(func, self.id, dir.id, path.name)
+        self.paths[path] = NamedFunction(func.id, dir.id, path.name)
+
+    def rename_function(self, path_str: str, new_path: str) -> None:
+        """
+        Assign a new name and/or move the function to a different directory.
+        """
+        pass
+
+    def update_function(self, func: Function) -> None:
+        """
+        Update the store with the current callable. Requires that func is a named function (ie, it was registered
+        via a preceding create_function()).
+        """
+        pass
+
+    def load_function(self, path_str: str) -> Function:
+        path = Path(path_str)
+        self.paths.check_is_valid(path, expected=NamedFunction)
+        named_fn = self.paths[path]
+        assert isinstance(named_fn, NamedFunction)
+        return FunctionRegistry.get().get_function(named_fn.id)
+
+    def drop_function(self, path_str: str) -> None:
+        """
+        Deletes function from db, provided that no computed columns depend on it.
+        """
+        pass
+
     def _load_dirs(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
         with orm.Session(env.get_engine()) as session:
@@ -1075,6 +1109,23 @@ class Db:
                 path = Path(dir_path, empty_is_valid=True).append(snapshot_record.name)
                 result[str(path)] = snapshot
 
+        return result
+
+    def _load_function_md(self) -> Dict[str, SchemaObject]:
+        """
+        Loads Function metadata. Doesn't load the actual callable, which can be large and is only done on-demand by the
+        FunctionRegistry.
+        """
+        result: Dict[str, SchemaObject] = {}
+        with orm.Session(env.get_engine()) as session:
+            # load all reachable (= mutable) tables
+            q = session.query(store.Function.id, store.Function.dir_id, store.Function.name, store.Dir.path) \
+                .join(store.Dir) \
+                .where(store.Function.db_id == self.id)
+            for id, dir_id, name, dir_path in q.all():
+                named_fn = NamedFunction(id, dir_id, name)
+                path = Path(dir_path, empty_is_valid=True).append(name)
+                result[str(path)] = named_fn
         return result
 
     def __str__(self) -> str:
@@ -1128,6 +1179,7 @@ class Db:
             conn.execute(
                 sql.delete(store.TableSchemaVersion.__table__).where(store.TableSchemaVersion.tbl_id.in_(tbls_stmt)))
             conn.execute(sql.delete(store.Table.__table__).where(store.Table.db_id == self.id))
+            conn.execute(sql.delete(store.Function.__table__).where(store.Function.db_id == self.id))
             conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.db_id == self.id))
             conn.execute(sql.delete(store.Db.__table__).where(store.Db.id == self.id))
             # delete all data tables

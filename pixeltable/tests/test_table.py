@@ -6,9 +6,6 @@ from pixeltable import exceptions as exc
 from pixeltable import catalog
 from pixeltable.type_system import StringType, IntType, FloatType, TimestampType, ImageType, JsonType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
-from pixeltable.exprs import FunctionCall
-from pixeltable.function import Function
-from pixeltable.functions import udf_call
 
 
 class TestTable:
