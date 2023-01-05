@@ -125,3 +125,22 @@ class FunctionRegistry:
             fn.id = res.inserted_primary_key[0]
             self.fns_by_id[fn.id] = fn
 
+    def update_function(self, id: int, eval_fn: Callable) -> None:
+        """
+        Updates the callable for the function with the given id in the store and in the cache, if present.
+        """
+        with env.get_engine().begin() as conn:
+            pickled_obj = cloudpickle.dumps(eval_fn)
+            conn.execute(
+                sql.update(store.Function.__table__)
+                    .values({store.Function.pickled_obj: pickled_obj})
+                    .where(store.Function.id == id))
+        if id in self.fns_by_id:
+            self.fns_by_id[id].eval_fn = eval_fn
+
+    def delete_function(self, id: int) -> None:
+        assert id is not None
+        with env.get_engine().begin() as conn:
+            conn.execute(
+                sql.delete(store.Function.__table__)
+                    .where(store.Function.id == id))

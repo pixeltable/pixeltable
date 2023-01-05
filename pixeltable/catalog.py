@@ -1048,18 +1048,36 @@ class Db:
         FunctionRegistry.get().create_function(func, self.id, dir.id, path.name)
         self.paths[path] = NamedFunction(func.id, dir.id, path.name)
 
-    def rename_function(self, path_str: str, new_path: str) -> None:
+    def rename_function(self, path_str: str, new_path_str: str) -> None:
         """
         Assign a new name and/or move the function to a different directory.
         """
-        pass
+        path = Path(path_str)
+        new_path = Path(new_path_str)
+        self.paths.check_is_valid(path, expected=NamedFunction)
+        self.paths.check_is_valid(new_path, expected=None)
+        func = self.paths[path]
+        new_dir = self.paths[new_path.parent]
+        with env.get_engine().begin() as conn:
+            conn.execute(
+                sql.update(store.Function.__table__)
+                    .values({
+                        store.Function.dir_id: new_dir.id,
+                        store.Function.name: new_path.name,
+                    })
+                    .where(store.Function.id == func.id))
+        del self.paths[path]
+        self.paths[new_path] = func
 
-    def update_function(self, func: Function) -> None:
+    def update_function(self, path_str: str, new_eval_fn: Callable) -> None:
         """
-        Update the store with the current callable. Requires that func is a named function (ie, it was registered
-        via a preceding create_function()).
+        Update the Function for given path with the callable.
         """
-        pass
+        path = Path(path_str)
+        self.paths.check_is_valid(path, expected=NamedFunction)
+        named_fn = self.paths[path]
+        # TODO: check that function signature doesn't change if the Function is used in a computed column
+        FunctionRegistry.get().update_function(named_fn.id, new_eval_fn)
 
     def load_function(self, path_str: str) -> Function:
         path = Path(path_str)
@@ -1072,7 +1090,11 @@ class Db:
         """
         Deletes function from db, provided that no computed columns depend on it.
         """
-        pass
+        path = Path(path_str)
+        self.paths.check_is_valid(path, expected=NamedFunction)
+        named_fn = self.paths[path]
+        FunctionRegistry.get().delete_function(named_fn.id)
+        del self.paths[path]
 
     def _load_dirs(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
