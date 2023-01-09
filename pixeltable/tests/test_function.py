@@ -1,7 +1,9 @@
+import numpy as np
+import pandas as pd
 import pytest
 
 from pixeltable.function import Function, FunctionRegistry
-from pixeltable.type_system import IntType
+from pixeltable.type_system import IntType, ArrayType, ImageType, ColumnType
 from pixeltable import catalog
 import pixeltable as pt
 from pixeltable import exceptions as exc

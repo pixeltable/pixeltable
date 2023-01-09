@@ -1,5 +1,5 @@
 import base64
-from io import BytesIO
+import io
 from typing import List, Optional, Any, Dict
 import pandas as pd
 import sqlalchemy as sql
@@ -20,7 +20,7 @@ def _format_img(img: object) -> str:
     Create <img> tag for Image object.
     """
     assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
-    with BytesIO() as buffer:
+    with io.BytesIO() as buffer:
         img.save(buffer, 'jpeg')
         img_base64 = base64.b64encode(buffer.getvalue()).decode()
         return f'<img src="data:image/jpeg;base64,{img_base64}">'

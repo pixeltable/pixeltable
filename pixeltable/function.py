@@ -1,4 +1,4 @@
-from typing import Optional, Callable, Dict, List
+from typing import Optional, Callable, Dict, List, Any
 import importlib
 import sqlalchemy as sql
 import cloudpickle
@@ -89,6 +89,10 @@ class FunctionRegistry:
 
     def __init__(self):
         self.fns_by_id: Dict[int, Function] = {}
+
+    @classmethod
+    def register_pickled_module(cls, module: Any) -> None:
+        cloudpickle.register_pickle_by_value(module)
 
     def clear_cache(self) -> None:
         """

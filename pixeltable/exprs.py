@@ -7,6 +7,7 @@ import typing
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator
 import operator
 import json
+import io
 
 import PIL.Image
 import jmespath
@@ -361,7 +362,7 @@ class FunctionCall(Expr):
                     continue
                 converter = args[i].col_type.conversion_fn(fn.param_types[i])
                 if converter is None:
-                    raise exc.OperationalError(f'Cannot convert {args[i]} to {fn.param_types[i]}')
+                    raise exc.OperationalError(f'Cannot convert {args[i].col_type} to {fn.param_types[i]}')
                 if converter == ColumnType.no_conversion:
                     # nothing to do
                     continue
@@ -1400,14 +1401,18 @@ class ExprEvaluator:
         for expr in exprs:
             assert expr.sql_row_idx != -1
             if expr.col_type.is_image_type():
-                # row contains a file path that we need to open
+                # column value is a file path that we need to open
                 file_path = sql_row[expr.sql_row_idx]
                 try:
                     img = PIL.Image.open(file_path)
-                    img.thumbnail((128, 128))
+                    #img.thumbnail((128, 128))
                     data_row[expr.data_row_idx] = img
                 except Exception:
                     raise exc.OperationalError(f'Error reading image file: {file_path}')
+            elif expr.col_type.is_array_type():
+                # column value is a saved numpy array
+                array_data = sql_row[expr.sql_row_idx]
+                data_row[expr.data_row_idx] = np.load(io.BytesIO(array_data))
             else:
                 data_row[expr.data_row_idx] = sql_row[expr.sql_row_idx]
 

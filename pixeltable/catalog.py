@@ -1,11 +1,12 @@
 from typing import Optional, List, Set, Dict, Any, Type, Union, Callable
 import re
 import inspect
+import io
 
 import PIL
 import numpy as np
 from PIL import Image
-from tqdm import tqdm
+from tqdm.autonotebook import tqdm
 import pathlib
 
 import pandas as pd
@@ -575,7 +576,7 @@ class MutableTable(Table):
             # image cols: make sure file path points to a valid image file; build index if col is indexed
             if col.col_type.is_image_type():
                 embeddings = np.zeros((len(data), 512))
-                for i, (_, path_str) in tqdm(enumerate(data[col.name].items())):
+                for i, (_, path_str) in enumerate(data[col.name].items()):
                     try:
                         img = Image.open(path_str)
                         if col.is_indexed:
@@ -617,29 +618,41 @@ class MutableTable(Table):
         stored_data = {col.storage_name(): data[col.name] for col in data_cols}
         stored_data_df = pd.DataFrame(data=stored_data)
         insert_values: List[Dict[str, Any]] = []
-        for i, row in enumerate(stored_data_df.itertuples(index=False)):
-            row_dict = {'rowid': rowids[i], 'v_min': self.version, **row._asdict()}
+        with tqdm(total=len(stored_data_df)) as progress_bar:
+            for i, row in enumerate(stored_data_df.itertuples(index=False)):
+                row_dict = {'rowid': rowids[i], 'v_min': self.version, **row._asdict()}
 
-            if len(computed_cols) > 0:
-                # materialize computed column values
-                data_row = [None] * eval_ctx.num_materialized
-                # copy inputs
-                for col_ref in input_col_refs:
-                    data_row[col_ref.data_row_idx] = row_dict[col_ref.col.storage_name()]
-                    # load image, if this is a file path
-                    if col_ref.col_type.is_image_type():
-                        data_row[col_ref.data_row_idx] = PIL.Image.open(data_row[col_ref.data_row_idx])
-                evaluator.eval((), data_row)
-                # for computed image cols, replace PIL.Image with filename
-                for c in computed_img_cols:
-                    img = data_row[c.value_expr.data_row_idx]
-                    img_path = env.get_img_dir() / f'img_{self.id}_{c.id}_{self.version}_{rowids[i]}.jpg'
-                    img.save(img_path)
-                    data_row[c.value_expr.data_row_idx] = str(img_path)
-                computed_vals_dict = {c.storage_name(): data_row[c.value_expr.data_row_idx] for c in computed_cols}
-                row_dict.update(computed_vals_dict)
+                if len(computed_cols) > 0:
+                    # materialize computed column values
+                    data_row = [None] * eval_ctx.num_materialized
+                    # copy inputs
+                    for col_ref in input_col_refs:
+                        data_row[col_ref.data_row_idx] = row_dict[col_ref.col.storage_name()]
+                        # load image, if this is a file path
+                        if col_ref.col_type.is_image_type():
+                            data_row[col_ref.data_row_idx] = PIL.Image.open(data_row[col_ref.data_row_idx])
+                    evaluator.eval((), data_row)
 
-            insert_values.append(row_dict)
+                    # convert data values to storage format where necessary
+                    for c in computed_cols:
+                        if c.col_type.is_image_type():
+                            # replace PIL.Image.Image with file path
+                            img = data_row[c.value_expr.data_row_idx]
+                            img_path = env.get_img_dir() / f'img_{self.id}_{c.id}_{self.version}_{rowids[i]}.jpg'
+                            img.save(img_path)
+                            data_row[c.value_expr.data_row_idx] = str(img_path)
+                        elif c.col_type.is_array_type():
+                            # serialize numpy array
+                            np_array = data_row[c.value_expr.data_row_idx]
+                            buffer = io.BytesIO()
+                            np.save(buffer, np_array)
+                            data_row[c.value_expr.data_row_idx] = buffer.getvalue()
+
+                    computed_vals_dict = {c.storage_name(): data_row[c.value_expr.data_row_idx] for c in computed_cols}
+                    row_dict.update(computed_vals_dict)
+
+                insert_values.append(row_dict)
+                progress_bar.update(1)
 
         with env.get_engine().begin() as conn:
             conn.execute(sql.insert(self.sa_tbl), insert_values)

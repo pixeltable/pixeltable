@@ -151,7 +151,7 @@ class ColumnType:
 
     def __eq__(self, other: object) -> bool:
         assert isinstance(other, ColumnType)
-        if type(self) != type(other):
+        if False and type(self) != type(other):
             return False
         for member_var in vars(self).keys():
             if getattr(self, member_var) != getattr(other, member_var):
@@ -235,30 +235,14 @@ class ColumnType:
     def is_array_type(self) -> bool:
         return self._type == self.Type.ARRAY
 
+    @abc.abstractmethod
     def to_sql(self) -> str:
         """
-        Return corresponding SQL type.
+        Return corresponding Postgres type.
         """
-        assert self._type != self.Type.INVALID
-        if self._type == self.Type.STRING:
-            return 'VARCHAR'
-        if self._type == self.Type.INT:
-            return 'INTEGER'
-        if self._type == self.Type.FLOAT:
-            return 'FLOAT'
-        if self._type == self.Type.BOOL:
-            return 'BOOLEAN'
-        if self._type == self.Type.TIMESTAMP:
-            return 'INTEGER'
-        if self._type == self.Type.IMAGE:
-            # the URL
-            return 'VARCHAR'
-        if self._type == self.Type.JSON:
-            return 'JSONB'
-        if self._type == self.Type.ARRAY:
-            return 'BLOB'
-        assert False
+        pass
 
+    @abc.abstractmethod
     def to_sa_type(self) -> Any:
         """
         Return corresponding SQLAlchemy type.
@@ -308,6 +292,12 @@ class InvalidType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.INVALID)
 
+    def to_sql(self) -> str:
+        assert False
+
+    def to_sa_type(self) -> Any:
+        assert False
+
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         raise TypeError(f'Invalid type cannot be converted to Tensorflow')
 
@@ -327,6 +317,12 @@ class StringType(ColumnType):
                 return None
         return convert
 
+    def to_sql(self) -> str:
+        return 'VARCHAR'
+
+    def to_sa_type(self) -> str:
+        return sql.String
+
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         return tf.TensorSpec(shape=(), dtype=tf.string)
 
@@ -334,6 +330,12 @@ class StringType(ColumnType):
 class IntType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.INT)
+
+    def to_sql(self) -> str:
+        return 'INTEGER'
+
+    def to_sa_type(self) -> str:
+        return sql.Integer
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         # TODO: how to specify the correct int subtype?
@@ -344,6 +346,12 @@ class FloatType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.FLOAT)
 
+    def to_sql(self) -> str:
+        return 'FLOAT'
+
+    def to_sa_type(self) -> str:
+        return sql.Float
+
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         # TODO: how to specify the correct float subtype?
         return tf.TensorSpec(shape=(), dtype=tf.float32)
@@ -353,6 +361,12 @@ class BoolType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.BOOL)
 
+    def to_sql(self) -> str:
+        return 'BOOLEAN'
+
+    def to_sa_type(self) -> str:
+        return sql.Boolean
+
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         # TODO: how to specify the correct int subtype?
         return tf.TensorSpec(shape=(), dtype=tf.bool)
@@ -361,6 +375,12 @@ class BoolType(ColumnType):
 class TimestampType(ColumnType):
     def __init__(self):
         super().__init__(self.Type.TIMESTAMP)
+
+    def to_sql(self) -> str:
+        return 'INTEGER'
+
+    def to_sa_type(self) -> str:
+        return sql.TIMESTAMP
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         raise TypeError(f'Timestamp type cannot be converted to Tensorflow')
@@ -440,6 +460,12 @@ class ImageType(ColumnType):
             return img
         return convert
 
+    def to_sql(self) -> str:
+        return 'VARCHAR'
+
+    def to_sa_type(self) -> str:
+        return sql.String
+
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         return tf.TensorSpec(shape=(self.height, self.width, self.num_channels), dtype=tf.uint8)
 
@@ -465,6 +491,12 @@ class JsonType(ColumnType):
                 field_name: cls.deserialize(field_type_dict) for field_name, field_type_dict in d['type_spec'].items()
             }
         return cls(type_spec)
+
+    def to_sql(self) -> str:
+        return 'JSONB'
+
+    def to_sa_type(self) -> str:
+        return sql.dialects.postgresql.JSONB
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         if self.type_spec is None:
@@ -500,6 +532,12 @@ class ArrayType(ColumnType):
         shape = tuple(d['shape'])
         dtype = cls.Type(d['dtype'])
         return cls(shape, dtype)
+
+    def to_sql(self) -> str:
+        return 'BYTEA'
+
+    def to_sa_type(self) -> str:
+        return sql.VARBINARY
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
         return tf.TensorSpec(shape=self.shape, dtype=self.dtype.to_tf())
