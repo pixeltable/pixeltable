@@ -525,6 +525,9 @@ class ArrayType(ColumnType):
         result.update(shape=list(self.shape), dtype=self.dtype.value)
         return result
 
+    def __str__(self) -> str:
+        return f'{self.__class__.__name__}({self.shape}, dtype={self.dtype.name})'
+
     @classmethod
     def _from_dict(cls, d: Dict) -> 'ColumnType':
         assert 'shape' in d
