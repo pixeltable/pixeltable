@@ -158,8 +158,7 @@ class Expr(abc.ABC):
         result.__dict__.update(self.__dict__)
         result.data_row_idx = -1
         result.sql_row_idx = -1
-        for i in range(len(self.components)):
-            self.components[i] = self.components[i].copy()
+        result.components = [c.copy() for c in self.components]
         return result
 
     def __deepcopy__(self, memo={}) -> 'Expr':
@@ -1196,17 +1195,17 @@ class ObjectRef(Expr):
     Reference to an intermediate result, such as the "scope variable" produced by a JsonMapper.
     The object is generated/materialized elsewhere and establishes a new scope.
     """
-    def __init__(self, scope: ExprScope):
+    def __init__(self, scope: ExprScope, owner: 'JsonMapper'):
         # TODO: do we need an Unknown type after all?
         super().__init__(JsonType())  # JsonType: this could be anything
         self._scope = scope
+        self.owner = owner
 
     def scope(self) -> ExprScope:
         return self._scope
 
     def _equals(self, other: 'ObjectRef') -> bool:
-        # each one is specific to a JsonMapper and the scope associated with that
-        return False
+        return self.owner is other.owner
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
@@ -1230,7 +1229,7 @@ class JsonMapper(Expr):
         # this gets resolved in bind_rel_paths(); for now we assume we're in the global scope
         self.target_expr_scope = ExprScope(_GLOBAL_SCOPE)
 
-        scope_anchor = ObjectRef(self.target_expr_scope)
+        scope_anchor = ObjectRef(self.target_expr_scope, self)
         self.components = [src_expr, target_expr, scope_anchor]
         self.parent_mapper: Optional[JsonMapper] = None
         self.evaluator: Optional[ExprEvaluator] = None
@@ -1491,9 +1490,9 @@ class ExprEvalCtx:
         # if this can be materialized via SQL we don't need to look at its components;
         # we special-case Literals because we don't want to have to materialize them via SQL
         if sql_expr is not None and not isinstance(expr, Literal):
-            if expr.data_row_idx < 0:
-                expr.data_row_idx = self.next_data_row_idx
-                self.next_data_row_idx += 1
+            assert expr.data_row_idx < 0
+            expr.data_row_idx = self.next_data_row_idx
+            self.next_data_row_idx += 1
             expr.sql_row_idx = len(self.sql_exprs)
             self.sql_exprs.append(sql_expr)
             return
@@ -1501,9 +1500,9 @@ class ExprEvalCtx:
         # expr value needs to be computed via Expr.eval()
         for c in expr.components:
             self._analyze_expr(c)
-        if expr.data_row_idx < 0:
-            expr.data_row_idx = self.next_data_row_idx
-            self.next_data_row_idx += 1
+        assert expr.data_row_idx < 0
+        expr.data_row_idx = self.next_data_row_idx
+        self.next_data_row_idx += 1
 
 
 class ComputedColEvalCtx:
@@ -1543,6 +1542,6 @@ class ComputedColEvalCtx:
             return
         for c in expr.components:
             self._analyze_expr(c)
-        if expr.data_row_idx < 0:
-            expr.data_row_idx = self.next_data_row_idx
-            self.next_data_row_idx += 1
+        assert expr.data_row_idx < 0
+        expr.data_row_idx = self.next_data_row_idx
+        self.next_data_row_idx += 1

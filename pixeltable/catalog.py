@@ -83,6 +83,10 @@ class Column:
     def to_sql(self) -> str:
         return f'{self.storage_name()} {self.col_type.to_sql()}'
 
+    @property
+    def is_computed(self) -> bool:
+        return self.compute_func is not None or self.value_expr is not None
+
     def create_sa_col(self) -> None:
         """
         This needs to be recreated for every new table schema version.
@@ -382,6 +386,19 @@ class MutableTable(Table):
             conn.execute(sql.text(stmt))
         self._create_sa_tbl()
 
+        if c.is_computed:
+            # backfill the existing rows
+            from pixeltable.dataframe import DataFrame
+            query = DataFrame(self, [c.value_expr])
+            with env.get_engine().begin() as conn:
+                for result_row in query.exec(n=0, select_pk=True):
+                    column_val, rowid, v_min = result_row
+                    conn.execute(
+                        sql.update(self.sa_tbl)
+                            .values({c.sa_col: column_val})
+                            .where(self.rowid_col == rowid)
+                            .where(self.v_min_col == v_min))
+
     def drop_column(self, name: str) -> None:
         self._check_is_dropped()
         if name not in self.cols_by_name:
@@ -543,6 +560,9 @@ class MutableTable(Table):
             if col.col_type.is_json_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(
                     f'Column {col.name} requires dictionary data but contains {data.dtypes[col.name]}')
+            if col.col_type.is_array_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
+                raise exc.InsertError(
+                    f'Column {col.name} requires array data but contains {data.dtypes[col.name]}')
 
         # frame extraction from videos
         if video_column is not None:
@@ -601,7 +621,6 @@ class MutableTable(Table):
         evaluator: Optional[exprs.ExprEvaluator] = None
         input_col_refs: List[exprs.ColumnRef] = []  # columns needed as input for computing value_exprs
         computed_cols = [col for col in self.cols if col.value_expr is not None]
-        computed_img_cols = [col for col in computed_cols if col.col_type.is_image_type()]
         if len(computed_cols) > 0:
             value_exprs = [c.value_expr for c in computed_cols]
             eval_ctx = exprs.ComputedColEvalCtx([(exprs.ColumnRef(c), c.value_expr) for c in computed_cols])

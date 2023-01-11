@@ -135,6 +135,13 @@ class TestTable:
             data_df2 = create_table_data(t, num_rows=10)
             t.insert_pandas(data_df2)
 
+        # computed col references non-existent col
+        with pytest.raises(exc.Error):
+            c1 = catalog.Column('c1', IntType(), nullable=False)
+            c2 = catalog.Column('c2', FloatType(), nullable=False)
+            c3 = catalog.Column('c3', FloatType(), nullable=False, computed_with=lambda c2: math.sqrt(c2))
+            _ = db.create_table('test2', [c1, c3, c2])
+
         # test loading from store
         cl2 = pt.Client()
         db2 = cl2.get_db('test')
@@ -155,50 +162,6 @@ class TestTable:
         t.drop_column('c5')
         # now it works
         t.drop_column('c4')
-
-    def test_computed_cols_create(self, test_db: catalog.Db) -> None:
-        db = test_db
-        c1 = catalog.Column('c1', IntType(), nullable=False)
-        c2 = catalog.Column('c2', FloatType(), nullable=False)
-        c3 = catalog.Column('c3', FloatType(), nullable=False, computed_with=lambda c2: math.sqrt(c2))
-        schema = [c1, c2, c3]
-        t = db.create_table('test', schema)
-
-        # Column.dependent_cols are computed correctly
-        assert len(t.c1.col.dependent_cols) == 0
-        assert len(t.c2.col.dependent_cols) == 1
-
-        data_df = create_table_data(t, ['c1', 'c2'], num_rows=10)
-        t.insert_pandas(data_df)
-        _ = t.show()
-
-        # not allowed to pass values for computed cols
-        with pytest.raises(exc.InsertError):
-            data_df2 = create_table_data(t, num_rows=10)
-            t.insert_pandas(data_df2)
-        # computed col references non-existent col
-        with pytest.raises(exc.Error):
-            c1 = catalog.Column('c1', IntType(), nullable=False)
-            c2 = catalog.Column('c2', FloatType(), nullable=False)
-            c3 = catalog.Column('c3', FloatType(), nullable=False, computed_with=lambda c2: math.sqrt(c2))
-            _ = db.create_table('test2', [c1, c3, c2])
-        # can't drop a col that a computed col depends on
-        with pytest.raises(exc.Error):
-            t.drop_column('c2')
-
-        # test loading from store
-        cl2 = pt.Client()
-        db2 = cl2.get_db('test')
-        t2 = db2.get_table('test')
-        assert len(t.columns) == len(t2.columns)
-        for i in range(len(t.columns)):
-            if t.columns[i].value_expr is not None:
-                assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
-
-        # make sure we can still insert data and that computed cols are still set correctly
-        t2.insert_pandas(data_df)
-        res = t2.show(0)
-        tbl_df = t2.show(0).to_pandas()
 
     def test_computed_img_cols(self, test_db: catalog.Db) -> None:
         db = test_db
@@ -265,3 +228,13 @@ class TestTable:
         # can't revert a version referenced by a snapshot
         with pytest.raises(exc.OperationalError):
             tbl.revert()
+
+    def test_add_column(self, test_db: catalog.Db) -> None:
+        db = test_db
+        t = make_tbl(db, 'test', ['c1', 'c2'])
+        data1 = create_table_data(t)
+        t.insert_pandas(data1)
+        assert t.count() == len(data1)
+        t.add_column(catalog.Column('c3', computed_with=t.c2 + 10, nullable=False))
+        _ = t.show()
+        print(_)

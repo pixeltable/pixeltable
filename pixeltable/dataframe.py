@@ -1,6 +1,6 @@
 import base64
 import io
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Generator
 import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
@@ -70,7 +70,11 @@ class DataFrame:
             self.where_clause = where_clause.copy()
         self.eval_ctx: Optional[exprs.ExprEvalCtx] = None
 
-    def show(self, n: int = 20) -> DataFrameResultSet:
+    def exec(self, n: int = 20, select_pk: bool = False) -> Generator[List[Any], None, None]:
+        """
+        Returned value: list of select list values.
+        If select_pk == True, also selects the primary key of the storage table (which is rowid and v_min).
+        """
         sql_where_clause: Optional[sql.sql.expression.ClauseElement] = None
         remaining_where_clause: Optional[exprs.Predicate] = None
         similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
@@ -90,16 +94,13 @@ class DataFrame:
                     if n > 100:
                         raise exc.OperationalError(f'nearest()/matches() requires show(n <= 100): n={n}')
 
-        select_list = self.select_list
-        if select_list is None:
-            select_list = [exprs.ColumnRef(col) for col in self.tbl.columns]
-        for item in select_list:
+        if self.select_list is None:
+            self.select_list = [exprs.ColumnRef(col) for col in self.tbl.columns]
+        for item in self.select_list:
             item.bind_rel_paths(None)
         if self.eval_ctx is None:
             # constructing the EvalCtx is not idempotent
-            self.eval_ctx = exprs.ExprEvalCtx(select_list, remaining_where_clause)
-        # we materialize everything needed for select_list into data_rows
-        data_rows: List[List] = []
+            self.eval_ctx = exprs.ExprEvalCtx(self.select_list, remaining_where_clause)
 
         idx_rowids: List[int] = []  # rowids returned by index lookup
         if similarity_clause is not None:
@@ -109,9 +110,9 @@ class DataFrame:
             idx_rowids = similarity_clause.img_col_ref.col.idx.search(embed, n, self.tbl.valid_rowids)
 
         with env.get_engine().connect() as conn:
-            stmt = self._create_select_stmt(self.eval_ctx.sql_exprs, sql_where_clause, idx_rowids)
+            stmt = self._create_select_stmt(self.eval_ctx.sql_exprs, sql_where_clause, idx_rowids, select_pk)
             num_rows = 0
-            evaluator = exprs.ExprEvaluator(select_list, remaining_where_clause)
+            evaluator = exprs.ExprEvaluator(self.select_list, remaining_where_clause)
 
             for row in conn.execute(stmt):
                 data_row: List[Any] = [None] * self.eval_ctx.num_materialized
@@ -120,16 +121,20 @@ class DataFrame:
 
                 # copy select list results into contiguous array
                 # TODO: make this unnecessary
-                result_row = [data_row[e.data_row_idx] for e in select_list]
-                data_rows.append(result_row)
+                result_row = [data_row[e.data_row_idx] for e in self.select_list]
+                if select_pk:
+                    result_row.extend(row._data[-2:])
+                yield result_row
                 num_rows += 1
                 if n > 0 and num_rows == n:
                     break
 
-        col_names = [expr.display_name() for expr in select_list]
+    def show(self, n: int = 20) -> DataFrameResultSet:
+        data_rows = [row for row in self.exec(n)]
+        col_names = [expr.display_name() for expr in self.select_list]
         # replace ''
         col_names = [n if n != '' else f'col_{i}' for i, n in enumerate(col_names)]
-        return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in select_list])
+        return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in self.select_list])
 
     def count(self) -> int:
         """
@@ -204,13 +209,18 @@ class DataFrame:
     def _create_select_stmt(
             self, select_list: List[sql.sql.expression.ClauseElement],
             where_clause: Optional[sql.sql.expression.ClauseElement],
-            valid_rowids: List[int]) -> sql.sql.expression.Select:
-        stmt = sql.select(*select_list) \
+            valid_rowids: List[int],
+            select_pk: bool
+    ) -> sql.sql.expression.Select:
+        """
+        """
+        pk_cols = [self.tbl.rowid_col, self.tbl.v_min_col] if select_pk else []
+        # we add pk_cols at the end so that the already-computed sql row indices remain correct
+        stmt = sql.select(*select_list, *pk_cols) \
             .where(self.tbl.v_min_col <= self.tbl.version) \
             .where(self.tbl.v_max_col > self.tbl.version)
         if where_clause is not None:
             stmt = stmt.where(where_clause)
         if len(valid_rowids) > 0:
-            #stmt = stmt.where(sql.text(f'{str(self.tbl.rowid_col)} IN ({",".join(valid_rowids)})'))
             stmt = stmt.where(self.tbl.rowid_col.in_(valid_rowids))
         return stmt
