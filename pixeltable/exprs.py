@@ -175,6 +175,19 @@ class Expr(abc.ABC):
             yield from c.subexprs()
         yield self
 
+    @classmethod
+    def from_object(cls, o: object) -> Optional['Expr']:
+        """
+        Try to turn a literal object into an Expr.
+        """
+        if isinstance(o, Expr):
+            return o
+        if isinstance(o, dict):
+            return InlineDict(o)
+        elif isinstance(o, list):
+            return InlineArray(tuple(o))
+        return None
+
     @abc.abstractmethod
     def _equals(self, other: 'Expr') -> bool:
         pass
@@ -311,6 +324,8 @@ class ColumnRef(Expr):
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             return JsonPath(self).__getitem__(index)
+        if self.col_type.is_array_type():
+            return ArraySlice(self, index)
         return super().__getitem__(index)
 
     def display_name(self) -> str:
@@ -660,13 +675,10 @@ class JsonPath(Expr):
         return JsonPath(self._anchor, self.path_elements + [index])
 
     def __rshift__(self, other: object) -> 'JsonMapper':
-        if isinstance(other, dict):
-            other = InlineDict(other)
-        elif isinstance(other, list):
-            other = InlineArray(tuple(other))
-        if not isinstance(other, Expr):
+        rhs_expr = Expr.from_object(other)
+        if rhs_expr is None:
             raise exc.OperationalError(f'>> requires an expression on the right-hand side, found {type(other)}')
-        return JsonMapper(self, other)
+        return JsonMapper(self, rhs_expr)
 
     def display_name(self) -> str:
         anchor_name = self._anchor.display_name() if self._anchor is not None else ''
@@ -865,7 +877,7 @@ class InlineArray(Expr):
                 result[i] = data_row[self.components[child_idx].data_row_idx]
             else:
                 result[i] = copy.deepcopy(val)
-        data_row[self.data_row_idx] = result
+        data_row[self.data_row_idx] = np.array(result)
 
     def _as_dict(self) -> Dict:
         return {'elements': self.elements, **super()._as_dict()}
@@ -880,6 +892,40 @@ class InlineArray(Expr):
             else:
                 arg.append(val)
         return cls(tuple(arg))
+
+
+class ArraySlice(Expr):
+    """
+    Slice operation on an array, eg, t.array_col[:, 1:2].
+    """
+    def __init__(self, arr: Expr, index: Tuple):
+        assert arr.col_type.is_array_type()
+        # determine result type
+        super().__init__(arr.col_type)
+        self.components = [arr]
+        self.index = index
+
+    @property
+    def _array(self) -> Expr:
+        return self.components[0]
+
+    def _equals(self, other: 'ArraySlice') -> bool:
+        return self.index == other.index
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        return None
+
+    def eval(self, data_row: List[Any]) -> None:
+        val = data_row[self._array.data_row_idx]
+        data_row[self.data_row_idx] = val[self.index]
+
+    def _as_dict(self) -> Dict:
+        return {'index': self.index, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert 'index' in d
+        return cls(components[0], d['index'])
 
 
 class Predicate(Expr):

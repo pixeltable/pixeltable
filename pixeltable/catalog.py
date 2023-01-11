@@ -48,24 +48,30 @@ class Column:
         self.name = name
         if col_type is None and computed_with is None:
             raise exc.Error(f'Column {name}: col_type is required if computed_with is not specified')
-        if col_type is None and not isinstance(computed_with, exprs.Expr):
-            raise exc.Error(f'Column {name}: col_type is required if computed_with is a Callable')
         assert not(value_expr_str is not None and computed_with is not None)
-
-        if col_type is None:
-            self.col_type = computed_with.col_type
-        else:
-            self.col_type = col_type
 
         self.value_expr: Optional['Expr'] = None
         self.compute_func: Optional[Callable] = None
         if computed_with is not None:
-            if not isinstance(computed_with, exprs.Expr):
-                # we need to turn the computed_with function into an Expr, but we need to wait until we're
-                # assigned to a Table
+            value_expr = exprs.Expr.from_object(computed_with)
+            if value_expr is None:
+                # computed_with needs to be a Callable
+                if not isinstance(computed_with, Callable):
+                    raise exc.Error(
+                        f'Column {name}: computed_with needs to be either a Pixeltable expression or a Callable, '
+                        f'but it is a {type(computed_with)}')
+                if col_type is None:
+                    raise exc.Error(f'Column {name}: col_type is required if computed_with is a Callable')
+                # we need to turn the computed_with function into an Expr, but this requires resolving
+                # column name references and for that we need to wait until we're assigned to a Table
                 self.compute_func = computed_with
             else:
-                self.value_expr = computed_with.copy()
+                self.value_expr = value_expr.copy()
+                self.col_type = self.value_expr.col_type
+
+        if col_type is not None:
+            self.col_type = col_type
+        assert self.col_type is not None
 
         self.value_expr_str = value_expr_str  # stored here so it's easily accessible for the Table c'tor
         self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us
@@ -386,18 +392,22 @@ class MutableTable(Table):
             conn.execute(sql.text(stmt))
         self._create_sa_tbl()
 
-        if c.is_computed:
-            # backfill the existing rows
-            from pixeltable.dataframe import DataFrame
-            query = DataFrame(self, [c.value_expr])
-            with env.get_engine().begin() as conn:
+        if not c.is_computed:
+            return
+        # backfill the existing rows
+        from pixeltable.dataframe import DataFrame
+        query = DataFrame(self, [c.value_expr])
+        with env.get_engine().begin() as conn:
+            with tqdm(total=self.count()) as progress_bar:
                 for result_row in query.exec(n=0, select_pk=True):
                     column_val, rowid, v_min = result_row
+                    column_val = self._convert_to_stored(c, column_val, rowid)
                     conn.execute(
                         sql.update(self.sa_tbl)
                             .values({c.sa_col: column_val})
                             .where(self.rowid_col == rowid)
                             .where(self.v_min_col == v_min))
+                    progress_bar.update(1)
 
     def drop_column(self, name: str) -> None:
         self._check_is_dropped()
@@ -492,6 +502,27 @@ class MutableTable(Table):
                     tbl_id=self.id, schema_version=self.version, col_id=c.id, pos=pos, name=c.name,
                     col_type=c.col_type.serialize(), is_nullable=c.nullable, is_pk=c.primary_key,
                     value_expr=value_expr_str, is_indexed=c.is_indexed))
+
+    def _convert_to_stored(self, col: Column, val: Any, rowid: int) -> Any:
+        """
+        Convert column value 'val' into a store-compatible format, if needed:
+        - images are stored as files
+        - arrays are stored as serialized ndarrays
+        """
+        if col.col_type.is_image_type():
+            # replace PIL.Image.Image with file path
+            img = val
+            img_path = env.get_img_dir() / f'img_{self.id}_{col.id}_{self.version}_{rowid}.jpg'
+            img.save(img_path)
+            return str(img_path)
+        elif col.col_type.is_array_type():
+            # serialize numpy array
+            np_array = val
+            buffer = io.BytesIO()
+            np.save(buffer, np_array)
+            return buffer.getvalue()
+        else:
+            return val
 
     def insert_pandas(
             self, data: pd.DataFrame, video_column: Optional[str] = None, frame_column: Optional[str] = None,
@@ -654,18 +685,8 @@ class MutableTable(Table):
 
                     # convert data values to storage format where necessary
                     for c in computed_cols:
-                        if c.col_type.is_image_type():
-                            # replace PIL.Image.Image with file path
-                            img = data_row[c.value_expr.data_row_idx]
-                            img_path = env.get_img_dir() / f'img_{self.id}_{c.id}_{self.version}_{rowids[i]}.jpg'
-                            img.save(img_path)
-                            data_row[c.value_expr.data_row_idx] = str(img_path)
-                        elif c.col_type.is_array_type():
-                            # serialize numpy array
-                            np_array = data_row[c.value_expr.data_row_idx]
-                            buffer = io.BytesIO()
-                            np.save(buffer, np_array)
-                            data_row[c.value_expr.data_row_idx] = buffer.getvalue()
+                        val = data_row[c.value_expr.data_row_idx]
+                        data_row[c.value_expr.data_row_idx] = self._convert_to_stored(c, val, rowids[i])
 
                     computed_vals_dict = {c.storage_name(): data_row[c.value_expr.data_row_idx] for c in computed_cols}
                     row_dict.update(computed_vals_dict)

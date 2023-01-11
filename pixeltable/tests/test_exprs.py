@@ -173,6 +173,14 @@ class TestExprs:
         _ = t[cast(t.c7['*'].f6.f8, ArrayType((2, 4), ColumnType.Type.FLOAT))].show()
         print(_)
 
+    def test_arrays(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        t.add_column(catalog.Column('array_col', computed_with=[[t.c2, 1], [1, t.c2]]))
+        _ = t[t.array_col].show()
+        print(_)
+        _ = t[t.array_col[:, 0]].show()
+        print(_)
+
     def test_select_list(self, img_tbl) -> None:
         t = img_tbl
         result = t[t.img].show(n=100)
