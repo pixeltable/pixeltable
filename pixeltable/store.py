@@ -156,7 +156,10 @@ class Function(Base):
     name = sql.Column(String, nullable=True)
     return_type = sql.Column(String, nullable=False)  # json
     param_types = sql.Column(String, nullable=False)  # json
-    pickled_obj = sql.Column(LargeBinary, nullable=False)
+    eval_obj = sql.Column(LargeBinary, nullable=True)  # Function.eval_fn
+    init_obj = sql.Column(LargeBinary, nullable=True)  # AggregateFunction.init_fn
+    update_obj = sql.Column(LargeBinary, nullable=True)  # AggregateFunction.update_fn
+    value_obj = sql.Column(LargeBinary, nullable=True)  # AggregateFunction.value_fn
     python_version = sql.Column(
         String, nullable=False, default=platform.python_version, onupdate=platform.python_version)
 

@@ -269,6 +269,8 @@ class TestExprs:
 
     def test_serialization(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
         t = test_tbl
+        # add array column
+        t.add_column(catalog.Column('c8', computed_with=[[1, 2, 3], [4, 5, 6]]))
         img_t = img_tbl
         test_exprs = [
             t.c1,
@@ -285,6 +287,7 @@ class TestExprs:
             (t.c2 > 5) & (t.c1 == 'test'),
             (t.c2 > 5) | (t.c1 == 'test'),
             t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
+            t.c8[0, 1:]
         ]
         for e in test_exprs:
             e_serialized = e.serialize()

@@ -8,6 +8,7 @@ from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Gener
 import operator
 import json
 import io
+from dataclasses import dataclass
 
 import PIL.Image
 import jmespath
@@ -350,16 +351,16 @@ class ColumnRef(Expr):
         return cls(t.cols_by_id[d['col_id']])
 
 
+@dataclass
+class WindowClause:
+    partition_by: Optional[Expr]
+    order_by: Optional[Expr]
+
+
 class FunctionCall(Expr):
     def __init__(self, fn: Function, args: Tuple[Any] = None):
         super().__init__(fn.return_type)
         self.fn = fn
-        params = inspect.signature(self._eval_fn).parameters
-        required_params = [p for p in params.values() if p.default == inspect.Parameter.empty]
-        if len(args) < len(required_params):
-            raise exc.OperationalError(
-                f"FunctionCall: number of arguments ({len(args)}) doesn't match the number of expected parameters "
-                f"({len(params)})")
 
         if fn.param_types is not None:
             # check if arg types match param types and convert values, if necessary
@@ -385,13 +386,14 @@ class FunctionCall(Expr):
 
         self.components = [arg for arg in args if isinstance(arg, Expr)]
         self.args = [arg if not isinstance(arg, Expr) else None for arg in args]
+        self.window_clause: Optional[WindowClause] = None
 
     @property
-    def _eval_fn(self) -> Callable:
+    def _eval_fn(self) -> Optional[Callable]:
         return self.fn.eval_fn
 
     def _equals(self, other: 'FunctionCall') -> bool:
-        if self._eval_fn != other._eval_fn:
+        if self.fn != other.fn:
             return False
         if len(self.args) != len(other.args):
             return False
@@ -400,10 +402,23 @@ class FunctionCall(Expr):
                 return False
         return True
 
+    def window(self, partition_by: Optional[Expr] = None, order_by: Optional[Expr] = None) -> 'FunctionCall':
+        if not self.fn.is_aggregate_function():
+            raise exc.Error(f'The window() clause is only allowed for aggregate functions')
+        self.window_clause = WindowClause(partition_by=partition_by, order_by=order_by)
+        return self
+
+    @property
+    def is_window_fn_call(self) -> bool:
+        return self.window_clause is not None
+
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        # TODO: implement for standard aggregate functions
         return None
 
     def eval(self, data_row: List[Any]) -> None:
+        if self._eval_fn is None:
+            return
         args = copy.copy(self.args)
         # fill in missing child values
         i = 0
@@ -589,7 +604,7 @@ class ImageMethodCall(FunctionCall):
         else:
             return_type = method_info(caller, *args, **kwargs)
         # TODO: register correct parameters
-        fn = Function(return_type, None, module_name='PIL.Image', symbol=f'Image.{method_name}')
+        fn = Function(return_type, None, module_name='PIL.Image', eval_symbol=f'Image.{method_name}')
         super().__init__(fn, (caller, *args))
         # TODO: deal with kwargs
 
@@ -920,12 +935,24 @@ class ArraySlice(Expr):
         data_row[self.data_row_idx] = val[self.index]
 
     def _as_dict(self) -> Dict:
-        return {'index': self.index, **super()._as_dict()}
+        index = []
+        for el in self.index:
+            if isinstance(el, slice):
+                index.append([el.start, el.stop, el.step])
+            else:
+                index.append(el)
+        return {'index': index, **super()._as_dict()}
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
         assert 'index' in d
-        return cls(components[0], d['index'])
+        index = []
+        for el in d['index']:
+            if isinstance(el, list):
+                index.append(slice(el[0], el[1], el[2]))
+            else:
+                index.append(el)
+        return cls(components[0], tuple(index))
 
 
 class Predicate(Expr):

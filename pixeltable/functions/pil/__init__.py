@@ -16,7 +16,7 @@ def _draw_boxes(img: PIL.Image.Image, boxes: np.ndarray) -> PIL.Image.Image:
 
 draw_boxes = Function(
     ImageType(), [ImageType(), ArrayType((None, 6), dtype=ColumnType.Type.FLOAT)],
-    module_name=__name__, symbol='_draw_boxes')
+    module_name=__name__, eval_symbol='_draw_boxes')
 
 __all__ = [
     draw_boxes,

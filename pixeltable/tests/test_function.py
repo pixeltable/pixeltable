@@ -36,7 +36,7 @@ class TestFunction:
         with pytest.raises(exc.UnknownEntityError):
             db.create_function('dir1.test_fn', self.func)
         with pytest.raises(exc.Error):
-            library_fn = Function(IntType(), [IntType()], module_name=__name__, symbol='dummy_fn')
+            library_fn = Function(IntType(), [IntType()], module_name=__name__, eval_symbol='dummy_fn')
             db.create_function('library_fn', library_fn)
 
     def test_update(self, test_db: catalog.Db) -> None:
