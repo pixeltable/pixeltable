@@ -4,72 +4,74 @@ import sqlalchemy as sql
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 
 
-__home: Optional[Path] = None
-__db_path: Optional[Path] = None
-__img_dir: Optional[Path] = None
-__nnidx_dir: Optional[Path] = None
-__sa_engine: Optional[sql.engine.base.Engine] = None
+class Env:
+    """
+    Store for runtime globals.
+    """
+    _instance: Optional['Env'] = None
 
-def get_home() -> Path:
-    if __home is None:
-        # initialize to defaults
-        set_home(Path.home / '.pixeltable')
-    assert __home is not None
-    return __home
+    @classmethod
+    def get(cls) -> 'Env':
+        if cls._instance is None:
+            cls._instance = Env()
+        return cls._instance
 
-def get_db_path() -> Path:
-    assert __db_path is not None
-    return __db_path
+    def __init__(self):
+        self.home: Optional[Path] = None
+        self.db_path: Optional[Path] = None
+        self.img_dir: Optional[Path] = None
+        self.nnidx_dir: Optional[Path] = None
+        self.tmp_video_dir: Optional[Path] = None
+        self.sa_engine: Optional[sql.engine.base.Engine] = None
+        self.db_name: Optional[str] = None
 
-def get_img_dir() -> Path:
-    assert __img_dir is not None
-    return __img_dir
+    def set_up(
+        self, home_parent: Optional[Path] = Path.home(), db_name: str = 'pixeltable', echo: bool = False
+    ) -> None:
+        self.set_home(home_parent / '.pixeltable')
+        if self.home.exists() and not self.home.is_dir():
+            raise RuntimeError(f'{self.home} is not a directory')
 
-def get_nnidx_dir() -> Path:
-    assert __nnidx_dir is not None
-    return __nnidx_dir
+        self.db_name = db_name
+        db_url = f'postgresql:///{self.db_name}'
 
-def set_home(home: Path) -> None:
-    global __home, __db_path, __img_dir, __nnidx_dir
+        if not self.home.exists():
+            print(f'creating {self.home}')
+            self.home.mkdir()
+            self.img_dir.mkdir()
+            self.nnidx_dir.mkdir()
+            self.tear_down()
+            if not database_exists(db_url):
+                create_database(db_url)
+            self.sa_engine = sql.create_engine(db_url, echo=echo, future=True)
+            from pixeltable import store
+            store.Base.metadata.create_all(self.sa_engine)
+        else:
+            if self.sa_engine is None:
+                self.sa_engine = sql.create_engine(db_url, echo=echo, future=True)
 
-    # for running tests, we need to ignore the call to init_env() when creating a Client
-    if __home is not None:
-        return
+    def tear_down(self) -> None:
+        db_url = f'postgresql:///{self.db_name}'
+        if database_exists(db_url):
+            drop_database(db_url)
 
-    __home = home
-    __db_path = __home / 'db.sqlite3'
-    __img_dir = __home / 'images'
-    __nnidx_dir = __home / 'nnidxs'
+    def set_home(self, home: Path) -> None:
+        if self.home is not None:
+            return
+        self.home = home
+        self.db_path = self.home / 'db.sqlite3'
+        self.img_dir = self.home / 'images'
+        self.nnidx_dir = self.home / 'nnidxs'
+        self.tmp_video_dir = self.home / 'tmp_videos'
 
-def get_engine() -> sql.engine.base.Engine:
-    assert __sa_engine is not None
-    return __sa_engine
+    def get_img_dir(self) -> Path:
+        assert self.img_dir is not None
+        return self.img_dir
 
-def init_env(home_parent: Optional[Path] = Path.home(), db_name: str = 'pixeltable', echo: bool = False) -> None:
-    set_home(home_parent / '.pixeltable')
-    if __home.exists() and not __home.is_dir():
-        raise RuntimeError(f'{__home} is not a directory')
+    def get_nnidx_dir(self) -> Path:
+        assert self.nnidx_dir is not None
+        return self.nnidx_dir
 
-    global __sa_engine
-    db_url = f'postgresql:///{db_name}'
-
-    if not __home.exists():
-        print(f'creating {__home}')
-        __home.mkdir()
-        _ = __home
-        __img_dir.mkdir()
-        __nnidx_dir.mkdir()
-        teardown_env(db_name)
-        if not database_exists(db_url):
-            create_database(db_url)
-        __sa_engine = sql.create_engine(db_url, echo=echo, future=True)
-        from pixeltable import store
-        store.Base.metadata.create_all(__sa_engine)
-    else:
-        if __sa_engine is None:
-            __sa_engine = sql.create_engine(db_url, echo=echo, future=True)
-
-def teardown_env(db_name: str) -> None:
-    db_url = f'postgresql:///{db_name}'
-    if database_exists(db_url):
-        drop_database(db_url)
+    def get_engine(self) -> sql.engine.base.Engine:
+        assert self.sa_engine is not None
+        return self.sa_engine

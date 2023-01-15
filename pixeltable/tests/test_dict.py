@@ -5,7 +5,7 @@ from pixeltable import catalog
 from pixeltable.type_system import IntType, JsonType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
 
-from pixeltable import env
+from pixeltable.env import Env
 
 class TestExprs:
     def test_basic(self, test_tbl: catalog.Table) -> None:
@@ -16,7 +16,7 @@ class TestExprs:
         #stmt = sql.select(t.cols_by_name['c2'].sa_col['iscrowd']).where(t.cols_by_name['c2'].sa_col['supercategory'] == '"furniture"')
         #stmt = sql.select(t.cols_by_name['c2'].sa_col['bounding_box', 0]).where(t.cols_by_name['c2'].sa_col['supercategory'] == '"furniture"')
         #stmt = sql.select(t.cols_by_name['c2'].sa_col['bounding_box', 0]).where(t.cols_by_name['c2'].sa_col['supercategory'].astext == 'furniture')
-        with env.get_engine().connect() as conn:
+        with Env.get().get_engine().connect() as conn:
             result = conn.execute(stmt)
             for row in result:
                 print(row)

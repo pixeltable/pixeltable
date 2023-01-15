@@ -21,12 +21,13 @@ class ColumnType:
         FLOAT = 2
         BOOL = 3
         TIMESTAMP = 4
-        IMAGE = 5
-        JSON = 6
-        ARRAY = 7
+        JSON = 5
+        ARRAY = 6
+        IMAGE = 7
+        VIDEO = 8
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
-        INVALID = 8
+        INVALID = 9
 
         def to_tf(self) -> tf.dtypes.DType:
             if self == self.STRING:
@@ -141,10 +142,12 @@ class ColumnType:
             return BoolType()
         if t == cls.Type.TIMESTAMP:
             return TimestampType()
-        if t == cls.Type.IMAGE:
-            return ImageType()
         if t == cls.Type.JSON:
             return JsonType()
+        if t == cls.Type.IMAGE:
+            return ImageType()
+        if t == cls.Type.VIDEO:
+            return VideoType()
 
     def __str__(self) -> str:
         return self._type.name.lower()
@@ -226,14 +229,17 @@ class ColumnType:
     def is_timestamp_type(self) -> bool:
         return self._type == self.Type.TIMESTAMP
 
-    def is_image_type(self) -> bool:
-        return self._type == self.Type.IMAGE
-
     def is_json_type(self) -> bool:
         return self._type == self.Type.JSON
 
     def is_array_type(self) -> bool:
         return self._type == self.Type.ARRAY
+
+    def is_image_type(self) -> bool:
+        return self._type == self.Type.IMAGE
+
+    def is_video_type(self) -> bool:
+        return self._type == self.Type.VIDEO
 
     @abc.abstractmethod
     def to_sql(self) -> str:
@@ -386,6 +392,82 @@ class TimestampType(ColumnType):
         raise TypeError(f'Timestamp type cannot be converted to Tensorflow')
 
 
+class JsonType(ColumnType):
+    # TODO: type_spec also needs to be able to express lists
+    def __init__(self, type_spec: Optional[Dict[str, ColumnType]] = None):
+        super().__init__(self.Type.JSON)
+        self.type_spec = type_spec
+
+    def _as_dict(self) -> Dict:
+        result = super()._as_dict()
+        if self.type_spec is not None:
+            type_spec_dict = {field_name: field_type.serialize() for field_name, field_type in self.type_spec.items()}
+            result.update({'type_spec': type_spec_dict})
+        return result
+
+    @classmethod
+    def _from_dict(cls, d: Dict) -> 'ColumnType':
+        type_spec = None
+        if 'type_spec' in d:
+            type_spec = {
+                field_name: cls.deserialize(field_type_dict) for field_name, field_type_dict in d['type_spec'].items()
+            }
+        return cls(type_spec)
+
+    def to_sql(self) -> str:
+        return 'JSONB'
+
+    def to_sa_type(self) -> str:
+        return sql.dialects.postgresql.JSONB
+
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        if self.type_spec is None:
+            raise TypeError(f'Cannot convert {self.__class__.__name__} with missing type spec to TensorFlow')
+        return {k: v.to_tf() for k, v in self.type_spec.items()}
+
+
+class ArrayType(ColumnType):
+    def __init__(
+            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType.Type):
+        super().__init__(self.Type.ARRAY)
+        self.shape = shape
+        self.dtype = dtype
+
+    def _supertype(cls, type1: 'ArrayType', type2: 'ArrayType') -> Optional['ArrayType']:
+        if len(type1.shape) != len(type2.shape):
+            return None
+        base_type = ColumnType.supertype(type1.dtype, type2.dtype)
+        if base_type is None:
+            return None
+        shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
+        return ArrayType(tuple(shape), base_type)
+
+    def _as_dict(self) -> Dict:
+        result = super()._as_dict()
+        result.update(shape=list(self.shape), dtype=self.dtype.value)
+        return result
+
+    def __str__(self) -> str:
+        return f'{self.__class__.__name__}({self.shape}, dtype={self.dtype.name})'
+
+    @classmethod
+    def _from_dict(cls, d: Dict) -> 'ColumnType':
+        assert 'shape' in d
+        assert 'dtype' in d
+        shape = tuple(d['shape'])
+        dtype = cls.Type(d['dtype'])
+        return cls(shape, dtype)
+
+    def to_sql(self) -> str:
+        return 'BYTEA'
+
+    def to_sa_type(self) -> str:
+        return sql.VARBINARY
+
+    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+        return tf.TensorSpec(shape=self.shape, dtype=self.dtype.to_tf())
+
+
 class ImageType(ColumnType):
     @enum.unique
     class Mode(enum.Enum):
@@ -470,77 +552,24 @@ class ImageType(ColumnType):
         return tf.TensorSpec(shape=(self.height, self.width, self.num_channels), dtype=tf.uint8)
 
 
-class JsonType(ColumnType):
-    # TODO: type_spec also needs to be able to express lists
-    def __init__(self, type_spec: Optional[Dict[str, ColumnType]] = None):
-        super().__init__(self.Type.JSON)
-        self.type_spec = type_spec
+class VideoType(ColumnType):
+    def __init__(self):
+        super().__init__(self.Type.VIDEO)
 
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
-        if self.type_spec is not None:
-            type_spec_dict = {field_name: field_type.serialize() for field_name, field_type in self.type_spec.items()}
-            result.update({'type_spec': type_spec_dict})
         return result
 
     @classmethod
     def _from_dict(cls, d: Dict) -> 'ColumnType':
-        type_spec = None
-        if 'type_spec' in d:
-            type_spec = {
-                field_name: cls.deserialize(field_type_dict) for field_name, field_type_dict in d['type_spec'].items()
-            }
-        return cls(type_spec)
+        return cls()
 
     def to_sql(self) -> str:
-        return 'JSONB'
+        # stored as a file path
+        return 'VARCHAR'
 
     def to_sa_type(self) -> str:
-        return sql.dialects.postgresql.JSONB
+        return sql.String
 
     def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
-        if self.type_spec is None:
-            raise TypeError(f'Cannot convert {self.__class__.__name__} with missing type spec to TensorFlow')
-        return {k: v.to_tf() for k, v in self.type_spec.items()}
-
-
-class ArrayType(ColumnType):
-    def __init__(
-            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType.Type):
-        super().__init__(self.Type.ARRAY)
-        self.shape = shape
-        self.dtype = dtype
-
-    def _supertype(cls, type1: 'ArrayType', type2: 'ArrayType') -> Optional['ArrayType']:
-        if len(type1.shape) != len(type2.shape):
-            return None
-        base_type = ColumnType.supertype(type1.dtype, type2.dtype)
-        if base_type is None:
-            return None
-        shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
-        return ArrayType(tuple(shape), base_type)
-
-    def _as_dict(self) -> Dict:
-        result = super()._as_dict()
-        result.update(shape=list(self.shape), dtype=self.dtype.value)
-        return result
-
-    def __str__(self) -> str:
-        return f'{self.__class__.__name__}({self.shape}, dtype={self.dtype.name})'
-
-    @classmethod
-    def _from_dict(cls, d: Dict) -> 'ColumnType':
-        assert 'shape' in d
-        assert 'dtype' in d
-        shape = tuple(d['shape'])
-        dtype = cls.Type(d['dtype'])
-        return cls(shape, dtype)
-
-    def to_sql(self) -> str:
-        return 'BYTEA'
-
-    def to_sa_type(self) -> str:
-        return sql.VARBINARY
-
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
-        return tf.TensorSpec(shape=self.shape, dtype=self.dtype.to_tf())
+        assert False

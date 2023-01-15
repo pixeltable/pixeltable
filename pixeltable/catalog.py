@@ -3,7 +3,7 @@ import re
 import inspect
 import io
 
-import PIL
+import PIL, cv2
 import numpy as np
 from PIL import Image
 from tqdm.autonotebook import tqdm
@@ -13,7 +13,8 @@ import pandas as pd
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-from pixeltable import store, env
+from pixeltable import store
+from pixeltable.env import Env
 from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType
 from pixeltable.utils import clip, video
@@ -217,7 +218,7 @@ class Table(SchemaObject):
         stmt = sql.select(self.rowid_col) \
             .where(self.v_min_col <= self.version) \
             .where(self.v_max_col > self.version)
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             rows = conn.execute(stmt)
             for row in rows:
                 rowid = row[0]
@@ -370,7 +371,7 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
@@ -397,7 +398,7 @@ class MutableTable(Table):
         # backfill the existing rows
         from pixeltable.dataframe import DataFrame
         query = DataFrame(self, [c.value_expr])
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             with tqdm(total=self.count()) as progress_bar:
                 for result_row in query.exec(n=0, select_pk=True):
                     column_val, rowid, v_min = result_row
@@ -440,7 +441,7 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
@@ -479,7 +480,7 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
@@ -512,7 +513,7 @@ class MutableTable(Table):
         if col.col_type.is_image_type():
             # replace PIL.Image.Image with file path
             img = val
-            img_path = env.get_img_dir() / f'img_{self.id}_{col.id}_{self.version}_{rowid}.jpg'
+            img_path = Env.get().get_img_dir() / f'img_{self.id}_{col.id}_{self.version}_{rowid}.jpg'
             img.save(img_path)
             return str(img_path)
         elif col.col_type.is_array_type():
@@ -559,8 +560,8 @@ class MutableTable(Table):
         if video_column is not None:
             if video_column not in data.columns:
                 raise exc.OperationalError(f'Column {video_column} missing in DataFrame')
-            if not self.cols_by_name[video_column].col_type.is_string_type():
-                raise exc.OperationalError(f'Video_column parameter needs to be of type string')
+            if not self.cols_by_name[video_column].col_type.is_video_type():
+                raise exc.OperationalError(f'Video_column parameter needs to be of type video')
         if frame_column is not None:
             if frame_column in data.columns:
                 raise exc.OperationalError(f'Column {frame_column} is computed and must not appear in DataFrame')
@@ -585,15 +586,18 @@ class MutableTable(Table):
                 raise exc.InsertError(f'Column {col.name} requires boolean data but contains {data.dtypes[col.name]}')
             if col.col_type.is_timestamp_type() and not pd.api.types.is_datetime64_any_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(f'Column {col.name} requires datetime data but contains {data.dtypes[col.name]}')
-            if col.col_type.is_image_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(
-                    f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
             if col.col_type.is_json_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(
                     f'Column {col.name} requires dictionary data but contains {data.dtypes[col.name]}')
             if col.col_type.is_array_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(
                     f'Column {col.name} requires array data but contains {data.dtypes[col.name]}')
+            if col.col_type.is_image_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
+                raise exc.InsertError(
+                    f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
+            if col.col_type.is_video_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
+                raise exc.InsertError(
+                    f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
 
         # frame extraction from videos
         if video_column is not None:
@@ -613,7 +617,7 @@ class MutableTable(Table):
                 path = input_row[video_column]
                 # we need to generate a unique prefix for each set of frames corresponding to a single video
                 frame_path_prefix =\
-                    env.get_img_dir() / f'frame_{self.id}_{video_col.id}_{self.next_row_id + input_row_idx}'
+                    Env.get().get_img_dir() / f'frame_{self.id}_{video_col.id}_{self.next_row_id + input_row_idx}'
                 frame_paths = video.extract_frames(path, frame_path_prefix, fps)
                 frame_rows = [{frame_column: p, frame_idx_column: i, **input_row} for i, p in enumerate(frame_paths)]
                 expanded_rows.extend(frame_rows)
@@ -639,6 +643,15 @@ class MutableTable(Table):
                 if col.is_indexed:
                     assert col.idx is not None
                     col.idx.insert(embeddings, np.array(rowids))
+
+            # image cols: make sure file path points to a valid image file; build index if col is indexed
+            if col.col_type.is_video_type():
+                for i, (_, path_str) in enumerate(data[col.name].items()):
+                    cap = cv2.VideoCapture(path_str)
+                    success = cap.isOpened()
+                    cap.release()
+                    if not success:
+                        raise exc.Error(f'Column {col.name}: could not open video file {path_str}')
 
             if col.col_type.is_json_type():
                 for idx, d in data[col.name].items():
@@ -694,7 +707,7 @@ class MutableTable(Table):
                 insert_values.append(row_dict)
                 progress_bar.update(1)
 
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             conn.execute(sql.insert(self.sa_tbl), insert_values)
             self.next_row_id += len(data)
             conn.execute(
@@ -718,7 +731,7 @@ class MutableTable(Table):
         if self.version == 0:
             raise exc.OperationalError('Cannot revert version 0')
         # check if the current version is referenced by a snapshot
-        with orm.Session(env.get_engine()) as session:
+        with orm.Session(Env.get().get_engine()) as session:
             # make sure we don't have a snapshot referencing this version
             num_references = session.query(sql.func.count(store.TableSnapshot.id)) \
                 .where(store.TableSnapshot.db_id == self.db_id) \
@@ -765,7 +778,7 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     def rename(self, new_name: str) -> None:
         self._check_is_dropped()
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__).values({store.Table.name: new_name})
                     .where(store.Table.id == self.id))
@@ -773,7 +786,7 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     def drop(self) -> None:
         self._check_is_dropped()
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__).values({store.Table.is_mutable: False})
                     .where(store.Table.id == self.id))
@@ -812,7 +825,7 @@ class MutableTable(Table):
                 raise exc.DuplicateNameError(f'Duplicate column: {col_name}')
             col_names.add(col_name)
 
-        with orm.Session(env.get_engine()) as session:
+        with orm.Session(Env.get().get_engine()) as session:
             tbl_record = store.Table(
                 db_id=db_id, dir_id=dir_id, name=name, num_retained_versions=num_retained_versions, current_version=0,
                 current_schema_version=0, is_mutable=True, next_col_id=len(cols), next_row_id=0)
@@ -1034,7 +1047,7 @@ class Db:
             assert isinstance(tbl, MutableTable)
             tbls.append(tbl)
 
-        with orm.Session(env.get_engine()) as session:
+        with orm.Session(Env.get().get_engine()) as session:
             dir_record = store.Dir(db_id=self.id, path=path_str, is_snapshot=True)
             session.add(dir_record)
             session.flush()
@@ -1058,7 +1071,7 @@ class Db:
     def create_dir(self, path_str: str) -> None:
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
-        with orm.Session(env.get_engine()) as session:
+        with orm.Session(Env.get().get_engine()) as session:
             dir_record = store.Dir(db_id=self.id, path=path_str, is_snapshot=False)
             session.add(dir_record)
             session.flush()
@@ -1081,7 +1094,7 @@ class Db:
 #        for dir_path in self.paths.get_children(path, child_type=DirBase, recursive=False):
 #            self.rm_dir(str(dir_path), force=True)
 
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             dir = self.paths[path]
             conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.id == dir.id))
         del self.paths[path]
@@ -1111,7 +1124,7 @@ class Db:
         self.paths.check_is_valid(new_path, expected=None)
         func = self.paths[path]
         new_dir = self.paths[new_path.parent]
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             conn.execute(
                 sql.update(store.Function.__table__)
                     .values({
@@ -1139,26 +1152,32 @@ class Db:
         assert isinstance(named_fn, NamedFunction)
         return FunctionRegistry.get().get_function(named_fn.id)
 
-    def drop_function(self, path_str: str) -> None:
+    def drop_function(self, path_str: str, ignore_errors: bool = False) -> None:
         """
         Deletes function from db, provided that no computed columns depend on it.
         """
         path = Path(path_str)
-        self.paths.check_is_valid(path, expected=NamedFunction)
+        try:
+            self.paths.check_is_valid(path, expected=NamedFunction)
+        except exc.UnknownEntityError as e:
+            if ignore_errors:
+                return
+            else:
+                raise e
         named_fn = self.paths[path]
         FunctionRegistry.get().delete_function(named_fn.id)
         del self.paths[path]
 
     def _load_dirs(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(env.get_engine()) as session:
+        with orm.Session(Env.get().get_engine()) as session:
             for dir_record in session.query(store.Dir).where(store.Dir.db_id == self.id).all():
                 result[dir_record.path] = SnapshotDir(dir_record.id) if dir_record.is_snapshot else Dir(dir_record.id)
         return result
 
     def _load_tables(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(env.get_engine()) as session:
+        with orm.Session(Env.get().get_engine()) as session:
             # load all reachable (= mutable) tables
             q = session.query(store.Table, store.Dir.path) \
                 .join(store.Dir)\
@@ -1192,7 +1211,7 @@ class Db:
         FunctionRegistry.
         """
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(env.get_engine()) as session:
+        with orm.Session(Env.get().get_engine()) as session:
             # load all reachable (= mutable) tables
             q = session.query(store.Function.id, store.Function.dir_id, store.Function.name, store.Dir.path) \
                 .join(store.Dir) \
@@ -1212,7 +1231,7 @@ class Db:
     @classmethod
     def create(cls, name: str) -> 'Db':
         db_id: int = -1
-        with orm.Session(env.get_engine()) as session:
+        with orm.Session(Env.get().get_engine()) as session:
             # check for duplicate name
             is_duplicate = session.query(sql.func.count(store.Db.id)).where(store.Db.name == name).scalar() > 0
             if is_duplicate:
@@ -1235,7 +1254,7 @@ class Db:
     def load(cls, name: str) -> 'Db':
         if re.fullmatch(_ID_RE, name) is None:
             raise exc.BadFormatError(f"Invalid db name: '{name}'")
-        with orm.Session(env.get_engine()) as session:
+        with orm.Session(Env.get().get_engine()) as session:
             try:
                 db_record = session.query(store.Db).where(store.Db.name == name).one()
                 return Db(db_record.id, db_record.name)
@@ -1246,7 +1265,7 @@ class Db:
         """
         Delete db and all associated data.
         """
-        with env.get_engine().begin() as conn:
+        with Env.get().get_engine().begin() as conn:
             conn.execute(sql.delete(store.TableSnapshot.__table__).where(store.TableSnapshot.db_id == self.id))
             tbls_stmt = sql.select(store.Table.id).where(store.Table.db_id == self.id)
             conn.execute(sql.delete(store.SchemaColumn.__table__).where(store.SchemaColumn.tbl_id.in_(tbls_stmt)))

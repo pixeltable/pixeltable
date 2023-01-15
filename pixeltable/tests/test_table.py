@@ -1,11 +1,12 @@
+import pandas as pd
 import pytest
 import math
 
 import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable import catalog
-from pixeltable.type_system import StringType, IntType, FloatType, TimestampType, ImageType, JsonType
-from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
+from pixeltable.type_system import StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType
+from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files
 
 
 class TestTable:
@@ -70,6 +71,18 @@ class TestTable:
         df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         # TODO: insert a random subset
         tbl.insert_pandas(df[:20])
+        html_str = tbl.show(n=100)._repr_html_()
+        print(html_str)
+        # TODO: check html_str
+
+    def test_create_videos(self, test_db: catalog.Db) -> None:
+        db = test_db
+        cols = [
+            catalog.Column('video', VideoType(), nullable=False),
+        ]
+        tbl = db.create_table('test', cols)
+        df = pd.DataFrame({'video': get_video_files()})
+        tbl.insert_pandas(df)
         html_str = tbl.show(n=100)._repr_html_()
         print(html_str)
         # TODO: check html_str

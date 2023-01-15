@@ -1,11 +1,14 @@
 import base64
 import io
+import os
 from typing import List, Optional, Any, Dict, Generator
+from pathlib import Path
 import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
 
-from pixeltable import catalog, env
+from pixeltable import catalog
+from pixeltable.env import Env
 from pixeltable.type_system import ColumnType
 from pixeltable import exprs
 from pixeltable import exceptions as exc
@@ -25,6 +28,16 @@ def _format_img(img: object) -> str:
         img_base64 = base64.b64encode(buffer.getvalue()).decode()
         return f'<img src="data:image/jpeg;base64,{img_base64}">'
 
+def _format_video(video_file_path: str) -> str:
+    # turn absolute video_file_path into relative path, absolute paths don't work
+    p = Path(video_file_path)
+    root = Path(os.getcwd())
+    try:
+        rel_path = p.relative_to(root)
+        return f'<video width="320" height="240" controls><source src="{rel_path}" type="video/mp4"></video>'
+    except ValueError:
+        # display path as string
+        return video_file_path
 
 class DataFrameResultSet:
     def __init__(self, rows: List[List], col_names: List[str], col_types: List[ColumnType]):
@@ -37,10 +50,12 @@ class DataFrameResultSet:
 
     def _repr_html_(self) -> str:
         img_col_idxs = [i for i, col_type in enumerate(self.col_types) if col_type.is_image_type()]
+        video_col_idxs = [i for i, col_type in enumerate(self.col_types) if col_type.is_video_type()]
         formatters = {self.col_names[i]: _format_img for i in img_col_idxs}
+        formatters.update({self.col_names[i]: _format_video for i in video_col_idxs})
         # escape=False: make sure <img> tags stay intact
         # TODO: why does mypy complain about formatters having an incorrect type?
-        return self.to_pandas().to_html(formatters=formatters, escape=False)  # type: ignore[arg-type]
+        return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)  # type: ignore[arg-type]
 
     def __str__(self) -> str:
         return self.to_pandas().to_string()
@@ -109,7 +124,7 @@ class DataFrame:
             embed = similarity_clause.embedding()
             idx_rowids = similarity_clause.img_col_ref.col.idx.search(embed, n, self.tbl.valid_rowids)
 
-        with env.get_engine().connect() as conn:
+        with Env.get().get_engine().connect() as conn:
             stmt = self._create_select_stmt(self.eval_ctx.sql_exprs, sql_where_clause, idx_rowids, select_pk)
             num_rows = 0
             evaluator = exprs.ExprEvaluator(self.select_list, remaining_where_clause)
@@ -147,7 +162,7 @@ class DataFrame:
             sql_where_clause = self.where_clause.sql_expr()
             assert sql_where_clause is not None
             stmt = stmt.where(sql_where_clause)
-        with env.get_engine().connect() as conn:
+        with Env.get().get_engine().connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
             return result
@@ -171,7 +186,7 @@ class DataFrame:
             sql_where_clause = self.where_clause.sql_expr()
             assert sql_where_clause is not None
             stmt = stmt.where(sql_where_clause)
-        with env.get_engine().connect() as conn:
+        with Env.get().get_engine().connect() as conn:
             result = {row._data[0]: i for i, row in enumerate(conn.execute(stmt))}
             return result
 

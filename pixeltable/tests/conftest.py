@@ -13,10 +13,10 @@ from pixeltable.tests.utils import read_data_file, make_tbl, create_table_data
 
 @pytest.fixture(scope='session')
 def init_db(tmp_path_factory) -> None:
-    from pixeltable import env
+    from pixeltable.env import Env
     # this also runs create_all()
     db_name = 'test'
-    env.init_env(tmp_path_factory.mktemp('base'), db_name=db_name, echo=True)
+    Env.get().set_up(tmp_path_factory.mktemp('base'), db_name=db_name, echo=True)
     yield
     # leave db in place for debugging purposes
 

@@ -3,8 +3,7 @@ import PIL.Image
 import hnswlib
 import numpy as np
 
-from pixeltable import env
-from pixeltable.utils import clip
+from pixeltable.env import Env
 
 class VectorIndex:
     def __init__(self, name: str, dim: int, idx: hnswlib.Index):
@@ -55,4 +54,4 @@ class VectorIndex:
 
     @classmethod
     def _filename(cls, name: str) -> str:
-        return str(env.get_nnidx_dir() / f'idx_{name}')
+        return str(Env.get().get_nnidx_dir() / f'idx_{name}')

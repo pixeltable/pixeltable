@@ -2,7 +2,8 @@ from typing import List, Dict
 
 import sqlalchemy.orm as orm
 
-from pixeltable import catalog, store, env
+from pixeltable import catalog, store
+from pixeltable.env import Env
 
 __all__ = [
     'Client',
@@ -15,7 +16,7 @@ class Client:
 
     def __init__(self) -> None:
         self.db_cache: Dict[str, catalog.Db] = {}
-        env.init_env()
+        Env.get().set_up()
 
     def create_db(self, name: str) -> catalog.Db:
         db = catalog.Db.create(name)
