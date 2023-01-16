@@ -149,6 +149,15 @@ class Expr(abc.ABC):
                 return False
         return self._equals(other)
 
+    @classmethod
+    def list_equals(cls, a: List['Expr'], b: List['Expr']) -> bool:
+        if len(a) != len(b):
+            return False
+        for i in range(len(a)):
+            if not a[i].equals(b[i]):
+                return False
+        return True
+
     def copy(self) -> 'Expr':
         """
         Creates a copy that can be evaluated separately: it doesn't share any eval context (data/sql_row_idx)
@@ -161,6 +170,10 @@ class Expr(abc.ABC):
         result.sql_row_idx = -1
         result.components = [c.copy() for c in self.components]
         return result
+
+    @classmethod
+    def copy_list(cls, expr_list: List['Expr']) -> List['Expr']:
+        return [e.copy() for e in expr_list]
 
     def __deepcopy__(self, memo={}) -> 'Expr':
         # we don't need to create an actual deep copy because all state other than execution state is read-only
@@ -175,6 +188,14 @@ class Expr(abc.ABC):
         for c in self.components:
             yield from c.subexprs()
         yield self
+
+    @classmethod
+    def list_subexprs(cls, expr_list: List['Expr']) -> Generator['Expr', None, None]:
+        """
+        Produce subexprs for all exprs in list.
+        """
+        for e in expr_list:
+            yield from e.subexprs()
 
     @classmethod
     def from_object(cls, o: object) -> Optional['Expr']:
@@ -226,6 +247,10 @@ class Expr(abc.ABC):
             **self._as_dict(),
         }
 
+    @classmethod
+    def as_dict_list(self, expr_list: List['Expr']) -> List[Dict]:
+        return [e.as_dict() for e in expr_list]
+
     def _as_dict(self) -> Dict:
         if len(self.components) > 0:
             return {'components': [c.as_dict() for c in self.components]}
@@ -246,6 +271,10 @@ class Expr(abc.ABC):
         if 'components' in d:
             components = [cls.from_dict(component_dict, t) for component_dict in d['components']]
         return type_class._from_dict(d, components, t)
+
+    @classmethod
+    def from_dict_list(cls, dict_list: List[Dict], t: catalog.Table) -> List['Expr']:
+        return [cls.from_dict(d, t) for d in dict_list]
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List['Expr'], t: catalog.Table) -> 'Expr':
@@ -351,12 +380,6 @@ class ColumnRef(Expr):
         return cls(t.cols_by_id[d['col_id']])
 
 
-@dataclass
-class WindowClause:
-    partition_by: Optional[Expr]
-    order_by: Optional[Expr]
-
-
 class FunctionCall(Expr):
     def __init__(self, fn: Function, args: Tuple[Any] = None):
         super().__init__(fn.return_type)
@@ -386,7 +409,12 @@ class FunctionCall(Expr):
 
         self.components = [arg for arg in args if isinstance(arg, Expr)]
         self.args = [arg if not isinstance(arg, Expr) else None for arg in args]
-        self.window_clause: Optional[WindowClause] = None
+
+        # window function state
+        self.partition_by_idx = -1  # self.components[self.pb_index:] contains partition_by exprs
+        self.order_by: List[Expr] = []
+        # execution state for window functions
+        self.aggregator: Optional[Any] = self.fn.init_fn() if self.fn.is_aggregate else None
 
     @property
     def _eval_fn(self) -> Optional[Callable]:
@@ -400,25 +428,50 @@ class FunctionCall(Expr):
         for i in range(len(self.args)):
             if self.args[i] != other.args[i]:
                 return False
+        if self.partition_by_idx != other.partition_by_idx:
+            return False
+        if not self.list_equals(self.order_by, other.order_by):
+            return False
         return True
 
-    def window(self, partition_by: Optional[Expr] = None, order_by: Optional[Expr] = None) -> 'FunctionCall':
-        if not self.fn.is_aggregate_function():
+    def window(
+            self, partition_by: Optional[Union[Expr, List[Expr]]] = None,
+            order_by: Optional[Union[Expr, List[Expr]]] = None
+    ) -> 'FunctionCall':
+        if not self.fn.is_aggregate:
             raise exc.Error(f'The window() clause is only allowed for aggregate functions')
-        self.window_clause = WindowClause(partition_by=partition_by, order_by=order_by)
+        if partition_by is None and order_by is None:
+            raise exc.Error('The window() clause requires at least one parameter not to be None')
+        if partition_by is not None and not isinstance(partition_by, list):
+            partition_by = [partition_by]
+        if order_by is not None:
+            self.order_by = order_by if isinstance(order_by, list) else [order_by]
+        # we only need to record the partition_by exprs in self.components, because the order_by values aren't
+        # used during evaluation (the SQL store will return rows in that order)
+        if partition_by is not None:
+            self.partition_by_idx = len(self.components)
+            self.components.extend(partition_by)
+            self.current_partition_vals: List[Any] = [None] * len(partition_by)
         return self
 
     @property
+    def partition_by(self) -> List[Expr]:
+        if self.partition_by_idx == -1:
+            return []
+        return self.components[self.partition_by_idx:]
+
+    @property
     def is_window_fn_call(self) -> bool:
-        return self.window_clause is not None
+        return self.fn.is_aggregate
+
+    def get_window_sort_exprs(self) -> List[Expr]:
+        return [*self.partition_by, *self.order_by]
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         # TODO: implement for standard aggregate functions
         return None
 
     def eval(self, data_row: List[Any]) -> None:
-        if self._eval_fn is None:
-            return
         args = copy.copy(self.args)
         # fill in missing child values
         i = 0
@@ -426,10 +479,26 @@ class FunctionCall(Expr):
             if args[j] is None:
                 args[j] = data_row[self.components[i].data_row_idx]
                 i += 1
-        data_row[self.data_row_idx] = self._eval_fn(*args)
+        if not self.fn.is_aggregate:
+            data_row[self.data_row_idx] = self.fn.eval_fn(*args)
+        else:
+            # this is a window function
+            if self.partition_by_idx != -1:
+                partition_vals = [data_row[e.data_row_idx] for e in self.partition_by]
+                if partition_vals != self.current_partition_vals:
+                    # new partition
+                    self.aggregator = self.fn.init_fn()
+                    self.current_partition_vals = partition_vals
+            elif self.aggregator is None:
+                self.aggregator = self.fn.init_fn()
+            self.fn.update_fn(self.aggregator, *args)
+            data_row[self.data_row_idx] = self.fn.value_fn(self.aggregator)
 
     def _as_dict(self) -> Dict:
-        return {'fn': self.fn.as_dict(), 'args': self.args, **super()._as_dict()}
+        result = {'fn': self.fn.as_dict(), 'args': self.args, **super()._as_dict()}
+        if self.fn.is_aggregate:
+            result.update({'partition_by_idx': self.partition_by_idx, 'order_by': Expr.as_dict_list(self.order_by)})
+        return result
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> 'Expr':
@@ -437,7 +506,12 @@ class FunctionCall(Expr):
         assert 'args' in d
         # reassemble args
         args = [arg if arg is not None else components[i] for i, arg in enumerate(d['args'])]
-        return cls(Function.from_dict(d['fn']), args)
+        fn_call = cls(Function.from_dict(d['fn']), args)
+        if fn_call.fn.is_aggregate:
+            fn_call.partition_by_idx = d['partition_by_idx']
+            fn_call.components.extend(components[fn_call.partition_by_idx:])
+            fn_call.order_by = Expr.from_dict_list(d['order_by'], t)
+        return fn_call
 
 
 def _caller_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:

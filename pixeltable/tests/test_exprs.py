@@ -13,6 +13,18 @@ from pixeltable import exceptions as exc
 
 
 class TestExprs:
+    class SumAggregator:
+        def __init__(self):
+            self.sum = 0
+        def update(self, val: int) -> None:
+            self.sum += val
+        def value(self) -> int:
+            return self.sum
+
+    sum = Function(
+        IntType(), [IntType()],
+        init_fn=lambda: TestExprs.SumAggregator(), update_fn=SumAggregator.update, value_fn=SumAggregator.value)
+
     def test_basic(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         assert isinstance(t['c1'] < 'a', Expr)
@@ -287,7 +299,8 @@ class TestExprs:
             (t.c2 > 5) & (t.c1 == 'test'),
             (t.c2 > 5) | (t.c1 == 'test'),
             t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
-            t.c8[0, 1:]
+            t.c8[0, 1:],
+            self.sum(t.c2).window(partition_by=t.c4, order_by=t.c3),
         ]
         for e in test_exprs:
             e_serialized = e.serialize()
@@ -314,3 +327,8 @@ class TestExprs:
         subexprs = [s for s in e.subexprs() if isinstance(s, ColumnRef)]
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
+
+    def test_window_fns(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        _ = t[self.sum(t.c2).window(partition_by=t.c4, order_by=t.c3)].show(100)
+        print(_)

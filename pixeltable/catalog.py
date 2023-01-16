@@ -1105,7 +1105,7 @@ class Db:
         return [str(p) for p in self.paths.get_children(path, child_type=DirBase, recursive=recursive)]
 
     def create_function(self, path_str: str, func: Function) -> None:
-        if func.is_library_function():
+        if func.is_library_function:
             raise exc.Error(f'Cannot create a named function for a library function')
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)

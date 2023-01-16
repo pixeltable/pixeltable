@@ -117,6 +117,19 @@ class DataFrame:
             # constructing the EvalCtx is not idempotent
             self.eval_ctx = exprs.ExprEvalCtx(self.select_list, remaining_where_clause)
 
+        # determine order_by clause for window functions, if any
+        window_fn_calls = [
+            e for e in exprs.Expr.list_subexprs(self.select_list)
+            if isinstance(e, exprs.FunctionCall) and e.is_window_fn_call
+        ]
+        order_by_sql_exprs: List[sql.sql.expression.ClauseElement] = []
+        if len(window_fn_calls) > 0:
+            order_by_exprs = window_fn_calls[0].get_window_sort_exprs()
+            order_by_sql_exprs = [e.sql_expr() for e in order_by_exprs]
+            for i in range(len(order_by_exprs)):
+                if order_by_sql_exprs[i] is None:
+                    raise exc.Error(f'order_by element cannot be expressed in SQL: {order_by_exprs[i]}')
+
         idx_rowids: List[int] = []  # rowids returned by index lookup
         if similarity_clause is not None:
             # do index lookup
@@ -125,7 +138,8 @@ class DataFrame:
             idx_rowids = similarity_clause.img_col_ref.col.idx.search(embed, n, self.tbl.valid_rowids)
 
         with Env.get().get_engine().connect() as conn:
-            stmt = self._create_select_stmt(self.eval_ctx.sql_exprs, sql_where_clause, idx_rowids, select_pk)
+            stmt = self._create_select_stmt(
+                self.eval_ctx.sql_exprs, sql_where_clause, idx_rowids, select_pk, order_by_sql_exprs)
             num_rows = 0
             evaluator = exprs.ExprEvaluator(self.select_list, remaining_where_clause)
 
@@ -225,10 +239,9 @@ class DataFrame:
             self, select_list: List[sql.sql.expression.ClauseElement],
             where_clause: Optional[sql.sql.expression.ClauseElement],
             valid_rowids: List[int],
-            select_pk: bool
+            select_pk: bool,
+            order_by_exprs: List[sql.sql.expression.ClauseElement]
     ) -> sql.sql.expression.Select:
-        """
-        """
         pk_cols = [self.tbl.rowid_col, self.tbl.v_min_col] if select_pk else []
         # we add pk_cols at the end so that the already-computed sql row indices remain correct
         stmt = sql.select(*select_list, *pk_cols) \
@@ -238,4 +251,6 @@ class DataFrame:
             stmt = stmt.where(where_clause)
         if len(valid_rowids) > 0:
             stmt = stmt.where(self.tbl.rowid_col.in_(valid_rowids))
+        if len(order_by_exprs) > 0:
+            stmt = stmt.order_by(*order_by_exprs)
         return stmt

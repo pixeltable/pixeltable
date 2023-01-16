@@ -58,9 +58,11 @@ class Function:
             obj = getattr(obj, el)
         return obj
 
-    def is_aggregate_function(self) -> bool:
+    @property
+    def is_aggregate(self) -> bool:
         return self.init_fn is not None
 
+    @property
     def is_library_function(self) -> bool:
         return self.module_name is not None
 

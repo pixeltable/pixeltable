@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 
 import pixeltable as pt
-from pixeltable.type_system import StringType, IntType, ImageType
+from pixeltable.type_system import VideoType, IntType, ImageType
 from pixeltable.tests.utils import get_video_files
 from pixeltable import catalog
 
@@ -12,7 +12,7 @@ class TestVideo:
         video_filepaths = get_video_files()
         db = test_db
         cols = [
-            catalog.Column('video_file', StringType(), nullable=False),
+            catalog.Column('video_file', VideoType(), nullable=False),
             catalog.Column('frame', ImageType(), nullable=False),
             catalog.Column('frame_idx', IntType(), nullable=False),
         ]
