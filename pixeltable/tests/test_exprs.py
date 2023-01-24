@@ -2,28 +2,22 @@ import sqlalchemy as sql
 import pytest
 
 from pixeltable import catalog
-from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType
+from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType
 from pixeltable.function import Function
 from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
-from pixeltable.functions import udf_call, dict_map, cast
+from pixeltable.functions import udf_call, dict_map, cast, sum, count
 from pixeltable.functions.pil.image import blend
 from pixeltable.functions.clip import encode_image
 from pixeltable import exceptions as exc
+from pixeltable.tests import utils
 
 
 class TestExprs:
-    class SumAggregator:
-        def __init__(self):
-            self.sum = 0
-        def update(self, val: int) -> None:
-            self.sum += val
-        def value(self) -> int:
-            return self.sum
-
-    sum = Function(
-        IntType(), [IntType()],
-        init_fn=lambda: TestExprs.SumAggregator(), update_fn=SumAggregator.update, value_fn=SumAggregator.value)
+    # This breaks with exception 'cannot pickle _thread._local obj'
+    # sum = Function(
+    #     IntType(), [IntType()],
+    #     init_fn=lambda: TestExprs.SumAggregator(), update_fn=SumAggregator.update, value_fn=SumAggregator.value)
 
     def test_basic(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -48,6 +42,7 @@ class TestExprs:
         # compound predicates that can be fully evaluated in SQL
         e = ((t.c1 == 'test string') & (t.c2 > 50)).sql_expr()
         assert len(e.clauses) == 2
+
         e = ((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)).sql_expr()
         assert len(e.clauses) == 3
         e = ((t.c1 == 'test string') | (t.c2 > 50)).sql_expr()
@@ -300,7 +295,7 @@ class TestExprs:
             (t.c2 > 5) | (t.c1 == 'test'),
             t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
             t.c8[0, 1:],
-            self.sum(t.c2).window(partition_by=t.c4, order_by=t.c3),
+            utils.sum_uda(t.c2).window(partition_by=t.c4, order_by=t.c3),
         ]
         for e in test_exprs:
             e_serialized = e.serialize()
@@ -328,7 +323,26 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, test_tbl: catalog.Table) -> None:
+    def test_window_fns(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
+        db = test_db
         t = test_tbl
-        _ = t[self.sum(t.c2).window(partition_by=t.c4, order_by=t.c3)].show(100)
+        _ = t[utils.sum_uda(t.c2).window(partition_by=t.c4, order_by=t.c3)].show(100)
         print(_)
+        # backfill works
+        t.add_column(catalog.Column('c9', computed_with=utils.sum_uda(t.c2).window(partition_by=t.c4, order_by=t.c3)))
+
+        c2 = catalog.Column('c2', IntType(), nullable=False)
+        c3 = catalog.Column('c3', FloatType(), nullable=False)
+        c4 = catalog.Column('c4', BoolType(), nullable=False)
+        new_t = db.create_table('insert_test', [c2, c3, c4])
+        new_t.add_column(catalog.Column(
+            'c2_sum', computed_with=utils.sum_uda(new_t.c2).window(partition_by=new_t.c4, order_by=new_t.c3)))
+        data_df = t[t.c2, t.c4, t.c3].show(0).to_pandas()
+        new_t.insert_pandas(data_df)
+        _ = new_t.show(0)
+        print(_)
+
+    def test_aggregates(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        #_ = t[t.c2 % 2, sum(t.c2), count(t.c2), sum(t.c2) + count(t.c2), sum(t.c2) + t.c2 % 2].group_by(t.c2 % 2).show()
+        #print(_)

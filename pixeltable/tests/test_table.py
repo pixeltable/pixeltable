@@ -5,8 +5,9 @@ import math
 import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable import catalog
-from pixeltable.type_system import StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType
-from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files
+from pixeltable.type_system import \
+    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType
+from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files, sum_uda
 
 
 class TestTable:
@@ -202,6 +203,24 @@ class TestTable:
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
         print(tbl_df)
+
+    def test_computed_window_fn(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
+        db = test_db
+        t = test_tbl
+        # backfill
+        t.add_column(catalog.Column('c9', computed_with=sum_uda(t.c2).window(partition_by=t.c4, order_by=t.c3)))
+
+        c2 = catalog.Column('c2', IntType(), nullable=False)
+        c3 = catalog.Column('c3', FloatType(), nullable=False)
+        c4 = catalog.Column('c4', BoolType(), nullable=False)
+        new_t = db.create_table('insert_test', [c2, c3, c4])
+        new_t.add_column(catalog.Column('c5', IntType(), computed_with=lambda c2: c2 * c2))
+        new_t.add_column(catalog.Column(
+            'c6', computed_with=sum_uda(new_t.c5).window(partition_by=new_t.c4, order_by=new_t.c3)))
+        data_df = t[t.c2, t.c4, t.c3].show(0).to_pandas()
+        new_t.insert_pandas(data_df)
+        _ = new_t.show(0)
+        print(_)
 
     @pytest.mark.dependency(depends=['test_insert'])
     def test_revert(self, test_db: catalog.Db) -> None:

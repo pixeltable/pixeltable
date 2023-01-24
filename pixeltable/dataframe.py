@@ -1,8 +1,9 @@
 import base64
 import io
 import os
-from typing import List, Optional, Any, Dict, Generator
+from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 from pathlib import Path
+from dataclasses import dataclass, field
 import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
@@ -70,6 +71,60 @@ class DataFrameResultSet:
             return self.rows[index[0]][index[1]]
 
 
+class AnalysisInfo:
+    def __init__(self):
+        # output of the SQL scan stage
+        self.sql_scan_output_exprs: List[exprs.Expr] = []
+        # output of the agg stage
+        self.agg_output_exprs: List[exprs.Expr] = []
+        # select list providing the input to the SQL scan stage
+        self.sql_select_list: List[sql.sql.expression.ClauseElement] = []
+        # Where clause of the Select stmt of the SQL scan stage
+        self.sql_where_clause: Optional[sql.sql.expression.ClauseElement] = None
+        # filter predicate applied to input rows of the SQL scan stage
+        self.filter: Optional[exprs.Predicate] = None
+        self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
+
+        self.unique_exprs = exprs.UniqueExprSet()
+        self.next_data_row_idx = 0
+
+    @property
+    def num_materialized(self) -> int:
+        return self.next_data_row_idx
+
+    def assign_idxs(self, expr_list: List[exprs.Expr]) -> None:
+        """
+        Assign data/sql_row_idx to exprs in expr_list and all their subcomponents.
+        An expr with to_sql() != None is assumed to be materialized fully via SQL; its components
+        aren't materialized and don't receive idxs.
+        """
+        for e in expr_list:
+            self._assign_idxs_aux(e)
+
+    def _assign_idxs_aux(self, expr: exprs.Expr) -> None:
+        if not self.unique_exprs.add(expr):
+            # nothing left to do
+            return
+
+        sql_expr = expr.sql_expr()
+        # if this can be materialized via SQL we don't need to look at its components;
+        # we special-case Literals because we don't want to have to materialize them via SQL
+        if sql_expr is not None and not isinstance(expr, exprs.Literal):
+            assert expr.data_row_idx < 0
+            expr.data_row_idx = self.next_data_row_idx
+            self.next_data_row_idx += 1
+            expr.sql_row_idx = len(self.sql_select_list)
+            self.sql_select_list.append(sql_expr)
+            return
+
+        # expr value needs to be computed via Expr.eval()
+        for c in expr.components:
+            self._assign_idxs_aux(c)
+        assert expr.data_row_idx < 0
+        expr.data_row_idx = self.next_data_row_idx
+        self.next_data_row_idx += 1
+
+
 class DataFrame:
     def __init__(
             self, tbl: catalog.Table,
@@ -83,46 +138,129 @@ class DataFrame:
         self.where_clause: Optional[exprs.Predicate] = None
         if where_clause is not None:
             self.where_clause = where_clause.copy()
-        self.eval_ctx: Optional[exprs.ExprEvalCtx] = None
+        self.group_by_clause: Optional[List[exprs.Expr]] = None
+        #self.eval_ctx: Optional[exprs.ExprEvalCtx] = None
+        self.analysis_info: Optional[AnalysisInfo] = None
+
+    def analyze(self) -> None:
+        """
+        Populates self.analysis_info.
+        """
+        info = self.analysis_info = AnalysisInfo()
+        if self.where_clause is not None:
+            info.sql_where_clause, info.filter = self.where_clause.extract_sql_predicate()
+            if info.filter is not None:
+                similarity_clauses, info.filter = info.filter.split_conjuncts(
+                    lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
+                if len(similarity_clauses) > 1:
+                    raise exc.OperationalError(f'More than one nearest() or matches() not supported')
+                if len(similarity_clauses) == 1:
+                    info.similarity_clause = similarity_clauses[0]
+                    img_col = info.similarity_clause.img_col_ref.col
+                    if not img_col.is_indexed:
+                        raise exc.OperationalError(
+                            f'nearest()/matches() not available for unindexed column {img_col.name}')
+
+        if info.filter is not None:
+            info.assign_idxs([info.filter])
+        if len(self.group_by_clause) > 0:
+            info.assign_idxs(self.group_by_clause)
+            for e in self.group_by_clause:
+                self._analyze_group_by(e, True)
+        info.assign_idxs(self.select_list)
+        grouping_expr_idxs = set([e.data_row_idx for e in self.group_by_clause])
+        item_is_agg = [self._analyze_select_list(e, grouping_expr_idxs)[0]  for e in self.select_list]
+
+        agg_fn_calls = [e for e in info.unique_exprs if self._is_agg_fn_call(e)]
+        if len(self.group_by_clause) > 0 or len(agg_fn_calls) > 0:
+            # this is an aggregation
+            if item_is_agg.count(False) > 0:
+                raise exc.Error(f'Invalid non-aggregate in select list: {self.select_list[item_is_agg.find(False)]}')
+            info.agg_output_exprs = self.select_list
+            # our sql scan stage needs to materialize: grouping exprs, arguments of agg fn calls
+            info.sql_scan_output_exprs = self.group_by_clause
+            unique_args: Set[int] = set()
+            for fn_call in agg_fn_calls:
+                for c in fn_call.components:
+                    unique_args.add(c.data_row_idx)
+            all_exprs = {e.data_row_idx: e for e in info.unique_exprs}
+            info.sql_scan_output_exprs.extend([all_exprs[idx] for idx in unique_args])
+        else:
+            info.sql_scan_output_exprs = self.select_list
+
+    def _is_agg_fn_call(self, e: exprs.Expr) -> bool:
+        return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call
+
+    def _analyze_group_by(self, e: exprs.Expr, check_sql: bool) -> None:
+        """
+        Make sure that group-by exprs don't contain aggregates.
+        """
+        if e.sql_row_idx == -1 and check_sql:
+            raise exc.Error(f'Invalid grouping expr, needs to be expressible in SQL: {e}')
+        if self._is_agg_fn_call(e):
+            raise exc.Error(f'Cannot group by aggregate function: {e}')
+        for c in e.components:
+            self._analyze_group_by(c, False)
+
+    def _analyze_select_list(self, e: exprs.Expr, grouping_exprs: Set[int]) -> Tuple[bool, bool]:
+        """
+        Analyzes select list item. Returns (list item is output of agg stage, item is output of scan stage).
+        Collects agg fn calls in self.analysis_info.
+        """
+        if e.data_row_idx in grouping_exprs:
+            return True, True
+        elif self._is_agg_fn_call(e):
+            for c in e.components:
+                _, is_scan_output = self._analyze_select_list(c, grouping_exprs)
+                if not is_scan_output:
+                    raise exc.Error(f'Invalid nested aggregates: {e}')
+            return True, False
+        elif isinstance(e, exprs.Literal):
+            return True, True
+        elif isinstance(e, exprs.ColumnRef):
+            # we already know that this isn't a grouping expr
+            return False, True
+        else:
+            # an expression such as <grouping expr 1> + <grouping expr 2> can be the output of both
+            # the agg stage and the scan stage
+            component_is_agg: List[bool] = []
+            component_is_scan: List[bool] = []
+            for c in e.components:
+                is_agg, is_scan = self._analyze_select_list(c, grouping_exprs)
+                component_is_agg.append(is_agg)
+                component_is_scan.append(is_scan)
+            is_agg = component_is_agg.count(True) == len(e.components)
+            is_scan = component_is_scan.count(True) == len(e.components)
+            if not is_agg and not is_scan:
+                raise exc.Error(f'Invalid expression, mixes aggregate with non-aggregate: {e}')
+            return is_agg, is_scan
 
     def exec(self, n: int = 20, select_pk: bool = False) -> Generator[List[Any], None, None]:
         """
         Returned value: list of select list values.
         If select_pk == True, also selects the primary key of the storage table (which is rowid and v_min).
         """
-        sql_where_clause: Optional[sql.sql.expression.ClauseElement] = None
-        remaining_where_clause: Optional[exprs.Predicate] = None
-        similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
-        if self.where_clause is not None:
-            sql_where_clause, remaining_where_clause = self.where_clause.extract_sql_predicate()
-            if remaining_where_clause is not None:
-                similarity_clauses, remaining_where_clause = remaining_where_clause.split_conjuncts(
-                    lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
-                if len(similarity_clauses) > 1:
-                    raise exc.OperationalError(f'More than one nearest() or matches() not supported')
-                if len(similarity_clauses) == 1:
-                    similarity_clause = similarity_clauses[0]
-                    img_col = similarity_clause.img_col_ref.col
-                    if not img_col.is_indexed:
-                        raise exc.OperationalError(
-                            f'nearest()/matches() not available for unindexed column {img_col.name}')
-                    if n > 100:
-                        raise exc.OperationalError(f'nearest()/matches() requires show(n <= 100): n={n}')
-
         if self.select_list is None:
             self.select_list = [exprs.ColumnRef(col) for col in self.tbl.columns]
+        if self.group_by_clause is None:
+            self.group_by_clause = []
         for item in self.select_list:
             item.bind_rel_paths(None)
-        if self.eval_ctx is None:
+        if self.analysis_info is None:
+            self.analyze()
+        if self.analysis_info.similarity_clause is not None and n > 100:
+            raise exc.OperationalError(f'nearest()/matches() requires show(n <= 100): n={n}')
+        #if self.eval_ctx is None:
             # constructing the EvalCtx is not idempotent
-            self.eval_ctx = exprs.ExprEvalCtx(self.select_list, remaining_where_clause)
+            #self.eval_ctx = exprs.ExprEvalCtx(self.select_list, self.analysis_info.filter)
 
         # determine order_by clause for window functions, if any
         window_fn_calls = [
-            e for e in exprs.Expr.list_subexprs(self.select_list)
+            e for e in self.analysis_info.unique_exprs
             if isinstance(e, exprs.FunctionCall) and e.is_window_fn_call
         ]
         order_by_sql_exprs: List[sql.sql.expression.ClauseElement] = []
+        # TODO: check compatibility of window clauses
         if len(window_fn_calls) > 0:
             order_by_exprs = window_fn_calls[0].get_window_sort_exprs()
             order_by_sql_exprs = [e.sql_expr() for e in order_by_exprs]
@@ -131,20 +269,21 @@ class DataFrame:
                     raise exc.Error(f'order_by element cannot be expressed in SQL: {order_by_exprs[i]}')
 
         idx_rowids: List[int] = []  # rowids returned by index lookup
-        if similarity_clause is not None:
+        if self.analysis_info.similarity_clause is not None:
             # do index lookup
-            assert similarity_clause.img_col_ref.col.idx is not None
-            embed = similarity_clause.embedding()
-            idx_rowids = similarity_clause.img_col_ref.col.idx.search(embed, n, self.tbl.valid_rowids)
+            assert self.analysis_info.similarity_clause.img_col_ref.col.idx is not None
+            embed = self.analysis_info.similarity_clause.embedding()
+            idx_rowids = self.analysis_info.similarity_clause.img_col_ref.col.idx.search(embed, n, self.tbl.valid_rowids)
 
         with Env.get().get_engine().connect() as conn:
             stmt = self._create_select_stmt(
-                self.eval_ctx.sql_exprs, sql_where_clause, idx_rowids, select_pk, order_by_sql_exprs)
+                self.analysis_info.sql_select_list, self.analysis_info.sql_where_clause, idx_rowids, select_pk,
+                order_by_sql_exprs)
             num_rows = 0
-            evaluator = exprs.ExprEvaluator(self.select_list, remaining_where_clause)
+            evaluator = exprs.ExprEvaluator(self.select_list, self.analysis_info.filter)
 
             for row in conn.execute(stmt):
-                data_row: List[Any] = [None] * self.eval_ctx.num_materialized
+                data_row: List[Any] = [None] * self.analysis_info.num_materialized
                 if not evaluator.eval(row._data, data_row):
                     continue
 
@@ -234,6 +373,13 @@ class DataFrame:
                 # TODO: check that ColumnRefs in expr refer to self.tbl
             return DataFrame(self.tbl, select_list=index, where_clause=self.where_clause)
         raise TypeError(f'Invalid index type: {type(index)}')
+
+    def group_by(self, *expr_list: Tuple[exprs.Expr]) -> 'DataFrame':
+        for e in expr_list:
+            if not isinstance(e, exprs.Expr):
+                raise exc.Error(f'Invalid expr in group_by(): {e}')
+        self.group_by_clause = [e.copy() for e in expr_list]
+        return self
 
     def _create_select_stmt(
             self, select_list: List[sql.sql.expression.ClauseElement],

@@ -4,11 +4,10 @@ import datetime
 import enum
 import inspect
 import typing
-from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator
+from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Iterator
 import operator
 import json
 import io
-from dataclasses import dataclass
 
 import PIL.Image
 import jmespath
@@ -58,6 +57,7 @@ class ArithmeticOperator(enum.Enum):
     SUB = 1
     MUL = 2
     DIV = 3
+    MOD = 4
 
     def __str__(self) -> str:
         if self == self.ADD:
@@ -68,6 +68,8 @@ class ArithmeticOperator(enum.Enum):
             return '*'
         if self == self.DIV:
             return '/'
+        if self == self.MOD:
+            return '%'
 
 
 class ExprScope:
@@ -280,6 +282,13 @@ class Expr(abc.ABC):
     def _from_dict(cls, d: Dict, components: List['Expr'], t: catalog.Table) -> 'Expr':
         assert False, 'not implemented'
 
+    def __getitem__(self, index: object) -> 'Expr':
+        if self.col_type.is_json_type():
+            return JsonPath(self).__getitem__(index)
+        if self.col_type.is_array_type():
+            return ArraySlice(self, index)
+        raise exc.Error(f'Type {self.col_type} is not subscriptable')
+
     def __getattr__(self, name: str) -> 'ImageMemberAccess':
         """
         ex.: <img col>.rotate(60)
@@ -329,6 +338,9 @@ class Expr(abc.ABC):
     def __truediv__(self, other: object) -> 'ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.DIV, other)
 
+    def __mod__(self, other: object) -> 'ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.MOD, other)
+
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'ArithmeticExpr':
         """
         other: Union[Expr, LiteralPythonTypes]
@@ -350,13 +362,6 @@ class ColumnRef(Expr):
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
         return super().__getattr__(name)
-
-    def __getitem__(self, index: object) -> Expr:
-        if self.col_type.is_json_type():
-            return JsonPath(self).__getitem__(index)
-        if self.col_type.is_array_type():
-            return ArraySlice(self, index)
-        return super().__getitem__(index)
 
     def display_name(self) -> str:
         return self.col.name
@@ -462,7 +467,11 @@ class FunctionCall(Expr):
 
     @property
     def is_window_fn_call(self) -> bool:
-        return self.fn.is_aggregate
+        return self.fn.is_aggregate and (self.partition_by_idx != -1 or len(self.order_by) > 0)
+
+    @property
+    def is_agg_fn_call(self) -> bool:
+        return self.fn.is_aggregate and self.partition_by_idx == -1 and len(self.order_by) == 0
 
     def get_window_sort_exprs(self) -> List[Expr]:
         return [*self.partition_by, *self.order_by]
@@ -1308,6 +1317,8 @@ class ArithmeticExpr(Expr):
             return left * right
         if self.operator == ArithmeticOperator.DIV:
             return left / right
+        if self.operator == ArithmeticOperator.MOD:
+            return left % right
 
     def eval(self, data_row: List[Any]) -> None:
         op1_val = data_row[self._op1.data_row_idx]
@@ -1326,6 +1337,8 @@ class ArithmeticExpr(Expr):
             data_row[self.data_row_idx] = op1_val * op2_val
         elif self.operator == ArithmeticOperator.DIV:
             data_row[self.data_row_idx] = op1_val / op2_val
+        elif self.operator == ArithmeticOperator.MOD:
+            data_row[self.data_row_idx] = op1_val % op2_val
 
     def _as_dict(self) -> Dict:
         return {'operator': self.operator.value, **super()._as_dict()}
@@ -1584,6 +1597,9 @@ class UniqueExprSet:
         except StopIteration:
             self.unique_exprs.append(expr)
             return True
+
+    def __iter__(self) -> Iterator[Expr]:
+        return iter(self.unique_exprs)
 
 
 class ExprEvalCtx:

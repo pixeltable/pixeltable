@@ -1,3 +1,4 @@
+import sys
 from typing import Optional, Callable, Dict, List, Any
 import importlib
 import sqlalchemy as sql
@@ -6,6 +7,8 @@ import cloudpickle
 from pixeltable.type_system import ColumnType
 from pixeltable import store
 from pixeltable.env import Env
+from pixeltable import exceptions as exc
+#from pixeltable import function_pickle
 
 
 class Function:
@@ -135,10 +138,6 @@ class FunctionRegistry:
     def __init__(self):
         self.fns_by_id: Dict[int, Function] = {}
 
-    @classmethod
-    def register_pickled_module(cls, module: Any) -> None:
-        cloudpickle.register_pickle_by_value(module)
-
     def clear_cache(self) -> None:
         """
         Useful during testing
@@ -148,21 +147,32 @@ class FunctionRegistry:
     def get_function(self, id: int) -> Function:
         if id not in self.fns_by_id:
             stmt = sql.select(
-                store.Function.return_type, store.Function.param_types,
+                store.Function.name, store.Function.return_type, store.Function.param_types,
                 store.Function.eval_obj, store.Function.init_obj, store.Function.update_obj, store.Function.value_obj) \
                 .where(store.Function.id == id)
             with Env.get().get_engine().begin() as conn:
                 rows = conn.execute(stmt)
                 row = next(rows)
-                return_type = ColumnType.deserialize(row[0])
-                param_types = ColumnType.deserialize_list(row[1])
-                eval_fn = cloudpickle.loads(row[2]) if row[2] is not None else None
-                init_fn = cloudpickle.loads(row[3]) if row[3] is not None else None
-                update_fn = cloudpickle.loads(row[4]) if row[4] is not None else None
-                value_fn = cloudpickle.loads(row[5]) if row[5] is not None else None
+                name = row[0]
+                return_type = ColumnType.deserialize(row[1])
+                param_types = ColumnType.deserialize_list(row[2])
+                eval_fn = cloudpickle.loads(row[3]) if row[3] is not None else None
+                # TODO: are these checks needed?
+                if row[3] is not None and eval_fn is None:
+                    raise exc.Error(f'Could not load eval_fn for function {name}')
+                init_fn = cloudpickle.loads(row[4]) if row[4] is not None else None
+                if row[4] is not None and init_fn is None:
+                    raise exc.Error(f'Could not load init_fn for aggregate function {name}')
+                update_fn = cloudpickle.loads(row[5]) if row[5] is not None else None
+                if row[5] is not None and update_fn is None:
+                    raise exc.Error(f'Could not load update_fn for aggregate function {name}')
+                value_fn = cloudpickle.loads(row[6]) if row[6] is not None else None
+                if row[6] is not None and value_fn is None:
+                    raise exc.Error(f'Could not load value_fn for aggregate function {name}')
 
                 func = Function(
-                    return_type, param_types, eval_fn=eval_fn, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn)
+                    return_type, param_types, id=id, eval_fn=eval_fn, init_fn=init_fn, update_fn=update_fn,
+                    value_fn=value_fn)
                 self.fns_by_id[id] = func
         assert id in self.fns_by_id
         return self.fns_by_id[id]
@@ -173,9 +183,9 @@ class FunctionRegistry:
     ) -> None:
         with Env.get().get_engine().begin() as conn:
             eval_fn_str = cloudpickle.dumps(fn.eval_fn) if fn.eval_fn is not None else None
-            init_fn_str = cloudpickle.dumps(fn.eval_fn) if fn.init_fn is not None else None
-            update_fn_str = cloudpickle.dumps(fn.eval_fn) if fn.update_fn is not None else None
-            value_fn_str = cloudpickle.dumps(fn.eval_fn) if fn.value_fn is not None else None
+            init_fn_str = cloudpickle.dumps(fn.init_fn) if fn.init_fn is not None else None
+            update_fn_str = cloudpickle.dumps(fn.update_fn) if fn.update_fn is not None else None
+            value_fn_str = cloudpickle.dumps(fn.value_fn) if fn.value_fn is not None else None
             res = conn.execute(
                 sql.insert(store.Function.__table__)
                     .values(
@@ -222,3 +232,28 @@ class FunctionRegistry:
             conn.execute(
                 sql.delete(store.Function.__table__)
                     .where(store.Function.id == id))
+
+
+# def create_module_list() -> None:
+#     """
+#     Generate file standard_modules.py, which contains a list of modules available after 'import pixeltable'.
+#     These are the modules we don't want to pickle.
+#     TODO: move this elsewhere?
+#     """
+#     with open('standard_modules.py', 'w') as f:
+#         f.write('module_names = set([\n    ')
+#         line_len = 0
+#         module_names = sys.modules.keys()
+#         for name in module_names:
+#             str = f"'{name}', "
+#             line_len += len(str)
+#             if line_len >= 80:
+#                 f.write('\n    ')
+#                 line_len = 4  # spaces
+#             f.write(str)
+#         f.write('\n])')
+
+
+# make create_module_list() callable from the commandline
+if __name__ == '__main__':
+    globals()[sys.argv[1]]()

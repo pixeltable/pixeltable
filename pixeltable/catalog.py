@@ -2,6 +2,7 @@ from typing import Optional, List, Set, Dict, Any, Type, Union, Callable
 import re
 import inspect
 import io
+import gc
 
 import PIL, cv2
 import numpy as np
@@ -665,6 +666,7 @@ class MutableTable(Table):
         evaluator: Optional[exprs.ExprEvaluator] = None
         input_col_refs: List[exprs.ColumnRef] = []  # columns needed as input for computing value_exprs
         computed_cols = [col for col in self.cols if col.value_expr is not None]
+        window_sort_exprs: List[exprs.Expr] = []
         if len(computed_cols) > 0:
             value_exprs = [c.value_expr for c in computed_cols]
             eval_ctx = exprs.ComputedColEvalCtx([(exprs.ColumnRef(c), c.value_expr) for c in computed_cols])
@@ -675,11 +677,22 @@ class MutableTable(Table):
                 if isinstance(e, exprs.ColumnRef) and e.col.value_expr is None
             ]
 
+            # determine order_by clause for window functions, if any
+            window_fn_calls = [
+                e for e in exprs.Expr.list_subexprs(value_exprs)
+                if isinstance(e, exprs.FunctionCall) and e.is_window_fn_call
+            ]
+            window_sort_exprs = window_fn_calls[0].get_window_sort_exprs() if len(window_fn_calls) > 0 else []
+
         # we're creating a new version
         self.version += 1
         # construct new df with the storage column names, in order to iterate over it more easily
         stored_data = {col.storage_name(): data[col.name] for col in data_cols}
         stored_data_df = pd.DataFrame(data=stored_data)
+        if len(window_sort_exprs) > 0:
+            # need to sort data in order to compute windowed agg functions
+            storage_col_names = [e.col.storage_name() for e in window_sort_exprs]
+            stored_data_df.sort_values(storage_col_names, axis=0, inplace=True)
         insert_values: List[Dict[str, Any]] = []
         with tqdm(total=len(stored_data_df)) as progress_bar:
             for i, row in enumerate(stored_data_df.itertuples(index=False)):
