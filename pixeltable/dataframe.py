@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
+import copy
 
 from pixeltable import catalog
 from pixeltable.env import Env
@@ -84,6 +85,7 @@ class AnalysisInfo:
         # filter predicate applied to input rows of the SQL scan stage
         self.filter: Optional[exprs.Predicate] = None
         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
+        self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
 
         self.unique_exprs = exprs.UniqueExprSet()
         self.next_data_row_idx = 0
@@ -100,6 +102,7 @@ class AnalysisInfo:
         """
         for e in expr_list:
             self._assign_idxs_aux(e)
+        self.agg_fn_calls = [e for e in self.unique_exprs if isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call]
 
     def _assign_idxs_aux(self, expr: exprs.Expr) -> None:
         if not self.unique_exprs.add(expr):
@@ -139,7 +142,6 @@ class DataFrame:
         if where_clause is not None:
             self.where_clause = where_clause.copy()
         self.group_by_clause: Optional[List[exprs.Expr]] = None
-        #self.eval_ctx: Optional[exprs.ExprEvalCtx] = None
         self.analysis_info: Optional[AnalysisInfo] = None
 
     def analyze(self) -> None:
@@ -171,22 +173,26 @@ class DataFrame:
         grouping_expr_idxs = set([e.data_row_idx for e in self.group_by_clause])
         item_is_agg = [self._analyze_select_list(e, grouping_expr_idxs)[0]  for e in self.select_list]
 
-        agg_fn_calls = [e for e in info.unique_exprs if self._is_agg_fn_call(e)]
-        if len(self.group_by_clause) > 0 or len(agg_fn_calls) > 0:
+        if self.is_agg():
             # this is an aggregation
             if item_is_agg.count(False) > 0:
                 raise exc.Error(f'Invalid non-aggregate in select list: {self.select_list[item_is_agg.find(False)]}')
-            info.agg_output_exprs = self.select_list
+            # the agg stage materializes select list items that haven't already been provided by SQL
+            info.agg_output_exprs = [e for e in self.select_list if e.sql_row_idx == -1]
             # our sql scan stage needs to materialize: grouping exprs, arguments of agg fn calls
-            info.sql_scan_output_exprs = self.group_by_clause
+            info.sql_scan_output_exprs = copy.copy(self.group_by_clause)
             unique_args: Set[int] = set()
-            for fn_call in agg_fn_calls:
+            for fn_call in info.agg_fn_calls:
                 for c in fn_call.components:
                     unique_args.add(c.data_row_idx)
             all_exprs = {e.data_row_idx: e for e in info.unique_exprs}
             info.sql_scan_output_exprs.extend([all_exprs[idx] for idx in unique_args])
         else:
             info.sql_scan_output_exprs = self.select_list
+
+    def is_agg(self) -> bool:
+        return len(self.group_by_clause) > 0 \
+            or (self.analysis_info is not None and len(self.analysis_info.agg_fn_calls) > 0)
 
     def _is_agg_fn_call(self, e: exprs.Expr) -> bool:
         return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call
@@ -250,23 +256,24 @@ class DataFrame:
             self.analyze()
         if self.analysis_info.similarity_clause is not None and n > 100:
             raise exc.OperationalError(f'nearest()/matches() requires show(n <= 100): n={n}')
-        #if self.eval_ctx is None:
-            # constructing the EvalCtx is not idempotent
-            #self.eval_ctx = exprs.ExprEvalCtx(self.select_list, self.analysis_info.filter)
 
-        # determine order_by clause for window functions, if any
+        # determine order_by clause for window functions or grouping, if present
         window_fn_calls = [
             e for e in self.analysis_info.unique_exprs
             if isinstance(e, exprs.FunctionCall) and e.is_window_fn_call
         ]
-        order_by_sql_exprs: List[sql.sql.expression.ClauseElement] = []
+        if len(window_fn_calls) > 0 and self.is_agg():
+            raise exc.Error(f'Cannot combine window functions with non-windowed aggregation')
+        order_by_exprs: List[exprs.Expr] = []
         # TODO: check compatibility of window clauses
         if len(window_fn_calls) > 0:
             order_by_exprs = window_fn_calls[0].get_window_sort_exprs()
-            order_by_sql_exprs = [e.sql_expr() for e in order_by_exprs]
-            for i in range(len(order_by_exprs)):
-                if order_by_sql_exprs[i] is None:
-                    raise exc.Error(f'order_by element cannot be expressed in SQL: {order_by_exprs[i]}')
+        elif self.is_agg():
+            order_by_exprs = self.group_by_clause
+        order_by_clause = [e.sql_expr() for e in order_by_exprs]
+        for i in range(len(order_by_exprs)):
+            if order_by_clause[i] is None:
+                raise exc.Error(f'order_by element cannot be expressed in SQL: {order_by_exprs[i]}')
 
         idx_rowids: List[int] = []  # rowids returned by index lookup
         if self.analysis_info.similarity_clause is not None:
@@ -278,24 +285,52 @@ class DataFrame:
         with Env.get().get_engine().connect() as conn:
             stmt = self._create_select_stmt(
                 self.analysis_info.sql_select_list, self.analysis_info.sql_where_clause, idx_rowids, select_pk,
-                order_by_sql_exprs)
+                order_by_clause)
             num_rows = 0
-            evaluator = exprs.ExprEvaluator(self.select_list, self.analysis_info.filter)
+            sql_scan_evaluator = exprs.ExprEvaluator(
+                self.analysis_info.sql_scan_output_exprs, self.analysis_info.filter)
+            agg_evaluator = exprs.ExprEvaluator(self.analysis_info.agg_output_exprs, None)
 
+            current_group: Optional[List[Any]] = None  # for grouping agg, the values of the group-by exprs
             for row in conn.execute(stmt):
+                sql_row = row._data
                 data_row: List[Any] = [None] * self.analysis_info.num_materialized
-                if not evaluator.eval(row._data, data_row):
+                if not sql_scan_evaluator.eval(sql_row, data_row):
                     continue
 
                 # copy select list results into contiguous array
-                # TODO: make this unnecessary
+                result_row: Optional[List[Any]] = None
+                if self.is_agg():
+                    group = [data_row[e.data_row_idx] for e in self.group_by_clause]
+                    if current_group is None:
+                        current_group = group
+                    if group != current_group:
+                        # we're entering a new group, emit a row for the last one
+                        agg_evaluator.eval(last_sql_row, last_data_row)
+                        result_row = [last_data_row[e.data_row_idx] for e in self.select_list]
+                        current_group = group
+                        for fn_call in self.analysis_info.agg_fn_calls:
+                            fn_call.reset_agg()
+                    for fn_call in self.analysis_info.agg_fn_calls:
+                        fn_call.update(data_row)
+                else:
+                    result_row = [data_row[e.data_row_idx] for e in self.select_list]
+                    if select_pk:
+                        result_row.extend(sql_row[-2:])
+
+                last_data_row = data_row
+                last_sql_row = row._data
+                if result_row is not None:
+                    yield result_row
+                    num_rows += 1
+                    if n > 0 and num_rows == n:
+                        break
+
+            if self.is_agg():
+                # we need to emit the output row for the current group
+                agg_evaluator.eval(sql_row, data_row)
                 result_row = [data_row[e.data_row_idx] for e in self.select_list]
-                if select_pk:
-                    result_row.extend(row._data[-2:])
                 yield result_row
-                num_rows += 1
-                if n > 0 and num_rows == n:
-                    break
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         data_rows = [row for row in self.exec(n)]

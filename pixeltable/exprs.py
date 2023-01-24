@@ -480,7 +480,22 @@ class FunctionCall(Expr):
         # TODO: implement for standard aggregate functions
         return None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def reset_agg(self) -> None:
+        """
+        Init agg state
+        """
+        assert self.is_agg_fn_call
+        self.aggregator = self.fn.init_fn()
+
+    def update(self, data_row: List[Any]) -> None:
+        """
+        Update agg state
+        """
+        assert self.is_agg_fn_call
+        args = self._make_args(data_row)
+        self.fn.update_fn(self.aggregator, *args)
+
+    def _make_args(self, data_row: List[Any]) -> List[Any]:
         args = copy.copy(self.args)
         # fill in missing child values
         i = 0
@@ -488,10 +503,13 @@ class FunctionCall(Expr):
             if args[j] is None:
                 args[j] = data_row[self.components[i].data_row_idx]
                 i += 1
+        return args
+
+    def eval(self, data_row: List[Any]) -> None:
+        args = self._make_args(data_row)
         if not self.fn.is_aggregate:
             data_row[self.data_row_idx] = self.fn.eval_fn(*args)
-        else:
-            # this is a window function
+        elif self.is_window_fn_call:
             if self.partition_by_idx != -1:
                 partition_vals = [data_row[e.data_row_idx] for e in self.partition_by]
                 if partition_vals != self.current_partition_vals:
@@ -501,6 +519,9 @@ class FunctionCall(Expr):
             elif self.aggregator is None:
                 self.aggregator = self.fn.init_fn()
             self.fn.update_fn(self.aggregator, *args)
+            data_row[self.data_row_idx] = self.fn.value_fn(self.aggregator)
+        else:
+            assert self.is_agg_fn_call
             data_row[self.data_row_idx] = self.fn.value_fn(self.aggregator)
 
     def _as_dict(self) -> Dict:

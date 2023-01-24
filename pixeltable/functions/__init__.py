@@ -91,5 +91,7 @@ __all__ = [
     udf_call,
     cast,
     dict_map,
-    sum
+    sum,
+    count,
+    mean,
 ]

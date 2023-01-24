@@ -344,5 +344,5 @@ class TestExprs:
 
     def test_aggregates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        #_ = t[t.c2 % 2, sum(t.c2), count(t.c2), sum(t.c2) + count(t.c2), sum(t.c2) + t.c2 % 2].group_by(t.c2 % 2).show()
-        #print(_)
+        _ = t[t.c2 % 2, sum(t.c2), count(t.c2), sum(t.c2) + count(t.c2), sum(t.c2) + t.c2 % 2].group_by(t.c2 % 2).show()
+        print(_)
