@@ -8,6 +8,7 @@ from pixeltable import catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files, sum_uda
+from pixeltable.functions import make_video
 
 
 class TestTable:
@@ -80,13 +81,16 @@ class TestTable:
         db = test_db
         cols = [
             catalog.Column('video', VideoType(), nullable=False),
+            catalog.Column('frame', ImageType(), nullable=False),
+            catalog.Column('frame_idx', IntType(), nullable=False),
         ]
         tbl = db.create_table('test', cols)
-        df = pd.DataFrame({'video': get_video_files()})
-        tbl.insert_pandas(df)
+        df = pd.DataFrame({'video': get_video_files()[:1]})
+        tbl.insert_pandas(df, video_column='video', frame_column='frame', frame_idx_column='frame_idx', fps=25)
         html_str = tbl.show(n=100)._repr_html_()
-        print(html_str)
         # TODO: check html_str
+        _ = tbl[make_video(tbl.frame_idx, tbl.frame)].group_by(tbl.video).show()
+        print('')
 
     @pytest.mark.dependency(name='test_insert')
     def test_insert(self, test_db: catalog.Db) -> None:

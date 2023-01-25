@@ -40,6 +40,7 @@ class Env:
             self.home.mkdir()
             self.img_dir.mkdir()
             self.nnidx_dir.mkdir()
+            self.tmp_video_dir.mkdir()
             self.tear_down()
             if not database_exists(db_url):
                 create_database(db_url)
@@ -71,6 +72,10 @@ class Env:
     def get_nnidx_dir(self) -> Path:
         assert self.nnidx_dir is not None
         return self.nnidx_dir
+
+    def get_tmp_video_dir(self) -> Path:
+        assert self.tmp_video_dir is not None
+        return self.tmp_video_dir
 
     def get_engine(self) -> sql.engine.base.Engine:
         assert self.sa_engine is not None

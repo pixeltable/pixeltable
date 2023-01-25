@@ -1,10 +1,17 @@
+import os
 from typing import Callable, List, Optional, Union
 import inspect
+from pathlib import Path
+import tempfile
 
-from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType
+import PIL, cv2
+import numpy as np
+
+from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
 from pixeltable.function import Function
 from pixeltable import catalog
 from pixeltable import exprs
+from pixeltable import env
 import pixeltable.exceptions as exc
 
 
@@ -87,6 +94,43 @@ mean = Function(
     init_fn=MeanAggregator.make_aggregator, update_fn=MeanAggregator.update, value_fn=MeanAggregator.value)
 
 
+class VideoAggregator:
+    def __init__(self):
+        self.video_writer = None
+        self.size = None
+    @classmethod
+    def make_aggregator(cls) -> 'VideoAggregator':
+        return cls()
+    def update(self, frame_idx: int, frame: PIL.Image.Image) -> None:
+        if self.video_writer is None:
+            self.size = (frame.width, frame.height)
+            self.out_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
+            self.tmp_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
+            self.video_writer = cv2.VideoWriter(str(self.tmp_file), cv2.VideoWriter_fourcc(*'MP4V'), 25, self.size)
+            # self.writer = (
+            #     ffmpeg
+            #     .input('pipe:', format='rawvideo', pix_fmt='rgb24', s='{}x{}'.format(frame.width, frame.height))
+            #     .output('out-video.mp4', pix_fmt='yuv420p')
+            #     .overwrite_output()
+            #     .run_async(pipe_stdin=True)
+            # )
+
+        frame_array = np.array(frame)
+        frame_array = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
+        self.video_writer.write(frame_array)
+        #self.writer.stdin.write(frame_array.tobytes())
+    def value(self) -> str:
+        self.video_writer.release()
+        os.system(f'ffmpeg -i {self.tmp_file} -vcodec libx264 {self.out_file}')
+        os.remove(self.tmp_file)
+        #self.writer.close()
+        return self.out_file
+
+make_video = Function(
+    VideoType(), [IntType(), ImageType()],
+    init_fn=VideoAggregator.make_aggregator, update_fn=VideoAggregator.update, value_fn=VideoAggregator.value)
+
+
 __all__ = [
     udf_call,
     cast,
@@ -94,4 +138,5 @@ __all__ = [
     sum,
     count,
     mean,
+    make_video
 ]

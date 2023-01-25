@@ -394,7 +394,7 @@ class MutableTable(Table):
             conn.execute(sql.text(stmt))
         self._create_sa_tbl()
 
-        if not c.is_computed:
+        if not c.is_computed or self.count() == 0:
             return
         # backfill the existing rows
         from pixeltable.dataframe import DataFrame
