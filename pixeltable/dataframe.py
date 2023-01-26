@@ -284,7 +284,7 @@ class DataFrame:
             embed = self.analysis_info.similarity_clause.embedding()
             idx_rowids = self.analysis_info.similarity_clause.img_col_ref.col.idx.search(embed, n, self.tbl.valid_rowids)
 
-        with Env.get().get_engine().connect() as conn:
+        with Env.get().engine.connect() as conn:
             stmt = self._create_select_stmt(
                 self.analysis_info.sql_select_list, self.analysis_info.sql_where_clause, idx_rowids, select_pk,
                 order_by_clause)
@@ -352,7 +352,7 @@ class DataFrame:
             sql_where_clause = self.where_clause.sql_expr()
             assert sql_where_clause is not None
             stmt = stmt.where(sql_where_clause)
-        with Env.get().get_engine().connect() as conn:
+        with Env.get().engine.connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
             return result
@@ -376,7 +376,7 @@ class DataFrame:
             sql_where_clause = self.where_clause.sql_expr()
             assert sql_where_clause is not None
             stmt = stmt.where(sql_where_clause)
-        with Env.get().get_engine().connect() as conn:
+        with Env.get().engine.connect() as conn:
             result = {row._data[0]: i for i, row in enumerate(conn.execute(stmt))}
             return result
 

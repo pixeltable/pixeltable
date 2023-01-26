@@ -16,7 +16,7 @@ def extract_frames(video_path_str: str, output_path_prefix: str, fps: int = 0) -
         raise OperationalError(f'File not found: {video_path_str}')
     if not video_path.is_file():
         raise OperationalError(f'Not a file: {video_path_str}')
-    output_path_str = f'{output_path_prefix}_%05d.jpg'
+    output_path_str = f'{output_path_prefix}_%07d.jpg'
     s = ffmpeg.input(video_path)
     if fps > 0:
         s = s.filter('fps', fps)

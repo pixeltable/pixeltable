@@ -54,4 +54,4 @@ class VectorIndex:
 
     @classmethod
     def _filename(cls, name: str) -> str:
-        return str(Env.get().get_nnidx_dir() / f'idx_{name}')
+        return str(Env.get().nnidx_dir / f'idx_{name}')

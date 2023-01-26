@@ -2,7 +2,7 @@ from typing import Optional, List, Set, Dict, Any, Type, Union, Callable
 import re
 import inspect
 import io
-import gc
+import os
 
 import PIL, cv2
 import numpy as np
@@ -19,6 +19,7 @@ from pixeltable.env import Env
 from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType
 from pixeltable.utils import clip, video
+from pixeltable import utils
 from pixeltable.index import VectorIndex
 from pixeltable.function import Function, FunctionRegistry
 
@@ -219,7 +220,7 @@ class Table(SchemaObject):
         stmt = sql.select(self.rowid_col) \
             .where(self.v_min_col <= self.version) \
             .where(self.v_max_col > self.version)
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             rows = conn.execute(stmt)
             for row in rows:
                 rowid = row[0]
@@ -372,7 +373,7 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
@@ -398,8 +399,9 @@ class MutableTable(Table):
             return
         # backfill the existing rows
         from pixeltable.dataframe import DataFrame
-        query = DataFrame(self, [c.value_expr])
-        with Env.get().get_engine().begin() as conn:
+        # use copy to avoid reusing existing execution state
+        query = DataFrame(self, [c.value_expr.copy()])
+        with Env.get().engine.begin() as conn:
             with tqdm(total=self.count()) as progress_bar:
                 for result_row in query.exec(n=0, select_pk=True):
                     column_val, rowid, v_min = result_row
@@ -442,7 +444,7 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
@@ -481,7 +483,7 @@ class MutableTable(Table):
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
@@ -514,7 +516,7 @@ class MutableTable(Table):
         if col.col_type.is_image_type():
             # replace PIL.Image.Image with file path
             img = val
-            img_path = Env.get().get_img_dir() / f'img_{self.id}_{col.id}_{self.version}_{rowid}.jpg'
+            img_path = utils.get_computed_img_path(self.id, col.id, self.version, rowid)
             img.save(img_path)
             return str(img_path)
         elif col.col_type.is_array_type():
@@ -600,6 +602,9 @@ class MutableTable(Table):
                 raise exc.InsertError(
                     f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
 
+        # we're creating a new version
+        self.version += 1
+
         # frame extraction from videos
         if video_column is not None:
             video_col = self.cols_by_name[video_column]
@@ -617,8 +622,8 @@ class MutableTable(Table):
                 input_row = input_tuple._asdict()
                 path = input_row[video_column]
                 # we need to generate a unique prefix for each set of frames corresponding to a single video
-                frame_path_prefix =\
-                    Env.get().get_img_dir() / f'frame_{self.id}_{video_col.id}_{self.next_row_id + input_row_idx}'
+                frame_path_prefix = utils.get_extracted_frame_path(
+                    self.id, video_col.id, self.version, self.next_row_id + input_row_idx)
                 frame_paths = video.extract_frames(path, frame_path_prefix, fps)
                 frame_rows = [{frame_column: p, frame_idx_column: i, **input_row} for i, p in enumerate(frame_paths)]
                 expanded_rows.extend(frame_rows)
@@ -647,7 +652,7 @@ class MutableTable(Table):
 
             # image cols: make sure file path points to a valid image file; build index if col is indexed
             if col.col_type.is_video_type():
-                for i, (_, path_str) in enumerate(data[col.name].items()):
+                for _, path_str in data[col.name].items():
                     cap = cv2.VideoCapture(path_str)
                     success = cap.isOpened()
                     cap.release()
@@ -666,10 +671,13 @@ class MutableTable(Table):
         evaluator: Optional[exprs.ExprEvaluator] = None
         input_col_refs: List[exprs.ColumnRef] = []  # columns needed as input for computing value_exprs
         computed_cols = [col for col in self.cols if col.value_expr is not None]
+        value_exprs: List[exprs.Expr] = []  # for computed_cols
         window_sort_exprs: List[exprs.Expr] = []
         if len(computed_cols) > 0:
-            value_exprs = [c.value_expr for c in computed_cols]
-            eval_ctx = exprs.ComputedColEvalCtx([(exprs.ColumnRef(c), c.value_expr) for c in computed_cols])
+            # create copies to avoid reusing past execution state; eval ctx and evaluator need to share these copies
+            value_exprs = [c.value_expr.copy() for c in computed_cols]
+            eval_ctx = exprs.ComputedColEvalCtx(
+                [(exprs.ColumnRef(computed_cols[i]), value_exprs[i]) for i in range(len(computed_cols))])
             evaluator = exprs.ExprEvaluator(value_exprs, None, with_sql=False)
             input_col_refs = [
                 e for e in evaluator.output_eval_exprs
@@ -684,8 +692,6 @@ class MutableTable(Table):
             ]
             window_sort_exprs = window_fn_calls[0].get_window_sort_exprs() if len(window_fn_calls) > 0 else []
 
-        # we're creating a new version
-        self.version += 1
         # construct new df with the storage column names, in order to iterate over it more easily
         stored_data = {col.storage_name(): data[col.name] for col in data_cols}
         stored_data_df = pd.DataFrame(data=stored_data)
@@ -695,8 +701,8 @@ class MutableTable(Table):
             stored_data_df.sort_values(storage_col_names, axis=0, inplace=True)
         insert_values: List[Dict[str, Any]] = []
         with tqdm(total=len(stored_data_df)) as progress_bar:
-            for i, row in enumerate(stored_data_df.itertuples(index=False)):
-                row_dict = {'rowid': rowids[i], 'v_min': self.version, **row._asdict()}
+            for row_idx, row in enumerate(stored_data_df.itertuples(index=False)):
+                row_dict = {'rowid': rowids[row_idx], 'v_min': self.version, **row._asdict()}
 
                 if len(computed_cols) > 0:
                     # materialize computed column values
@@ -710,17 +716,21 @@ class MutableTable(Table):
                     evaluator.eval((), data_row)
 
                     # convert data values to storage format where necessary
-                    for c in computed_cols:
-                        val = data_row[c.value_expr.data_row_idx]
-                        data_row[c.value_expr.data_row_idx] = self._convert_to_stored(c, val, rowids[i])
+                    for col_idx in range(len(computed_cols)):
+                        val = data_row[value_exprs[col_idx].data_row_idx]
+                        data_row[value_exprs[col_idx].data_row_idx] = \
+                            self._convert_to_stored(computed_cols[col_idx], val, rowids[row_idx])
 
-                    computed_vals_dict = {c.storage_name(): data_row[c.value_expr.data_row_idx] for c in computed_cols}
+                    computed_vals_dict = {
+                        computed_cols[i].storage_name(): data_row[value_exprs[i].data_row_idx]
+                        for i in range(len(computed_cols))
+                    }
                     row_dict.update(computed_vals_dict)
 
                 insert_values.append(row_dict)
                 progress_bar.update(1)
 
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             conn.execute(sql.insert(self.sa_tbl), insert_values)
             self.next_row_id += len(data)
             conn.execute(
@@ -739,12 +749,29 @@ class MutableTable(Table):
     # TODO: delete() signature?
     #def delete(self, data: DataFrame) -> None:
 
+    def _delete_computed_imgs(self, version: int) -> None:
+        """
+        Delete image files computed for given version.
+        """
+        img_paths = utils.computed_imgs(tbl_id=self.id, version=version)
+        for p in img_paths:
+            os.remove(p)
+        return
+
+    def _delete_extracted_frames(self, version: int) -> None:
+        """
+        Delete extracted frames for given version.
+        """
+        frame_paths = utils.extracted_frames(tbl_id=self.id, version=version)
+        for p in frame_paths:
+            os.remove(p)
+
     def revert(self) -> None:
         self._check_is_dropped()
         if self.version == 0:
             raise exc.OperationalError('Cannot revert version 0')
         # check if the current version is referenced by a snapshot
-        with orm.Session(Env.get().get_engine()) as session:
+        with orm.Session(Env.get().engine) as session:
             # make sure we don't have a snapshot referencing this version
             num_references = session.query(sql.func.count(store.TableSnapshot.id)) \
                 .where(store.TableSnapshot.db_id == self.db_id) \
@@ -757,6 +784,8 @@ class MutableTable(Table):
 
             conn = session.connection()
             # delete newly-added data
+            self._delete_computed_imgs(self.version)
+            self._delete_extracted_frames(self.version)
             conn.execute(sql.delete(self.sa_tbl).where(self.sa_tbl.c.v_min == self.version))
             # revert new deletions
             conn.execute(
@@ -791,7 +820,7 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     def rename(self, new_name: str) -> None:
         self._check_is_dropped()
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__).values({store.Table.name: new_name})
                     .where(store.Table.id == self.id))
@@ -799,7 +828,7 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     def drop(self) -> None:
         self._check_is_dropped()
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__).values({store.Table.is_mutable: False})
                     .where(store.Table.id == self.id))
@@ -838,7 +867,7 @@ class MutableTable(Table):
                 raise exc.DuplicateNameError(f'Duplicate column: {col_name}')
             col_names.add(col_name)
 
-        with orm.Session(Env.get().get_engine()) as session:
+        with orm.Session(Env.get().engine) as session:
             tbl_record = store.Table(
                 db_id=db_id, dir_id=dir_id, name=name, num_retained_versions=num_retained_versions, current_version=0,
                 current_schema_version=0, is_mutable=True, next_col_id=len(cols), next_row_id=0)
@@ -1060,7 +1089,7 @@ class Db:
             assert isinstance(tbl, MutableTable)
             tbls.append(tbl)
 
-        with orm.Session(Env.get().get_engine()) as session:
+        with orm.Session(Env.get().engine) as session:
             dir_record = store.Dir(db_id=self.id, path=path_str, is_snapshot=True)
             session.add(dir_record)
             session.flush()
@@ -1084,7 +1113,7 @@ class Db:
     def create_dir(self, path_str: str) -> None:
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
-        with orm.Session(Env.get().get_engine()) as session:
+        with orm.Session(Env.get().engine) as session:
             dir_record = store.Dir(db_id=self.id, path=path_str, is_snapshot=False)
             session.add(dir_record)
             session.flush()
@@ -1107,7 +1136,7 @@ class Db:
 #        for dir_path in self.paths.get_children(path, child_type=DirBase, recursive=False):
 #            self.rm_dir(str(dir_path), force=True)
 
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             dir = self.paths[path]
             conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.id == dir.id))
         del self.paths[path]
@@ -1137,7 +1166,7 @@ class Db:
         self.paths.check_is_valid(new_path, expected=None)
         func = self.paths[path]
         new_dir = self.paths[new_path.parent]
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             conn.execute(
                 sql.update(store.Function.__table__)
                     .values({
@@ -1183,14 +1212,14 @@ class Db:
 
     def _load_dirs(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(Env.get().get_engine()) as session:
+        with orm.Session(Env.get().engine) as session:
             for dir_record in session.query(store.Dir).where(store.Dir.db_id == self.id).all():
                 result[dir_record.path] = SnapshotDir(dir_record.id) if dir_record.is_snapshot else Dir(dir_record.id)
         return result
 
     def _load_tables(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(Env.get().get_engine()) as session:
+        with orm.Session(Env.get().engine) as session:
             # load all reachable (= mutable) tables
             q = session.query(store.Table, store.Dir.path) \
                 .join(store.Dir)\
@@ -1224,7 +1253,7 @@ class Db:
         FunctionRegistry.
         """
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(Env.get().get_engine()) as session:
+        with orm.Session(Env.get().engine) as session:
             # load all reachable (= mutable) tables
             q = session.query(store.Function.id, store.Function.dir_id, store.Function.name, store.Dir.path) \
                 .join(store.Dir) \
@@ -1244,7 +1273,7 @@ class Db:
     @classmethod
     def create(cls, name: str) -> 'Db':
         db_id: int = -1
-        with orm.Session(Env.get().get_engine()) as session:
+        with orm.Session(Env.get().engine) as session:
             # check for duplicate name
             is_duplicate = session.query(sql.func.count(store.Db.id)).where(store.Db.name == name).scalar() > 0
             if is_duplicate:
@@ -1267,7 +1296,7 @@ class Db:
     def load(cls, name: str) -> 'Db':
         if re.fullmatch(_ID_RE, name) is None:
             raise exc.BadFormatError(f"Invalid db name: '{name}'")
-        with orm.Session(Env.get().get_engine()) as session:
+        with orm.Session(Env.get().engine) as session:
             try:
                 db_record = session.query(store.Db).where(store.Db.name == name).one()
                 return Db(db_record.id, db_record.name)
@@ -1278,7 +1307,7 @@ class Db:
         """
         Delete db and all associated data.
         """
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             conn.execute(sql.delete(store.TableSnapshot.__table__).where(store.TableSnapshot.db_id == self.id))
             tbls_stmt = sql.select(store.Table.id).where(store.Table.db_id == self.id)
             conn.execute(sql.delete(store.SchemaColumn.__table__).where(store.SchemaColumn.tbl_id.in_(tbls_stmt)))
@@ -1290,5 +1319,6 @@ class Db:
             conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.db_id == self.id))
             conn.execute(sql.delete(store.Db.__table__).where(store.Db.id == self.id))
             # delete all data tables
+            # TODO: also deleted generated images
             for tbl in self.paths.get(MutableTable):
                 tbl.sa_md.drop_all(bind=conn)

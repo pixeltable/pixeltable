@@ -9,6 +9,7 @@ from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files, sum_uda
 from pixeltable.functions import make_video
+from pixeltable import utils
 
 
 class TestTable:
@@ -77,7 +78,7 @@ class TestTable:
         print(html_str)
         # TODO: check html_str
 
-    def test_create_videos(self, test_db: catalog.Db) -> None:
+    def test_create_video(self, test_db: catalog.Db) -> None:
         db = test_db
         cols = [
             catalog.Column('video', VideoType(), nullable=False),
@@ -192,6 +193,7 @@ class TestTable:
         data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         t.insert_pandas(data_df.loc[0:20, ['img']])
         _ = t.show()
+        assert utils.computed_img_count(tbl_id=t.id) == t.count()
 
         # test loading from store
         cl2 = pt.Client()
@@ -204,9 +206,14 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert_pandas(data_df.loc[0:20, ['img']])
+        assert utils.computed_img_count(tbl_id=t.id) == t2.count()
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
         print(tbl_df)
+
+        # revert also removes computed images
+        t2.revert()
+        assert utils.computed_img_count() == t2.count()
 
     def test_computed_window_fn(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
         db = test_db

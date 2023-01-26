@@ -150,7 +150,7 @@ class FunctionRegistry:
                 store.Function.name, store.Function.return_type, store.Function.param_types,
                 store.Function.eval_obj, store.Function.init_obj, store.Function.update_obj, store.Function.value_obj) \
                 .where(store.Function.id == id)
-            with Env.get().get_engine().begin() as conn:
+            with Env.get().engine.begin() as conn:
                 rows = conn.execute(stmt)
                 row = next(rows)
                 name = row[0]
@@ -181,7 +181,7 @@ class FunctionRegistry:
             self, fn: Function, db_id: Optional[int] = None, dir_id: Optional[int] = None,
             name: Optional[str] = None
     ) -> None:
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             eval_fn_str = cloudpickle.dumps(fn.eval_fn) if fn.eval_fn is not None else None
             init_fn_str = cloudpickle.dumps(fn.init_fn) if fn.init_fn is not None else None
             update_fn_str = cloudpickle.dumps(fn.update_fn) if fn.update_fn is not None else None
@@ -202,7 +202,7 @@ class FunctionRegistry:
         """
         Updates the callable for the function with the given id in the store and in the cache, if present.
         """
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             updates = {}
             if eval_fn is not None:
                 updates[store.Function.eval_obj] = cloudpickle.dumps(eval_fn)
@@ -228,7 +228,7 @@ class FunctionRegistry:
 
     def delete_function(self, id: int) -> None:
         assert id is not None
-        with Env.get().get_engine().begin() as conn:
+        with Env.get().engine.begin() as conn:
             conn.execute(
                 sql.delete(store.Function.__table__)
                     .where(store.Function.id == id))

@@ -420,6 +420,7 @@ class FunctionCall(Expr):
         self.order_by: List[Expr] = []
         # execution state for window functions
         self.aggregator: Optional[Any] = self.fn.init_fn() if self.fn.is_aggregate else None
+        self.current_partition_vals: Optional[List[Any]] = None
 
     @property
     def _eval_fn(self) -> Optional[Callable]:
@@ -456,7 +457,6 @@ class FunctionCall(Expr):
         if partition_by is not None:
             self.partition_by_idx = len(self.components)
             self.components.extend(partition_by)
-            self.current_partition_vals: List[Any] = [None] * len(partition_by)
         return self
 
     @property
@@ -511,6 +511,8 @@ class FunctionCall(Expr):
             data_row[self.data_row_idx] = self.fn.eval_fn(*args)
         elif self.is_window_fn_call:
             if self.partition_by_idx != -1:
+                if self.current_partition_vals is None:
+                    self.current_partition_vals = [None] * len(self.partition_by)
                 partition_vals = [data_row[e.data_row_idx] for e in self.partition_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
