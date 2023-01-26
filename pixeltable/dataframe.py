@@ -271,7 +271,8 @@ class DataFrame:
         if len(window_fn_calls) > 0:
             order_by_exprs = window_fn_calls[0].get_window_sort_exprs()
         elif self.is_agg():
-            order_by_exprs = self.group_by_clause
+            # TODO: collect aggs with order-by and analyze for compatibility
+            order_by_exprs = self.group_by_clause + self.analysis_info.agg_fn_calls[0].get_agg_order_by()
         order_by_clause = [e.sql_expr() for e in order_by_exprs]
         for i in range(len(order_by_exprs)):
             if order_by_clause[i] is None:

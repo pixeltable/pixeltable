@@ -23,7 +23,9 @@ class Function:
             module_name: Optional[str] = None, eval_symbol: Optional[str] = None, init_symbol: Optional[str] = None,
             update_symbol: Optional[str] = None, value_symbol: Optional[str] = None,
             eval_fn: Optional[Callable] = None, init_fn: Optional[Callable] = None,
-            update_fn: Optional[Callable] = None, value_fn: Optional[Callable] = None):
+            update_fn: Optional[Callable] = None, value_fn: Optional[Callable] = None,
+            order_by: List[int] = []
+    ):
         has_agg_symbols = init_symbol is not None and update_symbol is not None and value_symbol is not None
         has_agg_fns = init_fn is not None and update_fn is not None and value_fn is not None
         assert (module_name is not None) == (eval_symbol is not None or has_agg_symbols)
@@ -54,6 +56,14 @@ class Function:
                 self.update_fn = self._resolve_symbol(module, update_symbol)
             if value_symbol is not None:
                 self.value_fn = self._resolve_symbol(module, value_symbol)
+
+        if len(order_by) > 0:
+            if self.init_fn is None:
+                raise exc.Error(f'order_by parameter only valid for aggregate functions')
+            for idx in order_by:
+                if not isinstance(idx, int) or idx >= len(param_types):
+                    raise exc.Error(f'order_by element not a valid index into param_types: {idx}')
+        self.order_by = order_by
 
     def _resolve_symbol(self, module: Any, symbol: str) -> object:
         obj = module

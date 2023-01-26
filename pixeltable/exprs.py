@@ -469,12 +469,24 @@ class FunctionCall(Expr):
     def is_window_fn_call(self) -> bool:
         return self.fn.is_aggregate and (self.partition_by_idx != -1 or len(self.order_by) > 0)
 
+    def get_window_sort_exprs(self) -> List[Expr]:
+        return [*self.partition_by, *self.order_by]
+
     @property
     def is_agg_fn_call(self) -> bool:
         return self.fn.is_aggregate and self.partition_by_idx == -1 and len(self.order_by) == 0
 
-    def get_window_sort_exprs(self) -> List[Expr]:
-        return [*self.partition_by, *self.order_by]
+    def get_agg_order_by(self) -> List[Expr]:
+        assert self.is_agg_fn_call
+        result: List[Expr] = []
+        component_idx = 0
+        for arg_idx in range(len(self.args)):
+            if arg_idx in self.fn.order_by:
+                assert self.args[arg_idx] is None  # this is an Expr, not something else
+                result.append(self.components[component_idx])
+            if self.args[arg_idx] is None:
+                component_idx += 1
+        return result
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         # TODO: implement for standard aggregate functions
