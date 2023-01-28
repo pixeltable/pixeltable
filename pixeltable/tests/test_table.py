@@ -99,11 +99,17 @@ class TestTable:
         tbl = db.get_table('test')
         assert tbl.parameters == params
         df = pd.DataFrame({'video': get_video_files()[:1]})
-        tbl.insert_pandas(df, video_column='video', frame_column='frame', frame_idx_column='frame_idx', fps=0)
+        tbl.insert_pandas(df)
         html_str = tbl.show(n=100)._repr_html_()
         # TODO: check html_str
         _ = tbl[make_video(tbl.frame_idx, tbl.frame)].group_by(tbl.video).show()
 
+        with pytest.raises(exc.Error):
+            # can't drop frame col
+            tbl.drop_column('frame')
+        with pytest.raises(exc.Error):
+            # can't drop frame_idx col
+            tbl.drop_column('frame_idx')
         with pytest.raises(exc.BadFormatError):
             # missing parameters
             _ = db.create_table(

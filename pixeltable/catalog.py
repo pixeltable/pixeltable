@@ -438,6 +438,16 @@ class MutableTable(Table):
             raise exc.Error(
                 f'Cannot drop column {name} because the following columns depend on it:\n',
                 f'{", ".join([c.name for c in col.dependent_cols])}')
+        if col.id == self.parameters.frame_col or col.id == self.parameters.frame_idx_col:
+            src_col_name = self.cols_by_id[self.parameters.frame_src_col].name
+            raise exc.Error(
+                f'Cannot drop column {name} because it is used for frame extraction on column {src_col_name}')
+        if col.id == self.parameters.frame_src_col:
+            # we also need to reset the frame extraction table parameters
+            self.parameters.frame_src_col = None
+            self.parameters.frame_col = None
+            self.parameters.frame_idx_col = None
+            self.parameters.extraction_fps = None
 
         if col.value_expr is not None:
             # update Column.dependent_cols
@@ -464,6 +474,7 @@ class MutableTable(Table):
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
+                        store.Table.parameters: self.parameters,
                         store.Table.current_version: self.version,
                         store.Table.current_schema_version: self.schema_version
                     })
@@ -544,10 +555,7 @@ class MutableTable(Table):
         else:
             return val
 
-    def insert_pandas(
-            self, data: pd.DataFrame, video_column: Optional[str] = None, frame_column: Optional[str] = None,
-            frame_idx_column: Optional[str] = None, fps: int = 1
-    ) -> None:
+    def insert_pandas(self, data: pd.DataFrame) -> None:
         """
         If video_column is given:
         - this is expected to be the name of a string column that contains paths to video files
@@ -558,15 +566,11 @@ class MutableTable(Table):
         """
         self._check_is_dropped()
         all_col_names = {col.name for col in self.cols}
-        reqd_col_names = {col.name for col in self.cols if not col.nullable}
+        reqd_col_names = {col.name for col in self.cols if not col.nullable and col.value_expr is None}
+        if self.parameters.frame_src_col is not None:
+            reqd_col_names.discard(self.cols_by_id[self.parameters.frame_col].name)
+            reqd_col_names.discard(self.cols_by_id[self.parameters.frame_idx_col].name)
         given_col_names = set(data.columns)
-        if video_column is not None and (frame_column is None or frame_idx_column is None):
-            raise exc.OperationalError(
-                f'Frame extraction requires frame_column and frame_idx_column arguments to be set')
-        if frame_column is not None:
-            given_col_names.add(frame_column)
-        if frame_idx_column is not None:
-            given_col_names.add(frame_idx_column)
         if not(reqd_col_names <= given_col_names):
             raise exc.InsertError(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')
         if not(given_col_names <= all_col_names):
@@ -575,22 +579,6 @@ class MutableTable(Table):
         if len(computed_col_names & given_col_names) > 0:
             raise exc.InsertError(
                 f'Provided values for computed columns: {", ".join(computed_col_names & given_col_names)}')
-
-        if video_column is not None:
-            if video_column not in data.columns:
-                raise exc.OperationalError(f'Column {video_column} missing in DataFrame')
-            if not self.cols_by_name[video_column].col_type.is_video_type():
-                raise exc.OperationalError(f'Video_column parameter needs to be of type video')
-        if frame_column is not None:
-            if frame_column in data.columns:
-                raise exc.OperationalError(f'Column {frame_column} is computed and must not appear in DataFrame')
-            if not self.cols_by_name[frame_column].col_type.is_image_type():
-                raise exc.OperationalError(f'Frame_column parameter needs to be of type image')
-        if frame_idx_column is not None:
-            if frame_idx_column in data.columns:
-                raise exc.OperationalError(f'Column {frame_idx_column} is computed and must not appear in DataFrame')
-            if not self.cols_by_name[frame_idx_column].col_type.is_int_type():
-                raise exc.OperationalError(f'Frame_idx_column parameter needs to be of type int')
 
         # check types
         provided_cols = [self.cols_by_name[name] for name in data.columns]
@@ -622,10 +610,13 @@ class MutableTable(Table):
         self.version += 1
 
         # frame extraction from videos
-        if video_column is not None:
-            video_col = self.cols_by_name[video_column]
+        if self.parameters.frame_src_col is not None:
+            video_col = self.cols_by_id[self.parameters.frame_src_col]
+            frame_col = self.cols_by_id[self.parameters.frame_col]
+            frame_idx_col = self.cols_by_id[self.parameters.frame_idx_col]
+
             # check data: video_column needs to contain valid file paths
-            for idx, path_str in data[video_column].items():
+            for idx, path_str in data[video_col.name].items():
                 path = pathlib.Path(path_str)
                 if not path.is_file():
                     raise exc.OperationalError(
@@ -636,12 +627,14 @@ class MutableTable(Table):
             expanded_rows: List[Dict] = []
             for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
                 input_row = input_tuple._asdict()
-                path = input_row[video_column]
+                path = input_row[video_col.name]
                 # we need to generate a unique prefix for each set of frames corresponding to a single video
                 frame_path_prefix = utils.get_extracted_frame_path(
                     self.id, video_col.id, self.version, self.next_row_id + input_row_idx)
-                frame_paths = video.extract_frames(path, frame_path_prefix, fps)
-                frame_rows = [{frame_column: p, frame_idx_column: i, **input_row} for i, p in enumerate(frame_paths)]
+                frame_paths = video.extract_frames(path, frame_path_prefix, self.parameters.extraction_fps)
+                frame_rows = [
+                    {frame_col.name: p, frame_idx_col.name: i, **input_row} for i, p in enumerate(frame_paths)
+                ]
                 expanded_rows.extend(frame_rows)
             data = pd.DataFrame.from_dict(expanded_rows, orient='columns')
 
@@ -891,6 +884,7 @@ class MutableTable(Table):
             if extract_frames_from is not None and extract_frames_from not in cols_by_name:
                 raise exc.BadFormatError(f'Unknown column in extract_frames_from: {extract_frames_from}')
             col_type = cols_by_name[extract_frames_from].col_type
+            is_nullable = cols_by_name[extract_frames_from].nullable
             if not col_type.is_video_type():
                 raise exc.BadFormatError(
                     f'extract_frames_from requires the name of a column of type video, but {extract_frames_from} has '
@@ -902,6 +896,8 @@ class MutableTable(Table):
                 raise exc.BadFormatError(
                     f'extracted_frame_col requires the name of a column of type image, but {extracted_frame_col} has '
                     f'type {col_type}')
+            # the src column determines whether the frame column is nullable
+            cols_by_name[extracted_frame_col].nullable = is_nullable
             if extracted_frame_idx_col is not None and extracted_frame_idx_col not in cols_by_name:
                 raise exc.BadFormatError(f'Unknown column in extracted_frame_idx_col: {extracted_frame_idx_col}')
             col_type = cols_by_name[extracted_frame_idx_col].col_type
@@ -909,6 +905,9 @@ class MutableTable(Table):
                 raise exc.BadFormatError(
                     f'extracted_frame_idx_col requires the name of a column of type int, but {extracted_frame_idx_col} '
                     f'has type {col_type}')
+            # the src column determines whether the frame idx column is nullable
+            cols_by_name[extracted_frame_idx_col].nullable = is_nullable
+
         params = TableParameters(
             num_retained_versions,
             cols_by_name[extract_frames_from].id if extract_frames_from is not None else None,
