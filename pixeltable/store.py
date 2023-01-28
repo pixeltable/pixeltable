@@ -2,7 +2,7 @@ import enum
 import platform
 
 import sqlalchemy as sql
-from sqlalchemy import Integer, String, Enum, Boolean, TIMESTAMP, BigInteger, LargeBinary, VARBINARY
+from sqlalchemy import Integer, String, Enum, Boolean, TIMESTAMP, BigInteger, LargeBinary, JSON
 from sqlalchemy import ForeignKey, UniqueConstraint, ForeignKeyConstraint
 from sqlalchemy.orm import declarative_base
 
@@ -36,8 +36,7 @@ class Table(Base):
     db_id = sql.Column(Integer, ForeignKey('dbs.id'), nullable=False)
     dir_id = sql.Column(Integer, ForeignKey('dirs.id'), nullable=False)
     name = sql.Column(String, nullable=False)
-    # garbage-collect old versions beyond this point, unless they are referenced in a snapshot
-    num_retained_versions = sql.Column(Integer, nullable=False)
+    parameters = sql.Column(JSON, nullable=False)
 
     # monotonically increasing w/in Table for both data and schema changes, starting at 0
     current_version = sql.Column(BigInteger, nullable=False)

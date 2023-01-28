@@ -3,6 +3,7 @@ import re
 import inspect
 import io
 import os
+import dataclasses
 
 import PIL, cv2
 import numpy as np
@@ -48,6 +49,8 @@ class Column:
         indexed: only valid for image columns; if true, maintains an NN index for this column
         """
         from pixeltable import exprs
+        if re.fullmatch(_ID_RE, name) is None:
+            raise exc.BadFormatError(f"Invalid column name: '{name}'")
         self.name = name
         if col_type is None and computed_with is None:
             raise exc.Error(f'Column {name}: col_type is required if computed_with is not specified')
@@ -326,6 +329,18 @@ class TableSnapshot(Table):
     def display_name(cls) -> str:
         return 'table snapshot'
 
+@dataclasses.dataclass
+class TableParameters:
+    # garbage-collect old versions beyond this point, unless they are referenced in a snapshot
+    num_retained_versions: int
+
+    # parameters for frame extraction
+    frame_src_col: int  # column id
+    frame_col: int  # column id
+    frame_idx_col: int  # column id
+    extraction_fps: int
+
+
 class MutableTable(Table):
     def __init__(self, tbl_record: store.Table, schema_version: int, cols: List[Column]):
         assert tbl_record.db_id is not None
@@ -340,6 +355,7 @@ class MutableTable(Table):
         assert tbl_record.next_row_id is not None
         self.next_row_id = tbl_record.next_row_id
         self.schema_version = schema_version
+        self.parameters = TableParameters(**tbl_record.parameters)
 
     def __repr__(self) -> str:
         return f'MutableTable(name={self.name})'
@@ -856,20 +872,53 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def create(
-        cls, db_id: int, dir_id: int, name: str, num_retained_versions: int, cols: List[Column]
+        cls, db_id: int, dir_id: int, name: str, cols: List[Column],
+        num_retained_versions: int,
+        extract_frames_from: Optional[str], extracted_frame_col: Optional[str], extracted_frame_idx_col: Optional[str],
+        extracted_fps: Optional[int]
     ) -> 'MutableTable':
-        # make sure col names are unique ids (within the table)j
-        col_names: Set[str] = set()
-        for col_name in [c.name for c in cols]:
-            if re.fullmatch(_ID_RE, col_name) is None:
-                raise exc.BadFormatError(f"Invalid column name: '{col_name}'")
-            if col_name in col_names:
-                raise exc.DuplicateNameError(f'Duplicate column: {col_name}')
-            col_names.add(col_name)
+        # make sure col names are unique (within the table) and assign ids
+        cols_by_name: Dict[str, Column] = {}
+        for pos, c in enumerate(cols):
+            if c.name in cols_by_name:
+                raise exc.DuplicateNameError(f'Duplicate column: {c.name}')
+            c.id = pos
+            cols_by_name[c.name] = c
+
+        # check frame extraction params, if present
+        if extract_frames_from is not None:
+            assert extracted_frame_col is not None and extracted_frame_idx_col is not None and extracted_fps is not None
+            if extract_frames_from is not None and extract_frames_from not in cols_by_name:
+                raise exc.BadFormatError(f'Unknown column in extract_frames_from: {extract_frames_from}')
+            col_type = cols_by_name[extract_frames_from].col_type
+            if not col_type.is_video_type():
+                raise exc.BadFormatError(
+                    f'extract_frames_from requires the name of a column of type video, but {extract_frames_from} has '
+                    f'type {col_type}')
+            if extracted_frame_col is not None and extracted_frame_col not in cols_by_name:
+                raise exc.BadFormatError(f'Unknown column in extracted_frame_col: {extracted_frame_col}')
+            col_type = cols_by_name[extracted_frame_col].col_type
+            if not col_type.is_image_type():
+                raise exc.BadFormatError(
+                    f'extracted_frame_col requires the name of a column of type image, but {extracted_frame_col} has '
+                    f'type {col_type}')
+            if extracted_frame_idx_col is not None and extracted_frame_idx_col not in cols_by_name:
+                raise exc.BadFormatError(f'Unknown column in extracted_frame_idx_col: {extracted_frame_idx_col}')
+            col_type = cols_by_name[extracted_frame_idx_col].col_type
+            if not col_type.is_int_type():
+                raise exc.BadFormatError(
+                    f'extracted_frame_idx_col requires the name of a column of type int, but {extracted_frame_idx_col} '
+                    f'has type {col_type}')
+        params = TableParameters(
+            num_retained_versions,
+            cols_by_name[extract_frames_from].id if extract_frames_from is not None else None,
+            cols_by_name[extracted_frame_col].id if extracted_frame_col is not None else None,
+            cols_by_name[extracted_frame_idx_col].id if extracted_frame_idx_col is not None else None,
+            extracted_fps)
 
         with orm.Session(Env.get().engine) as session:
             tbl_record = store.Table(
-                db_id=db_id, dir_id=dir_id, name=name, num_retained_versions=num_retained_versions, current_version=0,
+                db_id=db_id, dir_id=dir_id, name=name, parameters=dataclasses.asdict(params), current_version=0,
                 current_schema_version=0, is_mutable=True, next_col_id=len(cols), next_row_id=0)
             session.add(tbl_record)
             session.flush()  # sets tbl_record.id
@@ -882,7 +931,6 @@ class MutableTable(Table):
 
             cols_by_name: Dict[str, Column] = {}  # records the cols we have seen so far
             for pos, col in enumerate(cols):
-                col.id = pos
                 session.add(store.StorageColumn(tbl_id=tbl_record.id, col_id=col.id, schema_version_add=0))
                 session.flush()  # avoid FK violations in Postgres
                 if col.value_expr is None and col.compute_func is not None:
@@ -1024,13 +1072,24 @@ class Db:
         self.paths.update(self._load_function_md())
 
     def create_table(
-            self, path_str: str, schema: List[Column], num_retained_versions: int = 10
+            self, path_str: str, schema: List[Column], num_retained_versions: int = 10,
+            extract_frames_from: Optional[str] = None, extracted_frame_col: Optional[str] = None,
+            extracted_frame_idx_col: Optional[str] = None, extracted_fps: Optional[int] = None
     ) -> MutableTable:
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
         dir = self.paths[path.parent]
 
-        tbl = MutableTable.create(self.id, dir.id, path.name, num_retained_versions, schema)
+        # make sure frame extraction params are either fully present or absent
+        frame_extraction_param_count = int(extract_frames_from is not None) + int(extracted_frame_col is not None)\
+            + int(extracted_frame_idx_col is not None) + int(extracted_fps is not None)
+        if frame_extraction_param_count != 0 and frame_extraction_param_count != 4:
+            raise exc.BadFormatError(
+                'Frame extraction requires that all parameters (extract_frames_from, extracted_frame_col, '
+                'extracted_frame_idx_col, extracted_fps) be specified')
+        tbl = MutableTable.create(
+            self.id, dir.id, path.name, schema, num_retained_versions, extract_frames_from, extracted_frame_col,
+            extracted_frame_idx_col, extracted_fps)
         self.paths[path] = tbl
         return tbl
 

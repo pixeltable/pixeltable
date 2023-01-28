@@ -26,6 +26,10 @@ class TestTable:
 
         with pytest.raises(exc.BadFormatError):
             _ = db.create_table('1test', schema)
+        with pytest.raises(exc.BadFormatError):
+            _ = catalog.Column('1c', StringType())
+        with pytest.raises(exc.DuplicateNameError):
+            _ = db.create_table('test2', [c1, c1])
         with pytest.raises(exc.DuplicateNameError):
             _ = db.create_table('test', schema)
         with pytest.raises(exc.DuplicateNameError):
@@ -85,13 +89,56 @@ class TestTable:
             catalog.Column('frame', ImageType(), nullable=False),
             catalog.Column('frame_idx', IntType(), nullable=False),
         ]
-        tbl = db.create_table('test', cols)
+        tbl = db.create_table(
+            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
+            extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        params = tbl.parameters
+        # reload to make sure that metadata gets restored correctly
+        cl = pt.Client()
+        db = cl.get_db('test')
+        tbl = db.get_table('test')
+        assert tbl.parameters == params
         df = pd.DataFrame({'video': get_video_files()[:1]})
-        tbl.insert_pandas(df, video_column='video', frame_column='frame', frame_idx_column='frame_idx', fps=25)
+        tbl.insert_pandas(df, video_column='video', frame_column='frame', frame_idx_column='frame_idx', fps=0)
         html_str = tbl.show(n=100)._repr_html_()
         # TODO: check html_str
         _ = tbl[make_video(tbl.frame_idx, tbl.frame)].group_by(tbl.video).show()
-        print('')
+
+        with pytest.raises(exc.BadFormatError):
+            # missing parameters
+            _ = db.create_table(
+                'exc', cols, extract_frames_from='video',
+                extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        with pytest.raises(exc.BadFormatError):
+            # wrong column type
+            _ = db.create_table(
+                'exc', cols, extract_frames_from='frame', extracted_frame_col='frame',
+                extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        with pytest.raises(exc.BadFormatError):
+            # wrong column type
+            _ = db.create_table(
+                'exc', cols, extract_frames_from='video', extracted_frame_col='frame_idx',
+                extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        with pytest.raises(exc.BadFormatError):
+            # wrong column type
+            _ = db.create_table(
+                'exc', cols, extract_frames_from='video', extracted_frame_col='frame',
+                extracted_frame_idx_col='frame', extracted_fps=0)
+        with pytest.raises(exc.BadFormatError):
+            # unknown column
+            _ = db.create_table(
+                'exc', cols, extract_frames_from='breaks', extracted_frame_col='frame',
+                extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        with pytest.raises(exc.BadFormatError):
+            # unknown column
+            _ = db.create_table(
+                'exc', cols, extract_frames_from='video', extracted_frame_col='breaks',
+                extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        with pytest.raises(exc.BadFormatError):
+            # unknown column
+            _ = db.create_table(
+                'exc', cols, extract_frames_from='video', extracted_frame_col='frame',
+                extracted_frame_idx_col='breaks', extracted_fps=0)
 
     @pytest.mark.dependency(name='test_insert')
     def test_insert(self, test_db: catalog.Db) -> None:

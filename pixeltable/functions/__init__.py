@@ -104,7 +104,6 @@ class VideoAggregator:
     def __init__(self):
         self.video_writer = None
         self.size = None
-        self.frame_idxs = []
 
     @classmethod
     def make_aggregator(cls) -> 'VideoAggregator':
@@ -117,7 +116,6 @@ class VideoAggregator:
             self.tmp_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
             self.video_writer = cv2.VideoWriter(str(self.tmp_file), cv2.VideoWriter_fourcc(*'MP4V'), 25, self.size)
 
-        self.frame_idxs.append(frame_idx)
         frame_array = np.array(frame)
         frame_array = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
         self.video_writer.write(frame_array)
@@ -126,7 +124,6 @@ class VideoAggregator:
         self.video_writer.release()
         os.system(f'ffmpeg -i {self.tmp_file} -vcodec libx264 {self.out_file}')
         os.remove(self.tmp_file)
-        print(self.frame_idxs)
         return self.out_file
 
 make_video = Function(
