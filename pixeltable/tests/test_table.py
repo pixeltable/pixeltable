@@ -98,8 +98,7 @@ class TestTable:
         db = cl.get_db('test')
         tbl = db.get_table('test')
         assert tbl.parameters == params
-        df = pd.DataFrame({'video': get_video_files()[:1]})
-        tbl.insert_pandas(df)
+        tbl.insert_rows([[get_video_files()[0]]], ['video'])
         html_str = tbl.show(n=100)._repr_html_()
         # TODO: check html_str
         _ = tbl[make_video(tbl.frame_idx, tbl.frame)].group_by(tbl.video).show()

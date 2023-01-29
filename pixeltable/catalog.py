@@ -474,7 +474,7 @@ class MutableTable(Table):
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
-                        store.Table.parameters: self.parameters,
+                        store.Table.parameters: dataclasses.asdict(self.parameters),
                         store.Table.current_version: self.version,
                         store.Table.current_schema_version: self.schema_version
                     })
@@ -555,14 +555,41 @@ class MutableTable(Table):
         else:
             return val
 
+    def insert_rows(self, rows: List[List[Any]], columns: List[str] = []) -> None:
+        """
+        Insert rows into table. 'Columns' is a list of column names that specify the columns present in 'rows'.
+        'Columns' == empty: all columns are present in 'rows'.
+        """
+        assert len(rows) > 0
+        if len(rows[0]) != len(self.cols) and len(columns) == 0:
+            raise exc.Error(
+                f'Table {self.name} has {len(self.cols)} columns, but the data only contains {len(rows[0])} columns. '
+                f"In this case, you need to specify the column names with the 'columns' parameter.")
+
+        # make sure that each row contains the same number of values
+        num_col_vals = len(rows[0])
+        for i in range(1, len(rows)):
+            if len(rows[i]) != num_col_vals:
+                raise exc.Error(
+                    f'Inconsistent number of column values in rows: row 0 has {len(rows[0])}, '
+                    f'row {i} has {len(rows[i])}')
+
+        if len(columns) == 0:
+            columns = [c.name for c in self.cols]
+        if len(rows[0]) != len(columns):
+            raise exc.Error(
+                f'The number of column values in rows ({len(rows[0])}) does not match the given number of column names '
+                f'({len(columns)}')
+
+        pd_df = pd.DataFrame.from_records(rows, columns=columns)
+        self.insert_pandas(pd_df)
+
     def insert_pandas(self, data: pd.DataFrame) -> None:
         """
-        If video_column is given:
-        - this is expected to be the name of a string column that contains paths to video files
+        If self.parameters.frame_src_col != None:
         - each row (containing a video) is expanded into one row per extracted frame (at the rate of the fps parameter)
-        - frame_column is expected to be an image column, and it receives the extracted frame
-        - frame_idx_column is expected to be an integer column, and it receives the frame index (starting at 0)
-
+        - parameters.frame_col is the image column that receives the extracted frame
+        - parameters.frame_idx_col is the integer column that receives the frame index (starting at 0)
         """
         self._check_is_dropped()
         all_col_names = {col.name for col in self.cols}
@@ -576,6 +603,9 @@ class MutableTable(Table):
         if not(given_col_names <= all_col_names):
             raise exc.InsertError(f'Unknown columns: {", ".join(given_col_names - all_col_names)}')
         computed_col_names = {col.name for col in self.cols if col.value_expr is not None}
+        if self.parameters.frame_src_col is not None:
+            computed_col_names.add(self.cols_by_id[self.parameters.frame_col].name)
+            computed_col_names.add(self.cols_by_id[self.parameters.frame_idx_col].name)
         if len(computed_col_names & given_col_names) > 0:
             raise exc.InsertError(
                 f'Provided values for computed columns: {", ".join(computed_col_names & given_col_names)}')
@@ -605,6 +635,34 @@ class MutableTable(Table):
             if col.col_type.is_video_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
                 raise exc.InsertError(
                     f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
+
+        # check data
+        data_cols = [self.cols_by_name[name] for name in data.columns]
+        for col in data_cols:
+            # image cols: make sure file path points to a valid image file
+            if col.col_type.is_image_type():
+                for _, path_str in data[col.name].items():
+                    try:
+                        _ = Image.open(path_str)
+                    except FileNotFoundError:
+                        raise exc.OperationalError(f'Column {col.name}: file does not exist: {path_str}')
+                    except PIL.UnidentifiedImageError:
+                        raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
+
+            # image cols: make sure file path points to a valid image file; build index if col is indexed
+            if col.col_type.is_video_type():
+                for _, path_str in data[col.name].items():
+                    cap = cv2.VideoCapture(path_str)
+                    success = cap.isOpened()
+                    cap.release()
+                    if not success:
+                        raise exc.Error(f'Column {col.name}: could not open video file {path_str}')
+
+            if col.col_type.is_json_type():
+                for idx, d in data[col.name].items():
+                    if not isinstance(d, dict) and not isinstance(d, list):
+                        raise exc.OperationalError(
+                            f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
         # we're creating a new version
         self.version += 1
@@ -640,39 +698,20 @@ class MutableTable(Table):
 
         rowids = range(self.next_row_id, self.next_row_id + len(data))
 
-        # check data and update image indices
+        # update image indices
         data_cols = [self.cols_by_name[name] for name in data.columns]
-        for col in data_cols:
-            # image cols: make sure file path points to a valid image file; build index if col is indexed
-            if col.col_type.is_image_type():
-                embeddings = np.zeros((len(data), 512))
-                for i, (_, path_str) in enumerate(data[col.name].items()):
-                    try:
-                        img = Image.open(path_str)
-                        if col.is_indexed:
-                            embeddings[i] = clip.encode_image(img)
-                    except FileNotFoundError:
-                        raise exc.OperationalError(f'Column {col.name}: file does not exist: {path_str}')
-                    except PIL.UnidentifiedImageError:
-                        raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
-                if col.is_indexed:
-                    assert col.idx is not None
-                    col.idx.insert(embeddings, np.array(rowids))
-
-            # image cols: make sure file path points to a valid image file; build index if col is indexed
-            if col.col_type.is_video_type():
-                for _, path_str in data[col.name].items():
-                    cap = cv2.VideoCapture(path_str)
-                    success = cap.isOpened()
-                    cap.release()
-                    if not success:
-                        raise exc.Error(f'Column {col.name}: could not open video file {path_str}')
-
-            if col.col_type.is_json_type():
-                for idx, d in data[col.name].items():
-                    if not isinstance(d, dict) and not isinstance(d, list):
-                        raise exc.OperationalError(
-                            f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
+        for col in [c for c in data_cols if c.is_indexed]:
+            embeddings = np.zeros((len(data), 512))
+            for i, (_, path_str) in enumerate(data[col.name].items()):
+                try:
+                    img = Image.open(path_str)
+                    embeddings[i] = clip.encode_image(img)
+                except FileNotFoundError:
+                    raise exc.OperationalError(f'Column {col.name}: file does not exist: {path_str}')
+                except PIL.UnidentifiedImageError:
+                    raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
+            assert col.idx is not None
+            col.idx.insert(embeddings, np.array(rowids))
 
         # prepare state for computed cols
         from pixeltable import exprs
