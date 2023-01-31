@@ -1,15 +1,26 @@
 from .client import Client
 from .dataframe import DataFrame
-from .catalog import Db, MutableTable, TableSnapshot
-from .exceptions import UnknownEntityError
+from .catalog import Column
+from .exceptions import UnknownEntityError, Error
+from .type_system import \
+    ColumnType, StringType, IntType, FloatType, BoolType,  TimestampType, JsonType, ArrayType, ImageType, VideoType
 
 __all__ = [
     'Client',
     'DataFrame',
-    'Db',
-    'MutableTable',
-    'TableSnapshot',
-    'UnknownEntityError'
+    'Column',
+    'UnknownEntityError',
+    'Error',
+    'ColumnType',
+    'StringType',
+    'IntType',
+    'FloatType',
+    'BoolType',
+    'TimestampType',
+    'JsonType',
+    'ArrayType',
+    'ImageType',
+    'VideoType',
 ]
 
 

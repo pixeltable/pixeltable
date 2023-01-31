@@ -1,0 +1,48 @@
+[tool.poetry]
+name = "pixeltable"
+version = "0.1.2"
+description = "Pixeltable: a dataframe-like interface to image and video data"
+authors = ["Marcel Kornacker <marcelk@gmail.com>"]
+readme = "README.md"
+exclude = [
+    ".pytype",
+    ".pytest_cache",
+    "pixeltable/.pytest_cache",
+    "pixeltable/tests/data"
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+numpy = "^1.24.1"
+pandas = "^1.5.3"
+sqlalchemy-utils = "^0.39.0"
+pillow = "^9.4.0"
+opencv-python-headless = "^4.7.0.68"
+tqdm = "^4.64.1"
+sqlalchemy = "^1.4.41"
+#clip = { git = "https://github.com/openai/CLIP.git" }
+#torch = {version = "^1.13.1+cpu", source = "torchcpu"}
+jmespath = "^1.0.1"
+ftfy = "^6.1.1"
+regex = "^2022.10.31"
+ffmpeg-python = "^0.2.0"
+hnswlib = "^0.6.2"
+cloudpickle = "^2.2.1"
+psycopg2-binary = "^2.9.5"
+
+[tool.poetry.group.dev.dependencies]
+tensorflow-io-gcs-filesystem = { version = "^0.28.0", python = ">=3.9,<3.11" }
+tensorflow = "^2.11.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^7.2.1"
+
+#[[tool.poetry.source]]
+#name = "torchcpu"
+#url = "https://download.pytorch.org/whl/cpu"
+#default = false
+#secondary = true
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

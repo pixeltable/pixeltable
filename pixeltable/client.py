@@ -1,4 +1,5 @@
 from typing import List, Dict
+import os
 
 import sqlalchemy.orm as orm
 
@@ -16,7 +17,7 @@ class Client:
 
     def __init__(self) -> None:
         self.db_cache: Dict[str, catalog.Db] = {}
-        Env.get().set_up()
+        Env.get().set_up(os.environ.get('PIXELTABLE_HOME'), os.environ.get('PIXELTABLE_DB'))
 
     def create_db(self, name: str) -> catalog.Db:
         db = catalog.Db.create(name)

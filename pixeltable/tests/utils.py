@@ -25,7 +25,7 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
         return TimestampType()
     assert False
 
-def make_tbl(db: pt.Db, name: str = 'test', col_names: List[str] = ['c1']) -> pt.MutableTable:
+def make_tbl(db: catalog.Db, name: str = 'test', col_names: List[str] = ['c1']) -> catalog.MutableTable:
     schema: List[catalog.Column] = []
     for i, col_name in enumerate(col_names):
         schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type(i % 5))))

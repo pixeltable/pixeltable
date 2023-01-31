@@ -1,4 +1,3 @@
-import pandas as pd
 import pytest
 import math
 
@@ -145,7 +144,6 @@ class TestTable:
                 'exc', cols, extract_frames_from='video', extracted_frame_col='frame',
                 extracted_frame_idx_col='breaks', extracted_fps=0)
 
-    @pytest.mark.dependency(name='test_insert')
     def test_insert(self, test_db: catalog.Db) -> None:
         db = test_db
         t1 = make_tbl(db, 'test1', ['c1', 'c2'])
@@ -159,7 +157,6 @@ class TestTable:
         with pytest.raises(exc.InsertError):
             t1.insert_pandas(t2_data)
 
-    @pytest.mark.dependency(depends=['test_insert'])
     def test_query(self, test_db: catalog.Db) -> None:
         db = test_db
         t = make_tbl(db, 'test', ['c1', 'c2', 'c3', 'c4', 'c5'])
@@ -285,7 +282,6 @@ class TestTable:
         _ = new_t.show(0)
         print(_)
 
-    @pytest.mark.dependency(depends=['test_insert'])
     def test_revert(self, test_db: catalog.Db) -> None:
         db = test_db
         t1 = make_tbl(db, 'test1', ['c1', 'c2'])
@@ -300,7 +296,6 @@ class TestTable:
         t1.insert_pandas(data2)
         assert t1.count() == len(data1) + len(data2)
 
-    @pytest.mark.dependency(depends=['test_insert'])
     def test_snapshot(self, test_db: catalog.Db) -> None:
         db = test_db
         db.create_dir('main')

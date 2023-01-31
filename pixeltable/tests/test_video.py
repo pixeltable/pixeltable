@@ -10,7 +10,7 @@ from pixeltable import exceptions as exc
 
 
 class TestVideo:
-    def test_basic(self, test_db: pt.Db) -> None:
+    def test_basic(self, test_db: catalog.Db) -> None:
         video_filepaths = get_video_files()
         db = test_db
         cols = [

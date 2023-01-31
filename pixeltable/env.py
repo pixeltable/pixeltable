@@ -25,10 +25,11 @@ class Env:
         self._sa_engine: Optional[sql.engine.base.Engine] = None
         self._db_name: Optional[str] = None
 
-    def set_up(
-        self, home_parent: Optional[Path] = Path.home(), db_name: str = 'pixeltable', echo: bool = False
-    ) -> None:
-        self.set_home(home_parent / '.pixeltable')
+    def set_up(self, home_str: Optional[str], db_name: Optional[str], echo: bool = False) -> None:
+        home = Path.home() / '.pixeltable' if home_str is None else Path(home_str)
+        if db_name is None:
+            db_name = 'pixeltable'
+        self.set_home(home)
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
 
@@ -36,7 +37,7 @@ class Env:
         db_url = f'postgresql:///{self._db_name}'
 
         if not self._home.exists():
-            print(f'creating {self._home}')
+            print(f'setting up Pixeltable at {self._home}, db at {db_url}')
             self._home.mkdir()
             self._img_dir.mkdir()
             self._nnidx_dir.mkdir()
@@ -48,6 +49,8 @@ class Env:
             from pixeltable import store
             store.Base.metadata.create_all(self._sa_engine)
         else:
+            if not database_exists(db_url):
+                raise RuntimeError(f'Database not found: {db_url}')
             if self._sa_engine is None:
                 self._sa_engine = sql.create_engine(db_url, echo=echo, future=True)
 

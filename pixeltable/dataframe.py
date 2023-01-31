@@ -34,8 +34,6 @@ def _format_video(video_file_path: str) -> str:
     # turn absolute video_file_path into relative path, absolute paths don't work
     p = Path(video_file_path)
     root = Path(os.getcwd())
-    #print(root)
-    #return f'<video controls><source src="{video_file_path}" type="video/mp4"></video>'
     try:
         rel_path = p.relative_to(root)
         return f'<video controls><source src="{rel_path}" type="video/mp4"></video>'

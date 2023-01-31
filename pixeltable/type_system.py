@@ -6,7 +6,7 @@ import json
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
+#import tensorflow as tf
 import PIL.Image
 import sqlalchemy as sql
 
@@ -28,7 +28,8 @@ class ColumnType:
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 9
 
-        def to_tf(self) -> tf.dtypes.DType:
+        def to_tf(self) -> 'tf.dtypes.DType':
+            import tensorflow as tf
             if self == self.STRING:
                 return tf.string
             if self == self.INT:
@@ -289,7 +290,7 @@ class ColumnType:
         return None
 
     @abc.abstractmethod
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         pass
 
 
@@ -303,7 +304,7 @@ class InvalidType(ColumnType):
     def to_sa_type(self) -> Any:
         assert False
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         raise TypeError(f'Invalid type cannot be converted to Tensorflow')
 
 
@@ -328,7 +329,8 @@ class StringType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.String
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
+        import tensorflow as tf
         return tf.TensorSpec(shape=(), dtype=tf.string)
 
 
@@ -342,8 +344,9 @@ class IntType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.Integer
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         # TODO: how to specify the correct int subtype?
+        import tensorflow as tf
         return tf.TensorSpec(shape=(), dtype=tf.int64)
 
 
@@ -357,7 +360,8 @@ class FloatType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.Float
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
+        import tensorflow as tf
         # TODO: how to specify the correct float subtype?
         return tf.TensorSpec(shape=(), dtype=tf.float32)
 
@@ -372,7 +376,8 @@ class BoolType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.Boolean
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
+        import tensorflow as tf
         # TODO: how to specify the correct int subtype?
         return tf.TensorSpec(shape=(), dtype=tf.bool)
 
@@ -387,7 +392,7 @@ class TimestampType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.TIMESTAMP
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         raise TypeError(f'Timestamp type cannot be converted to Tensorflow')
 
 
@@ -419,7 +424,7 @@ class JsonType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.dialects.postgresql.JSONB
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         if self.type_spec is None:
             raise TypeError(f'Cannot convert {self.__class__.__name__} with missing type spec to TensorFlow')
         return {k: v.to_tf() for k, v in self.type_spec.items()}
@@ -463,7 +468,8 @@ class ArrayType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.VARBINARY
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
+        import tensorflow as tf
         return tf.TensorSpec(shape=self.shape, dtype=self.dtype.to_tf())
 
 
@@ -547,7 +553,8 @@ class ImageType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.String
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
+        import tensorflow as tf
         return tf.TensorSpec(shape=(self.height, self.width, self.num_channels), dtype=tf.uint8)
 
 
@@ -570,5 +577,5 @@ class VideoType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.String
 
-    def to_tf(self) -> Union[tf.TypeSpec, Dict[str, tf.TypeSpec]]:
+    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         assert False

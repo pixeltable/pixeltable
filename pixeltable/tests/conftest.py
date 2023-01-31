@@ -15,14 +15,13 @@ from pixeltable.tests.utils import read_data_file, make_tbl, create_table_data
 def init_db(tmp_path_factory) -> None:
     from pixeltable.env import Env
     # this also runs create_all()
-    db_name = 'test'
-    Env.get().set_up(tmp_path_factory.mktemp('base'), db_name=db_name, echo=True)
+    Env.get().set_up(str(tmp_path_factory.mktemp('base') / '.pixeltable'), 'test', echo=True)
     yield
     # leave db in place for debugging purposes
 
 
 @pytest.fixture(scope='function')
-def test_db(init_db: None) -> pt.Db:
+def test_db(init_db: None) -> catalog.Db:
     cl = pt.Client()
     db = cl.create_db(f'test')
     yield db
@@ -30,7 +29,7 @@ def test_db(init_db: None) -> pt.Db:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(test_db: pt.Db) -> catalog.Table:
+def test_tbl(test_db: catalog.Db) -> catalog.Table:
     cols = [
         catalog.Column('c1', StringType(), nullable=False),
         catalog.Column('c2', IntType(), nullable=False),
@@ -84,7 +83,7 @@ def test_tbl(test_db: pt.Db) -> catalog.Table:
 
 
 @pytest.fixture(scope='function')
-def img_tbl(test_db: pt.Db) -> catalog.Table:
+def img_tbl(test_db: catalog.Db) -> catalog.Table:
     cols = [
         catalog.Column('img', ImageType(), nullable=False, indexed=False),
         catalog.Column('category', StringType(), nullable=False),
@@ -103,7 +102,7 @@ def img_tbl(test_db: pt.Db) -> catalog.Table:
 #    cl = pt.Client()
 #    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')
-def indexed_img_tbl(test_db: pt.Db) -> catalog.Table:
+def indexed_img_tbl(test_db: catalog.Db) -> catalog.Table:
     db = test_db
     cols = [
         catalog.Column('img', ImageType(), nullable=False, indexed=True),
