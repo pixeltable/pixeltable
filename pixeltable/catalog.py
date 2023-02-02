@@ -695,23 +695,9 @@ class MutableTable(Table):
                 ]
                 expanded_rows.extend(frame_rows)
             data = pd.DataFrame.from_dict(expanded_rows, orient='columns')
+            data_cols = [self.cols_by_name[name] for name in data.columns]
 
         rowids = range(self.next_row_id, self.next_row_id + len(data))
-
-        # update image indices
-        data_cols = [self.cols_by_name[name] for name in data.columns]
-        for col in [c for c in data_cols if c.is_indexed]:
-            embeddings = np.zeros((len(data), 512))
-            for i, (_, path_str) in enumerate(data[col.name].items()):
-                try:
-                    img = Image.open(path_str)
-                    embeddings[i] = clip.encode_image(img)
-                except FileNotFoundError:
-                    raise exc.OperationalError(f'Column {col.name}: file does not exist: {path_str}')
-                except PIL.UnidentifiedImageError:
-                    raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
-            assert col.idx is not None
-            col.idx.insert(embeddings, np.array(rowids))
 
         # prepare state for computed cols
         from pixeltable import exprs
@@ -748,6 +734,10 @@ class MutableTable(Table):
             storage_col_names = [e.col.storage_name() for e in window_sort_exprs]
             stored_data_df.sort_values(storage_col_names, axis=0, inplace=True)
         insert_values: List[Dict[str, Any]] = []
+
+        # we're also updating image indices
+        indexed_cols = [c for c in self.cols if c.is_indexed]
+        embeddings = {c.id: np.zeros((len(data), 512)) for c in indexed_cols}
         with tqdm(total=len(stored_data_df)) as progress_bar:
             for row_idx, row in enumerate(stored_data_df.itertuples(index=False)):
                 row_dict = {'rowid': rowids[row_idx], 'v_min': self.version, **row._asdict()}
@@ -775,8 +765,22 @@ class MutableTable(Table):
                     }
                     row_dict.update(computed_vals_dict)
 
+                # compute embeddings
+                for c in indexed_cols:
+                    path_str = row_dict[c.storage_name()]
+                    try:
+                        img = Image.open(path_str)
+                        embeddings[c.id][row_idx] = clip.encode_image(img)
+                    except:
+                        # this shouldn't be happening at this point
+                        raise RuntimeError(f'Image column {c.name}: file does not exist or is invalid: {path_str}')
+
                 insert_values.append(row_dict)
                 progress_bar.update(1)
+
+        # update image indices
+        for c in indexed_cols:
+            c.idx.insert(embeddings[c.id], np.array(rowids))
 
         with Env.get().engine.begin() as conn:
             conn.execute(sql.insert(self.sa_tbl), insert_values)

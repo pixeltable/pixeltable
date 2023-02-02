@@ -115,3 +115,10 @@ Assuming `img = PIL.Image.open(...)`
 Similarity search: `t[t.frame.nearest(img)].show(10)`
 
 Keyword search: `t[t.frame.matches('car')].show(10)`
+
+### Inserting data
+```
+t.insert_rows([['/path/to/video1.mp4'], ['/path/to/video2.mp4']], columns=['video'])
+```
+Each row is a list of column values (do not provide values for computed columns). The
+`columns` argument contains the names of columns for which values are being provided.
