@@ -25,7 +25,10 @@ class Env:
         self._sa_engine: Optional[sql.engine.base.Engine] = None
         self._db_name: Optional[str] = None
 
-    def set_up(self, home_str: Optional[str], db_name: Optional[str], echo: bool = False) -> None:
+    def set_up(
+            self, home_str: Optional[str], db_name: Optional[str], echo: bool = False,
+            db_user: Optional[str] = None, db_password: Optional[str] = None, db_server: Optional[str] = None,
+            db_port: Optional[int] = None) -> None:
         home = Path.home() / '.pixeltable' if home_str is None else Path(home_str)
         if db_name is None:
             db_name = 'pixeltable'
@@ -34,7 +37,15 @@ class Env:
             raise RuntimeError(f'{self._home} is not a directory')
 
         self._db_name = db_name
-        db_url = f'postgresql:///{self._db_name}'
+        if db_user is None:
+            db_url = f'postgresql:///{self._db_name}'
+        else:
+            assert db_password is not None
+            if db_server is None:
+                db_server = 'localhost'
+            if db_port is None:
+                db_port = 5432
+            db_url = f'postgresql://{db_user}:{db_password}@{db_server}:{db_port}/{self._db_name}'
 
         if not self._home.exists():
             print(f'setting up Pixeltable at {self._home}, db at {db_url}')
