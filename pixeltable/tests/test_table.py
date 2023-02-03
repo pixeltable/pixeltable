@@ -6,8 +6,8 @@ from pixeltable import exceptions as exc
 from pixeltable import catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType
-from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files, sum_uda
-from pixeltable.functions import make_video
+from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files
+from pixeltable.functions import make_video, sum
 from pixeltable import utils
 
 
@@ -268,7 +268,7 @@ class TestTable:
         db = test_db
         t = test_tbl
         # backfill
-        t.add_column(catalog.Column('c9', computed_with=sum_uda(t.c2).window(partition_by=t.c4, order_by=t.c3)))
+        t.add_column(catalog.Column('c9', computed_with=sum(t.c2).window(partition_by=t.c4, order_by=t.c3)))
 
         c2 = catalog.Column('c2', IntType(), nullable=False)
         c3 = catalog.Column('c3', FloatType(), nullable=False)
@@ -276,7 +276,7 @@ class TestTable:
         new_t = db.create_table('insert_test', [c2, c3, c4])
         new_t.add_column(catalog.Column('c5', IntType(), computed_with=lambda c2: c2 * c2))
         new_t.add_column(catalog.Column(
-            'c6', computed_with=sum_uda(new_t.c5).window(partition_by=new_t.c4, order_by=new_t.c3)))
+            'c6', computed_with=sum(new_t.c5).window(partition_by=new_t.c4, order_by=new_t.c3)))
         data_df = t[t.c2, t.c4, t.c3].show(0).to_pandas()
         new_t.insert_pandas(data_df)
         _ = new_t.show(0)

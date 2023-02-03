@@ -11,8 +11,7 @@ def dummy_fn(i: int) -> int:
     return i
 
 class TestFunction:
-    eval_fn = lambda x: x + 1
-    func = Function(IntType(), [IntType()], eval_fn=eval_fn)
+    func = Function.make_function(IntType(), [IntType()], lambda x: x + 1)
 
     class Aggregator:
         def __init__(self):
@@ -25,9 +24,8 @@ class TestFunction:
                 self.sum += val
         def value(self):
             return self.sum
-    agg = Function(
-        IntType(), [IntType()],
-        init_fn=Aggregator.make_aggregator, update_fn=Aggregator.update, value_fn=Aggregator.value)
+    agg = Function.make_aggregate_function(
+        IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
 
     def test_serialize_anonymous(self, init_db: None) -> None:
         d = self.func.as_dict()
@@ -49,7 +47,7 @@ class TestFunction:
         with pytest.raises(exc.UnknownEntityError):
             db.create_function('dir1.test_fn', self.func)
         with pytest.raises(exc.Error):
-            library_fn = Function(IntType(), [IntType()], module_name=__name__, eval_symbol='dummy_fn')
+            library_fn = Function.make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
             db.create_function('library_fn', library_fn)
 
     def test_update(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
@@ -77,9 +75,9 @@ class TestFunction:
 
         # signature changes
         with pytest.raises(exc.Error):
-            db.update_function('test_fn', Function(FloatType(), [IntType()], eval_fn=fn.eval_fn))
+            db.update_function('test_fn', Function.make_function(FloatType(), [IntType()], fn.eval_fn))
         with pytest.raises(exc.Error):
-            db.update_function('test_fn', Function(IntType(), [FloatType()], eval_fn=fn.eval_fn))
+            db.update_function('test_fn', Function.make_function(IntType(), [FloatType()], fn.eval_fn))
         with pytest.raises(exc.Error):
             db.update_function('test_fn', self.agg)
 

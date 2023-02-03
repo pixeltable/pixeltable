@@ -18,4 +18,4 @@ def TFModelFunction(
             tensor = preprocess(tensor)
         output = model.predict(tensor)
         return output[0]
-    return Function(ArrayType(output_shape, dtype=ColumnType.DType.FLOAT32), [param_type], eval_fn=predict)
+    return Function.make_function(ArrayType(output_shape, dtype=ColumnType.DType.FLOAT32), [param_type], predict)

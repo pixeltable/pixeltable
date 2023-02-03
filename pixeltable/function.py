@@ -26,12 +26,6 @@ class Function:
             update_fn: Optional[Callable] = None, value_fn: Optional[Callable] = None,
             order_by: List[int] = []
     ):
-        has_agg_symbols = init_symbol is not None and update_symbol is not None and value_symbol is not None
-        has_agg_fns = init_fn is not None and update_fn is not None and value_fn is not None
-        assert (module_name is not None) == (eval_symbol is not None or has_agg_symbols)
-        assert (module_name is None) == (eval_fn is not None or has_agg_fns)
-        # exactly one of the 4 scenarios (is agg fn x is library fn) is specified
-        assert int(eval_symbol is not None) + int(eval_fn is not None) + int(has_agg_symbols) + int(has_agg_fns) == 1
         self.return_type = return_type
         self.param_types = param_types
         self.id = id
@@ -64,6 +58,35 @@ class Function:
                 if not isinstance(idx, int) or idx >= len(param_types):
                     raise exc.Error(f'order_by element not a valid index into param_types: {idx}')
         self.order_by = order_by
+
+    @classmethod
+    def make_function(cls, return_type: ColumnType, param_types: List[ColumnType], eval_fn: Callable) -> 'Function':
+        assert eval_fn is not None
+        return Function(return_type, param_types, eval_fn=eval_fn)
+
+    @classmethod
+    def make_aggregate_function(
+            cls, return_type: ColumnType, param_types: List[ColumnType],
+            init_fn: Callable, update_fn: Callable, value_fn: Callable) -> 'Function':
+        assert init_fn is not None and update_fn is not None and value_fn is not None
+        return Function(return_type, param_types, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn)
+
+    @classmethod
+    def make_library_function(
+            cls, return_type: ColumnType, param_types: List[ColumnType], module_name: str, eval_symbol: str
+    ) -> 'Function':
+        assert module_name is not None and eval_symbol is not None
+        return Function(return_type, param_types, module_name=module_name, eval_symbol=eval_symbol)
+
+    @classmethod
+    def make_library_aggregate_function(
+            cls, return_type: ColumnType, param_types: List[ColumnType],
+            module_name: str, init_symbol: str, update_symbol: str, value_symbol: str) -> 'Function':
+        assert module_name is not None and init_symbol is not None and update_symbol is not None \
+               and value_symbol is not None
+        return Function(
+            return_type, param_types,
+            module_name=module_name, init_symbol=init_symbol, update_symbol=update_symbol, value_symbol=value_symbol)
 
     def _resolve_symbol(self, module: Any, symbol: str) -> object:
         obj = module

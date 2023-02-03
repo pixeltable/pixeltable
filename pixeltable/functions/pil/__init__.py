@@ -14,9 +14,8 @@ def _draw_boxes(img: PIL.Image.Image, boxes: np.ndarray) -> PIL.Image.Image:
         d.rectangle(list(boxes[i]), width=3)
     return result
 
-draw_boxes = Function(
-    ImageType(), [ImageType(), ArrayType((None, 6), dtype=ColumnType.Type.FLOAT)],
-    module_name=__name__, eval_symbol='_draw_boxes')
+draw_boxes = Function.make_library_function(
+    ImageType(), [ImageType(), ArrayType((None, 4), dtype=ColumnType.Type.FLOAT)], __name__, '_draw_boxes')
 
 __all__ = [
     draw_boxes,

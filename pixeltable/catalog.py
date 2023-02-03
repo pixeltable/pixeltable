@@ -902,7 +902,7 @@ class MutableTable(Table):
                 raise exc.Error(
                     f'Column {col.name}: compute_with parameter refers to an unknown column: {param_name}')
             args.append(exprs.ColumnRef(existing_cols[param_name]))
-        fn = Function(col.col_type, [arg.col_type for arg in args], eval_fn=col.compute_func)
+        fn = Function.make_function(col.col_type, [arg.col_type for arg in args], col.compute_func)
         col.value_expr = exprs.FunctionCall(fn, args)
 
     # MODULE-LOCAL, NOT PUBLIC

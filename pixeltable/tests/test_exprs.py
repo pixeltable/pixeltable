@@ -10,7 +10,6 @@ from pixeltable.functions import udf_call, dict_map, cast, sum, count
 from pixeltable.functions.pil.image import blend
 from pixeltable.functions.clip import encode_image
 from pixeltable import exceptions as exc
-from pixeltable.tests import utils
 
 
 class TestExprs:
@@ -53,8 +52,8 @@ class TestExprs:
         assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         # compound predicates with Python functions
-        udf = Function(BoolType(), [StringType()], eval_fn=lambda a: True)
-        udf2 = Function(BoolType(), [IntType()], eval_fn=lambda a: True)
+        udf = Function.make_function(BoolType(), [StringType()], lambda a: True)
+        udf2 = Function.make_function(BoolType(), [IntType()], lambda a: True)
 
         # & can be split
         p = (t.c1 == 'test string') & udf(t.c1)
@@ -295,7 +294,7 @@ class TestExprs:
             (t.c2 > 5) | (t.c1 == 'test'),
             t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
             t.c8[0, 1:],
-            utils.sum_uda(t.c2).window(partition_by=t.c4, order_by=t.c3),
+            sum(t.c2).window(partition_by=t.c4, order_by=t.c3),
         ]
         for e in test_exprs:
             e_serialized = e.serialize()
@@ -326,17 +325,17 @@ class TestExprs:
     def test_window_fns(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
         db = test_db
         t = test_tbl
-        _ = t[utils.sum_uda(t.c2).window(partition_by=t.c4, order_by=t.c3)].show(100)
+        _ = t[sum(t.c2).window(partition_by=t.c4, order_by=t.c3)].show(100)
         print(_)
         # backfill works
-        t.add_column(catalog.Column('c9', computed_with=utils.sum_uda(t.c2).window(partition_by=t.c4, order_by=t.c3)))
+        t.add_column(catalog.Column('c9', computed_with=sum(t.c2).window(partition_by=t.c4, order_by=t.c3)))
 
         c2 = catalog.Column('c2', IntType(), nullable=False)
         c3 = catalog.Column('c3', FloatType(), nullable=False)
         c4 = catalog.Column('c4', BoolType(), nullable=False)
         new_t = db.create_table('insert_test', [c2, c3, c4])
         new_t.add_column(catalog.Column(
-            'c2_sum', computed_with=utils.sum_uda(new_t.c2).window(partition_by=new_t.c4, order_by=new_t.c3)))
+            'c2_sum', computed_with=sum(new_t.c2).window(partition_by=new_t.c4, order_by=new_t.c3)))
         data_df = t[t.c2, t.c4, t.c3].show(0).to_pandas()
         new_t.insert_pandas(data_df)
         _ = new_t.show(0)

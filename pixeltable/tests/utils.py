@@ -115,19 +115,3 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
 def get_video_files() -> List[str]:
     glob_result = glob.glob(f'{os.getcwd()}/**/videos/*.mp4', recursive=True)
     return glob_result
-
-
-class SumAggregator:
-    def __init__(self):
-        self.sum = 0
-    @classmethod
-    def make_aggregator(cls) -> 'SumAggregator':
-        return cls()
-    def update(self, val: int) -> None:
-        self.sum += val
-    def value(self) -> int:
-        return self.sum
-
-sum_uda = Function(
-    IntType(), [IntType()],
-    init_fn=SumAggregator.make_aggregator, update_fn=SumAggregator.update, value_fn=SumAggregator.value)

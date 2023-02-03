@@ -36,7 +36,7 @@ def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
     expr.col_type = target_type
     return expr
 
-dict_map = Function(IntType(), [StringType(), JsonType()], eval_fn=lambda s, d: d[s])
+dict_map = Function.make_function(IntType(), [StringType(), JsonType()], lambda s, d: d[s])
 
 
 class SumAggregator:
@@ -51,12 +51,9 @@ class SumAggregator:
     def value(self) -> Union[int, float]:
         return self.sum
 
-sum = Function(
+sum = Function.make_library_aggregate_function(
     IntType(), [IntType()],
-    module_name='pixeltable.functions',
-    init_symbol='SumAggregator.make_aggregator',
-    update_symbol='SumAggregator.update',
-    value_symbol='SumAggregator.value')
+    'pixeltable.functions', 'SumAggregator.make_aggregator', 'SumAggregator.update', 'SumAggregator.value')
 
 class CountAggregator:
     def __init__(self):
@@ -70,12 +67,9 @@ class CountAggregator:
     def value(self) -> int:
         return self.count
 
-count = Function(
+count = Function.make_library_aggregate_function(
     IntType(), [IntType()],
-    module_name = 'pixeltable.functions',
-    init_symbol = 'CountAggregator.make_aggregator',
-    update_symbol = 'CountAggregator.update',
-    value_symbol = 'CountAggregator.value')
+    'pixeltable.functions', 'CountAggregator.make_aggregator', 'CountAggregator.update', 'CountAggregator.value')
 
 class MeanAggregator:
     def __init__(self):
@@ -93,12 +87,9 @@ class MeanAggregator:
             return None
         return self.sum / self.count
 
-mean = Function(
+mean = Function.make_library_aggregate_function(
     FloatType(), [IntType()],
-    module_name = 'pixeltable.functions',
-    init_symbol = 'MeanAggregator.make_aggregator',
-    update_symbol = 'MeanAggregator.update',
-    value_symbol = 'MeanAggregator.value')
+    'pixeltable.functions', 'MeanAggregator.make_aggregator', 'MeanAggregator.update', 'MeanAggregator.value')
 
 class VideoAggregator:
     def __init__(self):

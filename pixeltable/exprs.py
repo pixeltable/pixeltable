@@ -409,7 +409,7 @@ class FunctionCall(Expr):
                 if converter == ColumnType.no_conversion:
                     # nothing to do
                     continue
-                convert_fn = Function(fn.param_types[i], [args[i].col_type], eval_fn=converter)
+                convert_fn = Function.make_function(fn.param_types[i], [args[i].col_type], converter)
                 args[i] = FunctionCall(convert_fn, (args[i],))
 
         self.components = [arg for arg in args if isinstance(arg, Expr)]
@@ -722,7 +722,8 @@ class ImageMethodCall(FunctionCall):
         else:
             return_type = method_info(caller, *args, **kwargs)
         # TODO: register correct parameters
-        fn = Function(return_type, None, module_name='PIL.Image', eval_symbol=f'Image.{method_name}')
+        fn = Function.make_library_function(
+            return_type, None, module_name='PIL.Image', eval_symbol=f'Image.{method_name}')
         super().__init__(fn, (caller, *args))
         # TODO: deal with kwargs
 
