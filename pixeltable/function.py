@@ -17,6 +17,10 @@ class Function:
     In the former case, the function needs to be pickled and stored for serialization.
     In the latter case, the executable function is resolved in init().
     self.id is only set for non-module functions that are in the backing store.
+    requires_order_by: if True, the first parameter to an aggregate function defines the order in which the function
+    sees rows in update()
+    allows_std_agg: if True, the aggregate function can be used as a standard aggregate function w/o a window
+    allows_window: if True, the aggregate function can be used with a window
     """
     def __init__(
             self, return_type: ColumnType, param_types: Optional[List[ColumnType]], id: Optional[int] = None,
@@ -24,7 +28,7 @@ class Function:
             update_symbol: Optional[str] = None, value_symbol: Optional[str] = None,
             eval_fn: Optional[Callable] = None, init_fn: Optional[Callable] = None,
             update_fn: Optional[Callable] = None, value_fn: Optional[Callable] = None,
-            order_by: List[int] = []
+            requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
     ):
         self.return_type = return_type
         self.param_types = param_types
@@ -51,13 +55,12 @@ class Function:
             if value_symbol is not None:
                 self.value_fn = self._resolve_symbol(module, value_symbol)
 
-        if len(order_by) > 0:
-            if self.init_fn is None:
-                raise exc.Error(f'order_by parameter only valid for aggregate functions')
-            for idx in order_by:
-                if not isinstance(idx, int) or idx >= len(param_types):
-                    raise exc.Error(f'order_by element not a valid index into param_types: {idx}')
-        self.order_by = order_by
+        if requires_order_by:
+            if not self.is_aggregate:
+                raise exc.Error(f'requires_order_by=True only valid for aggregate functions')
+        self.requires_order_by = requires_order_by
+        self.allows_std_agg = allows_std_agg
+        self.allows_window = allows_window
 
     @classmethod
     def make_function(cls, return_type: ColumnType, param_types: List[ColumnType], eval_fn: Callable) -> 'Function':
@@ -67,9 +70,14 @@ class Function:
     @classmethod
     def make_aggregate_function(
             cls, return_type: ColumnType, param_types: List[ColumnType],
-            init_fn: Callable, update_fn: Callable, value_fn: Callable) -> 'Function':
+            init_fn: Callable, update_fn: Callable, value_fn: Callable,
+            requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
+    ) -> 'Function':
         assert init_fn is not None and update_fn is not None and value_fn is not None
-        return Function(return_type, param_types, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn)
+        return Function(
+            return_type, param_types, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn,
+            requires_order_by=requires_order_by, allows_std_agg=allows_std_agg, allows_window=allows_window
+        )
 
     @classmethod
     def make_library_function(
@@ -81,12 +89,16 @@ class Function:
     @classmethod
     def make_library_aggregate_function(
             cls, return_type: ColumnType, param_types: List[ColumnType],
-            module_name: str, init_symbol: str, update_symbol: str, value_symbol: str) -> 'Function':
+            module_name: str, init_symbol: str, update_symbol: str, value_symbol: str,
+            requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
+    ) -> 'Function':
         assert module_name is not None and init_symbol is not None and update_symbol is not None \
                and value_symbol is not None
         return Function(
             return_type, param_types,
-            module_name=module_name, init_symbol=init_symbol, update_symbol=update_symbol, value_symbol=value_symbol)
+            module_name=module_name, init_symbol=init_symbol, update_symbol=update_symbol, value_symbol=value_symbol,
+            requires_order_by=requires_order_by, allows_std_agg=allows_std_agg, allows_window=allows_window
+        )
 
     def _resolve_symbol(self, module: Any, symbol: str) -> object:
         obj = module
@@ -102,9 +114,47 @@ class Function:
     def is_library_function(self) -> bool:
         return self.module_name is not None
 
-    def __call__(self, *args: object) -> 'pixeltable.exprs.FunctionCall':
+    def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs
-        return exprs.FunctionCall(self, args)
+
+        order_by_expr: Optional[exprs.Expr] = None
+        if 'order_by' in kwargs:
+            if self.requires_order_by:
+                raise exc.Error(
+                    f'Order_by invalid, this function requires the first argument to be the ordering expression')
+            if not self.is_aggregate:
+                raise exc.Error(f'Order_by invalid with a non-aggregate function')
+            if not self.allows_window:
+                raise exc.Error(f'Order_by invalid with an aggregate function that does not allow windows')
+            order_by_expr = kwargs['order_by']
+            if not isinstance(order_by_expr, exprs.Expr):
+                raise exc.Error(
+                    f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_expr)}')
+        elif self.requires_order_by:
+            # the first argument is the order-by expr
+            if len(args) == 0:
+                raise exc.Error(f'Function requires an ordering expression as its first argument')
+            order_by_expr = args[0]
+            if not isinstance(order_by_expr, exprs.Expr):
+                raise exc.Error(
+                    f'The first argument needs to be a Pixeltable expression, but instead is a {type(order_by_expr)}')
+            args = args[1:]
+
+        group_by_expr: Optional[exprs.Expr] = None
+        if 'group_by' in kwargs:
+            if not self.is_aggregate:
+                raise exc.Error(f'Group_by invalid with a non-aggregate function')
+            if not self.allows_window:
+                raise exc.Error(f'Group_by invalid with an aggregate function that does not allow windows')
+            group_by_expr = kwargs['group_by']
+            if not isinstance(group_by_expr, exprs.Expr):
+                raise exc.Error(
+                    f'group_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_expr)}')
+
+        return exprs.FunctionCall(
+            self, args,
+            order_by_exprs=[order_by_expr] if order_by_expr is not None else [],
+            group_by_exprs=[group_by_expr] if group_by_expr is not None else [])
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
@@ -131,6 +181,9 @@ class Function:
             'init_symbol': self.init_symbol,
             'update_symbol': self.update_symbol,
             'value_symbol': self.value_symbol,
+            'requires_order_by': self.requires_order_by,
+            'allows_std_agg': self.allows_std_agg,
+            'allows_window': self.allows_window,
         }
 
     @classmethod
@@ -152,7 +205,9 @@ class Function:
         else:
             return cls(
                 return_type, param_types, module_name=d['module_name'], eval_symbol=d['eval_symbol'],
-                init_symbol=d['init_symbol'], update_symbol=d['update_symbol'], value_symbol=d['value_symbol'])
+                init_symbol=d['init_symbol'], update_symbol=d['update_symbol'], value_symbol=d['value_symbol'],
+                requires_order_by=d['requires_order_by'], allows_std_agg=d['allows_std_agg'],
+                allows_window=d['allows_window'])
 
 
 class FunctionRegistry:
@@ -180,8 +235,9 @@ class FunctionRegistry:
     def get_function(self, id: int) -> Function:
         if id not in self.fns_by_id:
             stmt = sql.select(
-                store.Function.name, store.Function.return_type, store.Function.param_types,
-                store.Function.eval_obj, store.Function.init_obj, store.Function.update_obj, store.Function.value_obj) \
+                    store.Function.name, store.Function.return_type, store.Function.param_types,
+                    store.Function.eval_obj, store.Function.init_obj, store.Function.update_obj,
+                    store.Function.value_obj, store.Function.parameters) \
                 .where(store.Function.id == id)
             with Env.get().engine.begin() as conn:
                 rows = conn.execute(stmt)
@@ -202,10 +258,12 @@ class FunctionRegistry:
                 value_fn = cloudpickle.loads(row[6]) if row[6] is not None else None
                 if row[6] is not None and value_fn is None:
                     raise exc.Error(f'Could not load value_fn for aggregate function {name}')
+                params = row[7]
 
                 func = Function(
                     return_type, param_types, id=id, eval_fn=eval_fn, init_fn=init_fn, update_fn=update_fn,
-                    value_fn=value_fn)
+                    value_fn=value_fn, requires_order_by=params['requires_order_by'],
+                    allows_std_agg=params['allows_std_agg'], allows_window=params['allows_window'])
                 self.fns_by_id[id] = func
         assert id in self.fns_by_id
         return self.fns_by_id[id]
@@ -219,12 +277,18 @@ class FunctionRegistry:
             init_fn_str = cloudpickle.dumps(fn.init_fn) if fn.init_fn is not None else None
             update_fn_str = cloudpickle.dumps(fn.update_fn) if fn.update_fn is not None else None
             value_fn_str = cloudpickle.dumps(fn.value_fn) if fn.value_fn is not None else None
+            params = {
+                'requires_order_by': fn.requires_order_by,
+                'allows_std_agg': fn.allows_std_agg,
+                'allows_window': fn.allows_window
+            }
             res = conn.execute(
                 sql.insert(store.Function.__table__)
                     .values(
                         db_id=db_id, dir_id=dir_id, name=name, return_type=fn.return_type.serialize(),
                         param_types=ColumnType.serialize_list(fn.param_types),
-                        eval_obj=eval_fn_str, init_obj=init_fn_str, update_obj=update_fn_str, value_obj=value_fn_str))
+                        eval_obj=eval_fn_str, init_obj=init_fn_str, update_obj=update_fn_str, value_obj=value_fn_str,
+                        parameters=params))
             fn.id = res.inserted_primary_key[0]
             self.fns_by_id[fn.id] = fn
 

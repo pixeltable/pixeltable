@@ -53,7 +53,8 @@ class SumAggregator:
 
 sum = Function.make_library_aggregate_function(
     IntType(), [IntType()],
-    'pixeltable.functions', 'SumAggregator.make_aggregator', 'SumAggregator.update', 'SumAggregator.value')
+    'pixeltable.functions', 'SumAggregator.make_aggregator', 'SumAggregator.update', 'SumAggregator.value',
+    allows_std_agg=True, allows_window=True)
 
 class CountAggregator:
     def __init__(self):
@@ -69,7 +70,8 @@ class CountAggregator:
 
 count = Function.make_library_aggregate_function(
     IntType(), [IntType()],
-    'pixeltable.functions', 'CountAggregator.make_aggregator', 'CountAggregator.update', 'CountAggregator.value')
+    'pixeltable.functions', 'CountAggregator.make_aggregator', 'CountAggregator.update', 'CountAggregator.value',
+    allows_std_agg = True, allows_window = True)
 
 class MeanAggregator:
     def __init__(self):
@@ -89,7 +91,8 @@ class MeanAggregator:
 
 mean = Function.make_library_aggregate_function(
     FloatType(), [IntType()],
-    'pixeltable.functions', 'MeanAggregator.make_aggregator', 'MeanAggregator.update', 'MeanAggregator.value')
+    'pixeltable.functions', 'MeanAggregator.make_aggregator', 'MeanAggregator.update', 'MeanAggregator.value',
+    allows_std_agg = True, allows_window = True)
 
 class VideoAggregator:
     def __init__(self):
@@ -100,7 +103,7 @@ class VideoAggregator:
     def make_aggregator(cls) -> 'VideoAggregator':
         return cls()
 
-    def update(self, frame_idx: int, frame: PIL.Image.Image) -> None:
+    def update(self, frame: PIL.Image.Image) -> None:
         if self.video_writer is None:
             self.size = (frame.width, frame.height)
             self.out_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
@@ -117,14 +120,13 @@ class VideoAggregator:
         os.remove(self.tmp_file)
         return self.out_file
 
-make_video = Function(
-    VideoType(), [IntType(), ImageType()],  # params: frame_idx, frame
-    order_by=[0],  # update() wants frames in frame_idx order
+make_video = Function.make_library_aggregate_function(
+    VideoType(), [ImageType()],  # params: frame
     module_name = 'pixeltable.functions',
     init_symbol = 'VideoAggregator.make_aggregator',
     update_symbol = 'VideoAggregator.update',
-    value_symbol = 'VideoAggregator.value')
-
+    value_symbol = 'VideoAggregator.value',
+    requires_order_by=True, allows_std_agg=True, allows_window=False)
 
 __all__ = [
     udf_call,

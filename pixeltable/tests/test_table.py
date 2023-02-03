@@ -268,7 +268,7 @@ class TestTable:
         db = test_db
         t = test_tbl
         # backfill
-        t.add_column(catalog.Column('c9', computed_with=sum(t.c2).window(partition_by=t.c4, order_by=t.c3)))
+        t.add_column(catalog.Column('c9', computed_with=sum(t.c2, group_by=t.c4, order_by=t.c3)))
 
         c2 = catalog.Column('c2', IntType(), nullable=False)
         c3 = catalog.Column('c3', FloatType(), nullable=False)
@@ -276,7 +276,7 @@ class TestTable:
         new_t = db.create_table('insert_test', [c2, c3, c4])
         new_t.add_column(catalog.Column('c5', IntType(), computed_with=lambda c2: c2 * c2))
         new_t.add_column(catalog.Column(
-            'c6', computed_with=sum(new_t.c5).window(partition_by=new_t.c4, order_by=new_t.c3)))
+            'c6', computed_with=sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3)))
         data_df = t[t.c2, t.c4, t.c3].show(0).to_pandas()
         new_t.insert_pandas(data_df)
         _ = new_t.show(0)

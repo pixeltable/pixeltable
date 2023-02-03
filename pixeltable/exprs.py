@@ -386,7 +386,8 @@ class ColumnRef(Expr):
 
 
 class FunctionCall(Expr):
-    def __init__(self, fn: Function, args: Tuple[Any] = None):
+    def __init__(
+            self, fn: Function, args: Tuple[Any], order_by_exprs: List[Expr] = [], group_by_exprs: List[Expr] = []):
         super().__init__(fn.return_type)
         self.fn = fn
 
@@ -416,8 +417,14 @@ class FunctionCall(Expr):
         self.args = [arg if not isinstance(arg, Expr) else None for arg in args]
 
         # window function state
-        self.partition_by_idx = -1  # self.components[self.pb_index:] contains partition_by exprs
-        self.order_by: List[Expr] = []
+        self.group_by_idx = -1  # self.components[self.group_by_index:] contains group_by exprs
+        if len(group_by_exprs) > 0:
+            # record grouping exprs in self.components, we need to evaluate them to get partition vals
+            self.group_by_idx = len(self.components)
+            self.components.extend(group_by_exprs)
+        # we don't need to evaluate order_by_exprs, so they stay out of self.components
+        self.order_by = order_by_exprs
+
         # execution state for window functions
         self.aggregator: Optional[Any] = self.fn.init_fn() if self.fn.is_aggregate else None
         self.current_partition_vals: Optional[List[Any]] = None
@@ -434,59 +441,35 @@ class FunctionCall(Expr):
         for i in range(len(self.args)):
             if self.args[i] != other.args[i]:
                 return False
-        if self.partition_by_idx != other.partition_by_idx:
+        if self.group_by_idx != other.group_by_idx:
             return False
         if not self.list_equals(self.order_by, other.order_by):
             return False
         return True
 
-    def window(
-            self, partition_by: Optional[Union[Expr, List[Expr]]] = None,
-            order_by: Optional[Union[Expr, List[Expr]]] = None
-    ) -> 'FunctionCall':
-        if not self.fn.is_aggregate:
-            raise exc.Error(f'The window() clause is only allowed for aggregate functions')
-        if partition_by is None and order_by is None:
-            raise exc.Error('The window() clause requires at least one parameter not to be None')
-        if partition_by is not None and not isinstance(partition_by, list):
-            partition_by = [partition_by]
-        if order_by is not None:
-            self.order_by = order_by if isinstance(order_by, list) else [order_by]
-        # we only need to record the partition_by exprs in self.components, because the order_by values aren't
-        # used during evaluation (the SQL store will return rows in that order)
-        if partition_by is not None:
-            self.partition_by_idx = len(self.components)
-            self.components.extend(partition_by)
-        return self
-
     @property
-    def partition_by(self) -> List[Expr]:
-        if self.partition_by_idx == -1:
+    def group_by(self) -> List[Expr]:
+        if self.group_by_idx == -1:
             return []
-        return self.components[self.partition_by_idx:]
+        return self.components[self.group_by_idx:]
 
     @property
     def is_window_fn_call(self) -> bool:
-        return self.fn.is_aggregate and (self.partition_by_idx != -1 or len(self.order_by) > 0)
+        return self.fn.is_aggregate and self.fn.allows_window and \
+            (not self.fn.allows_std_agg \
+             or self.group_by_idx != -1 \
+             or (len(self.order_by) > 0 and not self.fn.requires_order_by))
 
     def get_window_sort_exprs(self) -> List[Expr]:
-        return [*self.partition_by, *self.order_by]
+        return [*self.group_by, *self.order_by]
 
     @property
     def is_agg_fn_call(self) -> bool:
-        return self.fn.is_aggregate and self.partition_by_idx == -1 and len(self.order_by) == 0
+        return self.fn.is_aggregate and not self.is_window_fn_call
 
     def get_agg_order_by(self) -> List[Expr]:
         assert self.is_agg_fn_call
-        result: List[Expr] = []
-        component_idx = 0
-        for arg_idx in range(len(self.args)):
-            if arg_idx in self.fn.order_by:
-                assert self.args[arg_idx] is None  # this is an Expr, not something else
-                result.append(self.components[component_idx])
-            if self.args[arg_idx] is None:
-                component_idx += 1
-        return result
+        return self.order_by
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         # TODO: implement for standard aggregate functions
@@ -522,10 +505,10 @@ class FunctionCall(Expr):
         if not self.fn.is_aggregate:
             data_row[self.data_row_idx] = self.fn.eval_fn(*args)
         elif self.is_window_fn_call:
-            if self.partition_by_idx != -1:
+            if self.group_by_idx != -1:
                 if self.current_partition_vals is None:
-                    self.current_partition_vals = [None] * len(self.partition_by)
-                partition_vals = [data_row[e.data_row_idx] for e in self.partition_by]
+                    self.current_partition_vals = [None] * len(self.group_by)
+                partition_vals = [data_row[e.data_row_idx] for e in self.group_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
                     self.aggregator = self.fn.init_fn()
@@ -541,7 +524,7 @@ class FunctionCall(Expr):
     def _as_dict(self) -> Dict:
         result = {'fn': self.fn.as_dict(), 'args': self.args, **super()._as_dict()}
         if self.fn.is_aggregate:
-            result.update({'partition_by_idx': self.partition_by_idx, 'order_by': Expr.as_dict_list(self.order_by)})
+            result.update({'group_by_idx': self.group_by_idx, 'order_by': Expr.as_dict_list(self.order_by)})
         return result
 
     @classmethod
@@ -552,8 +535,8 @@ class FunctionCall(Expr):
         args = [arg if arg is not None else components[i] for i, arg in enumerate(d['args'])]
         fn_call = cls(Function.from_dict(d['fn']), args)
         if fn_call.fn.is_aggregate:
-            fn_call.partition_by_idx = d['partition_by_idx']
-            fn_call.components.extend(components[fn_call.partition_by_idx:])
+            fn_call.group_by_idx = d['group_by_idx']
+            fn_call.components.extend(components[fn_call.group_by_idx:])
             fn_call.order_by = Expr.from_dict_list(d['order_by'], t)
         return fn_call
 
