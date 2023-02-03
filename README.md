@@ -19,8 +19,17 @@ Pixeltable presents a dataframe-like interface to image and video data.
 
 Pixeltable requires a home directory and a Postgres database, and both are created automatically the
 first time you create a Pixeltable client (see below). The location of the home directory is
-`~/.pixeltable` (or the value of the `PIXELTABLE_HOME` environment variable); the name of the
-Postgres database is `pixeltable` (or the value of the `PIXELTABLE_DB` environment variable).
+`~/.pixeltable` (or the value of the `PIXELTABLE_HOME` environment variable). The following
+environment variables determine how Pixeltable connects to the Postgres instance.
+
+|Environment Variable|Default|
+|----|----|
+| `PIXELTABLE_HOME`| `~/.pixeltable` |
+| `PIXELTABLE_DB`| `pixeltable` |
+| `PIXELTABLE_DB_USER` | |
+| `PIXELTABLE_DB_PASSWORD` | |
+| `PIXELTABLE_DB_HOST` | `localhost` |
+| `PIXELTABLE_DB_PORT` | `5432` |
 
 ## Overview
 
@@ -34,12 +43,20 @@ import pixeltable as pt
 cl = pt.Client()
 ```
 
-### Creating a database
-```
-db = cl.create_db('db1')
-```
+### Database operations
+|Action|Code|
+|----|----|
+| Create a database| `db = cl.create_db('db1')`|
+| Use an existing database| `db = cl.get_db('db1')`|
 
-### Creating a table with video data
+### Table operations
+|Action|Code|
+|----|----|
+| Create a table| `t = db.create_table('table_name', [pt.Column(...), ...])` |
+| Use an existing table| `t = db.get_table('video_data')` |
+| Delete a table| `db.drop_table('video_data')` |
+
+Creating a table with video data and automatic frame extraction:
 ```
 c1 = pt.Column('video', pt.VideoType())
 c2 = pt.Column('frame_idx', pt.IntType())
@@ -51,6 +68,8 @@ t = db.create_table(
     extracted_frame_idx_col='frame_idx',
     extracted_fps=1)
 ```
+
+`extracted_fps=0` extracts frames at the original frame rate.
 
 ### Querying a table
 
@@ -69,6 +88,13 @@ t = db.create_table(
 | Only retrieve the frame index and frame | `t[t.frame_idx, t.frame].show()` |
 | Look at frames rotated 90 degrees | `t[t.frame.rotate(90)].show()` |
 | Overlay frame with itself rotated 90 degrees | `t[pt.functions.blend(t.frame, t.frame.rotate(90))].show()` |
+
+### Inserting data into a table
+```
+t.insert_rows([['/path/to/video1.mp4'], ['/path/to/video2.mp4']], columns=['video'])
+```
+Each row is a list of column values (do not provide values for computed columns). The
+`columns` argument contains the names of columns for which values are being provided.
 
 ### Attributes and methods on image data
 
@@ -116,9 +142,3 @@ Similarity search: `t[t.frame.nearest(img)].show(10)`
 
 Keyword search: `t[t.frame.matches('car')].show(10)`
 
-### Inserting data
-```
-t.insert_rows([['/path/to/video1.mp4'], ['/path/to/video2.mp4']], columns=['video'])
-```
-Each row is a list of column values (do not provide values for computed columns). The
-`columns` argument contains the names of columns for which values are being provided.

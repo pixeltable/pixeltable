@@ -205,36 +205,34 @@ class FunctionRegistry:
             fn.id = res.inserted_primary_key[0]
             self.fns_by_id[fn.id] = fn
 
-    def update_function(
-            self, id: int, eval_fn: Optional[Callable] = None, init_fn: Optional[Callable] = None,
-            update_fn: Optional[Callable] = None, value_fn: Optional[Callable] = None
-    ) -> None:
+    def update_function(self, id: int, new_fn: Function) -> None:
         """
-        Updates the callable for the function with the given id in the store and in the cache, if present.
+        Updates the callables for the Function with the given id in the store and in the cache, if present.
         """
+        assert not new_fn.is_library_function
         with Env.get().engine.begin() as conn:
             updates = {}
-            if eval_fn is not None:
-                updates[store.Function.eval_obj] = cloudpickle.dumps(eval_fn)
-            if init_fn is not None:
-                updates[store.Function.init_obj] = cloudpickle.dumps(init_fn)
-            if update_fn is not None:
-                updates[store.Function.update_obj] = cloudpickle.dumps(update_fn)
-            if value_fn is not None:
-                updates[store.Function.value_obj] = cloudpickle.dumps(value_fn)
+            if new_fn.eval_fn is not None:
+                updates[store.Function.eval_obj] = cloudpickle.dumps(new_fn.eval_fn)
+            if new_fn.init_fn is not None:
+                updates[store.Function.init_obj] = cloudpickle.dumps(new_fn.init_fn)
+            if new_fn.update_fn is not None:
+                updates[store.Function.update_obj] = cloudpickle.dumps(new_fn.update_fn)
+            if new_fn.value_fn is not None:
+                updates[store.Function.value_obj] = cloudpickle.dumps(new_fn.value_fn)
             conn.execute(
                 sql.update(store.Function.__table__)
                     .values(updates)
                     .where(store.Function.id == id))
         if id in self.fns_by_id:
-            if eval_fn is not None:
-                self.fns_by_id[id].eval_fn = eval_fn
-            if init_fn is not None:
-                self.fns_by_id[id].init_fn = init_fn
-            if update_fn is not None:
-                self.fns_by_id[id].update_fn = update_fn
-            if value_fn is not None:
-                self.fns_by_id[id].value_fn = value_fn
+            if new_fn.eval_fn is not None:
+                self.fns_by_id[id].eval_fn = new_fn.eval_fn
+            if new_fn.init_fn is not None:
+                self.fns_by_id[id].init_fn = new_fn.init_fn
+            if new_fn.update_fn is not None:
+                self.fns_by_id[id].update_fn = new_fn.update_fn
+            if new_fn.value_fn is not None:
+                self.fns_by_id[id].value_fn = new_fn.value_fn
 
     def delete_function(self, id: int) -> None:
         assert id is not None

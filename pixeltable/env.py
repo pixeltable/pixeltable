@@ -27,7 +27,7 @@ class Env:
 
     def set_up(
             self, home_str: Optional[str], db_name: Optional[str], echo: bool = False,
-            db_user: Optional[str] = None, db_password: Optional[str] = None, db_server: Optional[str] = None,
+            db_user: Optional[str] = None, db_password: Optional[str] = None, db_host: Optional[str] = None,
             db_port: Optional[int] = None) -> None:
         home = Path.home() / '.pixeltable' if home_str is None else Path(home_str)
         if db_name is None:
@@ -41,11 +41,11 @@ class Env:
             db_url = f'postgresql:///{self._db_name}'
         else:
             assert db_password is not None
-            if db_server is None:
-                db_server = 'localhost'
+            if db_host is None:
+                db_host = 'localhost'
             if db_port is None:
                 db_port = 5432
-            db_url = f'postgresql://{db_user}:{db_password}@{db_server}:{db_port}/{self._db_name}'
+            db_url = f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{self._db_name}'
 
         if not self._home.exists():
             print(f'setting up Pixeltable at {self._home}, db at {db_url}')

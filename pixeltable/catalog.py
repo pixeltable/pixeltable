@@ -1278,17 +1278,25 @@ class Db:
         del self.paths[path]
         self.paths[new_path] = func
 
-    def update_function(self, path_str: str, new_eval_fn: Callable) -> None:
+    def update_function(self, path_str: str, new_func: Function) -> None:
         """
-        Update the Function for given path with the callable.
+        Update the Function for given path with func.
         """
+        if new_func.is_library_function:
+            raise exc.Error(f'Cannot update a named function to a library function')
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
-        # TODO: check that function signature doesn't change if the Function is used in a computed column
-        FunctionRegistry.get().update_function(named_fn.id, new_eval_fn)
+        func = FunctionRegistry.get().get_function(named_fn.id)
+        if func.return_type != new_func.return_type or func.param_types != new_func.param_types:
+            raise exc.Error(
+                f'The function signature cannot be changed. '
+                f'The existing signature is ({", ".join([str(t) for t in func.param_types])}) -> {func.return_type}')
+        if func.is_aggregate != new_func.is_aggregate:
+            raise exc.Error(f'Cannot change an aggregate function into a standard function and vice versa')
+        FunctionRegistry.get().update_function(named_fn.id, func)
 
-    def load_function(self, path_str: str) -> Function:
+    def get_function(self, path_str: str) -> Function:
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]

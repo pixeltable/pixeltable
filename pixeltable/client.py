@@ -20,7 +20,7 @@ class Client:
         Env.get().set_up(
             os.environ.get('PIXELTABLE_HOME'), os.environ.get('PIXELTABLE_DB'),
             db_user=os.environ.get('PIXELTABLE_DB_USER'), db_password=os.environ.get('PIXELTABLE_DB_PASSWORD'),
-            db_server=os.environ.get('PIXELTABLE_DB_SERVER'), db_port=os.environ.get('PIXELTABLE_DB_PORT'))
+            db_host=os.environ.get('PIXELTABLE_DB_HOST'), db_port=os.environ.get('PIXELTABLE_DB_PORT'))
 
     def create_db(self, name: str) -> catalog.Db:
         db = catalog.Db.create(name)
