@@ -1,3 +1,4 @@
+from typing import List
 import sqlalchemy as sql
 import pytest
 
@@ -10,6 +11,7 @@ from pixeltable.functions import udf_call, dict_map, cast, sum, count
 from pixeltable.functions.pil.image import blend
 from pixeltable.functions.clip import encode_image
 from pixeltable import exceptions as exc
+from pixeltable import exprs
 
 
 class TestExprs:
@@ -273,42 +275,28 @@ class TestExprs:
         with pytest.raises(exc.OperationalError):
             _ = t[t.img.matches('musical instrument')].show(10)
 
-    def test_serialization(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
+    def test_serialization(
+            self, test_tbl: catalog.Table, test_tbl_exprs: List[exprs.Expr],
+            img_tbl: catalog.Table, img_tbl_exprs: List[exprs.Expr]) -> None:
         t = test_tbl
-        # add array column
-        t.add_column(catalog.Column('c8', computed_with=[[1, 2, 3], [4, 5, 6]]))
-        img_t = img_tbl
-        test_exprs = [
-            t.c1,
-            t.c7['*'].f1,
-            Literal('test'),
-            InlineDict({
-                'a': t.c1, 'b': t.c6.f1, 'c': 17,
-                'd': InlineDict({'e': t.c2}),
-                'f': InlineArray((t.c3, t.c3))
-            }),
-            InlineArray([[t.c2, t.c2], [t.c2, t.c2]]),
-            t.c2 > 5,
-            ~(t.c2 > 5),
-            (t.c2 > 5) & (t.c1 == 'test'),
-            (t.c2 > 5) | (t.c1 == 'test'),
-            t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
-            t.c8[0, 1:],
-            sum(t.c2, group_by=t.c4, order_by=t.c3),
-        ]
-        for e in test_exprs:
+        for e in test_tbl_exprs:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized, t)
             assert e.equals(e_deserialized)
 
-        img_test_exprs = [
-            img_t.img.width,
-            img_t.img.rotate(90),
-        ]
-        for e in img_test_exprs:
+        img_t = img_tbl
+        for e in img_tbl_exprs:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized, img_t)
             assert e.equals(e_deserialized)
+
+    def test_print(self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]) -> None:
+        for e in test_tbl_exprs:
+            _ = str(e)
+            print(_)
+        for e in img_tbl_exprs:
+            _ = str(e)
+            print(_)
 
     def test_subexprs(self, img_tbl: catalog.Table) -> None:
         t = img_tbl

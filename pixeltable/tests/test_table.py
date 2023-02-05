@@ -1,11 +1,12 @@
 import pytest
 import math
+import numpy as np
 
 import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable import catalog
 from pixeltable.type_system import \
-    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType
+    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, ColumnType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files
 from pixeltable.functions import make_video, sum
 from pixeltable import utils
@@ -327,4 +328,12 @@ class TestTable:
         assert t.count() == len(data1)
         t.add_column(catalog.Column('c3', computed_with=t.c2 + 10, nullable=False))
         _ = t.show()
+        print(_)
+
+    def test_describe(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        fn = lambda c2: np.full((3, 4), c2)
+        t.add_column(
+            catalog.Column('computed1', col_type=ArrayType((3, 4), dtype=ColumnType.Type.INT), computed_with=fn))
+        _ = t.describe()
         print(_)

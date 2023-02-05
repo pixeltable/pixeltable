@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 import pandas as pd
 import datetime
@@ -9,6 +10,9 @@ import pixeltable.catalog as catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType
 from pixeltable.tests.utils import read_data_file, make_tbl, create_table_data
+from pixeltable import exprs
+from pixeltable.exprs import RELATIVE_PATH_ROOT as R
+from pixeltable import functions as ptf
 
 
 @pytest.fixture(scope='session')
@@ -40,6 +44,7 @@ def test_tbl(test_db: catalog.Db) -> catalog.Table:
         catalog.Column('c7', JsonType(), nullable=False),
     ]
     t = test_db.create_table('test__tbl', cols)
+    t.add_column(catalog.Column('c8', computed_with=[[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100
     d1 = {
@@ -81,6 +86,28 @@ def test_tbl(test_db: catalog.Db) -> catalog.Table:
     t.insert_pandas(pd_df)
     return t
 
+@pytest.fixture(scope='function')
+def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
+    t = test_tbl
+    return [
+        t.c1,
+        t.c7['*'].f1,
+        exprs.Literal('test'),
+        exprs.InlineDict({
+            'a': t.c1, 'b': t.c6.f1, 'c': 17,
+            'd': exprs.InlineDict({'e': t.c2}),
+            'f': exprs.InlineArray((t.c3, t.c3))
+        }),
+        exprs.InlineArray([[t.c2, t.c2], [t.c2, t.c2]]),
+        t.c2 > 5,
+        ~(t.c2 > 5),
+        (t.c2 > 5) & (t.c1 == 'test'),
+        (t.c2 > 5) | (t.c1 == 'test'),
+        t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
+        t.c8[0, 1:],
+        ptf.sum(t.c2, group_by=t.c4, order_by=t.c3),
+    ]
+
 
 @pytest.fixture(scope='function')
 def img_tbl(test_db: catalog.Db) -> catalog.Table:
@@ -94,6 +121,16 @@ def img_tbl(test_db: catalog.Db) -> catalog.Table:
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     tbl.insert_pandas(df)
     return tbl
+
+@pytest.fixture(scope='function')
+def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
+    img_t = img_tbl
+    return [
+        img_t.img.width,
+        img_t.img.rotate(90),
+        # we're using a list here, not a tuple; the latter turns into a list during the back/forth conversion
+        img_t.img.rotate(90).resize([224, 224]),
+    ]
 
 
 # TODO: why does this not work with a session scope? (some user tables don't get created with create_all())

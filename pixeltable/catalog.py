@@ -7,6 +7,7 @@ import dataclasses
 
 import PIL, cv2
 import numpy as np
+import pandas as pd
 from PIL import Image
 from tqdm.autonotebook import tqdm
 import pathlib
@@ -257,6 +258,17 @@ class Table(SchemaObject):
     @property
     def columns(self) -> List[Column]:
         return self.cols
+
+    def describe(self) -> pd.DataFrame:
+        pd_df = pd.DataFrame({
+            'Column Name': [c.name for c in self.cols],
+            'Type': [str(c.col_type) for c in self.cols],
+            'Computed With': [str(c.value_expr) if c.value_expr is not None else '' for c in self.cols],
+        })
+        # white-space: pre-wrap: print \n as newline
+        pd_df = pd_df.style.set_properties(**{'white-space': 'pre-wrap', 'text-align': 'left'})\
+            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])  # center-align headings
+        return pd_df.hide(axis='index')
 
     def storage_name(self) -> str:
         return f'tbl_{self.id}'

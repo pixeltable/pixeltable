@@ -51,6 +51,14 @@ class LogicalOperator(enum.Enum):
     OR = 1
     NOT = 2
 
+    def __str__(self) -> str:
+        if self == self.AND:
+            return '&'
+        if self == self.OR:
+            return '|'
+        if self == self.NOT:
+            return '~'
+
 
 class ArithmeticOperator(enum.Enum):
     ADD = 0
@@ -182,6 +190,14 @@ class Expr(abc.ABC):
         result = self.copy()
         memo[id(self)] = result
         return result
+
+    def __str__(self) -> str:
+        return self.__class__.__name__
+    @classmethod
+    def print_list(cls, expr_list: List['Expr']) -> str:
+        if len(expr_list) == 1:
+            return str(expr_list[0])
+        return f'({", ".join([str(e) for e in expr_list])})'
 
     def subexprs(self) -> Generator['Expr', None, None]:
         """
@@ -369,6 +385,9 @@ class ColumnRef(Expr):
     def _equals(self, other: 'ColumnRef') -> bool:
         return self.col == other.col
 
+    def __str__(self) -> str:
+        return self.col.name
+
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return self.col.sa_col
 
@@ -446,6 +465,25 @@ class FunctionCall(Expr):
         if not self.list_equals(self.order_by, other.order_by):
             return False
         return True
+
+    def __str__(self) -> str:
+        return f'FunctionCall({self._print_args()})'
+
+    def _print_args(self, start_idx: int = 0) -> str:
+        arg_strs = [str(arg) if arg is not None else '' for arg in self.args[start_idx:]]
+        # fill in missing expr args
+        i = 0
+        for j in range(start_idx, len(self.args)):
+            if self.args[j] is None:
+                arg_strs[j] = str(self.components[i])
+                i += 1
+        if len(self.order_by) > 0:
+            arg_strs.append(f'order_by={Expr.print_list(self.order_by)}')
+        if len(self.group_by) > 0:
+            arg_strs.append(f'group_by={Expr.print_list(self.group_by)}')
+        # TODO: figure out the function name
+        separator = ',\n    '
+        return separator.join(arg_strs)
 
     @property
     def group_by(self) -> List[Expr]:
@@ -643,6 +681,9 @@ class ImageMemberAccess(Expr):
     def _caller(self) -> Expr:
         return self.components[0]
 
+    def __str__(self) -> str:
+        return f'{self._caller}.{self.member_name}'
+
     def _as_dict(self) -> Dict:
         return {'member_name': self.member_name, **super()._as_dict()}
 
@@ -713,6 +754,9 @@ class ImageMethodCall(FunctionCall):
     def display_name(self) -> str:
         return self.method_name
 
+    def __str__(self) -> str:
+        return f'{self.components[0]}.{self.method_name}({self._print_args(1)})'
+
     def _as_dict(self) -> Dict:
         return {'method_name': self.method_name, 'args': self.args, **super()._as_dict()}
 
@@ -743,6 +787,10 @@ class JsonPath(Expr):
         self.path_elements: List[Union[str, int]] = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         self.scope_idx = scope_idx
+
+    def __str__(self) -> str:
+        return (f'{str(self._anchor) if self._anchor is not None else ""}'
+            f'{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}')
 
     def _as_dict(self) -> Dict:
         return {'path_elements': self.path_elements, 'scope_idx': self.scope_idx, **super()._as_dict()}
@@ -854,6 +902,11 @@ class Literal(Expr):
     def display_name(self) -> str:
         return 'Literal'
 
+    def __str__(self) -> str:
+        if self.col_type.is_string_type() or self.col_type.is_timestamp_type():
+            return f"'{self.val}'"
+        return str(self.val)
+
     def _equals(self, other: 'Literal') -> bool:
         return self.val == other.val
 
@@ -906,6 +959,16 @@ class InlineDict(Expr):
             self.type_spec[key] = self.components[idx].col_type
         self.col_type = JsonType(self.type_spec)
 
+    def __str__(self) -> str:
+        item_strs: List[str] = []
+        i = 0
+        for key, idx, val in self.dict_items:
+            if idx != -1:
+                item_strs.append(f"'{key}': {str(self.components[i])}")
+                i += 1
+            else:
+                item_strs.append(f"'{key}': {str(val)}")
+        return '{' + ', '.join(item_strs) + '}'
 
     def _equals(self, other: 'InlineDict') -> bool:
         return self.dict_items == other.dict_items
@@ -980,6 +1043,9 @@ class InlineArray(Expr):
         elif element_type.is_json_type():
             self.col_type = JsonType()
 
+    def __str__(self) -> str:
+        elem_strs = [str(val) if val is not None else str(self.components[idx]) for idx, val in self.elements]
+        return f'[{", ".join(elem_strs)}]'
 
     def _equals(self, other: 'InlineDict') -> bool:
         return self.elements == other.elements
@@ -1021,6 +1087,18 @@ class ArraySlice(Expr):
         super().__init__(arr.col_type)
         self.components = [arr]
         self.index = index
+
+    def __str__(self) -> str:
+        index_strs: List[str] = []
+        for el in self.index:
+            if isinstance(el, int):
+                index_strs.append(str(el))
+            if isinstance(el, slice):
+                start_str = f'{str(el.start) if el.start is not None else ""}'
+                stop_str = f'{str(el.stop) if el.stop is not None else ""}'
+                step_str = f'{str(el.step) if el.step is not None else ""}'
+                index_strs.append(f'{start_str}:{stop_str}{":" if el.step is not None else ""}{step_str}')
+        return f'{self._array}[{", ".join(index_strs)}]'
 
     @property
     def _array(self) -> Expr:
@@ -1112,6 +1190,11 @@ class CompoundPredicate(Predicate):
             self.operands: List[Predicate] = []
             for operand in operands:
                 self._merge_operand(operand)
+
+    def __str__(self) -> str:
+        if self.operator == LogicalOperator.NOT:
+            return f'~({self.components[0]})'
+        return f' {self.operator} '.join([f'({e})' for e in self.components])
 
     @classmethod
     def make_conjunction(cls, operands: List[Predicate]) -> Optional[Predicate]:
@@ -1205,6 +1288,9 @@ class Comparison(Predicate):
         self.operator = operator
         self.components = [op1, op2]
 
+    def __str__(self) -> str:
+        return f'{self._op1} {self.operator} {self._op2}'
+
     def _equals(self, other: 'Comparison') -> bool:
         return self.operator == other.operator
 
@@ -1272,6 +1358,10 @@ class ImageSimilarityPredicate(Predicate):
         else:
             return clip.encode_image(self.img)
 
+    def __str__(self) -> str:
+        op_str = 'nearest' if self.img is not None else 'matches'
+        return f'{str(self.img_col_ref)}.{op_str}({"<img>" if self.img is not None else self.text})'
+
     def _equals(self, other: 'ImageSimilarityPredicate') -> bool:
         return False
 
@@ -1311,6 +1401,9 @@ class ArithmeticExpr(Expr):
             super().__init__(ColumnType.supertype(op1.col_type, op2.col_type))
         self.operator = operator
         self.components = [op1, op2]
+
+    def __str__(self) -> str:
+        return f'{str(self._op1)} {str(self.operator)} {str(self._op2)}'
 
     def _equals(self, other: 'ArithmeticExpr') -> bool:
         return self.operator == other.operator

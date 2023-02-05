@@ -1,6 +1,4 @@
-# Pixeltable
-
-Pixeltable presents a dataframe-like interface to image and video data.
+# Pixeltable: A Table Interface to Image and Video Data
 
 ## Installation
 
@@ -55,6 +53,7 @@ cl = pt.Client()
 | Create a table| `t = db.create_table('table_name', [pt.Column(...), ...])` |
 | Use an existing table| `t = db.get_table('video_data')` |
 | Delete a table| `db.drop_table('video_data')` |
+| Print table schema | `t.describe()`|
 
 Creating a table with video data and automatic frame extraction:
 ```
