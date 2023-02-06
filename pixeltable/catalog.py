@@ -1268,6 +1268,7 @@ class Db:
 
         FunctionRegistry.get().create_function(func, self.id, dir.id, path.name)
         self.paths[path] = NamedFunction(func.id, dir.id, path.name)
+        func.info.fqn = f'{self.name}.{path}'
 
     def rename_function(self, path_str: str, new_path_str: str) -> None:
         """
@@ -1277,7 +1278,7 @@ class Db:
         new_path = Path(new_path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
         self.paths.check_is_valid(new_path, expected=None)
-        func = self.paths[path]
+        named_fn = self.paths[path]
         new_dir = self.paths[new_path.parent]
         with Env.get().engine.begin() as conn:
             conn.execute(
@@ -1286,9 +1287,11 @@ class Db:
                         store.Function.dir_id: new_dir.id,
                         store.Function.name: new_path.name,
                     })
-                    .where(store.Function.id == func.id))
+                    .where(store.Function.id == named_fn.id))
         del self.paths[path]
-        self.paths[new_path] = func
+        self.paths[new_path] = named_fn
+        func = FunctionRegistry.get().get_function(named_fn.id)
+        func.info.fqn = f'{self.name}.{new_path}'
 
     def update_function(self, path_str: str, new_func: Function) -> None:
         """
@@ -1300,10 +1303,10 @@ class Db:
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
         func = FunctionRegistry.get().get_function(named_fn.id)
-        if func.return_type != new_func.return_type or func.param_types != new_func.param_types:
+        if func.info.return_type != new_func.info.return_type or func.info.param_types != new_func.info.param_types:
             raise exc.Error(
-                f'The function signature cannot be changed. '
-                f'The existing signature is ({", ".join([str(t) for t in func.param_types])}) -> {func.return_type}')
+                f'The function signature cannot be changed. The existing signature is '
+                f'({", ".join([str(t) for t in func.info.param_types])}) -> {func.info.return_type}')
         if func.is_aggregate != new_func.is_aggregate:
             raise exc.Error(f'Cannot change an aggregate function into a standard function and vice versa')
         FunctionRegistry.get().update_function(named_fn.id, func)
@@ -1313,7 +1316,9 @@ class Db:
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
         assert isinstance(named_fn, NamedFunction)
-        return FunctionRegistry.get().get_function(named_fn.id)
+        func = FunctionRegistry.get().get_function(named_fn.id)
+        func.info.fqn = f'{self.name}.{path}'
+        return func
 
     def drop_function(self, path_str: str, ignore_errors: bool = False) -> None:
         """

@@ -1,4 +1,4 @@
-# Pixeltable: A Table Interface to Image and Video Data
+# Pixeltable: A Table Interface for Image and Video Data
 
 ## Installation
 
@@ -34,6 +34,7 @@ environment variables determine how Pixeltable connects to the Postgres instance
 Import convention:
 ```
 import pixeltable as pt
+import pixeltable.functions as ptf
 ```
 
 ### Creating a client
@@ -41,19 +42,19 @@ import pixeltable as pt
 cl = pt.Client()
 ```
 
-### Database operations
+### Client operations
 |Action|Code|
 |----|----|
 | Create a database| `db = cl.create_db('db1')`|
 | Use an existing database| `db = cl.get_db('db1')`|
+| List all available functions| `cl.list_functions()`|
 
-### Table operations
+### Database operations
 |Action|Code|
 |----|----|
 | Create a table| `t = db.create_table('table_name', [pt.Column(...), ...])` |
 | Use an existing table| `t = db.get_table('video_data')` |
 | Delete a table| `db.drop_table('video_data')` |
-| Print table schema | `t.describe()`|
 
 Creating a table with video data and automatic frame extraction:
 ```
@@ -94,6 +95,11 @@ t.insert_rows([['/path/to/video1.mp4'], ['/path/to/video2.mp4']], columns=['vide
 ```
 Each row is a list of column values (do not provide values for computed columns). The
 `columns` argument contains the names of columns for which values are being provided.
+
+### Other table operations
+|Action|Code|
+|----|----|
+| Print table schema | `t.describe()`|
 
 ### Attributes and methods on image data
 

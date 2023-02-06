@@ -407,29 +407,29 @@ class ColumnRef(Expr):
 class FunctionCall(Expr):
     def __init__(
             self, fn: Function, args: Tuple[Any], order_by_exprs: List[Expr] = [], group_by_exprs: List[Expr] = []):
-        super().__init__(fn.return_type)
+        super().__init__(fn.info.return_type)
         self.fn = fn
 
-        if fn.param_types is not None:
+        if fn.info.param_types is not None:
             # check if arg types match param types and convert values, if necessary
-            if len(args) != len(fn.param_types):
+            if len(args) != len(fn.info.param_types):
                 raise exc.OperationalError(
-                    f"Number of arguments doesn't match parameter list: {args} vs {fn.param_types}")
+                    f"Number of arguments doesn't match parameter list: {args} vs {fn.info.param_types}")
             args = list(args)
             for i in range(len(args)):
                 if not isinstance(args[i], Expr):
                     # TODO: check non-Expr args
                     continue
-                if args[i].col_type == fn.param_types[i]:
+                if args[i].col_type == fn.info.param_types[i]:
                     # nothing to do
                     continue
-                converter = args[i].col_type.conversion_fn(fn.param_types[i])
+                converter = args[i].col_type.conversion_fn(fn.info.param_types[i])
                 if converter is None:
-                    raise exc.OperationalError(f'Cannot convert {args[i].col_type} to {fn.param_types[i]}')
+                    raise exc.OperationalError(f'Cannot convert {args[i].col_type} to {fn.info.param_types[i]}')
                 if converter == ColumnType.no_conversion:
                     # nothing to do
                     continue
-                convert_fn = Function.make_function(fn.param_types[i], [args[i].col_type], converter)
+                convert_fn = Function.make_function(fn.info.param_types[i], [args[i].col_type], converter)
                 args[i] = FunctionCall(convert_fn, (args[i],))
 
         self.components = [arg for arg in args if isinstance(arg, Expr)]
@@ -467,7 +467,8 @@ class FunctionCall(Expr):
         return True
 
     def __str__(self) -> str:
-        return f'FunctionCall({self._print_args()})'
+        fn_name = self.fn.display_name if self.fn.display_name != '' else 'anonymous_fn_call'
+        return f'{fn_name}({self._print_args()})'
 
     def _print_args(self, start_idx: int = 0) -> str:
         arg_strs = [str(arg) if arg is not None else '' for arg in self.args[start_idx:]]
@@ -789,7 +790,8 @@ class JsonPath(Expr):
         self.scope_idx = scope_idx
 
     def __str__(self) -> str:
-        return (f'{str(self._anchor) if self._anchor is not None else ""}'
+        # else "R": the anchor is RELATIVE_PATH_ROOT
+        return (f'{str(self._anchor) if self._anchor is not None else "R"}'
             f'{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}')
 
     def _as_dict(self) -> Dict:
@@ -1542,6 +1544,9 @@ class JsonMapper(Expr):
         if type(self) != type(other):
             return False
         return self._src_expr.equals(other._src_expr) and self._target_expr.equals(other._target_expr)
+
+    def __str__(self) -> str:
+        return f'{str(self._src_expr)} >> {str(self._target_expr)}'
 
     @property
     def _src_expr(self) -> Expr:

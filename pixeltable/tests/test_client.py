@@ -19,3 +19,8 @@ class TestClient:
         with pytest.raises(exc.UnknownEntityError):
             cl.drop_db('test', force=True)
 
+    def test_list_functions(self, init_db: None) -> None:
+        cl = pt.Client()
+        _ = cl.list_functions()
+        print(_)
+

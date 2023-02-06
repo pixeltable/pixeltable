@@ -8,11 +8,14 @@ import PIL, cv2
 import numpy as np
 
 from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
-from pixeltable.function import Function
+from pixeltable.function import Function, FunctionRegistry
 from pixeltable import catalog
 from pixeltable import exprs
-from pixeltable import env
 import pixeltable.exceptions as exc
+# import all standard function modules here so they get registered with the FunctionRegistry
+import pixeltable.functions.clip
+import pixeltable.functions.pil
+import pixeltable.functions.pil.image
 
 
 def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.Table]) -> exprs.FunctionCall:
@@ -55,6 +58,7 @@ sum = Function.make_library_aggregate_function(
     IntType(), [IntType()],
     'pixeltable.functions', 'SumAggregator.make_aggregator', 'SumAggregator.update', 'SumAggregator.value',
     allows_std_agg=True, allows_window=True)
+FunctionRegistry.get().register_function(__name__, 'sum', sum)
 
 class CountAggregator:
     def __init__(self):
@@ -72,6 +76,7 @@ count = Function.make_library_aggregate_function(
     IntType(), [IntType()],
     'pixeltable.functions', 'CountAggregator.make_aggregator', 'CountAggregator.update', 'CountAggregator.value',
     allows_std_agg = True, allows_window = True)
+FunctionRegistry.get().register_function(__name__, 'count', count)
 
 class MeanAggregator:
     def __init__(self):
@@ -93,6 +98,7 @@ mean = Function.make_library_aggregate_function(
     FloatType(), [IntType()],
     'pixeltable.functions', 'MeanAggregator.make_aggregator', 'MeanAggregator.update', 'MeanAggregator.value',
     allows_std_agg = True, allows_window = True)
+FunctionRegistry.get().register_function(__name__, 'mean', mean)
 
 class VideoAggregator:
     def __init__(self):
@@ -127,6 +133,7 @@ make_video = Function.make_library_aggregate_function(
     update_symbol = 'VideoAggregator.update',
     value_symbol = 'VideoAggregator.value',
     requires_order_by=True, allows_std_agg=True, allows_window=False)
+FunctionRegistry.get().register_function(__name__, 'make_video', make_video)
 
 __all__ = [
     udf_call,

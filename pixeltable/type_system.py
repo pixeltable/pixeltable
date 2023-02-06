@@ -452,7 +452,7 @@ class ArrayType(ColumnType):
         return result
 
     def __str__(self) -> str:
-        return f'{self.__class__.__name__}({self.shape}, dtype={self.dtype.name})'
+        return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name})'
 
     @classmethod
     def _from_dict(cls, d: Dict) -> 'ColumnType':
@@ -509,6 +509,24 @@ class ImageType(ColumnType):
             self.width = width
             self.height = height
         self.mode = mode
+
+    def __str__(self) -> str:
+        if self.width is not None or self.height is not None or self.mode is not None:
+            params_str = ''
+            if self.width is not None:
+                params_str = f'width={self.width}'
+            if self.height is not None:
+                if len(params_str) > 0:
+                    params_str += ', '
+                params_str += f'height={self.height}'
+            if self.mode is not None:
+                if len(params_str) > 0:
+                    params_str += ', '
+                params_str += f'mode={self.mode}'
+            params_str = f'({params_str})'
+        else:
+            params_str = ''
+        return f'{self._type.name.lower()}{params_str}'
 
     @property
     def num_channels(self) -> Optional[int]:

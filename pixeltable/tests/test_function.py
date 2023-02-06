@@ -5,6 +5,7 @@ from pixeltable.type_system import IntType, FloatType
 from pixeltable import catalog
 import pixeltable as pt
 from pixeltable import exceptions as exc
+import pixeltable.functions
 
 
 def dummy_fn(i: int) -> int:
@@ -36,10 +37,13 @@ class TestFunction:
     def test_create(self, test_db: catalog.Db) -> None:
         db = test_db
         db.create_function('test_fn', self.func)
+        assert self.func.info.fqn == 'test.test_fn'
         FunctionRegistry.get().clear_cache()
         cl = pt.Client()
+        _ = cl.list_functions()
         db2 = cl.get_db('test')
         fn2 = db2.get_function('test_fn')
+        assert fn2.info.fqn == 'test.test_fn'
         assert fn2.eval_fn(1) == 2
 
         with pytest.raises(exc.DuplicateNameError):
@@ -65,11 +69,13 @@ class TestFunction:
         assert res1.col_0.equals(res2.col_0)
         fn.eval_fn = lambda x: x + 2
         db.update_function('test_fn', fn)
+        assert self.func.info.fqn == fn.info.fqn  # fqn doesn't change
 
         FunctionRegistry.get().clear_cache()
         cl = pt.Client()
         db = cl.get_db('test')
         fn = db.get_function('test_fn')
+        assert self.func.info.fqn == fn.info.fqn  # fqn doesn't change
         res3 = t[fn(t.c2)].show(0).to_pandas()
         assert (res2.col_0 + 1).equals(res3.col_0)
 
@@ -93,6 +99,7 @@ class TestFunction:
         db2.rename_function('test_fn', 'test_fn2')
         func = db2.get_function('test_fn2')
         assert func.eval_fn(1) == 2
+        assert func.info.fqn == 'test.test_fn2'
 
         with pytest.raises(exc.UnknownEntityError):
             _ = db2.get_function('test_fn')
@@ -104,12 +111,16 @@ class TestFunction:
         with pytest.raises(exc.UnknownEntityError):
             db2.rename_function('functions2.func1', 'functions.func1')
         db2.rename_function('functions.func1', 'functions2.func1')
+        func = db2.get_function('functions2.func1')
+        assert func.info.fqn == 'test.functions2.func1'
+
 
         FunctionRegistry.get().clear_cache()
         cl = pt.Client()
         db3 = cl.get_db('test')
         func = db3.get_function('functions2.func1')
         assert func.eval_fn(1) == 2
+        assert func.info.fqn == 'test.functions2.func1'
         with pytest.raises(exc.UnknownEntityError):
             _ = db3.get_function('functions.func1')
 
@@ -123,3 +134,7 @@ class TestFunction:
 
         with pytest.raises(exc.UnknownEntityError):
             _ = db2.get_function('test_fn')
+
+    def test_list(self, test_db: catalog.Db) -> None:
+        _ = FunctionRegistry.get().list_functions()
+        print(_)

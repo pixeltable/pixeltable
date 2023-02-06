@@ -12,6 +12,7 @@ from pixeltable.functions.pil.image import blend
 from pixeltable.functions.clip import encode_image
 from pixeltable import exceptions as exc
 from pixeltable import exprs
+from pixeltable.function import FunctionRegistry
 
 
 class TestExprs:
@@ -291,6 +292,7 @@ class TestExprs:
             assert e.equals(e_deserialized)
 
     def test_print(self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]) -> None:
+        _ = FunctionRegistry.get().library_fns
         for e in test_tbl_exprs:
             _ = str(e)
             print(_)

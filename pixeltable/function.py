@@ -1,14 +1,16 @@
+from dataclasses import dataclass
 import sys
 from typing import Optional, Callable, Dict, List, Any
 import importlib
 import sqlalchemy as sql
+from sqlalchemy.sql.expression import func as sql_func
 import cloudpickle
+
 
 from pixeltable.type_system import ColumnType
 from pixeltable import store
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
-#from pixeltable import function_pickle
 
 
 class Function:
@@ -22,6 +24,14 @@ class Function:
     allows_std_agg: if True, the aggregate function can be used as a standard aggregate function w/o a window
     allows_window: if True, the aggregate function can be used with a window
     """
+    @dataclass
+    class Info:
+        return_type: ColumnType
+        param_types: Optional[List[ColumnType]]
+        fqn: Optional[str]
+        is_agg: bool
+        is_library_fn: bool
+
     def __init__(
             self, return_type: ColumnType, param_types: Optional[List[ColumnType]], id: Optional[int] = None,
             module_name: Optional[str] = None, eval_symbol: Optional[str] = None, init_symbol: Optional[str] = None,
@@ -30,8 +40,6 @@ class Function:
             update_fn: Optional[Callable] = None, value_fn: Optional[Callable] = None,
             requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
     ):
-        self.return_type = return_type
-        self.param_types = param_types
         self.id = id
         self.module_name = module_name
         self.eval_symbol = eval_symbol
@@ -61,6 +69,10 @@ class Function:
         self.requires_order_by = requires_order_by
         self.allows_std_agg = allows_std_agg
         self.allows_window = allows_window
+
+        self.info = self.Info(
+            return_type=return_type, param_types=param_types, fqn=None, is_agg=self.is_aggregate,
+            is_library_fn=self.is_library_function)
 
     @classmethod
     def make_function(cls, return_type: ColumnType, param_types: List[ColumnType], eval_fn: Callable) -> 'Function':
@@ -114,6 +126,15 @@ class Function:
     def is_library_function(self) -> bool:
         return self.module_name is not None
 
+    @property
+    def display_name(self) -> str:
+        if self.info.fqn is None:
+            return ''
+        ptf_prefix = 'pixeltable.functions'
+        if self.info.fqn.startswith(ptf_prefix):
+            return self.info.fqn[len(ptf_prefix):]
+        return self.info.fqn
+
     def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs
 
@@ -159,7 +180,7 @@ class Function:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False
-        return self.return_type == other.return_type and self.param_types == other.param_types \
+        return self.info.return_type == other.info.return_type and self.info.param_types == other.info.param_types \
             and self.id == other.id and self.module_name == other.module_name \
             and self.eval_symbol == other.eval_symbol and self.init_symbol == other.init_symbol \
             and self.update_symbol == other.update_symbol and self.value_symbol == other.value_symbol \
@@ -173,8 +194,8 @@ class Function:
             FunctionRegistry.get().create_function(self)
             assert self.id is not None
         return {
-            'return_type': self.return_type.as_dict(),
-            'param_types': [t.as_dict() for t in self.param_types] if self.param_types is not None else None,
+            'return_type': self.info.return_type.as_dict(),
+            'param_types': [t.as_dict() for t in self.info.param_types] if self.info.param_types is not None else None,
             'id': self.id,
             'module_name': self.module_name,
             'eval_symbol': self.eval_symbol,
@@ -224,16 +245,43 @@ class FunctionRegistry:
         return cls._instance
 
     def __init__(self):
-        self.fns_by_id: Dict[int, Function] = {}
+        self.stored_fns_by_id: Dict[int, Function] = {}
+        self.library_fns: Dict[str, Function] = {}  # fqn -> Function
 
     def clear_cache(self) -> None:
         """
         Useful during testing
         """
-        self.fns_by_id: Dict[int, Function] = {}
+        self.stored_fns_by_id: Dict[int, Function] = {}
+
+    def register_function(self, module_name: str, fn_name: str, fn: Function) -> None:
+        fqn = f'{module_name}.{fn_name}'  # fully-qualified name
+        self.library_fns[fqn] = fn
+        fn.info.fqn = fqn
+
+    def list_functions(self) -> List[Function.Info]:
+        # retrieve Function.Info data for all existing stored functions from store directly
+        # (self.stored_fns_by_id isn't guaranteed to contain all functions)
+        stmt = sql.select(
+                store.Function.name, store.Function.return_type, store.Function.param_types,
+                store.Db.name, store.Dir.path, sql_func.length(store.Function.init_obj))\
+            .where(store.Function.db_id == store.Db.id)\
+            .where(store.Function.dir_id == store.Dir.id)
+        stored_fn_info: List[Function.Info] = []
+        with Env.get().engine.begin() as conn:
+            rows = conn.execute(stmt)
+            for name, return_type_str, param_types_str, db_name, dir_path, init_obj_len in rows:
+                return_type = ColumnType.deserialize(return_type_str)
+                param_types = ColumnType.deserialize_list(param_types_str)
+                fqn = f'{db_name}{"." + dir_path if dir_path != "" else ""}.{name}'
+                info = Function.Info(
+                    return_type=return_type, param_types=param_types, fqn=fqn, is_agg=init_obj_len is not None,
+                    is_library_fn=False)
+                stored_fn_info.append(info)
+        return [fn.info for fn in self.library_fns.values()] + stored_fn_info
 
     def get_function(self, id: int) -> Function:
-        if id not in self.fns_by_id:
+        if id not in self.stored_fns_by_id:
             stmt = sql.select(
                     store.Function.name, store.Function.return_type, store.Function.param_types,
                     store.Function.eval_obj, store.Function.init_obj, store.Function.update_obj,
@@ -264,9 +312,9 @@ class FunctionRegistry:
                     return_type, param_types, id=id, eval_fn=eval_fn, init_fn=init_fn, update_fn=update_fn,
                     value_fn=value_fn, requires_order_by=params['requires_order_by'],
                     allows_std_agg=params['allows_std_agg'], allows_window=params['allows_window'])
-                self.fns_by_id[id] = func
-        assert id in self.fns_by_id
-        return self.fns_by_id[id]
+                self.stored_fns_by_id[id] = func
+        assert id in self.stored_fns_by_id
+        return self.stored_fns_by_id[id]
 
     def create_function(
             self, fn: Function, db_id: Optional[int] = None, dir_id: Optional[int] = None,
@@ -285,12 +333,12 @@ class FunctionRegistry:
             res = conn.execute(
                 sql.insert(store.Function.__table__)
                     .values(
-                        db_id=db_id, dir_id=dir_id, name=name, return_type=fn.return_type.serialize(),
-                        param_types=ColumnType.serialize_list(fn.param_types),
+                        db_id=db_id, dir_id=dir_id, name=name, return_type=fn.info.return_type.serialize(),
+                        param_types=ColumnType.serialize_list(fn.info.param_types),
                         eval_obj=eval_fn_str, init_obj=init_fn_str, update_obj=update_fn_str, value_obj=value_fn_str,
                         parameters=params))
             fn.id = res.inserted_primary_key[0]
-            self.fns_by_id[fn.id] = fn
+            self.stored_fns_by_id[fn.id] = fn
 
     def update_function(self, id: int, new_fn: Function) -> None:
         """
@@ -311,15 +359,15 @@ class FunctionRegistry:
                 sql.update(store.Function.__table__)
                     .values(updates)
                     .where(store.Function.id == id))
-        if id in self.fns_by_id:
+        if id in self.stored_fns_by_id:
             if new_fn.eval_fn is not None:
-                self.fns_by_id[id].eval_fn = new_fn.eval_fn
+                self.stored_fns_by_id[id].eval_fn = new_fn.eval_fn
             if new_fn.init_fn is not None:
-                self.fns_by_id[id].init_fn = new_fn.init_fn
+                self.stored_fns_by_id[id].init_fn = new_fn.init_fn
             if new_fn.update_fn is not None:
-                self.fns_by_id[id].update_fn = new_fn.update_fn
+                self.stored_fns_by_id[id].update_fn = new_fn.update_fn
             if new_fn.value_fn is not None:
-                self.fns_by_id[id].value_fn = new_fn.value_fn
+                self.stored_fns_by_id[id].value_fn = new_fn.value_fn
 
     def delete_function(self, id: int) -> None:
         assert id is not None
