@@ -351,6 +351,7 @@ class TableParameters:
     frame_col: int  # column id
     frame_idx_col: int  # column id
     extraction_fps: int
+    ffmpeg_filter: Dict[str, str]
 
 
 class MutableTable(Table):
@@ -701,7 +702,8 @@ class MutableTable(Table):
                 # we need to generate a unique prefix for each set of frames corresponding to a single video
                 frame_path_prefix = utils.get_extracted_frame_path(
                     self.id, video_col.id, self.version, self.next_row_id + input_row_idx)
-                frame_paths = video.extract_frames(path, frame_path_prefix, self.parameters.extraction_fps)
+                frame_paths = video.extract_frames(
+                    path, frame_path_prefix, self.parameters.extraction_fps, self.parameters.ffmpeg_filter)
                 frame_rows = [
                     {frame_col.name: p, frame_idx_col.name: i, **input_row} for i, p in enumerate(frame_paths)
                 ]
@@ -923,7 +925,7 @@ class MutableTable(Table):
         cls, db_id: int, dir_id: int, name: str, cols: List[Column],
         num_retained_versions: int,
         extract_frames_from: Optional[str], extracted_frame_col: Optional[str], extracted_frame_idx_col: Optional[str],
-        extracted_fps: Optional[int]
+        extracted_fps: Optional[int], ffmpeg_filter: Optional[Dict[str, str]]
     ) -> 'MutableTable':
         # make sure col names are unique (within the table) and assign ids
         cols_by_name: Dict[str, Column] = {}
@@ -968,7 +970,8 @@ class MutableTable(Table):
             cols_by_name[extract_frames_from].id if extract_frames_from is not None else None,
             cols_by_name[extracted_frame_col].id if extracted_frame_col is not None else None,
             cols_by_name[extracted_frame_idx_col].id if extracted_frame_idx_col is not None else None,
-            extracted_fps)
+            extracted_fps,
+            ffmpeg_filter)
 
         with orm.Session(Env.get().engine) as session:
             tbl_record = store.Table(
@@ -1128,7 +1131,8 @@ class Db:
     def create_table(
             self, path_str: str, schema: List[Column], num_retained_versions: int = 10,
             extract_frames_from: Optional[str] = None, extracted_frame_col: Optional[str] = None,
-            extracted_frame_idx_col: Optional[str] = None, extracted_fps: Optional[int] = None
+            extracted_frame_idx_col: Optional[str] = None, extracted_fps: Optional[int] = None,
+            ffmpeg_filter: Optional[Dict[str, str]] = None,
     ) -> MutableTable:
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
@@ -1141,9 +1145,11 @@ class Db:
             raise exc.BadFormatError(
                 'Frame extraction requires that all parameters (extract_frames_from, extracted_frame_col, '
                 'extracted_frame_idx_col, extracted_fps) be specified')
+        if frame_extraction_param_count == 0 and ffmpeg_filter is not None:
+            raise exc.BadFormatError(f'ffmpeg_filter only valid in conjunction with other frame extraction parameters')
         tbl = MutableTable.create(
             self.id, dir.id, path.name, schema, num_retained_versions, extract_frames_from, extracted_frame_col,
-            extracted_frame_idx_col, extracted_fps)
+            extracted_frame_idx_col, extracted_fps, ffmpeg_filter)
         self.paths[path] = tbl
         return tbl
 

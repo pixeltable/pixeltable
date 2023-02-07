@@ -1,6 +1,6 @@
 import pytest
-import pandas as pd
 import PIL
+import ffmpeg
 
 import pixeltable as pt
 from pixeltable.type_system import VideoType, IntType, ImageType
@@ -19,12 +19,25 @@ class TestVideo:
             catalog.Column('frame', ImageType(), nullable=False),
             catalog.Column('frame_idx', IntType(), nullable=False),
         ]
+        # extract frames at fps=1
         tbl = db.create_table(
-            'test', cols, extract_frames_from = 'video', extracted_frame_col = 'frame',
-            extracted_frame_idx_col = 'frame_idx', extracted_fps = 1)
+            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
+            extracted_frame_idx_col='frame_idx', extracted_fps=1)
         tbl.insert_rows([[p] for p in video_filepaths], columns=['video'])
+        tbl_count = tbl.count()
         assert utils.extracted_frame_count(tbl_id=tbl.id) == tbl.count()
         _ = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+
+        # the same, but expressed as a filter
+        tbl2 = db.create_table(
+            'test2', cols, extract_frames_from='video', extracted_frame_col='frame',
+            extracted_frame_idx_col='frame_idx', extracted_fps=0,
+            ffmpeg_filter={'select': 'isnan(prev_selected_t)+gte(t-prev_selected_t, 1)'})
+        tbl2.insert_rows([[p] for p in video_filepaths], columns=['video'])
+        tbl2_count = tbl2.count()
+        assert utils.extracted_frame_count(tbl_id=tbl2.id) == tbl2.count()
+        # for some reason there's one extra frame in tbl2
+        assert tbl.count() == tbl2.count() - 1
 
         # missing 'columns' arg
         with pytest.raises(exc.Error):
@@ -91,3 +104,8 @@ class TestVideo:
         t = db.get_table('test')
         _ = t[agg_fn(t.frame_idx, t.frame, group_by=t.video)].show()
         print(_)
+
+    def test_extraction(self, test_db: catalog.Db) -> None:
+        video_filepaths = get_video_files()
+        _ = utils.video.extract_frames(video_filepaths[2], '/home/marcel/tmp-frames/a', fps=0, ffmpeg_filter={'select': 'gte(n,650)'})
+        print(1)

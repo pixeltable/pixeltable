@@ -42,19 +42,30 @@ import pixeltable.functions as ptf
 cl = pt.Client()
 ```
 
-### Client operations
+### Client operations summary
 |Action|Code|
 |----|----|
 | Create a database| `db = cl.create_db('db1')`|
 | Use an existing database| `db = cl.get_db('db1')`|
+| Delete an existing database| `cl.drop_db('db1', force=True)`|
+| List all existing databases| `cl.list_dbs()`|
 | List all available functions| `cl.list_functions()`|
 
-### Database operations
+### Database operations summary
 |Action|Code|
 |----|----|
 | Create a table| `t = db.create_table('table_name', [pt.Column(...), ...])` |
 | Use an existing table| `t = db.get_table('video_data')` |
+| Rename an existing table| `db.rename_table('video_data', 'vd')` |
+| List tables| `db.list_tables()` |
 | Delete a table| `db.drop_table('video_data')` |
+| Create stored function| `db.create_function('func_name', pt.Function(...))` |
+| Load a stored function| `db.get_function('func_name')` |
+| Rename a stored function| `db.rename_function('func_name', 'better_name')` |
+| Update a stored function| `db.update_function('func_name', pt.Function(...))` |
+| Delete a stored function| `db.drop_function('func_name')` |
+
+### Frame extraction for video data
 
 Creating a table with video data and automatic frame extraction:
 ```
@@ -70,6 +81,22 @@ t = db.create_table(
 ```
 
 `extracted_fps=0` extracts frames at the original frame rate.
+
+For additional filtering, add keyword argument `ffmpeg_filter={...}`, for example
+```
+ffmpeg_filter={'select': 'gt(scene,0.4)'}
+```
+
+### Table operations summary
+|Action|Code|
+|----|----|
+| Print table schema | `t.describe()`|
+| Query a table | `t[<column selections>][<filter expression>].show()` |
+| Insert rows into a table| `t.insert_rows([<list of column values for row 1>, <row 2>, ...], columns=<list of column names>)`|
+| Add a column| `t.add_column(pt.Column(...))`|
+| Rename a column| `t.rename_column('col_name', 'new_col_name')`|
+| Drop a column| `t.drop_column('col_name')`|
+| Undo the last update operation (add/rename/drop column, insert)| `t.revert()`|
 
 ### Querying a table
 
@@ -95,11 +122,6 @@ t.insert_rows([['/path/to/video1.mp4'], ['/path/to/video2.mp4']], columns=['vide
 ```
 Each row is a list of column values (do not provide values for computed columns). The
 `columns` argument contains the names of columns for which values are being provided.
-
-### Other table operations
-|Action|Code|
-|----|----|
-| Print table schema | `t.describe()`|
 
 ### Attributes and methods on image data
 

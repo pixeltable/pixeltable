@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Optional
 import ffmpeg
 import glob
 from pathlib import Path
@@ -6,7 +6,9 @@ from pathlib import Path
 from pixeltable.exceptions import OperationalError
 
 
-def extract_frames(video_path_str: str, output_path_prefix: str, fps: int = 0) -> List[str]:
+def extract_frames(
+        video_path_str: str, output_path_prefix: str, fps: int = 0, ffmpeg_filter: Optional[Dict[str, str]] = None
+) -> List[str]:
     """
     Extract frames at given fps as jpg files (fps == 0: all frames).
     Returns list of frame file paths.
@@ -20,7 +22,12 @@ def extract_frames(video_path_str: str, output_path_prefix: str, fps: int = 0) -
     s = ffmpeg.input(video_path)
     if fps > 0:
         s = s.filter('fps', fps)
-    s = s.output(output_path_str, loglevel='quiet')
+    if ffmpeg_filter is not None:
+        for key, val in ffmpeg_filter.items():
+            s = s.filter(key, val)
+    # vsync=0: required to apply filter, otherwise ffmpeg pads the output with duplicate frames
+    s = s.output(output_path_str, vsync=0, loglevel='quiet')
+    #print(s.get_args())
     try:
         s.run()
     except ffmpeg.Error:
