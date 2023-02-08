@@ -320,9 +320,13 @@ class Expr(abc.ABC):
         return self._make_comparison(ComparisonOperator.LE, other)
 
     def __eq__(self, other: object) -> 'Comparison':
+        if other is None:
+            return IsNull(self)
         return self._make_comparison(ComparisonOperator.EQ, other)
 
     def __ne__(self, other: object) -> 'Comparison':
+        if other is None:
+            return CompoundPredicate(LogicalOperator.NOT, [IsNull(self)])
         return self._make_comparison(ComparisonOperator.NE, other)
 
     def __gt__(self, other: object) -> 'Comparison':
@@ -1222,7 +1226,7 @@ class CompoundPredicate(Predicate):
 
     def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional[Predicate]]:
         if self.operator == LogicalOperator.NOT:
-            e = self.components[0].sql_expr()
+            e = self.sql_expr()
             return (None, self) if e is None else (e, None)
 
         sql_exprs = [op.sql_expr() for op in self.components]
@@ -1384,6 +1388,32 @@ class ImageSimilarityPredicate(Predicate):
         assert 'text' in d
         assert len(components) == 1
         return cls(components[0], d['img'], d['text'])
+
+
+class IsNull(Predicate):
+    def __init__(self, e: Expr):
+        super().__init__()
+        self.components = [e]
+
+    def __str__(self) -> str:
+        return f'{str(self.components[0])} == None'
+
+    def _equals(self, other: 'ImageSimilarityPredicate') -> bool:
+        return True
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        e = self.components[0].sql_expr()
+        if e is None:
+            return None
+        return e == None
+
+    def eval(self, data_row: List[Any]) -> None:
+        data_row[self.data_row_idx] = data_row[self.components[0].data_row_idx] is None
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+        assert len(components) == 1
+        return cls(components[0])
 
 
 class ArithmeticExpr(Expr):

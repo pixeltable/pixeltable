@@ -23,17 +23,15 @@ class TestExprs:
 
     def test_basic(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        assert isinstance(t['c1'] < 'a', Expr)
+        assert t['c1'].equals(t.c1)
+        assert t['c7']['*'].f5.equals(t.c7['*'].f5)
+
+        assert isinstance(t.c1 == None, Expr)
         assert isinstance(t.c1 < 'a', Expr)
-        assert isinstance(t['c1'] <= 'a', Expr)
         assert isinstance(t.c1 <= 'a', Expr)
-        assert isinstance(t['c1'] == 'a', Expr)
         assert isinstance(t.c1 == 'a', Expr)
-        assert isinstance(t['c1'] != 'a', Expr)
         assert isinstance(t.c1 != 'a', Expr)
-        assert isinstance(t['c1'] > 'a', Expr)
         assert isinstance(t.c1 > 'a', Expr)
-        assert isinstance(t['c1'] >= 'a', Expr)
         assert isinstance(t.c1 >= 'a', Expr)
         assert isinstance((t.c1 == 'a') & (t.c2 < 5), Expr)
         assert isinstance((t.c1 == 'a') | (t.c2 < 5), Expr)
@@ -89,6 +87,10 @@ class TestExprs:
         _ = t[t.c1 == 'test string'].show()
         print(_)
         _ = t[t.c2 > 50].show()
+        print(_)
+        _ = t[t.c1n == None].show()
+        print(_)
+        _ = t[t.c1n != None].show(0)
         print(_)
 
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:

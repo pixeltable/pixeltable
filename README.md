@@ -56,11 +56,11 @@ cl = pt.Client()
 |----|----|
 | Create a table| `t = db.create_table('table_name', [pt.Column(...), ...])` |
 | Use an existing table| `t = db.get_table('video_data')` |
-| Rename an existing table| `db.rename_table('video_data', 'vd')` |
+| Rename a table| `db.rename_table('video_data', 'vd')` |
 | List tables| `db.list_tables()` |
 | Delete a table| `db.drop_table('video_data')` |
-| Create stored function| `db.create_function('func_name', pt.Function(...))` |
-| Load a stored function| `db.get_function('func_name')` |
+| Create a stored function| `db.create_function('func_name', pt.Function(...))` |
+| Load a stored function| `f = db.get_function('func_name')` |
 | Rename a stored function| `db.rename_function('func_name', 'better_name')` |
 | Update a stored function| `db.update_function('func_name', pt.Function(...))` |
 | Delete a stored function| `db.drop_function('func_name')` |
@@ -96,7 +96,7 @@ ffmpeg_filter={'select': 'gt(scene,0.4)'}
 | Add a column| `t.add_column(pt.Column(...))`|
 | Rename a column| `t.rename_column('col_name', 'new_col_name')`|
 | Drop a column| `t.drop_column('col_name')`|
-| Undo the last update operation (add/rename/drop column, insert)| `t.revert()`|
+| Undo the last update operation (add/rename/drop column or insert)| `t.revert()`|
 
 ### Querying a table
 
@@ -107,6 +107,13 @@ ffmpeg_filter={'select': 'gt(scene,0.4)'}
 | Look at row for frame 15 | `t[t.frame_idx == 15].show()` |
 | Look at rows before index 15 | `t[t.frame_idx < 15].show(0)` |
 | Look at rows before index 15 with RGB frames | `t[(t.frame_idx < 15) & (t.frame.mode == 'RGB')].show(0)` |
+
+Pixeltable supports the standard comparison operators (`>=`, `>`, `==`, `<=`, `<`).
+`== None` is the equivalent of `isna()/isnull()` in Pandas.
+
+Boolean operators are the same as in Pandas: `&` for `and`, `|` for `or`, `~` for `not`.
+They also require parentheses, for example: `(t.frame_idx < 15) & (t.frame.mode == 'RGB')`
+or `~(t.frame.mode == 'RGB')`.
 
 ### Selecting and transforming columns
 
@@ -154,6 +161,18 @@ add1 = pt.Function(return_type=pt.IntType(), param_types=[pt.IntType()], eval_fn
 For querying: `t[t.frame_idx, add1(t.frame_idx)].show()`
 
 As a computed column: `t.add_column(pt.Column('c', computed_with=add1(t.frame_idx)))`
+
+|Pixeltable type|Python type of compatible values|
+|----|----|
+| `pt.StringType()`| `str` |
+| `pt.IntType()`| `int` |
+| `pt.FloatType()`| `float` |
+| `pt.BoolType()`| `bool` |
+| `pt.TimestampType()`| `datetime.datetime` |
+| `pt.JsonType()`| lists and dicts that can be converted to JSON|
+| `pt.ArrayType()`| `numpy.ndarray`|
+| `pt.ImageType()`| `PIL.Image.Image`|
+| `pt.VideoType()`| `str` (the file path)|
 
 ### Image similarity search
 

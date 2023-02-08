@@ -36,6 +36,7 @@ def test_db(init_db: None) -> catalog.Db:
 def test_tbl(test_db: catalog.Db) -> catalog.Table:
     cols = [
         catalog.Column('c1', StringType(), nullable=False),
+        catalog.Column('c1n', StringType(), nullable=True),
         catalog.Column('c2', IntType(), nullable=False),
         catalog.Column('c3', FloatType(), nullable=False),
         catalog.Column('c4', BoolType(), nullable=False),
@@ -81,7 +82,9 @@ def test_tbl(test_db: catalog.Db) -> catalog.Table:
         c6_data.append(d)
 
     c7_data = [d2] * num_rows
-    data = {'c1': c1_data, 'c2': c2_data, 'c3': c3_data, 'c4': c4_data, 'c5': c5_data, 'c6': c6_data, 'c7': c7_data}
+    data = {
+        'c1': c1_data, 'c1n': [s if i % 10 != 0 else None for i, s in enumerate(c1_data)],
+        'c2': c2_data, 'c3': c3_data, 'c4': c4_data, 'c5': c5_data, 'c6': c6_data, 'c7': c7_data}
     pd_df = pd.DataFrame(data=data)
     t.insert_pandas(pd_df)
     return t
@@ -100,6 +103,7 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
         }),
         exprs.InlineArray([[t.c2, t.c2], [t.c2, t.c2]]),
         t.c2 > 5,
+        t.c2 == None,
         ~(t.c2 > 5),
         (t.c2 > 5) & (t.c1 == 'test'),
         (t.c2 > 5) | (t.c1 == 'test'),
