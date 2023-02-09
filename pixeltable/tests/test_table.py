@@ -317,7 +317,7 @@ class TestTable:
 
         tbl.revert()
         # can't revert a version referenced by a snapshot
-        with pytest.raises(exc.OperationalError):
+        with pytest.raises(exc.RuntimeError):
             tbl.revert()
 
     def test_add_column(self, test_db: catalog.Db) -> None:

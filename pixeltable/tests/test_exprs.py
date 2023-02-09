@@ -93,6 +93,12 @@ class TestExprs:
         _ = t[t.c1n != None].show(0)
         print(_)
 
+    def test_exception_handling(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        f = Function(FloatType(), [IntType(), IntType()], eval_fn=lambda a, b: a / b)
+        with pytest.raises(exc.Error):
+            _ = t[f(t.c2 + 1, t.c2)].show()
+
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
@@ -107,13 +113,13 @@ class TestExprs:
             (t.c1, t.c2), (t.c1, 1), (t.c2, t.c1), (t.c2, 'a'),
             (t.c1, t.c3), (t.c1, 1.0), (t.c3, t.c1), (t.c3, 'a')
         ]:
-            with pytest.raises(exc.OperationalError):
+            with pytest.raises(exc.Error):
                 _ = t[op1 + op2]
-            with pytest.raises(exc.OperationalError):
+            with pytest.raises(exc.Error):
                 _ = t[op1 - op2]
-            with pytest.raises(exc.OperationalError):
+            with pytest.raises(exc.Error):
                 _ = t[op1 * op2]
-            with pytest.raises(exc.OperationalError):
+            with pytest.raises(exc.Error):
                 _ = t[op1 / op2]
 
         # TODO: test division; requires predicate
@@ -121,16 +127,18 @@ class TestExprs:
             _ = t[op1 + op2].show()
             _ = t[op1 - op2].show()
             _ = t[op1 * op2].show()
+            with pytest.raises(exc.Error):
+                _ = t[op1 / op2].show()
 
         for op1, op2 in [
             (t.c6.f1, t.c6.f2), (t.c6.f1, t.c6.f3), (t.c6.f1, 1), (t.c6.f1, 1.0),
             (t.c6.f2, t.c6.f1), (t.c6.f3, t.c6.f1), (t.c6.f2, 'a'), (t.c6.f3, 'a'),
         ]:
-            with pytest.raises(exc.OperationalError):
+            with pytest.raises(exc.Error):
                 _ = t[op1 + op2].show()
-            with pytest.raises(exc.OperationalError):
+            with pytest.raises(exc.Error):
                 _ = t[op1 - op2].show()
-            with pytest.raises(exc.OperationalError):
+            with pytest.raises(exc.Error):
                 _ = t[op1 * op2].show()
 
 
@@ -201,7 +209,7 @@ class TestExprs:
         df = t[[t.img, t.img.rotate(60)]]
         _ = df.show(n=100)._repr_html_()
 
-        with pytest.raises(exc.OperationalError):
+        with pytest.raises(exc.RuntimeError):
             _ = t[t.img.rotate]
 
     def test_img_members(self, img_tbl) -> None:
@@ -273,9 +281,9 @@ class TestExprs:
         probe = t[t.img].show(1)
         img = probe[0, 0]
 
-        with pytest.raises(exc.OperationalError):
+        with pytest.raises(exc.RuntimeError):
             _ = t[t.img.nearest(img)].show(10)
-        with pytest.raises(exc.OperationalError):
+        with pytest.raises(exc.RuntimeError):
             _ = t[t.img.matches('musical instrument')].show(10)
 
     def test_serialization(

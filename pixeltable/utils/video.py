@@ -3,7 +3,7 @@ import ffmpeg
 import glob
 from pathlib import Path
 
-from pixeltable.exceptions import OperationalError
+from pixeltable.exceptions import RuntimeError
 
 
 def extract_frames(
@@ -15,9 +15,9 @@ def extract_frames(
     """
     video_path = Path(video_path_str)
     if not video_path.exists():
-        raise OperationalError(f'File not found: {video_path_str}')
+        raise RuntimeError(f'File not found: {video_path_str}')
     if not video_path.is_file():
-        raise OperationalError(f'Not a file: {video_path_str}')
+        raise RuntimeError(f'Not a file: {video_path_str}')
     output_path_str = f'{output_path_prefix}_%07d.jpg'
     s = ffmpeg.input(video_path)
     if fps > 0:
@@ -31,7 +31,7 @@ def extract_frames(
     try:
         s.run()
     except ffmpeg.Error:
-        raise OperationalError(f'ffmpeg exception')
+        raise RuntimeError(f'ffmpeg exception')
 
     # collect generated files
     frame_paths = glob.glob(f'{output_path_prefix}_*.jpg')

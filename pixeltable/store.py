@@ -71,11 +71,12 @@ class TableSchemaVersion(Base):
     preceding_schema_version = sql.Column(BigInteger, nullable=False)
 
 
-# - records the physical schema of a table, ie, the columns that are actually stored
-# - versioning information is needed to GC unreachable storage columns
+# - records when a column was added/dropped, which is needed to GC unreachable storage columns
+#   (a column that was added after table snapshot n and dropped before table snapshot n+1 can be removed
+#   from the stored table)
 # - one record per column (across all schema versions)
-class StorageColumn(Base):
-    __tablename__ = 'storagecolumns'
+class ColumnHistory(Base):
+    __tablename__ = 'columnhistory'
 
     tbl_id = sql.Column(Integer, ForeignKey('tables.id'), primary_key=True, nullable=False)
     # immutable and monotonically increasing from 0 w/in Table
@@ -94,7 +95,7 @@ class StorageColumn(Base):
 
 
 # - records the logical (user-visible) schema of a table
-# - contains the full set of columns for each new schema version: one record per column x schema version
+# - contains the full set of columns for each new schema version: one record per (column x schema version)
 class SchemaColumn(Base):
     __tablename__ = 'schemacolumns'
 
@@ -114,7 +115,6 @@ class SchemaColumn(Base):
     __table_args__ = (
         UniqueConstraint('tbl_id', 'schema_version', 'pos'),
         UniqueConstraint('tbl_id', 'schema_version', 'name'),
-        ForeignKeyConstraint(['tbl_id', 'col_id'], ['storagecolumns.tbl_id', 'storagecolumns.col_id']),
         ForeignKeyConstraint(
             ['tbl_id', 'schema_version'], ['tableschemaversions.tbl_id', 'tableschemaversions.schema_version'])
     )

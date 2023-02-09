@@ -191,7 +191,6 @@ class ColumnType:
         """
         pass
 
-
     @classmethod
     def get_value_type(cls, val: Any) -> 'ColumnType':
         if isinstance(val, str):
@@ -204,6 +203,11 @@ class ColumnType:
             return BoolType()
         if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
             return TimestampType()
+        if isinstance(val, dict):
+            return JsonType()
+
+    def print_value(self, val: Any) -> str:
+        return str(val)
 
     def is_scalar_type(self) -> bool:
         return self._type in self.scalar_types
@@ -307,6 +311,8 @@ class InvalidType(ColumnType):
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         raise TypeError(f'Invalid type cannot be converted to Tensorflow')
 
+    def print_value(self, val: Any) -> str:
+        assert False
 
 class StringType(ColumnType):
     def __init__(self):
@@ -332,6 +338,9 @@ class StringType(ColumnType):
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         import tensorflow as tf
         return tf.TensorSpec(shape=(), dtype=tf.string)
+
+    def print_value(self, val: Any) -> str:
+        return f"'{val}'"
 
 
 class IntType(ColumnType):
@@ -429,6 +438,11 @@ class JsonType(ColumnType):
             raise TypeError(f'Cannot convert {self.__class__.__name__} with missing type spec to TensorFlow')
         return {k: v.to_tf() for k, v in self.type_spec.items()}
 
+    def print_value(self, val: Any) -> str:
+        val_type = self.get_value_type(val)
+        if val_type == self:
+            return str(val)
+        return val_type.print_value(val)
 
 class ArrayType(ColumnType):
     def __init__(

@@ -19,7 +19,7 @@ import sqlalchemy.orm as orm
 from pixeltable import store
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
-from pixeltable.type_system import ColumnType
+from pixeltable.type_system import ColumnType, StringType
 from pixeltable.utils import clip, video
 from pixeltable import utils
 from pixeltable.index import VectorIndex
@@ -31,6 +31,16 @@ _PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
 
 
 class Column:
+    """
+    Representation of a column in the schema of a Table/DataFrame.
+
+    Members:
+    - sa_col: column in the stored table for the values of this Column
+
+    For computed columns:
+    - sa_errormsg_col: column in the stored table for the exception string produced by running self.value_expr
+    - sa_errortype_col: column in the stored table for the exception type name produced by running self.value_expr
+    """
     def __init__(
             self, name: str, col_type: Optional[ColumnType] = None,
             computed_with: Optional[Union['Expr', Callable]] = None,
@@ -87,24 +97,27 @@ class Column:
         # computed cols are always nullable
         self.nullable = nullable or computed_with is not None or value_expr_str is not None
         self.sa_col: Optional[sql.schema.Column] = None
+        # computed cols also have storage columns for the exception string and type
+        self.sa_errormsg_col: Optional[sql.schema.Column] = None
+        self.sa_errortype_col: Optional[sql.schema.Column] = None
 
         if indexed and not self.col_type.is_image_type():
             raise exc.Error(f'Column {name}: indexed=True requires ImageType')
         self.is_indexed = indexed
         self.idx: Optional[VectorIndex] = None
 
-    def to_sql(self) -> str:
-        return f'{self.storage_name()} {self.col_type.to_sql()}'
-
     @property
     def is_computed(self) -> bool:
         return self.compute_func is not None or self.value_expr is not None
 
-    def create_sa_col(self) -> None:
+    def create_sa_cols(self) -> None:
         """
-        This needs to be recreated for every new table schema version.
+        These need to be recreated for every new table schema version.
         """
         self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=self.nullable)
+        if self.is_computed:
+            self.sa_errormsg_col = sql.Column(self.errormsg_storage_name(), StringType().to_sa_type(), nullable=True)
+            self.sa_errortype_col = sql.Column(self.errortype_storage_name(), StringType().to_sa_type(), nullable=True)
 
     def set_idx(self, idx: VectorIndex) -> None:
         self.idx = idx
@@ -112,6 +125,12 @@ class Column:
     def storage_name(self) -> str:
         assert self.id is not None
         return f'col_{self.id}'
+
+    def errormsg_storage_name(self) -> str:
+        return f'{self.storage_name()}_errormsg'
+
+    def errortype_storage_name(self) -> str:
+        return f'{self.storage_name()}_errortype'
 
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'
@@ -263,7 +282,8 @@ class Table(SchemaObject):
         pd_df = pd.DataFrame({
             'Column Name': [c.name for c in self.cols],
             'Type': [str(c.col_type) for c in self.cols],
-            'Computed With': [str(c.value_expr) if c.value_expr is not None else '' for c in self.cols],
+            'Computed With':
+                [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in self.cols],
         })
         # white-space: pre-wrap: print \n as newline
         pd_df = pd_df.style.set_properties(**{'white-space': 'pre-wrap', 'text-align': 'left'})\
@@ -275,19 +295,24 @@ class Table(SchemaObject):
 
     def _check_is_dropped(self) -> None:
         if self.is_dropped:
-            raise exc.OperationalError('Table has been dropped')
+            raise exc.RuntimeError('Table has been dropped')
 
     def _create_sa_tbl(self) -> None:
         self.rowid_col = sql.Column('rowid', sql.BigInteger, nullable=False)
         self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
         self.v_max_col = \
             sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(store.Table.MAX_VERSION))
+
         sa_cols = [self.rowid_col, self.v_min_col, self.v_max_col]
-        # re-create sql.Columns for each column, regardless of whether it already has sa_col set: it was bound
-        # to the last sql.Table version we created and cannot be reused
         for col in self.cols:
-            col.create_sa_col()
-        sa_cols.extend([col.sa_col for col in self.cols])
+            # re-create sql.Columns for each column, regardless of whether it already has sa_col set: it was bound
+            # to the last sql.Table version we created and cannot be reused
+            col.create_sa_cols()
+            sa_cols.append(col.sa_col)
+            if col.is_computed:
+                sa_cols.append(col.sa_errormsg_col)
+                sa_cols.append(col.sa_errortype_col)
+
         if hasattr(self, 'sa_tbl'):
             self.sa_md.remove(self.sa_tbl)
         self.sa_tbl = sql.Table(self.storage_name(), self.sa_md, *sa_cols)
@@ -344,14 +369,14 @@ class TableSnapshot(Table):
 @dataclasses.dataclass
 class TableParameters:
     # garbage-collect old versions beyond this point, unless they are referenced in a snapshot
-    num_retained_versions: int
+    num_retained_versions: int = 10
 
     # parameters for frame extraction
-    frame_src_col: int  # column id
-    frame_col: int  # column id
-    frame_idx_col: int  # column id
-    extraction_fps: int
-    ffmpeg_filter: Dict[str, str]
+    frame_src_col: int = -1 # column id
+    frame_col: int = -1 # column id
+    frame_idx_col: int = -1 # column id
+    extraction_fps: int = -1
+    ffmpeg_filter: Dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 class MutableTable(Table):
@@ -417,11 +442,19 @@ class MutableTable(Table):
                         tbl_id=self.id, schema_version=self.schema_version,
                         preceding_schema_version=preceding_schema_version))
             conn.execute(
-                sql.insert(store.StorageColumn.__table__)
+                sql.insert(store.ColumnHistory.__table__)
                     .values(tbl_id=self.id, col_id=c.id, schema_version_add=self.schema_version))
             self._create_col_md(conn)
-            stmt = f'ALTER TABLE {self.storage_name()} ADD COLUMN {c.to_sql()}'
+            stmt = f'ALTER TABLE {self.storage_name()} ADD COLUMN {c.storage_name()} {c.col_type.to_sql()}'
             conn.execute(sql.text(stmt))
+            if c.is_computed:
+                # we also need to create the errormsg and errortype storage cols
+                stmt = (f'ALTER TABLE {self.storage_name()} '
+                        f'ADD COLUMN {c.errormsg_storage_name()} {StringType().to_sql()}')
+                conn.execute(sql.text(stmt))
+                stmt = (f'ALTER TABLE {self.storage_name()} '
+                        f'ADD COLUMN {c.errortype_storage_name()} {StringType().to_sql()}')
+                conn.execute(sql.text(stmt))
         self._create_sa_tbl()
 
         if not c.is_computed or self.count() == 0:
@@ -498,10 +531,10 @@ class MutableTable(Table):
                         tbl_id=self.id, schema_version=self.schema_version,
                         preceding_schema_version=preceding_schema_version))
             conn.execute(
-                sql.update(store.StorageColumn.__table__)
-                    .values({store.StorageColumn.schema_version_drop: self.schema_version})
-                    .where(store.StorageColumn.tbl_id == self.id)
-                    .where(store.StorageColumn.col_id == col.id))
+                sql.update(store.ColumnHistory.__table__)
+                    .values({store.ColumnHistory.schema_version_drop: self.schema_version})
+                    .where(store.ColumnHistory.tbl_id == self.id)
+                    .where(store.ColumnHistory.col_id == col.id))
             self._create_col_md(conn)
         self._create_sa_tbl()
 
@@ -658,9 +691,9 @@ class MutableTable(Table):
                     try:
                         _ = Image.open(path_str)
                     except FileNotFoundError:
-                        raise exc.OperationalError(f'Column {col.name}: file does not exist: {path_str}')
+                        raise exc.RuntimeError(f'Column {col.name}: file does not exist: {path_str}')
                     except PIL.UnidentifiedImageError:
-                        raise exc.OperationalError(f'Column {col.name}: not a valid image file: {path_str}')
+                        raise exc.RuntimeError(f'Column {col.name}: not a valid image file: {path_str}')
 
             # image cols: make sure file path points to a valid image file; build index if col is indexed
             if col.col_type.is_video_type():
@@ -674,7 +707,7 @@ class MutableTable(Table):
             if col.col_type.is_json_type():
                 for idx, d in data[col.name].items():
                     if not isinstance(d, dict) and not isinstance(d, list):
-                        raise exc.OperationalError(
+                        raise exc.RuntimeError(
                             f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
         # we're creating a new version
@@ -690,7 +723,7 @@ class MutableTable(Table):
             for idx, path_str in data[video_col.name].items():
                 path = pathlib.Path(path_str)
                 if not path.is_file():
-                    raise exc.OperationalError(
+                    raise exc.RuntimeError(
                         f'For frame extraction, value for column {col.name} in row {idx} requires a valid '
                         f'file path: {path}')
 
@@ -765,7 +798,8 @@ class MutableTable(Table):
                         # load image, if this is a file path
                         if col_ref.col_type.is_image_type():
                             data_row[col_ref.data_row_idx] = PIL.Image.open(data_row[col_ref.data_row_idx])
-                    evaluator.eval((), data_row)
+                    _, has_exc = evaluator.eval((), data_row)
+                    assert not has_exc
 
                     # convert data values to storage format where necessary
                     for col_idx in range(len(computed_cols)):
@@ -835,7 +869,7 @@ class MutableTable(Table):
     def revert(self) -> None:
         self._check_is_dropped()
         if self.version == 0:
-            raise exc.OperationalError('Cannot revert version 0')
+            raise exc.RuntimeError('Cannot revert version 0')
         # check if the current version is referenced by a snapshot
         with orm.Session(Env.get().engine) as session:
             # make sure we don't have a snapshot referencing this version
@@ -845,7 +879,7 @@ class MutableTable(Table):
                 .where(store.TableSnapshot.tbl_version == self.version) \
                 .scalar()
             if num_references > 0:
-                raise exc.OperationalError(
+                raise exc.RuntimeError(
                     f'Current version is needed for {num_references} snapshot{"s" if num_references > 1 else ""}')
 
             conn = session.connection()
@@ -988,7 +1022,7 @@ class MutableTable(Table):
 
             cols_by_name: Dict[str, Column] = {}  # records the cols we have seen so far
             for pos, col in enumerate(cols):
-                session.add(store.StorageColumn(tbl_id=tbl_record.id, col_id=col.id, schema_version_add=0))
+                session.add(store.ColumnHistory(tbl_id=tbl_record.id, col_id=col.id, schema_version_add=0))
                 session.flush()  # avoid FK violations in Postgres
                 if col.value_expr is None and col.compute_func is not None:
                     cls._create_value_expr(col, cols_by_name)
@@ -1443,7 +1477,7 @@ class Db:
             conn.execute(sql.delete(store.TableSnapshot.__table__).where(store.TableSnapshot.db_id == self.id))
             tbls_stmt = sql.select(store.Table.id).where(store.Table.db_id == self.id)
             conn.execute(sql.delete(store.SchemaColumn.__table__).where(store.SchemaColumn.tbl_id.in_(tbls_stmt)))
-            conn.execute(sql.delete(store.StorageColumn.__table__).where(store.StorageColumn.tbl_id.in_(tbls_stmt)))
+            conn.execute(sql.delete(store.ColumnHistory.__table__).where(store.ColumnHistory.tbl_id.in_(tbls_stmt)))
             conn.execute(
                 sql.delete(store.TableSchemaVersion.__table__).where(store.TableSchemaVersion.tbl_id.in_(tbls_stmt)))
             conn.execute(sql.delete(store.Table.__table__).where(store.Table.db_id == self.id))

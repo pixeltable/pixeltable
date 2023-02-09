@@ -24,11 +24,11 @@ def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.T
     """
     params = inspect.signature(eval_fn).parameters
     if len(params) > 0 and tbl is None:
-        raise exc.OperationalError(f'udf_call() is missing tbl parameter')
+        raise exc.RuntimeError(f'udf_call() is missing tbl parameter')
     args: List[exprs.ColumnRef] = []
     for param_name in params:
         if param_name not in tbl.cols_by_name:
-            raise exc.OperationalError(
+            raise exc.RuntimeError(
                 (f'udf_call(): lambda argument names need to be valid column names in table {tbl.name}: '
                  f'column {param_name} unknown'))
         args.append(exprs.ColumnRef(tbl.cols_by_name[param_name]))

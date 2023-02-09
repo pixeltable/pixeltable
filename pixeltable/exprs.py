@@ -8,6 +8,7 @@ from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Gener
 import operator
 import json
 import io
+from collections import defaultdict
 
 import PIL.Image
 import jmespath
@@ -191,8 +192,16 @@ class Expr(abc.ABC):
         memo[id(self)] = result
         return result
 
+    @abc.abstractmethod
     def __str__(self) -> str:
-        return self.__class__.__name__
+        pass
+
+    def display_str(self, inline: bool = True) -> str:
+        """
+        inline: if False, use line breaks where appropriate; otherwise don't use linebreaks
+        """
+        return str(self)
+
     @classmethod
     def print_list(cls, expr_list: List['Expr']) -> str:
         if len(expr_list) == 1:
@@ -310,7 +319,7 @@ class Expr(abc.ABC):
         ex.: <img col>.rotate(60)
         """
         if not self.col_type.is_image_type():
-            raise exc.OperationalError(f'Member access not supported on type {self.col_type}: {name}')
+            raise exc.RuntimeError(f'Member access not supported on type {self.col_type}: {name}')
         return ImageMemberAccess(name, self)
 
     def __lt__(self, other: object) -> 'Comparison':
@@ -417,7 +426,7 @@ class FunctionCall(Expr):
         if fn.info.param_types is not None:
             # check if arg types match param types and convert values, if necessary
             if len(args) != len(fn.info.param_types):
-                raise exc.OperationalError(
+                raise exc.RuntimeError(
                     f"Number of arguments doesn't match parameter list: {args} vs {fn.info.param_types}")
             args = list(args)
             for i in range(len(args)):
@@ -429,7 +438,7 @@ class FunctionCall(Expr):
                     continue
                 converter = args[i].col_type.conversion_fn(fn.info.param_types[i])
                 if converter is None:
-                    raise exc.OperationalError(f'Cannot convert {args[i].col_type} to {fn.info.param_types[i]}')
+                    raise exc.RuntimeError(f'Cannot convert {args[i].col_type} to {fn.info.param_types[i]}')
                 if converter == ColumnType.no_conversion:
                     # nothing to do
                     continue
@@ -471,10 +480,13 @@ class FunctionCall(Expr):
         return True
 
     def __str__(self) -> str:
+        return self.display_str()
+
+    def display_str(self, inline: bool = True) -> str:
         fn_name = self.fn.display_name if self.fn.display_name != '' else 'anonymous_fn_call'
         return f'{fn_name}({self._print_args()})'
 
-    def _print_args(self, start_idx: int = 0) -> str:
+    def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
         arg_strs = [str(arg) if arg is not None else '' for arg in self.args[start_idx:]]
         # fill in missing expr args
         i = 0
@@ -487,7 +499,7 @@ class FunctionCall(Expr):
         if len(self.group_by) > 0:
             arg_strs.append(f'group_by={Expr.print_list(self.group_by)}')
         # TODO: figure out the function name
-        separator = ',\n    '
+        separator = ', ' if inline else ',\n    '
         return separator.join(arg_strs)
 
     @property
@@ -675,7 +687,7 @@ class ImageMemberAccess(Expr):
         elif member_name in self.attr_info:
             super().__init__(self.attr_info[member_name])
         else:
-            raise exc.OperationalError(f'Unknown Image member: {member_name}')
+            raise exc.RuntimeError(f'Unknown Image member: {member_name}')
         self.member_name = member_name
         self.components = [caller]
 
@@ -706,9 +718,9 @@ class ImageMemberAccess(Expr):
             # - caller must be ColumnRef
             # - signature is (PIL.Image.Image)
             if not isinstance(caller, ColumnRef):
-                raise exc.OperationalError(f'nearest(): caller must be an IMAGE column')
+                raise exc.RuntimeError(f'nearest(): caller must be an IMAGE column')
             if len(args) != 1 or not isinstance(args[0], PIL.Image.Image):
-                raise exc.OperationalError(
+                raise exc.RuntimeError(
                     f'nearest(): required signature is (PIL.Image.Image) (passed: {call_signature})')
             return ImageSimilarityPredicate(caller, img=args[0])
 
@@ -716,9 +728,9 @@ class ImageMemberAccess(Expr):
             # - caller must be ColumnRef
             # - signature is (str)
             if not isinstance(caller, ColumnRef):
-                raise exc.OperationalError(f'matches(): caller must be an IMAGE column')
+                raise exc.RuntimeError(f'matches(): caller must be an IMAGE column')
             if len(args) != 1 or not isinstance(args[0], str):
-                raise exc.OperationalError(f"matches(): required signature is (str) (passed: {call_signature})")
+                raise exc.RuntimeError(f"matches(): required signature is (str) (passed: {call_signature})")
             return ImageSimilarityPredicate(caller, text=args[0])
 
         # TODO: verify signature
@@ -831,9 +843,9 @@ class JsonPath(Expr):
         Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
         """
         if not self.is_relative_path():
-            raise exc.OperationalError(f'() for an absolute path is invalid')
+            raise exc.RuntimeError(f'() for an absolute path is invalid')
         if len(args) != 1 or not isinstance(args[0], int) or args[0] >= 0:
-            raise exc.OperationalError(f'R() requires a negative index')
+            raise exc.RuntimeError(f'R() requires a negative index')
         return JsonPath(None, [], args[0])
 
     def __getattr__(self, name: str) -> 'JsonPath':
@@ -842,13 +854,13 @@ class JsonPath(Expr):
 
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, str) and index != '*':
-            raise exc.OperationalError(f'Invalid json list index: {index}')
+            raise exc.RuntimeError(f'Invalid json list index: {index}')
         return JsonPath(self._anchor, self.path_elements + [index])
 
     def __rshift__(self, other: object) -> 'JsonMapper':
         rhs_expr = Expr.from_object(other)
         if rhs_expr is None:
-            raise exc.OperationalError(f'>> requires an expression on the right-hand side, found {type(other)}')
+            raise exc.RuntimeError(f'>> requires an expression on the right-hand side, found {type(other)}')
         return JsonMapper(self, rhs_expr)
 
     def display_name(self) -> str:
@@ -946,7 +958,7 @@ class InlineDict(Expr):
         self.dict_items: List[Tuple[str, int, Any]] = []
         for key, val in d.items():
             if not isinstance(key, str):
-                raise exc.OperationalError(f'Dictionary requires string keys, {key} has type {type(key)}')
+                raise exc.RuntimeError(f'Dictionary requires string keys, {key} has type {type(key)}')
             val = copy.deepcopy(val)
             if isinstance(val, dict):
                 val = InlineDict(val)
@@ -1421,10 +1433,6 @@ class ArithmeticExpr(Expr):
     Allows arithmetic exprs on json paths
     """
     def __init__(self, operator: ArithmeticOperator, op1: Expr, op2: Expr):
-        if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
-            raise exc.OperationalError(f'{operator} requires numeric type: {op1} has type {op1.col_type}')
-        if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
-            raise exc.OperationalError(f'{operator} requires numeric type: {op2} has type {op2.col_type}')
         # TODO: determine most specific common supertype
         if op1.col_type.is_json_type() or op2.col_type.is_json_type():
             # we assume it's a float
@@ -1433,6 +1441,12 @@ class ArithmeticExpr(Expr):
             super().__init__(ColumnType.supertype(op1.col_type, op2.col_type))
         self.operator = operator
         self.components = [op1, op2]
+
+        # do typechecking after initialization in order for __str__() to work
+        if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
+            raise exc.Error(f'{self}: {operator} requires numeric types, but {op1} has type {op1.col_type}')
+        if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
+            raise exc.Error(f'{self}: {operator} requires numeric types, but {op2} has type {op2.col_type}')
 
     def __str__(self) -> str:
         return f'{str(self._op1)} {str(self.operator)} {str(self._op2)}'
@@ -1469,9 +1483,11 @@ class ArithmeticExpr(Expr):
         op2_val = data_row[self._op2.data_row_idx]
         # check types if we couldn't do that prior to execution
         if self._op1.col_type.is_json_type() and not isinstance(op1_val, int) and not isinstance(op1_val, float):
-            raise exc.OperationalError(f'{self.operator} requires numeric type: {self._op1} has type {type(op1_val)}')
+            raise exc.RuntimeError(
+                f'{self.operator} requires numeric type, but {self._op1} has type {type(op1_val).__name__}')
         if self._op2.col_type.is_json_type() and not isinstance(op2_val, int) and not isinstance(op2_val, float):
-            raise exc.OperationalError(f'{self.operator} requires numeric type: {self._op2} has type {type(op2_val)}')
+            raise exc.RuntimeError(
+                f'{self.operator} requires numeric type, but {self._op2} has type {type(op2_val).__name__}')
 
         if self.operator == ArithmeticOperator.ADD:
             data_row[self.data_row_idx] = op1_val + op2_val
@@ -1507,6 +1523,9 @@ class ObjectRef(Expr):
 
     def scope(self) -> ExprScope:
         return self._scope
+
+    def __str__(self) -> str:
+        assert False
 
     def _equals(self, other: 'ObjectRef') -> bool:
         return self.owner is other.owner
@@ -1610,7 +1629,8 @@ class JsonMapper(Expr):
         for i, val in enumerate(src):
             data_row[self.scope_anchor.data_row_idx] = val
             # materialize target_expr
-            self.evaluator.eval((), data_row)
+            _, has_exc = self.evaluator.eval((), data_row)
+            assert not has_exc
             result[i] = data_row[self._target_expr.data_row_idx]
         data_row[self.data_row_idx] = result
 
@@ -1651,6 +1671,8 @@ class ExprEvaluator:
         self.filter_eval_exprs: List[Expr] = []
         self.output_eval_exprs: List[Expr] = []
         self.filter = filter
+        # key: expr id, value: ids of exprs that transitively depend on it
+        self.dependents: Dict[int, Set[int]] = defaultdict(set)
 
         unique_ids: Set[int] = set()
         # analyze filter first, so that it can be evaluated before output_exprs
@@ -1679,26 +1701,49 @@ class ExprEvaluator:
             if d.scope() != scope:
                 continue
             self._analyze_expr(d, scope, copy_exprs, eval_exprs, unique_ids)
+            self._add_dependent(d, expr)
         # make sure to eval() this after its dependencies
         eval_exprs.append(expr)
 
-    def eval(self, sql_row: Tuple[Any], data_row: List[Any]) -> bool:
+    def _add_dependent(self, e: Expr, dependent: Expr) -> None:
+        self.dependents[e.data_row_idx].add(dependent.data_row_idx)
+        for d in e.dependencies():
+            self._add_dependent(d, dependent)
+
+    def eval(self, sql_row: Tuple[Any], data_row: List[Any]) -> Tuple[bool, bool]:
         """
         If the filter predicate evaluates to True, populates the data_row slots of the output_exprs.
+        If an expr.eval() raises an exception, records the exception in the corresponding slot of data_row
+        and omits any of that expr's dependents's eval().
+        Returns (passes filter, had exception)
         """
         if self.filter is not None:
             # we need to evaluate the remaining filter predicate first
             self._copy_to_data_row(self.filter_copy_exprs, sql_row, data_row)
             for expr in self.filter_eval_exprs:
-                expr.eval(data_row)
+                try:
+                    expr.eval(data_row)
+                except Exception as e:
+                    data_row[expr.data_row_idx] = e
+                    return False, True
             if not data_row[self.filter.data_row_idx]:
-                return False
+                return False, False
 
         # materialize output_exprs
+        has_exc = False
+        skip_exprs: Set[int] = set()  # skip dependents of exprs that had exception
         self._copy_to_data_row(self.output_copy_exprs, sql_row, data_row)
         for expr in self.output_eval_exprs:
-            expr.eval(data_row)
-        return True
+            if expr.data_row_idx in skip_exprs:
+                continue
+            try:
+                expr.eval(data_row)
+            except Exception as e:
+                has_exc = True
+                data_row[expr.data_row_idx] = e
+                skip_exprs.update(self.dependents[expr.data_row_idx])
+
+        return True, has_exc
 
     def _copy_to_data_row(self, exprs: List[Expr], sql_row: Tuple[Any], data_row: List[Any]):
         """
@@ -1714,7 +1759,7 @@ class ExprEvaluator:
                     #img.thumbnail((128, 128))
                     data_row[expr.data_row_idx] = img
                 except Exception:
-                    raise exc.OperationalError(f'Error reading image file: {file_path}')
+                    raise exc.RuntimeError(f'Error reading image file: {file_path}')
             elif expr.col_type.is_array_type():
                 # column value is a saved numpy array
                 array_data = sql_row[expr.sql_row_idx]
@@ -1730,6 +1775,7 @@ class UniqueExprSet:
     """
     def __init__(self):
         self.unique_exprs: List[Expr] = []
+        self.expr_dict: Dict[int, Expr] = {}
 
     def add(self, expr: Expr) -> bool:
         """
@@ -1744,6 +1790,15 @@ class UniqueExprSet:
         except StopIteration:
             self.unique_exprs.append(expr)
             return True
+
+    def get(self, id: int) -> Expr:
+        """
+        Return expr with given id (= data_row_idx)
+        """
+        if len(self.expr_dict) == 0:
+            self.expr_dict = {e.data_row_idx: e for e in self.unique_exprs}
+            assert -1 not in self.expr_dict
+        return self.expr_dict[id]
 
     def __iter__(self) -> Iterator[Expr]:
         return iter(self.unique_exprs)

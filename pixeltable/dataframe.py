@@ -68,7 +68,7 @@ class DataFrameResultSet:
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, tuple):
             if len(index) != 2 or not isinstance(index[0], int) or not isinstance(index[1], int):
-                raise exc.OperationalError(f'Bad index: {index}')
+                raise exc.RuntimeError(f'Bad index: {index}')
             return self.rows[index[0]][index[1]]
 
 
@@ -155,12 +155,12 @@ class DataFrame:
                 similarity_clauses, info.filter = info.filter.split_conjuncts(
                     lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
                 if len(similarity_clauses) > 1:
-                    raise exc.OperationalError(f'More than one nearest() or matches() not supported')
+                    raise exc.RuntimeError(f'More than one nearest() or matches() not supported')
                 if len(similarity_clauses) == 1:
                     info.similarity_clause = similarity_clauses[0]
                     img_col = info.similarity_clause.img_col_ref.col
                     if not img_col.is_indexed:
-                        raise exc.OperationalError(
+                        raise exc.RuntimeError(
                             f'nearest()/matches() not available for unindexed column {img_col.name}')
 
         if info.filter is not None:
@@ -245,6 +245,7 @@ class DataFrame:
         """
         Returned value: list of select list values.
         If select_pk == True, also selects the primary key of the storage table (which is rowid and v_min).
+        If any expr raises an exception, raises ExprEvalError.
         """
         if self.select_list is None:
             self.select_list = [exprs.ColumnRef(col) for col in self.tbl.columns]
@@ -255,7 +256,7 @@ class DataFrame:
         if self.analysis_info is None:
             self.analyze()
         if self.analysis_info.similarity_clause is not None and n > 100:
-            raise exc.OperationalError(f'nearest()/matches() requires show(n <= 100): n={n}')
+            raise exc.RuntimeError(f'nearest()/matches() requires show(n <= 100): n={n}')
 
         # determine order_by clause for window functions or grouping, if present
         window_fn_calls = [
@@ -290,13 +291,21 @@ class DataFrame:
             num_rows = 0
             sql_scan_evaluator = exprs.ExprEvaluator(
                 self.analysis_info.sql_scan_output_exprs, self.analysis_info.filter)
-            agg_evaluator = exprs.ExprEvaluator(self.analysis_info.agg_output_exprs, None)
+            agg_evaluator = exprs.ExprEvaluator(self.analysis_info.agg_output_exprs, None)\
+                if len(self.analysis_info.agg_output_exprs) > 0 else None
 
             current_group: Optional[List[Any]] = None  # for grouping agg, the values of the group-by exprs
-            for row in conn.execute(stmt):
+            for row_num, row in enumerate(conn.execute(stmt)):
                 sql_row = row._data
                 data_row: List[Any] = [None] * self.analysis_info.num_materialized
-                if not sql_scan_evaluator.eval(sql_row, data_row):
+                passes_filter, has_exc = sql_scan_evaluator.eval(sql_row, data_row)
+                if has_exc:
+                    exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
+                    exc_expr = self.analysis_info.unique_exprs.get(exc_idx)
+                    input_vals = [data_row[d.data_row_idx] for d in exc_expr.dependencies()]
+                    raise exc.ExprEvalError(exc_expr, data_row[exc_idx], input_vals, row_num)
+
+                if not passes_filter:
                     continue
 
                 # copy select list results into contiguous array
@@ -307,7 +316,8 @@ class DataFrame:
                         current_group = group
                     if group != current_group:
                         # we're entering a new group, emit a row for the last one
-                        agg_evaluator.eval(last_sql_row, last_data_row)
+                        _, has_exc = agg_evaluator.eval(last_sql_row, last_data_row)
+                        assert not has_exc
                         result_row = [last_data_row[e.data_row_idx] for e in self.select_list]
                         current_group = group
                         for fn_call in self.analysis_info.agg_fn_calls:
@@ -329,12 +339,22 @@ class DataFrame:
 
             if self.is_agg():
                 # we need to emit the output row for the current group
-                agg_evaluator.eval(sql_row, data_row)
+                _, has_exc = agg_evaluator.eval(sql_row, data_row)
+                assert not has_exc
                 result_row = [data_row[e.data_row_idx] for e in self.select_list]
                 yield result_row
 
     def show(self, n: int = 20) -> DataFrameResultSet:
-        data_rows = [row for row in self.exec(n)]
+        try:
+            data_rows = [row for row in self.exec(n)]
+        except exc.ExprEvalError as e:
+            input_msgs = [
+                f"'{d}' = {d.col_type.print_value(e.dependency_vals[i])}" for i, d in enumerate(e.expr.dependencies())
+            ]
+            msg = (f'In row {e.row_num} the expression {e.expr} encountered exception '
+                   f'{type(e.exc).__name__}:\n{str(e.exc)}\n'
+                   f'with {", ".join(input_msgs)}')
+            raise exc.Error(msg)
         col_names = [expr.display_name() for expr in self.select_list]
         # replace ''
         col_names = [n if n != '' else f'col_{i}' for i, n in enumerate(col_names)]
@@ -364,7 +384,7 @@ class DataFrame:
         if self.select_list is None or len(self.select_list) != 1 \
             or not isinstance(self.select_list[0], exprs.ColumnRef) \
             or not self.select_list[0].col_type.is_string_type():
-            raise exc.OperationalError(f'categoricals_map() can only be applied to an individual string column')
+            raise exc.RuntimeError(f'categoricals_map() can only be applied to an individual string column')
         assert isinstance(self.select_list[0], exprs.ColumnRef)
         col = self.select_list[0].col
         stmt = sql.select(sql.distinct(col.sa_col)) \
@@ -394,7 +414,7 @@ class DataFrame:
             index = [index]
         if isinstance(index, list):
             if self.select_list is not None:
-                raise exc.OperationalError(f'[] for column selection is only allowed once')
+                raise exc.RuntimeError(f'[] for column selection is only allowed once')
             # analyze select list; wrap literals with the corresponding expressions and update it in place
             for i in range(len(index)):
                 expr = index[i]
@@ -403,9 +423,9 @@ class DataFrame:
                 if isinstance(expr, list):
                     index[i] = expr = exprs.InlineArray(tuple(expr))
                 if not isinstance(expr, exprs.Expr):
-                    raise exc.OperationalError(f'Invalid expression in []: {expr}')
+                    raise exc.RuntimeError(f'Invalid expression in []: {expr}')
                 if expr.col_type.is_invalid_type():
-                    raise exc.OperationalError(f'Invalid type: {expr}')
+                    raise exc.RuntimeError(f'Invalid type: {expr}')
                 # TODO: check that ColumnRefs in expr refer to self.tbl
             return DataFrame(self.tbl, select_list=index, where_clause=self.where_clause)
         raise TypeError(f'Invalid index type: {type(index)}')
