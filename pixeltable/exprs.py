@@ -3,12 +3,16 @@ import copy
 import datetime
 import enum
 import inspect
+import sys
+import traceback
 import typing
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Iterator
+from types import TracebackType
 import operator
 import json
 import io
 from collections import defaultdict
+import traceback
 
 import PIL.Image
 import jmespath
@@ -457,8 +461,8 @@ class FunctionCall(Expr):
         # we don't need to evaluate order_by_exprs, so they stay out of self.components
         self.order_by = order_by_exprs
 
-        # execution state for window functions
-        self.aggregator: Optional[Any] = self.fn.init_fn() if self.fn.is_aggregate else None
+        # execution state for aggregate functions
+        self.aggregator: Optional[Any] = None
         self.current_partition_vals: Optional[List[Any]] = None
 
     @property
@@ -483,7 +487,7 @@ class FunctionCall(Expr):
         return self.display_str()
 
     def display_str(self, inline: bool = True) -> str:
-        fn_name = self.fn.display_name if self.fn.display_name != '' else 'anonymous_fn_call'
+        fn_name = self.fn.display_name if self.fn.display_name != '' else 'anonymous_fn'
         return f'{fn_name}({self._print_args()})'
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
@@ -1449,7 +1453,10 @@ class ArithmeticExpr(Expr):
             raise exc.Error(f'{self}: {operator} requires numeric types, but {op2} has type {op2.col_type}')
 
     def __str__(self) -> str:
-        return f'{str(self._op1)} {str(self.operator)} {str(self._op2)}'
+        # add parentheses around operands that are ArithmeticExprs to express precedence
+        op1_str = f'({self._op1})' if isinstance(self._op1, ArithmeticExpr) else str(self._op1)
+        op2_str = f'({self._op2})' if isinstance(self._op2, ArithmeticExpr) else str(self._op2)
+        return f'{op1_str} {str(self.operator)} {op2_str}'
 
     def _equals(self, other: 'ArithmeticExpr') -> bool:
         return self.operator == other.operator
@@ -1629,8 +1636,8 @@ class JsonMapper(Expr):
         for i, val in enumerate(src):
             data_row[self.scope_anchor.data_row_idx] = val
             # materialize target_expr
-            _, has_exc = self.evaluator.eval((), data_row)
-            assert not has_exc
+            _, exc_tb = self.evaluator.eval((), data_row)
+            assert exc_tb is None
             result[i] = data_row[self._target_expr.data_row_idx]
         data_row[self.data_row_idx] = result
 
@@ -1710,12 +1717,12 @@ class ExprEvaluator:
         for d in e.dependencies():
             self._add_dependent(d, dependent)
 
-    def eval(self, sql_row: Tuple[Any], data_row: List[Any]) -> Tuple[bool, bool]:
+    def eval(self, sql_row: Tuple[Any], data_row: List[Any]) -> Tuple[bool, TracebackType]:
         """
         If the filter predicate evaluates to True, populates the data_row slots of the output_exprs.
         If an expr.eval() raises an exception, records the exception in the corresponding slot of data_row
         and omits any of that expr's dependents's eval().
-        Returns (passes filter, had exception)
+        Returns (passes filter, exception traceback for the first exception that was recorded)
         """
         if self.filter is not None:
             # we need to evaluate the remaining filter predicate first
@@ -1730,7 +1737,7 @@ class ExprEvaluator:
                 return False, False
 
         # materialize output_exprs
-        has_exc = False
+        exc_tb: Optional[TracebackType] = None
         skip_exprs: Set[int] = set()  # skip dependents of exprs that had exception
         self._copy_to_data_row(self.output_copy_exprs, sql_row, data_row)
         for expr in self.output_eval_exprs:
@@ -1739,11 +1746,12 @@ class ExprEvaluator:
             try:
                 expr.eval(data_row)
             except Exception as e:
-                has_exc = True
+                _, _, exc_tb = sys.exc_info()
+                stack_trace = traceback.format_tb(exc_tb)
                 data_row[expr.data_row_idx] = e
                 skip_exprs.update(self.dependents[expr.data_row_idx])
 
-        return True, has_exc
+        return True, exc_tb
 
     def _copy_to_data_row(self, exprs: List[Expr], sql_row: Tuple[Any], data_row: List[Any]):
         """

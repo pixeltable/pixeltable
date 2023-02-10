@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import sys
 from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -8,6 +9,7 @@ import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
 import copy
+import traceback
 
 from pixeltable import catalog
 from pixeltable.env import Env
@@ -241,6 +243,47 @@ class DataFrame:
                 raise exc.Error(f'Invalid expression, mixes aggregate with non-aggregate: {e}')
             return is_agg, is_scan
 
+    def _reset_agg_state(self, row_num: int) -> None:
+        for fn_call in self.analysis_info.agg_fn_calls:
+            try:
+                fn_call.reset_agg()
+            except Exception as e:
+                _, _, exc_tb = sys.exc_info()
+                expr_msg = f'init() function of the aggregate {fn_call}'
+                raise exc.ExprEvalError(fn_call, expr_msg, e, exc_tb, [], row_num)
+
+    def _update_agg_state(self, data_row: List[Any], row_num: int) -> None:
+        for fn_call in self.analysis_info.agg_fn_calls:
+            try:
+                fn_call.update(data_row)
+            except Exception as e:
+                _, _, exc_tb = sys.exc_info()
+                expr_msg = f'update() function of the aggregate {fn_call}'
+                input_vals = [data_row[d.data_row_idx] for d in fn_call.dependencies()]
+                raise exc.ExprEvalError(fn_call, expr_msg, e, exc_tb, input_vals, row_num)
+
+    def _eval_agg_fns(
+            self, evaluator: exprs.ExprEvaluator, sql_row: List[Any], data_row: List[Any], row_num: int) -> None:
+        _, exc_tb = evaluator.eval(sql_row, data_row)
+        if exc_tb is not None:
+            # first expr with exception
+            exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
+            exc_expr = self.analysis_info.unique_exprs.get(exc_idx)
+            expr_msg = f'value() function of the aggregate {exc_expr}'
+            raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, [], row_num)
+
+    def _eval_sql_scan(
+            self, evaluator: exprs.ExprEvaluator, sql_row: List[Any], data_row: List[Any], row_num: int) -> bool:
+        passes_filter, exc_tb = evaluator.eval(sql_row, data_row)
+        if exc_tb is not None:
+            # first expr with exception
+            exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
+            exc_expr = self.analysis_info.unique_exprs.get(exc_idx)
+            expr_msg = f'expression {exc_expr}'
+            input_vals = [data_row[d.data_row_idx] for d in exc_expr.dependencies()]
+            raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, input_vals, row_num)
+        return passes_filter
+
     def exec(self, n: int = 20, select_pk: bool = False) -> Generator[List[Any], None, None]:
         """
         Returned value: list of select list values.
@@ -288,23 +331,18 @@ class DataFrame:
             stmt = self._create_select_stmt(
                 self.analysis_info.sql_select_list, self.analysis_info.sql_where_clause, idx_rowids, select_pk,
                 order_by_clause)
-            num_rows = 0
+            num_rows = 0  # number of output rows
             sql_scan_evaluator = exprs.ExprEvaluator(
                 self.analysis_info.sql_scan_output_exprs, self.analysis_info.filter)
             agg_evaluator = exprs.ExprEvaluator(self.analysis_info.agg_output_exprs, None)\
                 if len(self.analysis_info.agg_output_exprs) > 0 else None
 
             current_group: Optional[List[Any]] = None  # for grouping agg, the values of the group-by exprs
-            for row_num, row in enumerate(conn.execute(stmt)):
+            sql_rows = conn.execute(stmt)  # this might raise an exception
+            for row_num, row in enumerate(sql_rows):
                 sql_row = row._data
                 data_row: List[Any] = [None] * self.analysis_info.num_materialized
-                passes_filter, has_exc = sql_scan_evaluator.eval(sql_row, data_row)
-                if has_exc:
-                    exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
-                    exc_expr = self.analysis_info.unique_exprs.get(exc_idx)
-                    input_vals = [data_row[d.data_row_idx] for d in exc_expr.dependencies()]
-                    raise exc.ExprEvalError(exc_expr, data_row[exc_idx], input_vals, row_num)
-
+                passes_filter = self._eval_sql_scan(sql_scan_evaluator, sql_row, data_row, row_num)
                 if not passes_filter:
                     continue
 
@@ -314,16 +352,14 @@ class DataFrame:
                     group = [data_row[e.data_row_idx] for e in self.group_by_clause]
                     if current_group is None:
                         current_group = group
+                        self._reset_agg_state(row_num)
                     if group != current_group:
                         # we're entering a new group, emit a row for the last one
-                        _, has_exc = agg_evaluator.eval(last_sql_row, last_data_row)
-                        assert not has_exc
+                        self._eval_agg_fns(agg_evaluator, last_sql_row, last_data_row, row_num)
                         result_row = [last_data_row[e.data_row_idx] for e in self.select_list]
                         current_group = group
-                        for fn_call in self.analysis_info.agg_fn_calls:
-                            fn_call.reset_agg()
-                    for fn_call in self.analysis_info.agg_fn_calls:
-                        fn_call.update(data_row)
+                        self._reset_agg_state(row_num)
+                    self._update_agg_state(data_row, row_num)
                 else:
                     result_row = [data_row[e.data_row_idx] for e in self.select_list]
                     if select_pk:
@@ -339,8 +375,7 @@ class DataFrame:
 
             if self.is_agg():
                 # we need to emit the output row for the current group
-                _, has_exc = agg_evaluator.eval(sql_row, data_row)
-                assert not has_exc
+                self._eval_agg_fns(agg_evaluator, sql_row, data_row, row_num)
                 result_row = [data_row[e.data_row_idx] for e in self.select_list]
                 yield result_row
 
@@ -348,13 +383,26 @@ class DataFrame:
         try:
             data_rows = [row for row in self.exec(n)]
         except exc.ExprEvalError as e:
-            input_msgs = [
-                f"'{d}' = {d.col_type.print_value(e.dependency_vals[i])}" for i, d in enumerate(e.expr.dependencies())
-            ]
-            msg = (f'In row {e.row_num} the expression {e.expr} encountered exception '
-                   f'{type(e.exc).__name__}:\n{str(e.exc)}\n'
-                   f'with {", ".join(input_msgs)}')
+            msg = (f'In row {e.row_num} the {e.expr_msg} encountered exception '
+                   f'{type(e.exc).__name__}:\n{str(e.exc)}')
+            if len(e.input_vals) > 0:
+                input_msgs = [
+                    f"'{d}' = {d.col_type.print_value(e.input_vals[i])}"
+                    for i, d in enumerate(e.expr.dependencies())
+                ]
+                msg += f'\nwith {", ".join(input_msgs)}'
+            assert e.exc_tb is not None
+            stack_trace = traceback.format_tb(e.exc_tb)
+            if len(stack_trace) > 2:
+                # add a stack trace if the exception happened in user code
+                # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
+                nl = '\n'
+                # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
+                msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
             raise exc.Error(msg)
+        except sql.exc.DBAPIError as e:
+            raise exc.Error(f'Error during SQL execution:\n{e}')
+
         col_names = [expr.display_name() for expr in self.select_list]
         # replace ''
         col_names = [n if n != '' else f'col_{i}' for i, n in enumerate(col_names)]

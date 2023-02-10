@@ -798,8 +798,8 @@ class MutableTable(Table):
                         # load image, if this is a file path
                         if col_ref.col_type.is_image_type():
                             data_row[col_ref.data_row_idx] = PIL.Image.open(data_row[col_ref.data_row_idx])
-                    _, has_exc = evaluator.eval((), data_row)
-                    assert not has_exc
+                    _, exc_tb = evaluator.eval((), data_row)
+                    assert exc_tb is None
 
                     # convert data values to storage format where necessary
                     for col_idx in range(len(computed_cols)):

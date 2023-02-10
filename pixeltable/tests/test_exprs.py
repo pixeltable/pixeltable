@@ -95,9 +95,67 @@ class TestExprs:
 
     def test_exception_handling(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
+
+        # error in expr that's handled in SQL
+        with pytest.raises(exc.Error):
+            _ = t[(t.c2 + 1) / t.c2].show()
+
+        # error in expr that's handled in Python
+        with pytest.raises(exc.Error):
+            _ = t[(t.c6.f2 + 1) / (t.c2 - 10)].show()
+
+        # the same, but with an inline function
         f = Function(FloatType(), [IntType(), IntType()], eval_fn=lambda a, b: a / b)
         with pytest.raises(exc.Error):
             _ = t[f(t.c2 + 1, t.c2)].show()
+
+        # error in agg.init()
+        class Aggregator:
+            def __init__(self):
+                self.sum = 1 / 0
+            @classmethod
+            def make_aggregator(cls):
+                return cls()
+            def update(self, val):
+                pass
+            def value(self):
+                return 1
+        agg = Function.make_aggregate_function(
+            IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
+        with pytest.raises(exc.Error):
+            _ = t[agg(t.c2)].show()
+
+        # error in agg.update()
+        class Aggregator:
+            def __init__(self):
+                self.sum = 0
+            @classmethod
+            def make_aggregator(cls):
+                return cls()
+            def update(self, val):
+                self.sum += 1 / val
+            def value(self):
+                return 1
+        agg = Function.make_aggregate_function(
+            IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
+        with pytest.raises(exc.Error):
+            _ = t[agg(t.c2 - 10)].show()
+
+        # error in agg.value()
+        class Aggregator:
+            def __init__(self):
+                self.sum = 0
+            @classmethod
+            def make_aggregator(cls):
+                return cls()
+            def update(self, val):
+                self.sum += val
+            def value(self):
+                return 1 / self.sum
+        agg = Function.make_aggregate_function(
+            IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
+        with pytest.raises(exc.Error):
+            _ = t[t.c2 <= 2][agg(t.c2 - 1)].show()
 
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
