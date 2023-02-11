@@ -273,22 +273,30 @@ class DataFrame:
             raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, [], row_num)
 
     def _eval_sql_scan(
-            self, evaluator: exprs.ExprEvaluator, sql_row: List[Any], data_row: List[Any], row_num: int) -> bool:
+            self, evaluator: exprs.ExprEvaluator, sql_row: List[Any], data_row: List[Any], row_num: int,
+            ignore_errors: bool
+    ) -> bool:
         passes_filter, exc_tb = evaluator.eval(sql_row, data_row)
         if exc_tb is not None:
-            # first expr with exception
-            exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
-            exc_expr = self.analysis_info.unique_exprs.get(exc_idx)
-            expr_msg = f'expression {exc_expr}'
-            input_vals = [data_row[d.data_row_idx] for d in exc_expr.dependencies()]
-            raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, input_vals, row_num)
+            if ignore_errors:
+                evaluator.propagate_excs(data_row)
+            else:
+                # first expr with exception
+                exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
+                exc_expr = self.analysis_info.unique_exprs.get(exc_idx)
+                expr_msg = f'expression {exc_expr}'
+                input_vals = [data_row[d.data_row_idx] for d in exc_expr.dependencies()]
+                raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, input_vals, row_num)
         return passes_filter
 
-    def exec(self, n: int = 20, select_pk: bool = False) -> Generator[List[Any], None, None]:
+    def exec(
+            self, n: int = 20, select_pk: bool = False, ignore_errors: bool = False
+    ) -> Generator[List[Any], None, None]:
         """
         Returned value: list of select list values.
         If select_pk == True, also selects the primary key of the storage table (which is rowid and v_min).
-        If any expr raises an exception, raises ExprEvalError.
+        ignore_errors == False: if any expr raises an exception, raises ExprEvalError.
+        ignore_errors == True: exception is returned in result row for each select list item that encountered an exc.
         """
         if self.select_list is None:
             self.select_list = [exprs.ColumnRef(col) for col in self.tbl.columns]
@@ -342,7 +350,7 @@ class DataFrame:
             for row_num, row in enumerate(sql_rows):
                 sql_row = row._data
                 data_row: List[Any] = [None] * self.analysis_info.num_materialized
-                passes_filter = self._eval_sql_scan(sql_scan_evaluator, sql_row, data_row, row_num)
+                passes_filter = self._eval_sql_scan(sql_scan_evaluator, sql_row, data_row, row_num, ignore_errors)
                 if not passes_filter:
                     continue
 
@@ -409,9 +417,6 @@ class DataFrame:
         return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in self.select_list])
 
     def count(self) -> int:
-        """
-        TODO: implement as part of DataFrame.agg()
-        """
         stmt = sql.select(sql.func.count('*')).select_from(self.tbl.sa_tbl) \
             .where(self.tbl.v_min_col <= self.tbl.version) \
             .where(self.tbl.v_max_col > self.tbl.version)

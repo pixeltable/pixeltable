@@ -387,38 +387,64 @@ class Expr(abc.ABC):
 
 
 class ColumnRef(Expr):
+    class Property(enum.Enum):
+        VALUE = 0
+        ERRORTYPE = 1
+        ERRORMSG = 2
+
     def __init__(self, col: catalog.Column):
         super().__init__(col.col_type)
         self.col = col
+        # a plain reference of a column accesses its value
+        self.prop = self.Property.VALUE
 
     def __getattr__(self, name: str) -> Expr:
+        if name == self.Property.ERRORTYPE.name.lower():
+            self.prop = self.Property.ERRORTYPE
+            return self
+        if name == self.Property.ERRORMSG.name.lower():
+            self.prop = self.Property.ERRORMSG
+            return self
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
         return super().__getattr__(name)
 
     def display_name(self) -> str:
-        return self.col.name
+        return str(self)
+        if self.prop == self.Property.VALUE:
+            return self.col.name
+        return f'{self.col.name}.{self.prop.name.lower()}'
 
     def _equals(self, other: 'ColumnRef') -> bool:
-        return self.col == other.col
+        return self.col == other.col and self.prop == other.prop
 
     def __str__(self) -> str:
-        return self.col.name
+        if self.prop == self.Property.VALUE:
+            return self.col.name
+        return f'{self.col.name}.{self.prop.name.lower()}'
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
-        return self.col.sa_col
+        if self.prop == self.Property.VALUE:
+            return self.col.sa_col
+        if self.prop == self.Property.ERRORTYPE:
+            return self.col.sa_errortype_col
+        if self.prop == self.Property.ERRORMSG:
+            return self.col.sa_errormsg_col
 
     def eval(self, data_row: List[Any]) -> None:
         # we get called while materializing computed cols
         pass
 
     def _as_dict(self) -> Dict:
-        return {'col_id': self.col.id}
+        return {'col_id': self.col.id, 'prop': self.prop.value}
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> 'Expr':
         assert 'col_id' in d
-        return cls(t.cols_by_id[d['col_id']])
+        result = cls(t.cols_by_id[d['col_id']])
+        if d['prop'] != cls.Property.VALUE.value:
+            result = getattr(result, cls.Property(d['prop']))
+        return result
 
 
 class FunctionCall(Expr):
@@ -1680,20 +1706,29 @@ class ExprEvaluator:
         self.filter = filter
         # key: expr id, value: ids of exprs that transitively depend on it
         self.dependents: Dict[int, Set[int]] = defaultdict(set)
+        # a map from an expr id to the output exprs it belongs to
+        # (a subexpr can be shared across multiple output exprs)
+        self.output_expr_ids: Dict[int, Set[int]] = defaultdict(set)
 
         unique_ids: Set[int] = set()
         # analyze filter first, so that it can be evaluated before output_exprs
         if filter is not None:
             self._analyze_expr(filter, filter.scope(), self.filter_copy_exprs, self.filter_eval_exprs, unique_ids)
         for expr in output_exprs:
-            self._analyze_expr(expr, expr.scope(), self.output_copy_exprs, self.output_eval_exprs, unique_ids)
+            self._analyze_expr(expr, expr.scope(), self.output_copy_exprs, self.output_eval_exprs, unique_ids, expr)
+            # compute self.dependents
+            self._record_dependencies(expr)
+            # compute self.output_expr_ids
+            self._record_output_expr_id(expr, expr.data_row_idx)
 
     def _analyze_expr(
-            self, expr: Expr, scope: ExprScope, copy_exprs: List[Expr], eval_exprs: List[Expr], unique_ids: Set[int]
+            self, expr: Expr, scope: ExprScope, copy_exprs: List[Expr], eval_exprs: List[Expr], unique_ids: Set[int],
+            output_expr: Expr = None
     ) -> None:
         """
         Determine unique dependencies of expr and accumulate those in copy_exprs and eval_exprs.
         Dependencies that are not in 'scope' are assumed to have been materialized already and are ignored.
+        Also populate output_expr_ids.
         """
         if expr.data_row_idx in unique_ids:
             return
@@ -1708,14 +1743,26 @@ class ExprEvaluator:
             if d.scope() != scope:
                 continue
             self._analyze_expr(d, scope, copy_exprs, eval_exprs, unique_ids)
-            self._add_dependent(d, expr)
         # make sure to eval() this after its dependencies
         eval_exprs.append(expr)
 
-    def _add_dependent(self, e: Expr, dependent: Expr) -> None:
+    def _record_dependencies(self, target: Expr) -> None:
+        for d in target.dependencies():
+            self._record_dependent(d, target)
+            self._record_dependencies(d)
+
+    def _record_dependent(self, e: Expr, dependent: Expr) -> None:
+        """
+        Record 'dependent' for all of its transitive dependencies.
+        """
         self.dependents[e.data_row_idx].add(dependent.data_row_idx)
         for d in e.dependencies():
-            self._add_dependent(d, dependent)
+            self._record_dependent(d, dependent)
+
+    def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
+        self.output_expr_ids[e.data_row_idx].add(output_expr_id)
+        for d in e.dependencies():
+            self._record_output_expr_id(d, output_expr_id)
 
     def eval(self, sql_row: Tuple[Any], data_row: List[Any]) -> Tuple[bool, TracebackType]:
         """
@@ -1747,7 +1794,6 @@ class ExprEvaluator:
                 expr.eval(data_row)
             except Exception as e:
                 _, _, exc_tb = sys.exc_info()
-                stack_trace = traceback.format_tb(exc_tb)
                 data_row[expr.data_row_idx] = e
                 skip_exprs.update(self.dependents[expr.data_row_idx])
 
@@ -1764,7 +1810,6 @@ class ExprEvaluator:
                 file_path = sql_row[expr.sql_row_idx]
                 try:
                     img = PIL.Image.open(file_path)
-                    #img.thumbnail((128, 128))
                     data_row[expr.data_row_idx] = img
                 except Exception:
                     raise exc.RuntimeError(f'Error reading image file: {file_path}')
@@ -1774,6 +1819,15 @@ class ExprEvaluator:
                 data_row[expr.data_row_idx] = np.load(io.BytesIO(array_data))
             else:
                 data_row[expr.data_row_idx] = sql_row[expr.sql_row_idx]
+
+    def propagate_excs(self, data_row: List[Any]) -> None:
+        """
+        Propage exceptions in data_row to their respective output_expr slots.
+        """
+        for i, exc_val in [(i, val) for i, val in enumerate(data_row) if isinstance(val, Exception)]:
+            assert i in self.output_expr_ids
+            for j in self.output_expr_ids[i]:
+                data_row[j] = exc_val
 
 
 class UniqueExprSet:

@@ -320,15 +320,27 @@ class TestTable:
         with pytest.raises(exc.RuntimeError):
             tbl.revert()
 
-    def test_add_column(self, test_db: catalog.Db) -> None:
-        db = test_db
-        t = make_tbl(db, 'test', ['c1', 'c2'])
-        data1 = create_table_data(t)
-        t.insert_pandas(data1)
-        assert t.count() == len(data1)
-        t.add_column(catalog.Column('c3', computed_with=t.c2 + 10, nullable=False))
+    def test_add_column(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        t.add_column(catalog.Column('add1', computed_with=t.c2 + 10, nullable=False))
         _ = t.show()
-        print(_)
+
+        # with exception in SQL
+        with pytest.raises(exc.Error):
+            t.add_column(catalog.Column('add2', computed_with=(t.c2 - 10) / (t.c3 - 10), nullable=False))
+
+        # with exception in Python for c6.f2 == 10
+        t.add_column(catalog.Column('add2', computed_with=(t.c6.f2 - 10) / (t.c6.f2 - 10), nullable=False))
+        result = t[t.add2.errortype != None][t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg].show()
+        assert len(result) == 1
+
+        # test case: exceptions in dependencies prevent execution of dependent exprs
+        f1 = pt.Function(FloatType(), [IntType()], eval_fn=lambda a: a / (a % 10))  # exc for a % 10 == 0
+        # exception for a == None; this should not get triggered
+        f2 = pt.Function(FloatType(), [FloatType()], eval_fn=lambda a: a + 1)
+        t.add_column(catalog.Column('add3', computed_with=f2(f1(t.c2))))
+        result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()
+        assert len(result) == 10
 
     def test_describe(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

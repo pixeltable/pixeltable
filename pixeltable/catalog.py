@@ -4,15 +4,13 @@ import inspect
 import io
 import os
 import dataclasses
+import pathlib
 
 import PIL, cv2
 import numpy as np
 import pandas as pd
 from PIL import Image
 from tqdm.autonotebook import tqdm
-import pathlib
-
-import pandas as pd
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
@@ -114,7 +112,9 @@ class Column:
         """
         These need to be recreated for every new table schema version.
         """
-        self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=self.nullable)
+        # computed cols store a NULL value when the computation has an error
+        nullable = True if self.is_computed else self.nullable
+        self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=nullable)
         if self.is_computed:
             self.sa_errormsg_col = sql.Column(self.errormsg_storage_name(), StringType().to_sa_type(), nullable=True)
             self.sa_errortype_col = sql.Column(self.errortype_storage_name(), StringType().to_sa_type(), nullable=True)
@@ -457,23 +457,44 @@ class MutableTable(Table):
                 conn.execute(sql.text(stmt))
         self._create_sa_tbl()
 
-        if not c.is_computed or self.count() == 0:
+        row_count = self.count()
+        if not c.is_computed or row_count == 0:
             return
-        # backfill the existing rows
+        # for some reason, it's not possible to run the following updates in the same transaction as the one
+        # that we just used to create the metadata (sqlalchemy hangs when exec() tries to run the query)
         from pixeltable.dataframe import DataFrame
         # use copy to avoid reusing existing execution state
         query = DataFrame(self, [c.value_expr.copy()])
         with Env.get().engine.begin() as conn:
-            with tqdm(total=self.count()) as progress_bar:
-                for result_row in query.exec(n=0, select_pk=True):
-                    column_val, rowid, v_min = result_row
-                    column_val = self._convert_to_stored(c, column_val, rowid)
-                    conn.execute(
-                        sql.update(self.sa_tbl)
-                            .values({c.sa_col: column_val})
-                            .where(self.rowid_col == rowid)
-                            .where(self.v_min_col == v_min))
-                    progress_bar.update(1)
+            with tqdm(total=row_count) as progress_bar:
+                try:
+                    for result_row in query.exec(n=0, select_pk=True, ignore_errors=True):
+                        # we can simply update the row, instead of creating a copy for the current version, because the
+                        # added column will not be visible when querying prior versions
+                        column_val, rowid, v_min = result_row
+
+                        if isinstance(column_val, Exception):
+                            value_exc = column_val
+                            # we store a NULL value and record the exception/exc type
+                            error_type = type(value_exc).__name__
+                            error_msg = str(value_exc)
+                            conn.execute(
+                                sql.update(self.sa_tbl)
+                                    .values(
+                                        {c.sa_col: None, c.sa_errortype_col: error_type, c.sa_errormsg_col: error_msg})
+                                    .where(self.rowid_col == rowid)
+                                    .where(self.v_min_col == v_min))
+                        else:
+                            column_val = self._convert_to_stored(c, column_val, rowid)
+                            conn.execute(
+                                sql.update(self.sa_tbl)
+                                    .values({c.sa_col: column_val})
+                                    .where(self.rowid_col == rowid)
+                                    .where(self.v_min_col == v_min))
+                        progress_bar.update(1)
+                except sql.exc.DBAPIError as e:
+                    self.drop_column(c.name)
+                    raise exc.Error(f'Error during SQL execution:\n{e}')
 
     def drop_column(self, name: str) -> None:
         self._check_is_dropped()
