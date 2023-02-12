@@ -157,6 +157,13 @@ class TestExprs:
         with pytest.raises(exc.Error):
             _ = t[t.c2 <= 2][agg(t.c2 - 1)].show()
 
+    def test_error_props(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        with pytest.raises(exc.Error):
+            _ = t[t.c1.errortype].show()
+        with pytest.raises(exc.Error):
+            _ = t[t.c1.errormsg].show()
+
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 

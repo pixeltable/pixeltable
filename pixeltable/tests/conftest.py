@@ -109,6 +109,8 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
         (t.c2 > 5) | (t.c1 == 'test'),
         t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
         t.c8[0, 1:],
+        t.c8.errortype,
+        t.c8.errormsg,
         ptf.sum(t.c2, group_by=t.c4, order_by=t.c3),
     ]
 

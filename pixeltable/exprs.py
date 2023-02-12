@@ -400,9 +400,13 @@ class ColumnRef(Expr):
 
     def __getattr__(self, name: str) -> Expr:
         if name == self.Property.ERRORTYPE.name.lower():
+            if not self.col.is_computed:
+                raise exc.Error(f'{name} not valid for a non-computed column: {self}')
             self.prop = self.Property.ERRORTYPE
             return self
         if name == self.Property.ERRORMSG.name.lower():
+            if not self.col.is_computed:
+                raise exc.Error(f'{name} not valid for a non-computed column: {self}')
             self.prop = self.Property.ERRORMSG
             return self
         if self.col_type.is_json_type():
@@ -425,10 +429,13 @@ class ColumnRef(Expr):
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         if self.prop == self.Property.VALUE:
+            assert self.col.sa_col is not None
             return self.col.sa_col
         if self.prop == self.Property.ERRORTYPE:
+            assert self.col.sa_errortype_col is not None
             return self.col.sa_errortype_col
         if self.prop == self.Property.ERRORMSG:
+            assert self.col.sa_errormsg_col is not None
             return self.col.sa_errormsg_col
 
     def eval(self, data_row: List[Any]) -> None:
@@ -443,7 +450,7 @@ class ColumnRef(Expr):
         assert 'col_id' in d
         result = cls(t.cols_by_id[d['col_id']])
         if d['prop'] != cls.Property.VALUE.value:
-            result = getattr(result, cls.Property(d['prop']))
+            result = getattr(result, cls.Property(d['prop']).name.lower())
         return result
 
 

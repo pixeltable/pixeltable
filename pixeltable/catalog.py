@@ -57,7 +57,6 @@ class Column:
 
         indexed: only valid for image columns; if true, maintains an NN index for this column
         """
-        from pixeltable import exprs
         if re.fullmatch(_ID_RE, name) is None:
             raise exc.BadFormatError(f"Invalid column name: '{name}'")
         self.name = name
@@ -67,6 +66,7 @@ class Column:
 
         self.value_expr: Optional['Expr'] = None
         self.compute_func: Optional[Callable] = None
+        from pixeltable import exprs
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
             if value_expr is None:
@@ -402,7 +402,7 @@ class MutableTable(Table):
     def display_name(cls) -> str:
         return 'table'
 
-    def add_column(self, c: Column) -> None:
+    def add_column(self, c: Column) -> str:
         self._check_is_dropped()
         if re.fullmatch(_ID_RE, c.name) is None:
             raise exc.BadFormatError(f"Invalid column name: '{c.name}'")
@@ -450,16 +450,16 @@ class MutableTable(Table):
             if c.is_computed:
                 # we also need to create the errormsg and errortype storage cols
                 stmt = (f'ALTER TABLE {self.storage_name()} '
-                        f'ADD COLUMN {c.errormsg_storage_name()} {StringType().to_sql()}')
+                        f'ADD COLUMN {c.errormsg_storage_name()} {StringType().to_sql()} DEFAULT NULL')
                 conn.execute(sql.text(stmt))
                 stmt = (f'ALTER TABLE {self.storage_name()} '
-                        f'ADD COLUMN {c.errortype_storage_name()} {StringType().to_sql()}')
+                        f'ADD COLUMN {c.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
                 conn.execute(sql.text(stmt))
         self._create_sa_tbl()
 
         row_count = self.count()
         if not c.is_computed or row_count == 0:
-            return
+            return ''
         # for some reason, it's not possible to run the following updates in the same transaction as the one
         # that we just used to create the metadata (sqlalchemy hangs when exec() tries to run the query)
         from pixeltable.dataframe import DataFrame
@@ -468,12 +468,14 @@ class MutableTable(Table):
         with Env.get().engine.begin() as conn:
             with tqdm(total=row_count) as progress_bar:
                 try:
+                    num_excs = 0
                     for result_row in query.exec(n=0, select_pk=True, ignore_errors=True):
                         # we can simply update the row, instead of creating a copy for the current version, because the
                         # added column will not be visible when querying prior versions
                         column_val, rowid, v_min = result_row
 
                         if isinstance(column_val, Exception):
+                            num_excs += 1
                             value_exc = column_val
                             # we store a NULL value and record the exception/exc type
                             error_type = type(value_exc).__name__
@@ -492,6 +494,7 @@ class MutableTable(Table):
                                     .where(self.rowid_col == rowid)
                                     .where(self.v_min_col == v_min))
                         progress_bar.update(1)
+                    return f'Added {row_count} column values with {num_excs} error{"" if num_excs == 1 else "s"}'
                 except sql.exc.DBAPIError as e:
                     self.drop_column(c.name)
                     raise exc.Error(f'Error during SQL execution:\n{e}')
@@ -649,9 +652,9 @@ class MutableTable(Table):
                 f'({len(columns)}')
 
         pd_df = pd.DataFrame.from_records(rows, columns=columns)
-        self.insert_pandas(pd_df)
+        return self.insert_pandas(pd_df)
 
-    def insert_pandas(self, data: pd.DataFrame) -> None:
+    def insert_pandas(self, data: pd.DataFrame) -> str:
         """
         If self.parameters.frame_src_col != None:
         - each row (containing a video) is expanded into one row per extracted frame (at the rate of the fps parameter)
@@ -806,6 +809,8 @@ class MutableTable(Table):
         # we're also updating image indices
         indexed_cols = [c for c in self.cols if c.is_indexed]
         embeddings = {c.id: np.zeros((len(data), 512)) for c in indexed_cols}
+        num_excs = 0
+        cols_with_excs: Set[int] = set()  # set of ids
         with tqdm(total=len(stored_data_df)) as progress_bar:
             for row_idx, row in enumerate(stored_data_df.itertuples(index=False)):
                 row_dict = {'rowid': rowids[row_idx], 'v_min': self.version, **row._asdict()}
@@ -820,18 +825,25 @@ class MutableTable(Table):
                         if col_ref.col_type.is_image_type():
                             data_row[col_ref.data_row_idx] = PIL.Image.open(data_row[col_ref.data_row_idx])
                     _, exc_tb = evaluator.eval((), data_row)
-                    assert exc_tb is None
+                    if exc_tb is not None:
+                        evaluator.propagate_excs(data_row)
 
-                    # convert data values to storage format where necessary
-                    for col_idx in range(len(computed_cols)):
+                    computed_vals_dict: Dict[str, Any] = {}
+                    for col_idx, col in enumerate(computed_cols):
                         val = data_row[value_exprs[col_idx].data_row_idx]
-                        data_row[value_exprs[col_idx].data_row_idx] = \
-                            self._convert_to_stored(computed_cols[col_idx], val, rowids[row_idx])
-
-                    computed_vals_dict = {
-                        computed_cols[i].storage_name(): data_row[value_exprs[i].data_row_idx]
-                        for i in range(len(computed_cols))
-                    }
+                        if isinstance(val, Exception):
+                            num_excs += 1
+                            cols_with_excs.add(col.id)
+                            computed_vals_dict[col.storage_name()] = None
+                            computed_vals_dict[col.errortype_storage_name()] = type(val).__name__
+                            computed_vals_dict[col.errormsg_storage_name()] = str(val)
+                        else:
+                            # convert data values to storage format where necessary
+                            data_row[value_exprs[col_idx].data_row_idx] = \
+                                self._convert_to_stored(col, val, rowids[row_idx])
+                            computed_vals_dict[col.storage_name()] = data_row[value_exprs[col_idx].data_row_idx]
+                            computed_vals_dict[col.errortype_storage_name()] = None
+                            computed_vals_dict[col.errormsg_storage_name()] = None
                     row_dict.update(computed_vals_dict)
 
                 # compute embeddings
@@ -860,6 +872,9 @@ class MutableTable(Table):
                     .where(store.Table.id == self.id))
 
         self.valid_rowids.update(rowids)
+        cols_with_excs_str = f'across {len(cols_with_excs)} column{"" if len(cols_with_excs) == 1 else "s"}'
+        cols_with_excs_str += f' ({", ".join([self.cols_by_id[id].name for id in cols_with_excs])})'
+        return f'Inserted {len(rowids)} rows with {num_excs} error{"" if num_excs == 1 else "s"} {cols_with_excs_str}'
 
     def insert_csv(self, file_path: str) -> None:
         pass

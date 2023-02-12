@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 import math
 import numpy as np
@@ -232,6 +233,24 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
+    def test_computed_col_exceptions(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
+        db = test_db
+        c2 = catalog.Column('c2', IntType(), nullable=False)
+        schema = [c2]
+        t = db.create_table('test', schema)
+
+        f1 = pt.Function(FloatType(), [IntType()], eval_fn=lambda a: a / (a % 10))  # exc for a % 10 == 0
+        # exception for a == None; this should not get triggered
+        f2 = pt.Function(FloatType(), [FloatType()], eval_fn=lambda a: a + 1)
+        status_str = t.add_column(catalog.Column('add1', computed_with=f2(f1(t.c2))))
+
+        data_df = test_tbl[test_tbl.c2].show(0).to_pandas()
+        status_str = t.insert_pandas(data_df)
+        assert '10 errors across 1 column' in status_str
+        assert 'add1' in status_str
+        result_set = t[t.add1.errortype != None].show(0)
+        assert len(result_set) == 10
+
     def test_computed_img_cols(self, test_db: catalog.Db) -> None:
         db = test_db
         c1 = catalog.Column('img', ImageType(), nullable=False, indexed=True)
@@ -322,7 +341,8 @@ class TestTable:
 
     def test_add_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        t.add_column(catalog.Column('add1', computed_with=t.c2 + 10, nullable=False))
+        status_str = t.add_column(catalog.Column('add1', computed_with=t.c2 + 10, nullable=False))
+        assert '0 errors' in status_str
         _ = t.show()
 
         # with exception in SQL
@@ -330,7 +350,8 @@ class TestTable:
             t.add_column(catalog.Column('add2', computed_with=(t.c2 - 10) / (t.c3 - 10), nullable=False))
 
         # with exception in Python for c6.f2 == 10
-        t.add_column(catalog.Column('add2', computed_with=(t.c6.f2 - 10) / (t.c6.f2 - 10), nullable=False))
+        status_str = t.add_column(catalog.Column('add2', computed_with=(t.c6.f2 - 10) / (t.c6.f2 - 10), nullable=False))
+        assert '1 error' in status_str
         result = t[t.add2.errortype != None][t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg].show()
         assert len(result) == 1
 
@@ -338,7 +359,8 @@ class TestTable:
         f1 = pt.Function(FloatType(), [IntType()], eval_fn=lambda a: a / (a % 10))  # exc for a % 10 == 0
         # exception for a == None; this should not get triggered
         f2 = pt.Function(FloatType(), [FloatType()], eval_fn=lambda a: a + 1)
-        t.add_column(catalog.Column('add3', computed_with=f2(f1(t.c2))))
+        status_str = t.add_column(catalog.Column('add3', computed_with=f2(f1(t.c2))))
+        assert '10 errors' in status_str
         result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()
         assert len(result) == 10
 
