@@ -2,9 +2,9 @@ from typing import List
 import sqlalchemy as sql
 import pytest
 
+import pixeltable as pt
 from pixeltable import catalog
 from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType
-from pixeltable.function import Function
 from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import udf_call, dict_map, cast, sum, count
@@ -16,11 +16,6 @@ from pixeltable.function import FunctionRegistry
 
 
 class TestExprs:
-    # This breaks with exception 'cannot pickle _thread._local obj'
-    # sum = Function(
-    #     IntType(), [IntType()],
-    #     init_fn=lambda: TestExprs.SumAggregator(), update_fn=SumAggregator.update, value_fn=SumAggregator.value)
-
     def test_basic(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         assert t['c1'].equals(t.c1)
@@ -53,8 +48,8 @@ class TestExprs:
         assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         # compound predicates with Python functions
-        udf = Function.make_function(BoolType(), [StringType()], lambda a: True)
-        udf2 = Function.make_function(BoolType(), [IntType()], lambda a: True)
+        udf = pt.make_function(BoolType(), [StringType()], lambda a: True)
+        udf2 = pt.make_function(BoolType(), [IntType()], lambda a: True)
 
         # & can be split
         p = (t.c1 == 'test string') & udf(t.c1)
@@ -105,7 +100,7 @@ class TestExprs:
             _ = t[(t.c6.f2 + 1) / (t.c2 - 10)].show()
 
         # the same, but with an inline function
-        f = Function(FloatType(), [IntType(), IntType()], eval_fn=lambda a, b: a / b)
+        f = pt.make_function(FloatType(), [IntType(), IntType()], lambda a, b: a / b)
         with pytest.raises(exc.Error):
             _ = t[f(t.c2 + 1, t.c2)].show()
 
@@ -120,7 +115,7 @@ class TestExprs:
                 pass
             def value(self):
                 return 1
-        agg = Function.make_aggregate_function(
+        agg = pt.make_aggregate_function(
             IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
         with pytest.raises(exc.Error):
             _ = t[agg(t.c2)].show()
@@ -136,7 +131,7 @@ class TestExprs:
                 self.sum += 1 / val
             def value(self):
                 return 1
-        agg = Function.make_aggregate_function(
+        agg = pt.make_aggregate_function(
             IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
         with pytest.raises(exc.Error):
             _ = t[agg(t.c2 - 10)].show()
@@ -152,7 +147,7 @@ class TestExprs:
                 self.sum += val
             def value(self):
                 return 1 / self.sum
-        agg = Function.make_aggregate_function(
+        agg = pt.make_aggregate_function(
             IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
         with pytest.raises(exc.Error):
             _ = t[t.c2 <= 2][agg(t.c2 - 1)].show()

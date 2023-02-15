@@ -153,13 +153,11 @@ class Function(Base):
     db_id = sql.Column(Integer, ForeignKey('dbs.id'), nullable=True)
     dir_id = sql.Column(Integer, ForeignKey('dirs.id'), nullable=True)
     name = sql.Column(String, nullable=True)
-    return_type = sql.Column(String, nullable=False)  # json
-    param_types = sql.Column(String, nullable=False)  # json
+    md = sql.Column(JSON, nullable=False)  # Function.md
     eval_obj = sql.Column(LargeBinary, nullable=True)  # Function.eval_fn
     init_obj = sql.Column(LargeBinary, nullable=True)  # Function.init_fn
     update_obj = sql.Column(LargeBinary, nullable=True)  # Function.update_fn
     value_obj = sql.Column(LargeBinary, nullable=True)  # Function.value_fn
-    parameters = sql.Column(JSON, nullable=False)  # params to the Function c'tor (not the call)
     python_version = sql.Column(
         String, nullable=False, default=platform.python_version, onupdate=platform.python_version)
 

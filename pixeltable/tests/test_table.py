@@ -239,9 +239,9 @@ class TestTable:
         schema = [c2]
         t = db.create_table('test', schema)
 
-        f1 = pt.Function(FloatType(), [IntType()], eval_fn=lambda a: a / (a % 10))  # exc for a % 10 == 0
+        f1 = pt.make_function(FloatType(), [IntType()], lambda a: a / (a % 10))  # exc for a % 10 == 0
         # exception for a == None; this should not get triggered
-        f2 = pt.Function(FloatType(), [FloatType()], eval_fn=lambda a: a + 1)
+        f2 = pt.make_function(FloatType(), [FloatType()], lambda a: a + 1)
         status_str = t.add_column(catalog.Column('add1', computed_with=f2(f1(t.c2))))
 
         data_df = test_tbl[test_tbl.c2].show(0).to_pandas()
@@ -356,9 +356,9 @@ class TestTable:
         assert len(result) == 1
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
-        f1 = pt.Function(FloatType(), [IntType()], eval_fn=lambda a: a / (a % 10))  # exc for a % 10 == 0
+        f1 = pt.make_function(FloatType(), [IntType()], lambda a: a / (a % 10))  # exc for a % 10 == 0
         # exception for a == None; this should not get triggered
-        f2 = pt.Function(FloatType(), [FloatType()], eval_fn=lambda a: a + 1)
+        f2 = pt.make_function(FloatType(), [FloatType()], lambda a: a + 1)
         status_str = t.add_column(catalog.Column('add3', computed_with=f2(f1(t.c2))))
         assert '10 errors' in status_str
         result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()

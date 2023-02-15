@@ -54,7 +54,7 @@ cl = pt.Client()
 ### Database operations summary
 |Action|Code|
 |----|----|
-| Create a table| `t = db.create_table('table_name', [pt.Column(...), ...])` |
+| Create a table| `t = db.create_table('table_name', [pt.Column('name', <type>), ...])` |
 | Use an existing table| `t = db.get_table('video_data')` |
 | Rename a table| `db.rename_table('video_data', 'vd')` |
 | List tables| `db.list_tables()` |
@@ -86,6 +86,20 @@ For additional filtering, add keyword argument `ffmpeg_filter={...}`, for exampl
 ```
 ffmpeg_filter={'select': 'gt(scene,0.4)'}
 ```
+
+### Pixeltable types
+|Pixeltable type|Python type|
+|----|----|
+| `pt.StringType()`| `str` |
+| `pt.IntType()`| `int` |
+| `pt.FloatType()`| `float` |
+| `pt.BoolType()`| `bool` |
+| `pt.TimestampType()`| `datetime.datetime` |
+| `pt.JsonType()`| lists and dicts that can be converted to JSON|
+| `pt.ArrayType()`| `numpy.ndarray`|
+| `pt.ImageType()`| `PIL.Image.Image`|
+| `pt.VideoType()`| `str` (the file path)|
+
 
 ### Table operations summary
 |Action|Code|
@@ -123,6 +137,22 @@ or `~(t.frame.mode == 'RGB')`.
 | Look at frames rotated 90 degrees | `t[t.frame.rotate(90)].show()` |
 | Overlay frame with itself rotated 90 degrees | `t[pt.functions.blend(t.frame, t.frame.rotate(90))].show()` |
 
+### Computed columns
+
+The values in a computed column are automatically filled when data is added:
+```
+t.add_column(pt.Column('c_added', computed_with=(t.frame_idx + 1)))
+```
+
+Computed columns have attributes `errortype` and `errormsg`, which contain the exception type and string
+in rows where the `computed_with` expression results in an exception (the column value itself will be `None`).
+
+Example:
+```
+t[t.c_added.errortype != None][t.c_added.errortype, t.c_added.errormsg].show()
+```
+returns the exception type and message for rows with an exception.
+
 ### Inserting data into a table
 ```
 t.insert_rows([['/path/to/video1.mp4'], ['/path/to/video2.mp4']], columns=['video'])
@@ -144,13 +174,6 @@ Available methods are: `convert`, `crop`, `effect_spread`, `entropy`, `filter`, 
 
 Methods can be chained, for example: `t.frame.resize((224, 224)).rotate(90).convert('L')`
 
-### Computed columns
-
-The values in a computed column are automatically filled when data is added:
-```
-t.add_column(pt.Column('frame_idx_plus_1', computed_with=(t.frame_idx + 1)))
-```
-
 ### Functions
 
 Functions can be used to transform data, both during querying as well as when data is added to a table.
@@ -161,18 +184,6 @@ add1 = pt.Function(return_type=pt.IntType(), param_types=[pt.IntType()], eval_fn
 For querying: `t[t.frame_idx, add1(t.frame_idx)].show()`
 
 As a computed column: `t.add_column(pt.Column('c', computed_with=add1(t.frame_idx)))`
-
-|Pixeltable type|Python type of compatible values|
-|----|----|
-| `pt.StringType()`| `str` |
-| `pt.IntType()`| `int` |
-| `pt.FloatType()`| `float` |
-| `pt.BoolType()`| `bool` |
-| `pt.TimestampType()`| `datetime.datetime` |
-| `pt.JsonType()`| lists and dicts that can be converted to JSON|
-| `pt.ArrayType()`| `numpy.ndarray`|
-| `pt.ImageType()`| `PIL.Image.Image`|
-| `pt.VideoType()`| `str` (the file path)|
 
 ### Image similarity search
 

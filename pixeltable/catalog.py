@@ -753,18 +753,21 @@ class MutableTable(Table):
 
             # expand each row in 'data' into one row per frame, adding columns frame_column and frame_idx_column
             expanded_rows: List[Dict] = []
-            for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
-                input_row = input_tuple._asdict()
-                path = input_row[video_col.name]
-                # we need to generate a unique prefix for each set of frames corresponding to a single video
-                frame_path_prefix = utils.get_extracted_frame_path(
-                    self.id, video_col.id, self.version, self.next_row_id + input_row_idx)
-                frame_paths = video.extract_frames(
-                    path, frame_path_prefix, self.parameters.extraction_fps, self.parameters.ffmpeg_filter)
-                frame_rows = [
-                    {frame_col.name: p, frame_idx_col.name: i, **input_row} for i, p in enumerate(frame_paths)
-                ]
-                expanded_rows.extend(frame_rows)
+            print('Extracting frames...')
+            with tqdm(total=len(data)) as progress_bar:
+                for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
+                    input_row = input_tuple._asdict()
+                    path = input_row[video_col.name]
+                    # we need to generate a unique prefix for each set of frames corresponding to a single video
+                    frame_path_prefix = utils.get_extracted_frame_path(
+                        self.id, video_col.id, self.version, self.next_row_id + input_row_idx)
+                    frame_paths = video.extract_frames(
+                        path, frame_path_prefix, self.parameters.extraction_fps, self.parameters.ffmpeg_filter)
+                    frame_rows = [
+                        {frame_col.name: p, frame_idx_col.name: i, **input_row} for i, p in enumerate(frame_paths)
+                    ]
+                    expanded_rows.extend(frame_rows)
+                    progress_bar.update(1)
             data = pd.DataFrame.from_dict(expanded_rows, orient='columns')
             data_cols = [self.cols_by_name[name] for name in data.columns]
 
@@ -811,6 +814,8 @@ class MutableTable(Table):
         embeddings = {c.id: np.zeros((len(data), 512)) for c in indexed_cols}
         num_excs = 0
         cols_with_excs: Set[int] = set()  # set of ids
+        if self.parameters.frame_src_col is not None:
+            print('Generating row data...')
         with tqdm(total=len(stored_data_df)) as progress_bar:
             for row_idx, row in enumerate(stored_data_df.itertuples(index=False)):
                 row_dict = {'rowid': rowids[row_idx], 'v_min': self.version, **row._asdict()}
@@ -1344,7 +1349,7 @@ class Db:
 
         FunctionRegistry.get().create_function(func, self.id, dir.id, path.name)
         self.paths[path] = NamedFunction(func.id, dir.id, path.name)
-        func.info.fqn = f'{self.name}.{path}'
+        func.md.fqn = f'{self.name}.{path}'
 
     def rename_function(self, path_str: str, new_path_str: str) -> None:
         """
@@ -1367,7 +1372,7 @@ class Db:
         del self.paths[path]
         self.paths[new_path] = named_fn
         func = FunctionRegistry.get().get_function(named_fn.id)
-        func.info.fqn = f'{self.name}.{new_path}'
+        func.md.fqn = f'{self.name}.{new_path}'
 
     def update_function(self, path_str: str, new_func: Function) -> None:
         """
@@ -1379,12 +1384,11 @@ class Db:
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
         func = FunctionRegistry.get().get_function(named_fn.id)
-        if func.info.return_type != new_func.info.return_type or func.info.param_types != new_func.info.param_types:
+        if func.md.signature != new_func.md.signature:
             raise exc.Error(
-                f'The function signature cannot be changed. The existing signature is '
-                f'({", ".join([str(t) for t in func.info.param_types])}) -> {func.info.return_type}')
+                f'The function signature cannot be changed. The existing signature is {func.md.signature}')
         if func.is_aggregate != new_func.is_aggregate:
-            raise exc.Error(f'Cannot change an aggregate function into a standard function and vice versa')
+            raise exc.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
         FunctionRegistry.get().update_function(named_fn.id, func)
 
     def get_function(self, path_str: str) -> Function:
@@ -1393,7 +1397,7 @@ class Db:
         named_fn = self.paths[path]
         assert isinstance(named_fn, NamedFunction)
         func = FunctionRegistry.get().get_function(named_fn.id)
-        func.info.fqn = f'{self.name}.{path}'
+        func.md.fqn = f'{self.name}.{path}'
         return func
 
     def drop_function(self, path_str: str, ignore_errors: bool = False) -> None:

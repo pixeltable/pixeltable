@@ -31,8 +31,10 @@ class Client:
         pd_df = pd.DataFrame({
             'Path': paths,
             'Name': names,
-            'Parameter Types': [', '.join([str(col_type) for col_type in info.param_types]) for info in func_info],
-            'Return Type': [str(info.return_type) for info in func_info],
+            'Parameters': [
+                ', '.join([p[0] + ': ' + str(p[1]) for p in info.signature.parameters]) for info in func_info
+            ],
+            'Return Type': [str(info.signature.return_type) for info in func_info],
             'Is Agg': [info.is_agg for info in func_info],
             'Library': [info.is_library_fn for info in func_info],
         })

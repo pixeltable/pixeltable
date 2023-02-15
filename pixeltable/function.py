@@ -1,16 +1,51 @@
-from dataclasses import dataclass
+import dataclasses
 import sys
-from typing import Optional, Callable, Dict, List, Any
+from typing import Optional, Callable, Dict, List, Any, Tuple
 import importlib
 import sqlalchemy as sql
 from sqlalchemy.sql.expression import func as sql_func
 import cloudpickle
-
+import inspect
 
 from pixeltable.type_system import ColumnType
 from pixeltable import store
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
+
+
+class Signature:
+    def __init__(self, return_type: ColumnType, parameters: Optional[List[Tuple[str, ColumnType]]]):
+        self.return_type = return_type
+        self.parameters = parameters
+
+    def as_dict(self) -> Dict[str, Any]:
+        result = {
+            'return_type': self.return_type.as_dict(),
+        }
+        if self.parameters is not None:
+            result['parameters'] = [[p[0], p[1].as_dict()] for p in self.parameters]
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'Signature':
+        parameters = [(p[0], ColumnType.from_dict(p[1])) for p in d['parameters']]
+        return cls(ColumnType.from_dict(d['return_type']), parameters)
+
+    def __eq__(self, other: 'Signature') -> bool:
+        if self.return_type != other.return_type or (self.parameters is None) != (other.parameters is None):
+            return False
+        if self.parameters is None:
+            return True
+        if len(self.parameters) != len(other.parameters):
+            return False
+        for i in range(len(self.parameters)):
+            # TODO: ignore the parameter name?
+            if self.parameters[i] != other.parameters[i]:
+                return False
+        return True
+
+    def __str__(self) -> str:
+        return f'({", ".join([p[0] + ": " + str(p[1]) for p in self.parameters])}) -> {str(self.return_type)}'
 
 
 class Function:
@@ -24,21 +59,44 @@ class Function:
     allows_std_agg: if True, the aggregate function can be used as a standard aggregate function w/o a window
     allows_window: if True, the aggregate function can be used with a window
     """
-    @dataclass
-    class Info:
-        return_type: ColumnType
-        param_types: Optional[List[ColumnType]]
-        fqn: Optional[str]
-        is_agg: bool
-        is_library_fn: bool
+    class Metadata:
+        def __init__(self, signature: Signature, is_agg: bool, is_library_fn: bool):
+            self.signature = signature
+            self.is_agg = is_agg
+            self.is_library_fn = is_library_fn
+            # the following are set externally
+            self.fqn: Optional[str] = None  # fully-qualified name
+            self.src: str = ''  # source code shown in list()
+            self.requires_order_by = False
+            self.allows_std_agg = False
+            self.allows_window = False
+
+        def as_dict(self) -> Dict[str, Any]:
+            # we leave out fqn, which is reconstructed externally
+            return {
+                'signature': self.signature.as_dict(),
+                'is_agg': self.is_agg, 'is_library_fn': self.is_library_fn, 'src': self.src,
+                'requires_order_by': self.requires_order_by, 'allows_std_agg': self.allows_std_agg,
+                'allows_window': self.allows_window,
+            }
+
+        @classmethod
+        def from_dict(cls, d: Dict[str, Any]) -> 'Metadata':
+            result = cls(Signature.from_dict(d['signature']), d['is_agg'], d['is_library_fn'])
+            result.requires_order_by = d['requires_order_by']
+            result.allows_std_agg = d['allows_std_agg']
+            result.allows_window = d['allows_window']
+            if 'src' in d:
+                result.src = d['src']
+            return result
+
 
     def __init__(
-            self, return_type: ColumnType, param_types: Optional[List[ColumnType]], id: Optional[int] = None,
+            self, md: 'Function.Metadata', id: Optional[int] = None,
             module_name: Optional[str] = None, eval_symbol: Optional[str] = None, init_symbol: Optional[str] = None,
             update_symbol: Optional[str] = None, value_symbol: Optional[str] = None,
             eval_fn: Optional[Callable] = None, init_fn: Optional[Callable] = None,
-            update_fn: Optional[Callable] = None, value_fn: Optional[Callable] = None,
-            requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
+            update_fn: Optional[Callable] = None, value_fn: Optional[Callable] = None
     ):
         self.id = id
         self.module_name = module_name
@@ -50,34 +108,59 @@ class Function:
         self.update_fn = update_fn
         self.value_symbol = value_symbol
         self.value_fn = value_fn
+        self.md = md
 
         if module_name is not None:
-            # resolve module_name and symbol
-            module = importlib.import_module(module_name)
+            # resolve symbols
             if eval_symbol is not None:
-                self.eval_fn = self._resolve_symbol(module, eval_symbol)
+                self.eval_fn = self._resolve_symbol(module_name, eval_symbol)
             if init_symbol is not None:
-                self.init_fn = self._resolve_symbol(module, init_symbol)
+                self.init_fn = self._resolve_symbol(module_name, init_symbol)
             if update_symbol is not None:
-                self.update_fn = self._resolve_symbol(module, update_symbol)
+                self.update_fn = self._resolve_symbol(module_name, update_symbol)
             if value_symbol is not None:
-                self.value_fn = self._resolve_symbol(module, value_symbol)
+                self.value_fn = self._resolve_symbol(module_name, value_symbol)
 
-        if requires_order_by:
-            if not self.is_aggregate:
-                raise exc.Error(f'requires_order_by=True only valid for aggregate functions')
-        self.requires_order_by = requires_order_by
-        self.allows_std_agg = allows_std_agg
-        self.allows_window = allows_window
+    @property
+    def requires_order_by(self) -> bool:
+        return self.md.requires_order_by
 
-        self.info = self.Info(
-            return_type=return_type, param_types=param_types, fqn=None, is_agg=self.is_aggregate,
-            is_library_fn=self.is_library_function)
+    @property
+    def allows_std_agg(self) -> bool:
+        return self.md.allows_std_agg
+
+    @property
+    def allows_window(self) -> bool:
+        return self.md.allows_window
+
+    @classmethod
+    def _create_signature(
+            cls, c: Callable, is_agg: bool, param_types: List[ColumnType], return_type: ColumnType) -> Signature:
+        if param_types is None:
+            return Signature(return_type, None)
+        sig = inspect.signature(c)
+        param_names = list(sig.parameters.keys())
+        if is_agg:
+            param_names = param_names[1:]  # the first parameter is the state returned by init()
+        if len(param_names) != len(param_types):
+            raise exc.Error(
+                f"The number of parameters of '{getattr(c, '__name__', 'anonymous')}' is not the same as "
+                f"the number of provided parameter types: "
+                f"{len(param_names)} ({', '.join(param_names)}) vs "
+                f"{len(param_types)} ({', '.join([str(t) for t in param_types])})")
+        parameters = [(param_names[i], param_types[i]) for i in range(len(param_names))]
+        return Signature(return_type, parameters)
 
     @classmethod
     def make_function(cls, return_type: ColumnType, param_types: List[ColumnType], eval_fn: Callable) -> 'Function':
         assert eval_fn is not None
-        return Function(return_type, param_types, eval_fn=eval_fn)
+        signature = cls._create_signature(eval_fn, False, param_types, return_type)
+        md = cls.Metadata(signature, False, False)
+        try:
+            md.src = inspect.getsource(eval_fn)
+        except OSError as e:
+            pass
+        return Function(md, eval_fn=eval_fn)
 
     @classmethod
     def make_aggregate_function(
@@ -86,17 +169,30 @@ class Function:
             requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
     ) -> 'Function':
         assert init_fn is not None and update_fn is not None and value_fn is not None
-        return Function(
-            return_type, param_types, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn,
-            requires_order_by=requires_order_by, allows_std_agg=allows_std_agg, allows_window=allows_window
-        )
+        signature = cls._create_signature(update_fn, True, param_types, return_type)
+        md = cls.Metadata(signature, True, False)
+        md.requires_order_by = requires_order_by
+        md.allows_std_agg = allows_std_agg
+        md.allows_window = allows_window
+        try:
+            md.src = (
+                f'init:\n{inspect.getsource(init_fn)}\n\n'
+                f'update:\n{inspect.getsource(update_fn)}\n\n'
+                f'value:\n{inspect.getsource(value_fn)}\n'
+            )
+        except OSError as e:
+            pass
+        return Function(md, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn)
 
     @classmethod
     def make_library_function(
             cls, return_type: ColumnType, param_types: List[ColumnType], module_name: str, eval_symbol: str
     ) -> 'Function':
         assert module_name is not None and eval_symbol is not None
-        return Function(return_type, param_types, module_name=module_name, eval_symbol=eval_symbol)
+        eval_fn = cls._resolve_symbol(module_name, eval_symbol)
+        signature = cls._create_signature(eval_fn, False, param_types, return_type)
+        md = cls.Metadata(signature, False, True)
+        return Function(md, module_name=module_name, eval_symbol=eval_symbol)
 
     @classmethod
     def make_library_aggregate_function(
@@ -106,13 +202,19 @@ class Function:
     ) -> 'Function':
         assert module_name is not None and init_symbol is not None and update_symbol is not None \
                and value_symbol is not None
+        update_fn = cls._resolve_symbol(module_name, update_symbol)
+        signature = cls._create_signature(update_fn, True, param_types, return_type)
+        md = cls.Metadata(signature, True, True)
+        md.requires_order_by = requires_order_by
+        md.allows_std_agg = allows_std_agg
+        md.allows_window = allows_window
         return Function(
-            return_type, param_types,
-            module_name=module_name, init_symbol=init_symbol, update_symbol=update_symbol, value_symbol=value_symbol,
-            requires_order_by=requires_order_by, allows_std_agg=allows_std_agg, allows_window=allows_window
-        )
+            md, module_name=module_name,
+            init_symbol=init_symbol, update_symbol=update_symbol, value_symbol=value_symbol)
 
-    def _resolve_symbol(self, module: Any, symbol: str) -> object:
+    @classmethod
+    def _resolve_symbol(cls, module_name: str, symbol: str) -> object:
+        module = importlib.import_module(module_name)
         obj = module
         for el in symbol.split('.'):
             obj = getattr(obj, el)
@@ -128,12 +230,12 @@ class Function:
 
     @property
     def display_name(self) -> str:
-        if self.info.fqn is None:
+        if self.md.fqn is None:
             return ''
         ptf_prefix = 'pixeltable.functions'
-        if self.info.fqn.startswith(ptf_prefix):
-            return self.info.fqn[len(ptf_prefix):]
-        return self.info.fqn
+        if self.md.fqn.startswith(ptf_prefix):
+            return self.md.fqn[len(ptf_prefix):]
+        return self.md.fqn
 
     def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs
@@ -159,6 +261,7 @@ class Function:
             if not isinstance(order_by_expr, exprs.Expr):
                 raise exc.Error(
                     f'The first argument needs to be a Pixeltable expression, but instead is a {type(order_by_expr)}')
+            # don't pass the first parameter on, the Function doesn't get to see it
             args = args[1:]
 
         group_by_expr: Optional[exprs.Expr] = None
@@ -180,42 +283,40 @@ class Function:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False
-        return self.info.return_type == other.info.return_type and self.info.param_types == other.info.param_types \
-            and self.id == other.id and self.module_name == other.module_name \
-            and self.eval_symbol == other.eval_symbol and self.init_symbol == other.init_symbol \
-            and self.update_symbol == other.update_symbol and self.value_symbol == other.value_symbol \
-            and self.eval_fn == other.eval_fn and self.init_fn == other.init_fn \
-            and self.update_fn == other.update_fn and self.value_fn == other.value_fn
+        return self.md.signature == other.md.signature \
+               and self.id == other.id and self.module_name == other.module_name \
+               and self.eval_symbol == other.eval_symbol and self.init_symbol == other.init_symbol \
+               and self.update_symbol == other.update_symbol and self.value_symbol == other.value_symbol \
+               and self.eval_fn == other.eval_fn and self.init_fn == other.init_fn \
+               and self.update_fn == other.update_fn and self.value_fn == other.value_fn
 
+    def list(self) -> None:
+        """
+        Print source code
+        """
+        if self.is_library_function:
+            raise exc.Error(f'list() not valid for library functions: {self.display_name}')
+        if self.md.src == '':
+            return 'sources not available'
+        print(self.md.src)
 
     def as_dict(self) -> Dict:
-        if self.module_name is None and self.id is None:
+        if not self.is_library_function and self.id is None:
             # this is not a library function and the absence of an assigned id indicates that it's not in the store yet
             FunctionRegistry.get().create_function(self)
             assert self.id is not None
         return {
-            'return_type': self.info.return_type.as_dict(),
-            'param_types': [t.as_dict() for t in self.info.param_types] if self.info.param_types is not None else None,
             'id': self.id,
+            'md': self.md.as_dict(),
             'module_name': self.module_name,
             'eval_symbol': self.eval_symbol,
             'init_symbol': self.init_symbol,
             'update_symbol': self.update_symbol,
             'value_symbol': self.value_symbol,
-            'requires_order_by': self.requires_order_by,
-            'allows_std_agg': self.allows_std_agg,
-            'allows_window': self.allows_window,
         }
 
     @classmethod
     def from_dict(cls, d: Dict) -> 'Function':
-        assert 'return_type' in d
-        return_type = ColumnType.from_dict(d['return_type'])
-        assert 'param_types' in d
-        if d['param_types'] is None:
-            param_types = None
-        else:
-            param_types = [ColumnType.from_dict(type_dict) for type_dict in d['param_types']]
         assert 'id' in d
         assert 'module_name' in d
         assert 'eval_symbol' in d and 'init_symbol' in d and 'update_symbol' in d and 'value_symbol' in d
@@ -224,11 +325,10 @@ class Function:
             assert d['module_name'] is None
             return FunctionRegistry.get().get_function(d['id'])
         else:
+            md = cls.Metadata.from_dict(d['md'])
             return cls(
-                return_type, param_types, module_name=d['module_name'], eval_symbol=d['eval_symbol'],
-                init_symbol=d['init_symbol'], update_symbol=d['update_symbol'], value_symbol=d['value_symbol'],
-                requires_order_by=d['requires_order_by'], allows_std_agg=d['allows_std_agg'],
-                allows_window=d['allows_window'])
+                md, module_name=d['module_name'], eval_symbol=d['eval_symbol'],
+                init_symbol=d['init_symbol'], update_symbol=d['update_symbol'], value_symbol=d['value_symbol'])
 
 
 class FunctionRegistry:
@@ -257,61 +357,55 @@ class FunctionRegistry:
     def register_function(self, module_name: str, fn_name: str, fn: Function) -> None:
         fqn = f'{module_name}.{fn_name}'  # fully-qualified name
         self.library_fns[fqn] = fn
-        fn.info.fqn = fqn
+        fn.md.fqn = fqn
 
-    def list_functions(self) -> List[Function.Info]:
-        # retrieve Function.Info data for all existing stored functions from store directly
+    def list_functions(self) -> List[Function.Metadata]:
+        # retrieve Function.Metadata data for all existing stored functions from store directly
         # (self.stored_fns_by_id isn't guaranteed to contain all functions)
         stmt = sql.select(
-                store.Function.name, store.Function.return_type, store.Function.param_types,
+                store.Function.name, store.Function.md,
                 store.Db.name, store.Dir.path, sql_func.length(store.Function.init_obj))\
             .where(store.Function.db_id == store.Db.id)\
             .where(store.Function.dir_id == store.Dir.id)
-        stored_fn_info: List[Function.Info] = []
+        stored_fn_md: List[Function.Metadata] = []
         with Env.get().engine.begin() as conn:
             rows = conn.execute(stmt)
-            for name, return_type_str, param_types_str, db_name, dir_path, init_obj_len in rows:
-                return_type = ColumnType.deserialize(return_type_str)
-                param_types = ColumnType.deserialize_list(param_types_str)
-                fqn = f'{db_name}{"." + dir_path if dir_path != "" else ""}.{name}'
-                info = Function.Info(
-                    return_type=return_type, param_types=param_types, fqn=fqn, is_agg=init_obj_len is not None,
-                    is_library_fn=False)
-                stored_fn_info.append(info)
-        return [fn.info for fn in self.library_fns.values()] + stored_fn_info
+            for name, md_dict, db_name, dir_path, init_obj_len in rows:
+                md = Function.Metadata.from_dict(md_dict)
+                md.fqn = f'{db_name}{"." + dir_path if dir_path != "" else ""}.{name}'
+                stored_fn_md.append(md)
+        return [fn.md for fn in self.library_fns.values()] + stored_fn_md
 
     def get_function(self, id: int) -> Function:
         if id not in self.stored_fns_by_id:
             stmt = sql.select(
-                    store.Function.name, store.Function.return_type, store.Function.param_types,
+                    store.Function.name, store.Function.md,
                     store.Function.eval_obj, store.Function.init_obj, store.Function.update_obj,
-                    store.Function.value_obj, store.Function.parameters) \
+                    store.Function.value_obj) \
                 .where(store.Function.id == id)
             with Env.get().engine.begin() as conn:
                 rows = conn.execute(stmt)
                 row = next(rows)
                 name = row[0]
-                return_type = ColumnType.deserialize(row[1])
-                param_types = ColumnType.deserialize_list(row[2])
-                eval_fn = cloudpickle.loads(row[3]) if row[3] is not None else None
+                md = Function.Metadata.from_dict(row[1])
+                # md.fqn is set by caller
+                eval_fn = cloudpickle.loads(row[2]) if row[2] is not None else None
                 # TODO: are these checks needed?
-                if row[3] is not None and eval_fn is None:
+                if row[2] is not None and eval_fn is None:
                     raise exc.Error(f'Could not load eval_fn for function {name}')
-                init_fn = cloudpickle.loads(row[4]) if row[4] is not None else None
-                if row[4] is not None and init_fn is None:
+                init_fn = cloudpickle.loads(row[3]) if row[3] is not None else None
+                if row[3] is not None and init_fn is None:
                     raise exc.Error(f'Could not load init_fn for aggregate function {name}')
-                update_fn = cloudpickle.loads(row[5]) if row[5] is not None else None
-                if row[5] is not None and update_fn is None:
+                update_fn = cloudpickle.loads(row[4]) if row[4] is not None else None
+                if row[4] is not None and update_fn is None:
                     raise exc.Error(f'Could not load update_fn for aggregate function {name}')
-                value_fn = cloudpickle.loads(row[6]) if row[6] is not None else None
-                if row[6] is not None and value_fn is None:
+                value_fn = cloudpickle.loads(row[5]) if row[5] is not None else None
+                if row[5] is not None and value_fn is None:
                     raise exc.Error(f'Could not load value_fn for aggregate function {name}')
-                params = row[7]
 
                 func = Function(
-                    return_type, param_types, id=id, eval_fn=eval_fn, init_fn=init_fn, update_fn=update_fn,
-                    value_fn=value_fn, requires_order_by=params['requires_order_by'],
-                    allows_std_agg=params['allows_std_agg'], allows_window=params['allows_window'])
+                    md, id=id,
+                    eval_fn=eval_fn, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn)
                 self.stored_fns_by_id[id] = func
         assert id in self.stored_fns_by_id
         return self.stored_fns_by_id[id]
@@ -325,18 +419,12 @@ class FunctionRegistry:
             init_fn_str = cloudpickle.dumps(fn.init_fn) if fn.init_fn is not None else None
             update_fn_str = cloudpickle.dumps(fn.update_fn) if fn.update_fn is not None else None
             value_fn_str = cloudpickle.dumps(fn.value_fn) if fn.value_fn is not None else None
-            params = {
-                'requires_order_by': fn.requires_order_by,
-                'allows_std_agg': fn.allows_std_agg,
-                'allows_window': fn.allows_window
-            }
+
             res = conn.execute(
                 sql.insert(store.Function.__table__)
                     .values(
-                        db_id=db_id, dir_id=dir_id, name=name, return_type=fn.info.return_type.serialize(),
-                        param_types=ColumnType.serialize_list(fn.info.param_types),
-                        eval_obj=eval_fn_str, init_obj=init_fn_str, update_obj=update_fn_str, value_obj=value_fn_str,
-                        parameters=params))
+                        db_id=db_id, dir_id=dir_id, name=name, md=fn.md.as_dict(),
+                        eval_obj=eval_fn_str, init_obj=init_fn_str, update_obj=update_fn_str, value_obj=value_fn_str))
             fn.id = res.inserted_primary_key[0]
             self.stored_fns_by_id[fn.id] = fn
 

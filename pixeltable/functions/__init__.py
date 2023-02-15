@@ -32,7 +32,7 @@ def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.T
                 (f'udf_call(): lambda argument names need to be valid column names in table {tbl.name}: '
                  f'column {param_name} unknown'))
         args.append(exprs.ColumnRef(tbl.cols_by_name[param_name]))
-    fn = Function(return_type, [arg.col_type for arg in args], eval_fn=eval_fn)
+    fn = Function.make_function(return_type, [arg.col_type for arg in args], eval_fn)
     return exprs.FunctionCall(fn, args)
 
 def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:

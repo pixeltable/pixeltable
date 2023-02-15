@@ -457,29 +457,31 @@ class ColumnRef(Expr):
 class FunctionCall(Expr):
     def __init__(
             self, fn: Function, args: Tuple[Any], order_by_exprs: List[Expr] = [], group_by_exprs: List[Expr] = []):
-        super().__init__(fn.info.return_type)
+        signature = fn.md.signature
+        super().__init__(signature.return_type)
         self.fn = fn
 
-        if fn.info.param_types is not None:
+        if signature.parameters is not None:
             # check if arg types match param types and convert values, if necessary
-            if len(args) != len(fn.info.param_types):
+            if len(args) != len(signature.parameters):
                 raise exc.RuntimeError(
-                    f"Number of arguments doesn't match parameter list: {args} vs {fn.info.param_types}")
+                    f"Number of arguments doesn't match signature: {args} vs {signature}")
             args = list(args)
             for i in range(len(args)):
                 if not isinstance(args[i], Expr):
                     # TODO: check non-Expr args
                     continue
-                if args[i].col_type == fn.info.param_types[i]:
+                param_type = signature.parameters[i][1]
+                if args[i].col_type == param_type:
                     # nothing to do
                     continue
-                converter = args[i].col_type.conversion_fn(fn.info.param_types[i])
+                converter = args[i].col_type.conversion_fn(param_type)
                 if converter is None:
-                    raise exc.RuntimeError(f'Cannot convert {args[i].col_type} to {fn.info.param_types[i]}')
+                    raise exc.RuntimeError(f'Cannot convert {args[i].col_type} to {param_type}')
                 if converter == ColumnType.no_conversion:
                     # nothing to do
                     continue
-                convert_fn = Function.make_function(fn.info.param_types[i], [args[i].col_type], converter)
+                convert_fn = Function.make_function(param_type, [args[i].col_type], converter)
                 args[i] = FunctionCall(convert_fn, (args[i],))
 
         self.components = [arg for arg in args if isinstance(arg, Expr)]
@@ -532,7 +534,10 @@ class FunctionCall(Expr):
                 arg_strs[j] = str(self.components[i])
                 i += 1
         if len(self.order_by) > 0:
-            arg_strs.append(f'order_by={Expr.print_list(self.order_by)}')
+            if self.fn.requires_order_by:
+                arg_strs.insert(0, Expr.print_list(self.order_by))
+            else:
+                arg_strs.append(f'order_by={Expr.print_list(self.order_by)}')
         if len(self.group_by) > 0:
             arg_strs.append(f'group_by={Expr.print_list(self.group_by)}')
         # TODO: figure out the function name
