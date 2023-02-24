@@ -159,6 +159,8 @@ class TestTable:
         with pytest.raises(exc.InsertError):
             t1.insert_pandas(t2_data)
 
+        # TODO: test data checks
+
     def test_query(self, test_db: catalog.Db) -> None:
         db = test_db
         t = make_tbl(db, 'test', ['c1', 'c2', 'c3', 'c4', 'c5'])
@@ -340,6 +342,50 @@ class TestTable:
             tbl.revert()
 
     def test_add_column(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        num_orig_cols = len(t.columns)
+        t.add_column(catalog.Column('add1', pt.IntType(), nullable=False))
+        assert len(t.columns) == num_orig_cols + 1
+
+        # make sure this is still true after reloading the metadata
+        cl = pt.Client()
+        db = cl.get_db('test')
+        t = db.get_table(t.name)
+        assert len(t.columns) == num_orig_cols + 1
+
+        # revert() works
+        t.revert()
+        assert len(t.columns) == num_orig_cols
+
+        # make sure this is still true after reloading the metadata once more
+        cl = pt.Client()
+        db = cl.get_db('test')
+        t = db.get_table(t.name)
+        assert len(t.columns) == num_orig_cols
+
+    def test_drop_column(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        num_orig_cols = len(t.columns)
+        t.drop_column('c1')
+        assert len(t.columns) == num_orig_cols - 1
+
+        # make sure this is still true after reloading the metadata
+        cl = pt.Client()
+        db = cl.get_db('test')
+        t = db.get_table(t.name)
+        assert len(t.columns) == num_orig_cols - 1
+
+        # revert() works
+        t.revert()
+        assert len(t.columns) == num_orig_cols
+
+        # make sure this is still true after reloading the metadata once more
+        cl = pt.Client()
+        db = cl.get_db('test')
+        t = db.get_table(t.name)
+        assert len(t.columns) == num_orig_cols
+
+    def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         status_str = t.add_column(catalog.Column('add1', computed_with=t.c2 + 10, nullable=False))
         assert '0 errors' in status_str

@@ -29,6 +29,12 @@ from pixeltable.utils import clip
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
 
+def _print_slice(s: slice) -> str:
+    start_str = f'{str(s.start) if s.start is not None else ""}'
+    stop_str = f'{str(s.stop) if s.stop is not None else ""}'
+    step_str = f'{str(s.step) if s.step is not None else ""}'
+    return f'{start_str}:{stop_str}{":" if s.step is not None else ""}{step_str}'
+
 
 class ComparisonOperator(enum.Enum):
     LT = 0
@@ -322,9 +328,11 @@ class Expr(abc.ABC):
         """
         ex.: <img col>.rotate(60)
         """
-        if not self.col_type.is_image_type():
-            raise exc.RuntimeError(f'Member access not supported on type {self.col_type}: {name}')
-        return ImageMemberAccess(name, self)
+        if self.col_type.is_image_type():
+            return ImageMemberAccess(name, self)
+        if self.col_type.is_json_type():
+            return JsonPath(self).__getattr__(name)
+        raise exc.RuntimeError(f'Member access not supported on type {self.col_type}: {name}')
 
     def __lt__(self, other: object) -> 'Comparison':
         return self._make_comparison(ComparisonOperator.LT, other)
@@ -895,8 +903,12 @@ class JsonPath(Expr):
         return JsonPath(self._anchor, self.path_elements + [name])
 
     def __getitem__(self, index: object) -> 'JsonPath':
-        if isinstance(index, str) and index != '*':
-            raise exc.RuntimeError(f'Invalid json list index: {index}')
+        if isinstance(index, str):
+            if index != '*':
+                raise exc.RuntimeError(f'Invalid json list index: {index}')
+        else:
+            if not isinstance(index, slice) and not isinstance(index, int):
+                raise exc.RuntimeError(f'Invalid json list index: {index}')
         return JsonPath(self._anchor, self.path_elements + [index])
 
     def __rshift__(self, other: object) -> 'JsonMapper':
@@ -933,6 +945,8 @@ class JsonPath(Expr):
                 result.append(f'{"." if len(result) > 0 else ""}{element}')
             elif isinstance(element, int):
                 result.append(f'[{element}]')
+            elif isinstance(element, slice):
+                result.append(f'[{_print_slice(element)}]')
         return ''.join(result)
 
     def eval(self, data_row: List[Any]) -> None:
@@ -1154,10 +1168,7 @@ class ArraySlice(Expr):
             if isinstance(el, int):
                 index_strs.append(str(el))
             if isinstance(el, slice):
-                start_str = f'{str(el.start) if el.start is not None else ""}'
-                stop_str = f'{str(el.stop) if el.stop is not None else ""}'
-                step_str = f'{str(el.step) if el.step is not None else ""}'
-                index_strs.append(f'{start_str}:{stop_str}{":" if el.step is not None else ""}{step_str}')
+                index_strs.append(_print_slice(el))
         return f'{self._array}[{", ".join(index_strs)}]'
 
     @property
@@ -1793,7 +1804,7 @@ class ExprEvaluator:
                     data_row[expr.data_row_idx] = e
                     return False, True
             if not data_row[self.filter.data_row_idx]:
-                return False, False
+                return False, None
 
         # materialize output_exprs
         exc_tb: Optional[TracebackType] = None

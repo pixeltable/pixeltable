@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "pixeltable"
 version = "0.1.2"
-description = "Pixeltable: a dataframe-like interface to image and video data"
+description = "Pixeltable: a table interface to image and video data"
 authors = ["Marcel Kornacker <marcelk@gmail.com>"]
 readme = "README.md"
 exclude = [

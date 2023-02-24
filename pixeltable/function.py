@@ -297,7 +297,7 @@ class Function:
         if self.is_library_function:
             raise exc.Error(f'list() not valid for library functions: {self.display_name}')
         if self.md.src == '':
-            return 'sources not available'
+            print('sources not available')
         print(self.md.src)
 
     def as_dict(self) -> Dict:

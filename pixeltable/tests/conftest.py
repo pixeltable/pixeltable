@@ -44,7 +44,7 @@ def test_tbl(test_db: catalog.Db) -> catalog.Table:
         catalog.Column('c6', JsonType(), nullable=False),
         catalog.Column('c7', JsonType(), nullable=False),
     ]
-    t = test_db.create_table('test__tbl', cols)
+    t = test_db.create_table('test_tbl', cols)
     t.add_column(catalog.Column('c8', computed_with=[[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100

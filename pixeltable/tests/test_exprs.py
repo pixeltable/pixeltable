@@ -239,6 +239,8 @@ class TestExprs:
         _ = t[t.c6.f1]
         _ = _.show()
         print(_)
+        # predicate on dict field
+        _ = t[t.c6.f2 < 2].show()
         #_ = t[t.c6.f2].show()
         #_ = t[t.c6.f5].show()
         _ = t[t.c6.f6.f8].show()
@@ -249,6 +251,9 @@ class TestExprs:
         #_ = t[t.c7['*'].f2].show()
         #_ = t[t.c7['*'].f5].show()
         _ = t[t.c7['*'].f6.f8].show()
+        _ = t[t.c7[0].f6.f8].show()
+        _ = t[t.c7[:2].f6.f8].show()
+        _ = t[t.c7[::-1].f6.f8].show()
         _ = t[cast(t.c7['*'].f6.f8, ArrayType((2, 4), ColumnType.Type.FLOAT))].show()
         print(_)
 

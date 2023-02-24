@@ -108,6 +108,15 @@ class Column:
     def is_computed(self) -> bool:
         return self.compute_func is not None or self.value_expr is not None
 
+    def list(self) -> None:
+        """
+        If this is a computed col and the top-level expr is a function call, print the source, if possible.
+        """
+        from pixeltable import exprs
+        if self.value_expr is None or not isinstance(self.value_expr, exprs.FunctionCall):
+            return
+        self.value_expr.fn.list()
+
     def create_sa_cols(self) -> None:
         """
         These need to be recreated for every new table schema version.
@@ -534,7 +543,6 @@ class MutableTable(Table):
         del self.cols_by_name[name]
         del self.cols_by_id[col.id]
 
-
         # we're creating a new schema version
         self.version += 1
         preceding_schema_version = self.schema_version
@@ -709,9 +717,20 @@ class MutableTable(Table):
         # check data
         data_cols = [self.cols_by_name[name] for name in data.columns]
         for col in data_cols:
+            if not col.nullable:
+                # check for nulls
+                nulls = data[col.name].isna()
+                max_val_idx = nulls.idxmax()
+                if nulls[max_val_idx]:
+                    raise exc.RuntimeError(
+                        f'Column {col.name}: row {max_val_idx} contains None for a non-nullable column')
+                pass
+
             # image cols: make sure file path points to a valid image file
             if col.col_type.is_image_type():
                 for _, path_str in data[col.name].items():
+                    if path_str is None:
+                        continue
                     try:
                         _ = Image.open(path_str)
                     except FileNotFoundError:
@@ -722,6 +741,8 @@ class MutableTable(Table):
             # image cols: make sure file path points to a valid image file; build index if col is indexed
             if col.col_type.is_video_type():
                 for _, path_str in data[col.name].items():
+                    if path_str is None:
+                        continue
                     cap = cv2.VideoCapture(path_str)
                     success = cap.isOpened()
                     cap.release()
@@ -730,7 +751,7 @@ class MutableTable(Table):
 
             if col.col_type.is_json_type():
                 for idx, d in data[col.name].items():
-                    if not isinstance(d, dict) and not isinstance(d, list):
+                    if d is not None and not isinstance(d, dict) and not isinstance(d, list):
                         raise exc.RuntimeError(
                             f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
@@ -799,6 +820,15 @@ class MutableTable(Table):
                 if isinstance(e, exprs.FunctionCall) and e.is_window_fn_call
             ]
             window_sort_exprs = window_fn_calls[0].get_window_sort_exprs() if len(window_fn_calls) > 0 else []
+            fn_calls = [
+                e for e in exprs.Expr.list_subexprs(value_exprs)
+                if isinstance(e, exprs.FunctionCall)
+            ]
+            for call in fn_calls:
+                if call.fn.is_library_function:
+                    continue
+                _  =  call.fn.list()
+                a = 1
 
         # construct new df with the storage column names, in order to iterate over it more easily
         stored_data = {col.storage_name(): data[col.name] for col in data_cols}
@@ -877,8 +907,11 @@ class MutableTable(Table):
                     .where(store.Table.id == self.id))
 
         self.valid_rowids.update(rowids)
-        cols_with_excs_str = f'across {len(cols_with_excs)} column{"" if len(cols_with_excs) == 1 else "s"}'
-        cols_with_excs_str += f' ({", ".join([self.cols_by_id[id].name for id in cols_with_excs])})'
+        if num_excs == 0:
+            cols_with_excs_str = ''
+        else:
+            cols_with_excs_str = f'across {len(cols_with_excs)} column{"" if len(cols_with_excs) == 1 else "s"}'
+            cols_with_excs_str += f' ({", ".join([self.cols_by_id[id].name for id in cols_with_excs])})'
         return f'Inserted {len(rowids)} rows with {num_excs} error{"" if num_excs == 1 else "s"} {cols_with_excs_str}'
 
     def insert_csv(self, file_path: str) -> None:
@@ -935,18 +968,54 @@ class MutableTable(Table):
 
             if self.version == self.schema_version:
                 # the current version involved a schema change:
+                # if the schema change was to add a column, we now need to drop it
+                added_col_id = session.query(store.ColumnHistory.col_id)\
+                    .where(store.ColumnHistory.tbl_id == self.id)\
+                    .where(store.ColumnHistory.schema_version_add == self.schema_version)\
+                    .scalar()
+                if added_col_id is not None:
+                    # drop this newly-added column and its ColumnHistory record
+                    c = self.cols_by_id[added_col_id]
+                    stmt = f'ALTER TABLE {self.storage_name()} DROP COLUMN {c.storage_name()}'
+                    conn.execute(sql.text(stmt))
+                    conn.execute(
+                        sql.delete(store.ColumnHistory.__table__)
+                            .where(store.ColumnHistory.tbl_id == self.id)
+                            .where(store.ColumnHistory.col_id == added_col_id))
+
+                # if the schema change was to drop a column, we now need to undo that
+                dropped_col_id = session.query(store.ColumnHistory.col_id) \
+                    .where(store.ColumnHistory.tbl_id == self.id) \
+                    .where(store.ColumnHistory.schema_version_drop == self.schema_version) \
+                    .scalar()
+                if dropped_col_id is not None:
+                    # fix up the ColumnHistory record
+                    conn.execute(
+                        sql.update(store.ColumnHistory.__table__)
+                            .values({store.ColumnHistory.schema_version_drop: None})
+                            .where(store.ColumnHistory.tbl_id == self.id)
+                            .where(store.ColumnHistory.col_id == dropped_col_id))
+
                 # we need to determine the preceding schema version and reload the schema
                 preceding_schema_version = session.query(store.TableSchemaVersion.preceding_schema_version) \
                     .where(store.TableSchemaVersion.tbl_id == self.id) \
                     .where(store.TableSchemaVersion.schema_version == self.schema_version) \
                     .scalar()
                 self.cols = self.load_cols(self.id, preceding_schema_version, session)
+
+                # drop all SchemaColumn records for this schema version prior to deleting from TableSchemaVersion
+                # (to avoid FK violations)
+                conn.execute(
+                    sql.delete(store.SchemaColumn.__table__)
+                        .where(store.SchemaColumn.tbl_id == self.id)
+                        .where(store.SchemaColumn.schema_version == self.schema_version))
                 conn.execute(
                     sql.delete(store.TableSchemaVersion.__table__)
                         .where(store.TableSchemaVersion.tbl_id == self.id)
                         .where(store.TableSchemaVersion.schema_version == self.schema_version))
                 self.schema_version = preceding_schema_version
 
+            self.version -= 1
             conn.execute(
                 sql.update(store.Table.__table__)
                     .values({
@@ -956,7 +1025,6 @@ class MutableTable(Table):
                     .where(store.Table.id == self.id))
 
             session.commit()
-        self.version -= 1
 
     # MODULE-LOCAL, NOT PUBLIC
     def rename(self, new_name: str) -> None:
@@ -1173,7 +1241,7 @@ class PathDict:
             if not isinstance(obj, expected):
                 raise exc.UnknownEntityError(f'{path_str} needs to be a {expected.display_name()}')
         if expected is None and path_str in self.paths:
-            raise exc.DuplicateNameError(f'{path_str} already exists')
+            raise exc.DuplicateNameError(f"'{path_str}' already exists")
         # check for containing directory
         parent_path = path.parent
         if str(parent_path) not in self.paths:
