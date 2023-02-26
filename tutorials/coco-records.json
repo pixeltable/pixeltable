@@ -1,0 +1,2035 @@
+[
+    {
+        "filepath": "images/000000000009.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 480
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "bowl",
+                    "bounding_box": [
+                        0.0016875000000000002,
+                        0.3910208333333333,
+                        0.9556093750000001,
+                        0.5954999999999999
+                    ],
+                    "supercategory": "kitchen",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "bowl",
+                    "bounding_box": [
+                        0.48707812500000003,
+                        0.008979166666666667,
+                        0.49887499999999996,
+                        0.47641666666666665
+                    ],
+                    "supercategory": "kitchen",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "broccoli",
+                    "bounding_box": [
+                        0.39,
+                        0.4776458333333334,
+                        0.49412500000000004,
+                        0.5105833333333334
+                    ],
+                    "supercategory": "food",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "bowl",
+                    "bounding_box": [
+                        0.0,
+                        0.02814583333333333,
+                        0.678875,
+                        0.7815
+                    ],
+                    "supercategory": "kitchen",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "orange",
+                    "bounding_box": [
+                        0.5878125,
+                        0.08408333333333333,
+                        0.118046875,
+                        0.0969375
+                    ],
+                    "supercategory": "food",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "orange",
+                    "bounding_box": [
+                        0.7277812499999999,
+                        0.0811875,
+                        0.090734375,
+                        0.09722916666666667
+                    ],
+                    "supercategory": "food",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "orange",
+                    "bounding_box": [
+                        0.60265625,
+                        0.15345833333333334,
+                        0.13128125,
+                        0.14689583333333334
+                    ],
+                    "supercategory": "food",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "orange",
+                    "bounding_box": [
+                        0.568828125,
+                        0.0051875,
+                        0.1480625,
+                        0.14806249999999999
+                    ],
+                    "supercategory": "food",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000025.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 426
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "giraffe",
+                    "bounding_box": [
+                        0.602390625,
+                        0.14091549295774647,
+                        0.335890625,
+                        0.6975586854460094
+                    ],
+                    "supercategory": "animal",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "giraffe",
+                    "bounding_box": [
+                        0.082828125,
+                        0.836830985915493,
+                        0.206296875,
+                        0.12955399061032863
+                    ],
+                    "supercategory": "animal",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000030.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 428
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "potted plant",
+                    "bounding_box": [
+                        0.32009375,
+                        0.07247663551401869,
+                        0.39825,
+                        0.7572897196261682
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "vase",
+                    "bounding_box": [
+                        0.3711875,
+                        0.36404205607476636,
+                        0.26,
+                        0.45619158878504673
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000034.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 425
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "zebra",
+                    "bounding_box": [
+                        0.0015,
+                        0.0472,
+                        0.6894218750000001,
+                        0.8921176470588235
+                    ],
+                    "supercategory": "animal",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000036.jpg",
+        "metadata": {
+            "width": 481,
+            "height": 640
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "umbrella",
+                    "bounding_box": [
+                        0.0,
+                        0.0783125,
+                        0.9515176715176715,
+                        0.6724218750000001
+                    ],
+                    "supercategory": "accessory",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.3483991683991684,
+                        0.25451562499999997,
+                        0.6457588357588357,
+                        0.726859375
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000042.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 478
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "dog",
+                    "bounding_box": [
+                        0.334609375,
+                        0.0863807531380753,
+                        0.54415625,
+                        0.51
+                    ],
+                    "supercategory": "animal",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000049.jpg",
+        "metadata": {
+            "width": 381,
+            "height": 500
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "horse",
+                    "bounding_box": [
+                        0.42669291338582677,
+                        0.45312,
+                        0.34228346456692915,
+                        0.36886
+                    ],
+                    "supercategory": "animal",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "horse",
+                    "bounding_box": [
+                        0.21443569553805775,
+                        0.48988,
+                        0.21971128608923882,
+                        0.31639999999999996
+                    ],
+                    "supercategory": "animal",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.5338320209973753,
+                        0.52086,
+                        0.17241469816272964,
+                        0.14608000000000002
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.31083989501312337,
+                        0.52264,
+                        0.14937007874015748,
+                        0.12586
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.3132283464566929,
+                        0.66842,
+                        0.031338582677165355,
+                        0.06714
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "potted plant",
+                    "bounding_box": [
+                        0.5295800524934383,
+                        0.85238,
+                        0.18593175853018373,
+                        0.09445999999999999
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.7462992125984251,
+                        0.6668,
+                        0.028556430446194228,
+                        0.05486
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.5013123359580053,
+                        0.66874,
+                        0.018792650918635172,
+                        0.04682
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.9101312335958005,
+                        0.6668,
+                        0.03884514435695538,
+                        0.01844
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000061.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 488
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.40812499999999996,
+                        0.42196721311475405,
+                        0.075125,
+                        0.11729508196721312
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.614671875,
+                        0.4310245901639344,
+                        0.050828125,
+                        0.0814344262295082
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "elephant",
+                    "bounding_box": [
+                        0.578296875,
+                        0.5100409836065574,
+                        0.12982812500000002,
+                        0.09762295081967214
+                    ],
+                    "supercategory": "animal",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "elephant",
+                    "bounding_box": [
+                        0.348828125,
+                        0.5125,
+                        0.22174999999999997,
+                        0.1592418032786885
+                    ],
+                    "supercategory": "animal",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.40865625000000005,
+                        0.4028073770491803,
+                        0.053453125000000004,
+                        0.11102459016393443
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000064.jpg",
+        "metadata": {
+            "width": 480,
+            "height": 640
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.10908333333333334,
+                        0.605890625,
+                        0.36741666666666667,
+                        0.24628125
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "truck",
+                    "bounding_box": [
+                        0.10966666666666666,
+                        0.55278125,
+                        0.25954166666666667,
+                        0.092921875
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "stop sign",
+                    "bounding_box": [
+                        0.24133333333333334,
+                        0.354046875,
+                        0.07712500000000001,
+                        0.117453125
+                    ],
+                    "supercategory": "outdoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "clock",
+                    "bounding_box": [
+                        0.2334166666666667,
+                        0.06592187499999999,
+                        0.32145833333333335,
+                        0.237984375
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000071.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 426
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.73096875,
+                        0.509225352112676,
+                        0.043359375,
+                        0.033215962441314556
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.8167031250000001,
+                        0.5244131455399061,
+                        0.038046875,
+                        0.028169014084507043
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.68265625,
+                        0.5113380281690141,
+                        0.0364375,
+                        0.020234741784037558
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.9161875,
+                        0.542981220657277,
+                        0.042421875,
+                        0.033591549295774646
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "train",
+                    "bounding_box": [
+                        0.074796875,
+                        0.435962441314554,
+                        0.755359375,
+                        0.2808920187793427
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.776578125,
+                        0.5257042253521127,
+                        0.0368125,
+                        0.02615023474178404
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.94040625,
+                        0.5085446009389671,
+                        0.026125,
+                        0.01272300469483568
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "truck",
+                    "bounding_box": [
+                        0.5210625,
+                        0.45211267605633804,
+                        0.037328125000000004,
+                        0.023896713615023473
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "truck",
+                    "bounding_box": [
+                        0.5661875000000001,
+                        0.4630985915492958,
+                        0.037984375,
+                        0.016596244131455398
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.9651093749999999,
+                        0.5573474178403756,
+                        0.034890624999999995,
+                        0.030046948356807514
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.748671875,
+                        0.5164319248826291,
+                        0.037390625,
+                        0.029694835680751173
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.605453125,
+                        0.47133802816901404,
+                        0.025015625000000003,
+                        0.010070422535211268
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.572953125,
+                        0.4623239436619718,
+                        0.03078125,
+                        0.018333333333333333
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.5449843750000001,
+                        0.46530516431924884,
+                        0.030234375,
+                        0.01199530516431925
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.7810625,
+                        0.5145070422535212,
+                        0.02996875,
+                        0.014577464788732394
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.71940625,
+                        0.5098122065727699,
+                        0.029375000000000002,
+                        0.027230046948356807
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "train"
+    },
+    {
+        "filepath": "images/000000000001.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 480
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000016.jpg",
+        "metadata": {
+            "width": 480,
+            "height": 640
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000019.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 427
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000057.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 427
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000063.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 480
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000069.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 429
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000080.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 427
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000090.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 429
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000106.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 426
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000108.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 427
+        },
+        "ground_truth": null,
+        "tag": "test"
+    },
+    {
+        "filepath": "images/000000000139.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 426
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "potted plant",
+                    "bounding_box": [
+                        0.37028125,
+                        0.3345305164319249,
+                        0.038593749999999996,
+                        0.16314553990610328
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "tv",
+                    "bounding_box": [
+                        0.010984375000000001,
+                        0.39380281690140845,
+                        0.23331249999999998,
+                        0.22269953051643193
+                    ],
+                    "supercategory": "electronic",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "tv",
+                    "bounding_box": [
+                        0.8706406250000001,
+                        0.491056338028169,
+                        0.127109375,
+                        0.18481220657276995
+                    ],
+                    "supercategory": "electronic",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "chair",
+                    "bounding_box": [
+                        0.56090625,
+                        0.5118544600938968,
+                        0.0875,
+                        0.24138497652582158
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "chair",
+                    "bounding_box": [
+                        0.454203125,
+                        0.5117370892018779,
+                        0.096609375,
+                        0.2311737089201878
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "chair",
+                    "bounding_box": [
+                        0.645625,
+                        0.5234976525821596,
+                        0.047140625000000005,
+                        0.19098591549295774
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "chair",
+                    "bounding_box": [
+                        0.4959375,
+                        0.5146478873239437,
+                        0.03371875,
+                        0.02720657276995305
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.645,
+                        0.3699765258215963,
+                        0.082890625,
+                        0.3239671361502347
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.600671875,
+                        0.40424882629107983,
+                        0.023625,
+                        0.08389671361502347
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "microwave",
+                    "bounding_box": [
+                        0.80034375,
+                        0.482981220657277,
+                        0.02303125,
+                        0.037488262910798126
+                    ],
+                    "supercategory": "appliance",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "refrigerator",
+                    "bounding_box": [
+                        0.77046875,
+                        0.40924882629107984,
+                        0.031703125,
+                        0.2542488262910798
+                    ],
+                    "supercategory": "appliance",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.944953125,
+                        0.7180516431924883,
+                        0.02240625,
+                        0.10730046948356808
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.9581875,
+                        0.7235680751173709,
+                        0.020125,
+                        0.10901408450704225
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "clock",
+                    "bounding_box": [
+                        0.699640625,
+                        0.2843192488262911,
+                        0.021828125,
+                        0.05136150234741784
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "vase",
+                    "bounding_box": [
+                        0.8579062499999999,
+                        0.7263615023474178,
+                        0.0573125,
+                        0.2104929577464789
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "vase",
+                    "bounding_box": [
+                        0.5480625,
+                        0.4902347417840376,
+                        0.017765625,
+                        0.05293427230046949
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "chair",
+                    "bounding_box": [
+                        0.644140625,
+                        0.514131455399061,
+                        0.015046875000000001,
+                        0.029389671361502348
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "vase",
+                    "bounding_box": [
+                        0.37693750000000004,
+                        0.4577230046948357,
+                        0.022218750000000002,
+                        0.04138497652582159
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "vase",
+                    "bounding_box": [
+                        0.526234375,
+                        0.46830985915492956,
+                        0.015203125000000001,
+                        0.039272300469483566
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "dining table",
+                    "bounding_box": [
+                        0.5018906249999999,
+                        0.5427699530516432,
+                        0.19618750000000001,
+                        0.20875586854460096
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "validation"
+    },
+    {
+        "filepath": "images/000000000285.jpg",
+        "metadata": {
+            "width": 586,
+            "height": 640
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "bear",
+                    "bounding_box": [
+                        0.002440273037542662,
+                        0.107515625,
+                        0.9975597269624574,
+                        0.8811562500000001
+                    ],
+                    "supercategory": "animal",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "validation"
+    },
+    {
+        "filepath": "images/000000000632.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 483
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "bed",
+                    "bounding_box": [
+                        0.005109375,
+                        0.5524844720496895,
+                        0.6269218750000001,
+                        0.4311594202898551
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "potted plant",
+                    "bounding_box": [
+                        0.28650000000000003,
+                        0.2827329192546584,
+                        0.09496875,
+                        0.19128364389233954
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.71246875,
+                        0.39855072463768115,
+                        0.013390625,
+                        0.07368530020703934
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.708296875,
+                        0.5237474120082816,
+                        0.012531249999999999,
+                        0.07024844720496895
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.6949375,
+                        0.6162111801242236,
+                        0.0083125,
+                        0.08215320910973085
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.790546875,
+                        0.3954865424430642,
+                        0.018984375,
+                        0.07614906832298136
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.761734375,
+                        0.4126915113871636,
+                        0.0116875,
+                        0.058074534161490686
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "chair",
+                    "bounding_box": [
+                        0.38253125,
+                        0.4771221532091097,
+                        0.163625,
+                        0.1815527950310559
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "potted plant",
+                    "bounding_box": [
+                        0.542734375,
+                        0.4396894409937888,
+                        0.12892187500000002,
+                        0.29606625258799174
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.720171875,
+                        0.39683229813664594,
+                        0.045828125,
+                        0.07461697722567287
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.82346875,
+                        0.5146376811594203,
+                        0.038125,
+                        0.08370600414078674
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.811546875,
+                        0.4004761904761905,
+                        0.0063750000000000005,
+                        0.07078674948240166
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.777171875,
+                        0.11476190476190476,
+                        0.0063750000000000005,
+                        0.056645962732919254
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.81925,
+                        0.20161490683229813,
+                        0.0043749999999999995,
+                        0.07819875776397517
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.770875,
+                        0.3224016563146998,
+                        0.050921875000000005,
+                        0.013167701863354038
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.71040625,
+                        0.5078053830227743,
+                        0.07585937499999999,
+                        0.025134575569358178
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.721515625,
+                        0.5252173913043479,
+                        0.012875000000000001,
+                        0.0689648033126294
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "book",
+                    "bounding_box": [
+                        0.65,
+                        0.08902691511387163,
+                        0.2390625,
+                        0.6273291925465838
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 1
+                }
+            ]
+        },
+        "tag": "validation"
+    },
+    {
+        "filepath": "images/000000000724.jpg",
+        "metadata": {
+            "width": 375,
+            "height": 500
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "stop sign",
+                    "bounding_box": [
+                        0.3201866666666667,
+                        0.14366,
+                        0.35864,
+                        0.30616000000000004
+                    ],
+                    "supercategory": "outdoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "truck",
+                    "bounding_box": [
+                        0.32904,
+                        0.55888,
+                        0.05797333333333333,
+                        0.060340000000000005
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "car",
+                    "bounding_box": [
+                        0.34202666666666665,
+                        0.53442,
+                        0.03434666666666667,
+                        0.016300000000000002
+                    ],
+                    "supercategory": "vehicle",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "stop sign",
+                    "bounding_box": [
+                        0.5396799999999999,
+                        0.5197999999999999,
+                        0.05069333333333334,
+                        0.05212
+                    ],
+                    "supercategory": "outdoor",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "validation"
+    },
+    {
+        "filepath": "images/000000000776.jpg",
+        "metadata": {
+            "width": 428,
+            "height": 640
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "teddy bear",
+                    "bounding_box": [
+                        0.0033644859813084112,
+                        0.08784375,
+                        0.8049299065420561,
+                        0.7364843750000001
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "teddy bear",
+                    "bounding_box": [
+                        0.0067289719626168224,
+                        0.4346875,
+                        0.7409345794392523,
+                        0.5540468749999999
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "teddy bear",
+                    "bounding_box": [
+                        0.22177570093457943,
+                        0.008984375,
+                        0.7762383177570094,
+                        0.8516875
+                    ],
+                    "supercategory": "indoor",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "bed",
+                    "bounding_box": [
+                        0.0033411214953271025,
+                        0.00021875000000000003,
+                        0.9966588785046728,
+                        0.9997812500000001
+                    ],
+                    "supercategory": "furniture",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "validation"
+    },
+    {
+        "filepath": "images/000000000785.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 425
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.438734375,
+                        0.1052470588235294,
+                        0.34171874999999996,
+                        0.8157176470588235
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "skis",
+                    "bounding_box": [
+                        0.32084375,
+                        0.8522588235294117,
+                        0.6401875,
+                        0.08988235294117648
+                    ],
+                    "supercategory": "sports",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "validation"
+    },
+    {
+        "filepath": "images/000000000802.jpg",
+        "metadata": {
+            "width": 424,
+            "height": 640
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "refrigerator",
+                    "bounding_box": [
+                        0.5779481132075472,
+                        0.289421875,
+                        0.39094339622641505,
+                        0.5562968749999999
+                    ],
+                    "supercategory": "appliance",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "oven",
+                    "bounding_box": [
+                        0.07801886792452829,
+                        0.45168749999999996,
+                        0.2984905660377358,
+                        0.361796875
+                    ],
+                    "supercategory": "appliance",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "validation"
+    },
+    {
+        "filepath": "images/000000000872.jpg",
+        "metadata": {
+            "width": 621,
+            "height": 640
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "sports ball",
+                    "bounding_box": [
+                        0.6570531400966183,
+                        0.2688125,
+                        0.03120772946859903,
+                        0.025828125
+                    ],
+                    "supercategory": "sports",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.23391304347826086,
+                        0.157296875,
+                        0.47012882447665055,
+                        0.714609375
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.26365539452495973,
+                        0.19753125,
+                        0.4278421900161031,
+                        0.750625
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "baseball glove",
+                    "bounding_box": [
+                        0.5936231884057971,
+                        0.245703125,
+                        0.092512077294686,
+                        0.07153125
+                    ],
+                    "supercategory": "sports",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "validation"
+    },
+    {
+        "filepath": "images/000000000885.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 427
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.433296875,
+                        0.44494145199063234,
+                        0.218890625,
+                        0.4876346604215457
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.43909374999999995,
+                        0.21032786885245902,
+                        0.174734375,
+                        0.39707259953161594
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.93075,
+                        0.06037470725995316,
+                        0.067765625,
+                        0.5327400468384075
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.67921875,
+                        0.0007728337236533958,
+                        0.051234375,
+                        0.029672131147540984
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.44904687499999996,
+                        0.0004449648711943794,
+                        0.069765625,
+                        0.026838407494145202
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "tennis racket",
+                    "bounding_box": [
+                        0.6250625000000001,
+                        0.6290632318501171,
+                        0.12709375,
+                        0.09419203747072599
+                    ],
+                    "supercategory": "sports",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.8466875,
+                        0.0040515222482435595,
+                        0.10287500000000001,
+                        0.02370023419203747
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.0017343750000000002,
+                        0.0013114754098360658,
+                        0.09209375,
+                        0.02081967213114754
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.780421875,
+                        0.0017798594847775176,
+                        0.117453125,
+                        0.03133489461358314
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "validation"
+    },
+    {
+        "filepath": "images/000000001000.jpg",
+        "metadata": {
+            "width": 640,
+            "height": 480
+        },
+        "ground_truth": {
+            "detections": [
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "tennis racket",
+                    "bounding_box": [
+                        0.073546875,
+                        0.6316458333333334,
+                        0.074109375,
+                        0.18191666666666664
+                    ],
+                    "supercategory": "sports",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "handbag",
+                    "bounding_box": [
+                        0.03209375,
+                        0.4723125,
+                        0.083265625,
+                        0.2531875
+                    ],
+                    "supercategory": "accessory",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "handbag",
+                    "bounding_box": [
+                        0.307671875,
+                        0.46739583333333334,
+                        0.10978125000000001,
+                        0.24489583333333334
+                    ],
+                    "supercategory": "accessory",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.1799375,
+                        0.3169375,
+                        0.130046875,
+                        0.47585416666666663
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.634265625,
+                        0.250875,
+                        0.058015625,
+                        0.09483333333333334
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.41457812499999996,
+                        0.19970833333333332,
+                        0.1389375,
+                        0.6580833333333334
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.326921875,
+                        0.3638333333333333,
+                        0.155671875,
+                        0.5189166666666667
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.788546875,
+                        0.3998958333333333,
+                        0.21145312500000002,
+                        0.6001041666666667
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.6409374999999999,
+                        0.4344375,
+                        0.17953125,
+                        0.5655625000000001
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.595078125,
+                        0.3331458333333333,
+                        0.1381875,
+                        0.6651041666666667
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.515734375,
+                        0.32135416666666666,
+                        0.129765625,
+                        0.6539166666666667
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.641796875,
+                        0.22297916666666667,
+                        0.13764062500000002,
+                        0.2524166666666667
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.2865625,
+                        0.2527916666666667,
+                        0.149640625,
+                        0.5682291666666667
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "backpack",
+                    "bounding_box": [
+                        0.327328125,
+                        0.34141666666666665,
+                        0.09753125,
+                        0.12091666666666666
+                    ],
+                    "supercategory": "accessory",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "backpack",
+                    "bounding_box": [
+                        0.06675,
+                        0.46643749999999995,
+                        0.08707812499999999,
+                        0.10620833333333332
+                    ],
+                    "supercategory": "accessory",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.08146875,
+                        0.38566666666666666,
+                        0.09259375,
+                        0.44277083333333334
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                },
+                {
+                    "attributes": {},
+                    "tags": [],
+                    "label": "person",
+                    "bounding_box": [
+                        0.546078125,
+                        0.2473125,
+                        0.08225,
+                        0.0856875
+                    ],
+                    "supercategory": "person",
+                    "iscrowd": 0
+                }
+            ]
+        },
+        "tag": "validation"
+    }
+]

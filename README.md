@@ -6,7 +6,7 @@
 
     On MacOS, [postgresapp.com](postgresapp.com) is a convenient way to do that.
 
-2. `pip install pixeltable`
+2. `pip install git+https://gitlab.com/pixeltable/python-sdk/`
 
 3. Install additional dependencies
    - Install PyTorch (required for CLIP): see [here](https://pytorch.org/get-started/locally/).
@@ -30,6 +30,12 @@ environment variables determine how Pixeltable connects to the Postgres instance
 | `PIXELTABLE_DB_PORT` | `5432` |
 
 ## Overview
+
+Download and run
+[this notebook](https://gitlab.com/pixeltable/python-sdk/-/raw/master/tutorials/Pixeltable%20Overview.ipynb)
+to get an overview of Pixeltable.
+
+## API Summary
 
 Import convention:
 ```
