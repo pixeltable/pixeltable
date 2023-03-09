@@ -1,5 +1,27 @@
 # Pixeltable: A Table Interface for Image and Video Data
 
+Pixeltable is a Python library that lets computer vision engineers focus on experiments and models
+without having to deal with the customary data plumbing.
+
+* Interact with video data at the frame level without having to think about frame extraction,
+intermediate file storage, or storage space explosion.
+* Augment your data incrementally and interactively with built-in and user-defined functions such as
+image transformations, model inference, visualizations, etc., without having to think about data pipelines,
+incremental updates, capturing function output, etc.
+* Interact with all the data relevant to your CV project (video, images, structured data, JSON) through
+a simple dataframe-style API directly in Python. This includes:
+    * similarity search on images, supported by high-dimensional vector indexing
+    * path expressions and transformations on JSON data
+    * PIL and OpenCV image operations
+    * assembling frames into videos
+* Perform keyword and image similarity search at the video frame level without having to worry about frame
+storage.
+* Access all Pixeltable-resident data directly as a PyTorch or TensorFlow dataset in your training scripts.
+* Understand the compute and storage costs of your data at the granularity of individual augmentation and
+get cost projections **before** adding new data and new augmentations.
+* Rely on Pixeltable's automatic versioning and snapshot functionality to protect against regressions
+and to ensure reproducibility.
+
 ## Installation
 
 1. Install Postgres
@@ -10,7 +32,7 @@
 
 3. Install additional dependencies
    - Install PyTorch (required for CLIP): see [here](https://pytorch.org/get-started/locally/).
-   - Install CLIP from [here](https://github.com/openai/CLIP).
+   - Install CLIP: `pip install git+https://github.com/openai/CLIP.git`
    - If you want to work with videos, you also need to install `ffmpeg`.
 
 ## Setup
@@ -28,6 +50,7 @@ environment variables determine how Pixeltable connects to the Postgres instance
 | `PIXELTABLE_DB_PASSWORD` | |
 | `PIXELTABLE_DB_HOST` | `localhost` |
 | `PIXELTABLE_DB_PORT` | `5432` |
+| `PIXELTABLE_FILECACHE_SIZE` | 10GB |
 
 ## Overview
 

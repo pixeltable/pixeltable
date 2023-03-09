@@ -4,7 +4,6 @@ import datetime
 import enum
 import inspect
 import sys
-import traceback
 import typing
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Iterator
 from types import TracebackType
@@ -12,7 +11,7 @@ import operator
 import json
 import io
 from collections import defaultdict
-import traceback
+from collections.abc import Iterable
 
 import PIL.Image
 import jmespath
@@ -25,6 +24,8 @@ from pixeltable.type_system import \
 from pixeltable.function import Function
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
+from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.video import FrameIterator
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -201,6 +202,21 @@ class Expr(abc.ABC):
         result = self.copy()
         memo[id(self)] = result
         return result
+
+    def substitute(self, old: 'Expr', new: 'Expr') -> 'Expr':
+        """
+        Replace 'old' with 'new recursively.
+        """
+        if self.equals(old):
+            return new.copy()
+        for i in range(len(self.components)):
+            self.components[i] = self.components[i].substitute(old, new)
+        return self
+
+    @classmethod
+    def list_substitute(cls, expr_list: List['Expr'], old: 'Expr', new: 'Expr') -> None:
+        for i in range(len(expr_list)):
+            expr_list[i] = expr_list[i].substitute(old, new)
 
     @abc.abstractmethod
     def __str__(self) -> str:
@@ -395,6 +411,9 @@ class Expr(abc.ABC):
 
 
 class ColumnRef(Expr):
+    """
+    A reference to a table column that is materialized in the store (ie, corresponds to a column in the store).
+    """
     class Property(enum.Enum):
         VALUE = 0
         ERRORTYPE = 1
@@ -460,6 +479,108 @@ class ColumnRef(Expr):
         if d['prop'] != cls.Property.VALUE.value:
             result = getattr(result, cls.Property(d['prop']).name.lower())
         return result
+
+
+class CachedColumnRef(ColumnRef):
+    """
+    A reference to a computed image column for which values are computed on-demand and are cached in the FileCache.
+    The backing store table does not contain this column.
+    """
+    def __init__(self, col: catalog.Column):
+        super().__init__(col)
+        assert col.value_expr is not None
+        assert col.is_stored is None  # None: values are cached
+        self.components = [col.value_expr.copy()]  # we need to compute values at query execution time
+        self.tbl_id = self.col.tbl.id
+        self.evaluator: Optional[ExprEvaluator] = None
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        return None
+
+    @property
+    def _value_expr(self) -> Expr:
+        return self.components[0]
+
+    def eval(self, data_row: List[Any]) -> None:
+        # probe cache
+        rowid, v_min = data_row[0]
+        file_path = FileCache.get().lookup(self.tbl_id, self.col.id, rowid, v_min)
+        if file_path is not None:
+            try:
+                img = PIL.Image.open(file_path)
+                data_row[self.data_row_idx] = img
+                return
+            except Exception:
+                raise exc.RuntimeError(f'Error reading image file: {file_path}')
+        # we need to compute value_expr
+        if self.evaluator is None:
+            self.evaluator = ExprEvaluator(self._value_expr)
+        self.evaluator.eval((), data_row)
+        data_row[self.data_row_idx] = data_row[self._value_expr.data_row_idx]
+        # TODO: update cache, for which we need to write the image to a file
+        #FileCache.get().add(self.tbl_id, self.col.id, rowid, v_min, query_ts?, file_path)
+
+
+class FrameColumnRef(ColumnRef):
+    """
+    Reference to an unstored extracted frame column.
+    Frames are extracted from videos if they're not in the cache.
+    """
+    def __init__(self, col: catalog.Column):
+        assert col.col_type.is_image_type()
+        assert col.tbl.parameters.frame_col_id == col.id
+        super().__init__(col)
+        # we need to reference the video and frame idx cols in eval()
+        self.tbl = col.tbl
+        video_col = self.tbl.cols_by_id[self.tbl.parameters.frame_src_col_id]
+        frame_idx_col = self.tbl.cols_by_id[self.tbl.parameters.frame_idx_col_id]
+        self.components = [ColumnRef(video_col), ColumnRef(frame_idx_col)]
+        # execution state
+        self.current_video: Optional[str] = None
+        self.frames: Optional[FrameIterator] = None
+
+    @property
+    def _video_ref(self) -> ColumnRef:
+        return self.components[0]
+
+    @property
+    def _frame_idx_ref(self) -> ColumnRef:
+        return self.components[1]
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        return None
+
+    def eval(self, data_row: List[Any]) -> None:
+        if self.col.is_cached:
+            # probe cache
+            rowid, v_min = data_row[-1]
+            file_path = FileCache.get().lookup(self.tbl.id, self.col.id, rowid, v_min)
+            if file_path is not None:
+                try:
+                    img = PIL.Image.open(file_path)
+                    data_row[self.data_row_idx] = img
+                    return
+                except Exception:
+                    raise exc.RuntimeError(f'Error reading image file: {file_path}')
+
+        # extract frame
+        video_path = data_row[self._video_ref.data_row_idx]
+        if self.frames is None or self.current_video != video_path:
+            self.current_video = video_path
+            self.frames = FrameIterator(
+                self.current_video, fps=self.tbl.parameters.extraction_fps,
+                ffmpeg_filter=self.tbl.parameters.ffmpeg_filter)
+        frame_idx = data_row[self._frame_idx_ref.data_row_idx]
+        self.frames.seek(frame_idx)
+        _, frame_path = next(self.frames, None)
+        try:
+            frame = PIL.Image.open(frame_path)
+        except Exception:
+            raise exc.RuntimeError(f'Error reading image file: {frame_path}')
+        data_row[self.data_row_idx] = frame
+
+        if self.col.is_cached:
+            FileCache.get().add(self.tbl.id, self.col.id, rowid, v_min, 0, frame_path)
 
 
 class FunctionCall(Expr):
@@ -1684,7 +1805,7 @@ class JsonMapper(Expr):
             self.evaluator = ExprEvaluator([self._target_expr], None)
         for i, val in enumerate(src):
             data_row[self.scope_anchor.data_row_idx] = val
-            # materialize target_expr
+            # stored target_expr
             _, exc_tb = self.evaluator.eval((), data_row)
             assert exc_tb is None
             result[i] = data_row[self._target_expr.data_row_idx]
@@ -1806,7 +1927,7 @@ class ExprEvaluator:
             if not data_row[self.filter.data_row_idx]:
                 return False, None
 
-        # materialize output_exprs
+        # stored output_exprs
         exc_tb: Optional[TracebackType] = None
         skip_exprs: Set[int] = set()  # skip dependents of exprs that had exception
         self._copy_to_data_row(self.output_copy_exprs, sql_row, data_row)
@@ -1853,10 +1974,10 @@ class ExprEvaluator:
                 data_row[j] = exc_val
 
 
-class UniqueExprSet:
+class ExprDict:
     """
-    We want to avoid duplicate expr evaluation, so we keep track of unique exprs (duplicates share the
-    same data_row_idx). However, __eq__() doesn't work for sets, so we use a list here.
+    Implements semantics of dict from Expr.data_row_idx (= id) to unique exprs. Exprs that test True for Expr.equals()
+    are updated to share the same data_row_idx.
     """
     def __init__(self):
         self.unique_exprs: List[Expr] = []
@@ -1889,9 +2010,41 @@ class UniqueExprSet:
         return iter(self.unique_exprs)
 
 
+class ExprSet:
+    """
+    Implements standard set() semantics for Exprs. We can't use set() because Expr doesn't have a __hash__()
+    and Expr.__eq__() has been repurposed.
+    """
+    def __init__(self, elements: Optional[Iterable[Expr]] = None):
+        self.unique_exprs: List[Expr] = []
+        if elements is not None:
+            for e in elements:
+                self.add(e)
+
+    def add(self, expr: Expr) -> None:
+        try:
+            _ = next(e for e in self.unique_exprs if e.equals(expr))
+        except StopIteration:
+            self.unique_exprs.append(expr)
+
+    def __contains__(self, item: Expr) -> bool:
+        assert isinstance(item, Expr)
+        try:
+            _ = next(e for e in self.unique_exprs if e.equals(item))
+            return True
+        except StopIteration:
+            return False
+
+    def __len__(self) -> int:
+        return len(self.unique_exprs)
+
+    def __iter__(self) -> Iterator[Expr]:
+        return iter(self.unique_exprs)
+
+
 class ExprEvalCtx:
     """
-    Assigns execution state necessary to materialize a list of Exprs into a data row:
+    Assigns execution state necessary to stored a list of Exprs into a data row:
     - Expr.sql_/data_row_idx
 
     Data row:
@@ -1907,91 +2060,50 @@ class ExprEvalCtx:
     - data row composition: [Image, str, Image, Image]
     """
 
-    def __init__(self, output_exprs: List[Expr], filter: Optional[Predicate]):
+    def __init__(self, output_exprs: List[Expr], filter: Optional[Predicate], with_sql: bool = True):
         """
         Init for list of materialized exprs and a possible filter.
         with_sql == True: if an expr e has a e.sql_expr(), its components do not need to be materialized
         (and consequently also don't get data_row_idx assigned) and the expr value is produced via a Select stmt
         """
 
-        # objects needed to materialize the SQL result row
+        # objects needed to stored the SQL result row
         self.sql_exprs: List[sql.sql.expression.ClauseElement] = []
-        self.unique_exprs = UniqueExprSet()
+        self.unique_exprs = ExprDict()
         self.next_data_row_idx = 0
 
         if filter is not None:
-            self._analyze_expr(filter)
+            self._analyze_expr(filter, with_sql)
         for expr in output_exprs:
-            self._analyze_expr(expr)
+            self._analyze_expr(expr, with_sql)
 
     @property
     def num_materialized(self) -> int:
         return self.next_data_row_idx
 
-    def _analyze_expr(self, expr: Expr) -> None:
+    def _analyze_expr(self, expr: Expr, with_sql: bool) -> None:
         """
-        Assign Expr.data_row_idx and Expr.sql_row_idx.
+        Assign Expr.data_row_idx and possibly Expr.sql_row_idx.
         """
         if not self.unique_exprs.add(expr):
             # nothing left to do
             return
 
-        sql_expr = expr.sql_expr()
-        # if this can be materialized via SQL we don't need to look at its components;
-        # we special-case Literals because we don't want to have to materialize them via SQL
-        if sql_expr is not None and not isinstance(expr, Literal):
-            assert expr.data_row_idx < 0
-            expr.data_row_idx = self.next_data_row_idx
-            self.next_data_row_idx += 1
-            expr.sql_row_idx = len(self.sql_exprs)
-            self.sql_exprs.append(sql_expr)
-            return
+        if with_sql:
+            sql_expr = expr.sql_expr()
+            # if this can be materialized via SQL we don't need to look at its components;
+            # we special-case Literals because we don't want to have to stored them via SQL
+            if sql_expr is not None and not isinstance(expr, Literal):
+                assert expr.data_row_idx < 0
+                expr.data_row_idx = self.next_data_row_idx
+                self.next_data_row_idx += 1
+                expr.sql_row_idx = len(self.sql_exprs)
+                self.sql_exprs.append(sql_expr)
+                return
 
         # expr value needs to be computed via Expr.eval()
         for c in expr.components:
-            self._analyze_expr(c)
-        assert expr.data_row_idx < 0
-        expr.data_row_idx = self.next_data_row_idx
-        self.next_data_row_idx += 1
-
-
-class ComputedColEvalCtx:
-    """
-    EvalCtx for computed cols:
-    - referenced inputs are not supplied via SQL
-    - a col's ColumnRef and value_expr need to share the same data_row_idx
-    """
-
-    def __init__(self, computed_col_info: List[Tuple[ColumnRef, Expr]]):
-        """
-        computed_col_info: list of (ref to col, value_expr of col)
-        """
-
-        # we want to avoid duplicate expr evaluation, so we keep track of unique exprs (duplicates share the
-        # same data_row_idx); however, __eq__() doesn't work for sets, so we use a list here
-        self.unique_exprs = UniqueExprSet()
-        self.next_data_row_idx = 0
-
-        for col_ref, expr in computed_col_info:
-            self._analyze_expr(expr)
-            # the expr materializes the value of that column
-            col_ref.data_row_idx = expr.data_row_idx
-            # future references to that column will use the already-assigned data_row_idx
-            self.unique_exprs.add(col_ref)
-
-    @property
-    def num_materialized(self) -> int:
-        return self.next_data_row_idx
-
-    def _analyze_expr(self, expr: Expr) -> None:
-        """
-        Assign Expr.data_row_idx.
-        """
-        if not self.unique_exprs.add(expr):
-            # nothing left to do
-            return
-        for c in expr.components:
-            self._analyze_expr(c)
+            self._analyze_expr(c, with_sql)
         assert expr.data_row_idx < 0
         expr.data_row_idx = self.next_data_row_idx
         self.next_data_row_idx += 1

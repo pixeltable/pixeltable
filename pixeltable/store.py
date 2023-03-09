@@ -109,6 +109,7 @@ class SchemaColumn(Base):
     is_nullable = sql.Column(Boolean, nullable=False)
     is_pk = sql.Column(Boolean, nullable=False)
     value_expr = sql.Column(String, nullable=True)  # json
+    stored = sql.Column(Boolean, nullable=True)
     # if True, creates vector index for this column
     is_indexed = sql.Column(Boolean, nullable=False)
 

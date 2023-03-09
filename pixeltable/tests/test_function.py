@@ -28,7 +28,7 @@ class TestFunction:
     agg = Function.make_aggregate_function(
         IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
 
-    def test_serialize_anonymous(self, init_db: None) -> None:
+    def test_serialize_anonymous(self, init_env) -> None:
         d = self.func.as_dict()
         FunctionRegistry.get().clear_cache()
         deserialized = Function.from_dict(d)

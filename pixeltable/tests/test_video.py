@@ -6,38 +6,51 @@ import pixeltable as pt
 from pixeltable.type_system import VideoType, IntType, ImageType
 from pixeltable.tests.utils import get_video_files
 from pixeltable import catalog
-from pixeltable import utils
 from pixeltable import exceptions as exc
+from pixeltable import utils
+from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.imgstore import ImageStore
 
 
 class TestVideo:
     def test_basic(self, test_db: catalog.Db) -> None:
         video_filepaths = get_video_files()
         db = test_db
-        cols = [
-            catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False),
-            catalog.Column('frame_idx', IntType(), nullable=False),
-        ]
-        # extract frames at fps=1
-        tbl = db.create_table(
-            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
-            extracted_frame_idx_col='frame_idx', extracted_fps=1)
-        tbl.insert_rows([[p] for p in video_filepaths], columns=['video'])
-        tbl_count = tbl.count()
-        assert utils.extracted_frame_count(tbl_id=tbl.id) == tbl.count()
-        _ = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
 
-        # the same, but expressed as a filter
-        tbl2 = db.create_table(
-            'test2', cols, extract_frames_from='video', extracted_frame_col='frame',
-            extracted_frame_idx_col='frame_idx', extracted_fps=0,
-            ffmpeg_filter={'select': 'isnan(prev_selected_t)+gte(t-prev_selected_t, 1)'})
-        tbl2.insert_rows([[p] for p in video_filepaths], columns=['video'])
-        tbl2_count = tbl2.count()
-        assert utils.extracted_frame_count(tbl_id=tbl2.id) == tbl2.count()
-        # for some reason there's one extra frame in tbl2
-        assert tbl.count() == tbl2.count() - 1
+        def create_and_insert(stored: bool) -> catalog.Table:
+            FileCache.get().clear()
+            cols = [
+                catalog.Column('video', VideoType(), nullable=False),
+                catalog.Column('frame', ImageType(), nullable=False, stored=stored, indexed=True),
+                catalog.Column('frame_idx', IntType(), nullable=False),
+            ]
+            # extract frames at fps=1
+            db.drop_table('test', ignore_errors=True)
+            tbl = db.create_table(
+                'test', cols, extract_frames_from='video', extracted_frame_col='frame',
+                extracted_frame_idx_col='frame_idx', extracted_fps=1)
+            tbl.insert_rows([[p] for p in video_filepaths[:2]], columns=['video'])
+            _ = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+            return tbl
+
+        # default case: extracted frames are cached but not stored
+        tbl = create_and_insert(None)
+        assert ImageStore.count(tbl.id) == 0
+        assert FileCache.get().num_files() == tbl.count()
+
+        # extracted frames are neither stored nor cached
+        tbl = create_and_insert(False)
+        assert ImageStore.count(tbl.id) == 0
+        assert FileCache.get().num_files() == 0
+
+        # extracted frames are stored
+        tbl = create_and_insert(True)
+        assert ImageStore.count(tbl.id) == tbl.count()
+        assert FileCache.get().num_files() == 0
+        # revert() also removes extracted frames
+        tbl.insert_rows([[p] for p in video_filepaths], columns=['video'])
+        tbl.revert()
+        assert ImageStore.count(tbl.id) == tbl.count()
 
         # missing 'columns' arg
         with pytest.raises(exc.Error):
@@ -51,9 +64,24 @@ class TestVideo:
         with pytest.raises(exc.Error):
             tbl.insert_rows([[1, 2]], columns=['video'])
 
-        # revert() also removes extracted frames
-        tbl.revert()
-        assert utils.extracted_frame_count(tbl_id=tbl.id) == tbl.count()
+        # create snapshot to make sure we can still retrieve frames
+        db.create_snapshot('snap', ['test'])
+        snap = db.get_table('snap.test')
+        _ = snap[snap.frame].show(10)
+
+        # fps=1 expressed as a filter
+        cols = [
+            catalog.Column('video', VideoType(), nullable=False),
+            catalog.Column('frame', ImageType(), nullable=False),
+            catalog.Column('frame_idx', IntType(), nullable=False),
+        ]
+        tbl2 = db.create_table(
+            'test2', cols, extract_frames_from='video', extracted_frame_col='frame',
+            extracted_frame_idx_col='frame_idx', extracted_fps=0,
+            ffmpeg_filter={'select': 'isnan(prev_selected_t)+gte(t-prev_selected_t, 1)'})
+        tbl2.insert_rows([[p] for p in video_filepaths[:2]], columns=['video'])
+        # for some reason there's one extra frame in tbl2
+        assert tbl.count() == tbl2.count() - 1
 
     def test_make_video(self, test_db: catalog.Db) -> None:
         video_filepaths = get_video_files()

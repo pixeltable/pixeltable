@@ -13,19 +13,21 @@ from pixeltable.tests.utils import read_data_file, make_tbl, create_table_data
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
+from pixeltable.utils.filecache import FileCache
 
 
 @pytest.fixture(scope='session')
-def init_db(tmp_path_factory) -> None:
+def init_env(tmp_path_factory) -> None:
     from pixeltable.env import Env
     # this also runs create_all()
     Env.get().set_up(str(tmp_path_factory.mktemp('base') / '.pixeltable'), 'test', echo=True)
+    FileCache.get().clear()
     yield
     # leave db in place for debugging purposes
 
 
 @pytest.fixture(scope='function')
-def test_db(init_db: None) -> catalog.Db:
+def test_db(init_env) -> catalog.Db:
     cl = pt.Client()
     db = cl.create_db(f'test')
     yield db
@@ -141,7 +143,7 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
 
 # TODO: why does this not work with a session scope? (some user tables don't get created with create_all())
 #@pytest.fixture(scope='session')
-#def indexed_img_tbl(init_db: None) -> catalog.Table:
+#def indexed_img_tbl(init_env: None) -> catalog.Table:
 #    cl = pt.Client()
 #    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')

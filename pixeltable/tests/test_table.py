@@ -10,7 +10,8 @@ from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, ColumnType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files
 from pixeltable.functions import make_video, sum
-from pixeltable import utils
+from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils.filecache import FileCache
 
 
 class TestTable:
@@ -93,6 +94,30 @@ class TestTable:
         tbl = db.create_table(
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',
             extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        tbl.add_column(catalog.Column('c1', computed_with=tbl.frame.rotate(30), stored=True))
+        tbl.add_column(catalog.Column('c2', computed_with=tbl.c1.rotate(40), stored=False))
+        tbl.add_column(catalog.Column('c3', computed_with=tbl.c2.rotate(50), stored=True))
+        # a non-materialized column that refers to another non-materialized column
+        tbl.add_column(catalog.Column('c4', computed_with=tbl.c2.rotate(60), stored=False))
+
+        class WindowFnAggregator:
+            def __init__(self):
+                pass
+            @classmethod
+            def make_aggregator(cls) -> 'WindowFnAggregator':
+                return cls()
+            def update(self) -> None:
+                pass
+            def value(self) -> int:
+                return 1
+        window_fn = pt.make_aggregate_function(
+            IntType(), [],
+            init_fn=WindowFnAggregator.make_aggregator,
+            update_fn=WindowFnAggregator.update,
+            value_fn=WindowFnAggregator.value,
+            requires_order_by=True, allows_window=True)
+        tbl.add_column((catalog.Column('c5', computed_with=window_fn(tbl.frame_idx, group_by=tbl.video))))
+
         params = tbl.parameters
         # reload to make sure that metadata gets restored correctly
         cl = pt.Client()
@@ -100,9 +125,17 @@ class TestTable:
         tbl = db.get_table('test')
         assert tbl.parameters == params
         tbl.insert_rows([[get_video_files()[0]]], ['video'])
+        # * 4: we have four stored img cols
+        # TODO: change to * 2 when stored=False is implemented for computed image cols
+        assert ImageStore.count(tbl.id) == tbl.count() * 4
         html_str = tbl.show(n=100)._repr_html_()
         # TODO: check html_str
         _ = tbl[make_video(tbl.frame_idx, tbl.frame)].group_by(tbl.video).show()
+
+        # revert() clears stored images and the cache
+        tbl.revert()
+        assert ImageStore.count(tbl.id) == 0
+        assert FileCache.get().num_files(tbl.id) == 0
 
         with pytest.raises(exc.Error):
             # can't drop frame col
@@ -110,6 +143,14 @@ class TestTable:
         with pytest.raises(exc.Error):
             # can't drop frame_idx col
             tbl.drop_column('frame_idx')
+
+        # drop() clears stored images and the cache
+        tbl.insert_rows([[get_video_files()[0]]], ['video'])
+        _ = tbl.show()
+        tbl.drop()
+        assert ImageStore.count(tbl.id) == 0
+        assert FileCache.get().num_files(tbl.id) == 0
+
         with pytest.raises(exc.BadFormatError):
             # missing parameters
             _ = db.create_table(
@@ -264,7 +305,7 @@ class TestTable:
         data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         t.insert_pandas(data_df.loc[0:20, ['img']])
         _ = t.show()
-        assert utils.computed_img_count(tbl_id=t.id) == t.count()
+        assert ImageStore.count(t.id) == t.count()
 
         # test loading from store
         cl2 = pt.Client()
@@ -277,14 +318,14 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert_pandas(data_df.loc[0:20, ['img']])
-        assert utils.computed_img_count(tbl_id=t.id) == t2.count()
+        assert ImageStore.count(t.id) == t2.count()
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
         print(tbl_df)
 
         # revert also removes computed images
         t2.revert()
-        assert utils.computed_img_count() == t2.count()
+        assert ImageStore.count(t2.id) == t2.count()
 
     def test_computed_window_fn(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
         db = test_db

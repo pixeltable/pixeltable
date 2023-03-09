@@ -2,15 +2,14 @@ import datetime
 import glob
 import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 import numpy as np
 import pandas as pd
 
-import pixeltable as pt
 from pixeltable import catalog
 from pixeltable.type_system import ColumnType, StringType, IntType, FloatType, BoolType, TimestampType
-from pixeltable.function import Function
+
 
 def make_default_type(t: ColumnType.Type) -> ColumnType:
     if t == ColumnType.Type.STRING:

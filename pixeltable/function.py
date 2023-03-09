@@ -301,6 +301,10 @@ class Function:
         print(self.md.src)
 
     def as_dict(self) -> Dict:
+        if self.id is not None:
+            # this is a stored function, we only need the id to reconstruct it
+            return {'id': self.id}
+
         if not self.is_library_function and self.id is None:
             # this is not a library function and the absence of an assigned id indicates that it's not in the store yet
             FunctionRegistry.get().create_function(self)
@@ -318,13 +322,12 @@ class Function:
     @classmethod
     def from_dict(cls, d: Dict) -> 'Function':
         assert 'id' in d
-        assert 'module_name' in d
-        assert 'eval_symbol' in d and 'init_symbol' in d and 'update_symbol' in d and 'value_symbol' in d
-
         if d['id'] is not None:
             assert d['module_name'] is None
             return FunctionRegistry.get().get_function(d['id'])
         else:
+            assert 'module_name' in d
+            assert 'eval_symbol' in d and 'init_symbol' in d and 'update_symbol' in d and 'value_symbol' in d
             md = cls.Metadata.from_dict(d['md'])
             return cls(
                 md, module_name=d['module_name'], eval_symbol=d['eval_symbol'],

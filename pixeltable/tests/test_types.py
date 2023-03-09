@@ -9,7 +9,7 @@ from pixeltable import catalog
 
 
 class TestTypes:
-    def test_serialize(self, init_db: None) -> None:
+    def test_serialize(self, init_env) -> None:
         type_vals = [
             InvalidType(), StringType(), IntType(), BoolType(), TimestampType(),
             ImageType(height=100, width=200, mode=ImageType.Mode.RGB),

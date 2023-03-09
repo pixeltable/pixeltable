@@ -1,4 +1,4 @@
-from typing import Optional, List, Set, Dict, Any, Type, Union, Callable
+from typing import Optional, List, Set, Dict, Any, Type, Union, Callable, Generator
 import re
 import inspect
 import io
@@ -19,9 +19,11 @@ from pixeltable.env import Env
 from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType, StringType
 from pixeltable.utils import clip, video
-from pixeltable import utils
 from pixeltable.index import VectorIndex
 from pixeltable.function import Function, FunctionRegistry
+from pixeltable.utils.video import FrameIterator
+from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils.filecache import FileCache
 
 
 _ID_RE = r'[a-zA-Z]\w*'
@@ -42,7 +44,9 @@ class Column:
     def __init__(
             self, name: str, col_type: Optional[ColumnType] = None,
             computed_with: Optional[Union['Expr', Callable]] = None,
-            primary_key: bool = False, nullable: bool = True, col_id: Optional[int] = None,
+            primary_key: bool = False, nullable: bool = True, stored: Optional[bool] = None,
+            # these parameters aren't set by users
+            col_id: Optional[int] = None,
             value_expr_str: Optional[str] = None, indexed: bool = False):
         """
         Computed columns: those have a non-None computed_with argument
@@ -54,6 +58,11 @@ class Column:
         - the callable's parameter names must correspond to existing columns in the table for which this Column
           is being used
         - col_type needs to be set to the callable's return type
+
+        stored (only valid for computed cols):
+        - if True: the column is present in the stored table
+        - if False: the column is not present in the stored table and always recomputed during a query and never cached
+        - if None: the column is not present in the stored table but column values are cached during retrieval
 
         indexed: only valid for image columns; if true, maintains an NN index for this column
         """
@@ -83,12 +92,17 @@ class Column:
             else:
                 self.value_expr = value_expr.copy()
                 self.col_type = self.value_expr.col_type
+        self.value_expr_str = value_expr_str  # stored here so it's easily accessible for the Table c'tor
 
         if col_type is not None:
             self.col_type = col_type
         assert self.col_type is not None
 
-        self.value_expr_str = value_expr_str  # stored here so it's easily accessible for the Table c'tor
+        # TODO: fix this for extracted frame cols, which are effectively computed
+        #if stored == False and not(self.is_computed and self.col_type.is_image_type()):
+            #raise exc.Error(f'Column {name}: stored={stored} only applies to computed image columns')
+        self.stored = stored
+
         self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us
         self.id = col_id
         self.primary_key = primary_key
@@ -98,6 +112,7 @@ class Column:
         # computed cols also have storage columns for the exception string and type
         self.sa_errormsg_col: Optional[sql.schema.Column] = None
         self.sa_errortype_col: Optional[sql.schema.Column] = None
+        self.tbl: Optional[Table] = None  # set by owning Table
 
         if indexed and not self.col_type.is_image_type():
             raise exc.Error(f'Column {name}: indexed=True requires ImageType')
@@ -106,7 +121,25 @@ class Column:
 
     @property
     def is_computed(self) -> bool:
-        return self.compute_func is not None or self.value_expr is not None
+        return self.compute_func is not None or self.value_expr is not None or self.value_expr_str is not None
+
+    @property
+    def is_stored(self) -> bool:
+        """
+        Returns True if column is materialized in the stored table.
+        Note that the extracted frame col is effectively computed.
+        """
+        # or (not self.is_computed and not self.id == self.tbl.parameters.frame_col_id)
+        return self.stored == True \
+               or (not self.id == self.tbl.parameters.frame_col_id) \
+               or not self.col_type.is_image_type()
+
+    @property
+    def is_cached(self) -> bool:
+        """
+        Returns True if column is not materialized in the stored table but cachable.
+        """
+        return not self.is_stored and self.stored is None
 
     def list(self) -> None:
         """
@@ -121,6 +154,7 @@ class Column:
         """
         These need to be recreated for every new table schema version.
         """
+        assert self.is_stored
         # computed cols store a NULL value when the computation has an error
         nullable = True if self.is_computed else self.nullable
         self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=nullable)
@@ -133,6 +167,7 @@ class Column:
 
     def storage_name(self) -> str:
         assert self.id is not None
+        assert self.is_stored
         return f'col_{self.id}'
 
     def errormsg_storage_name(self) -> str:
@@ -147,10 +182,9 @@ class Column:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Column):
             return False
-        if self.sa_col is None or other.sa_col is None:
-            return False
-        # if they point to the same table column, they're the same
-        return str(self.sa_col) == str(other.sa_col)
+        assert self.tbl is not None
+        assert other.tbl is not None
+        return self.tbl.id == other.tbl.id and self.id == other.id
 
 
 # base class of all addressable objects within a Db
@@ -199,10 +233,22 @@ class NamedFunction(SchemaObject):
         self.name = name
 
 
+@dataclasses.dataclass
+class TableParameters:
+    # garbage-collect old versions beyond this point, unless they are referenced in a snapshot
+    num_retained_versions: int = 10
+
+    # parameters for frame extraction
+    frame_src_col_id: int = -1 # column id
+    frame_col_id: int = -1 # column id
+    frame_idx_col_id: int = -1 # column id
+    extraction_fps: int = -1
+    ffmpeg_filter: Dict[str, str] = dataclasses.field(default_factory=dict)
+
+
 class Table(SchemaObject):
-    #def __init__(self, tbl_record: store.Table, schema: List[Column]):
     def __init__(
-            self, db_id: int, tbl_id: int, dir_id: int, name: str, version: int, cols: List[Column]):
+            self, db_id: int, tbl_id: int, dir_id: int, name: str, version: int, params: Dict, cols: List[Column]):
         super().__init__(tbl_id)
         self.db_id = db_id
         self.dir_id = dir_id
@@ -212,10 +258,12 @@ class Table(SchemaObject):
             if re.fullmatch(_ID_RE, col.name) is None:
                 raise exc.BadFormatError(f"Invalid column name: '{col.name}'")
             assert col.id is not None
+            col.tbl = self
         self.cols = cols
         self.cols_by_name = {col.name: col for col in cols}
         self.cols_by_id = {col.id: col for col in cols}
         self.version = version
+        self.parameters = TableParameters(**params)
 
         # we can't call _load_valid_rowids() here because the storage table may not exist yet
         self.valid_rowids: Set[int] = set()
@@ -228,8 +276,31 @@ class Table(SchemaObject):
         # make sure to traverse columns ordered by position = order in which cols were created;
         # this guarantees that references always point backwards
         for col in self.cols:
+            col.tbl = self
             if col.value_expr is not None or col.value_expr_str is not None:
                 self._record_value_expr(col)
+
+    def extracts_frames(self) -> bool:
+        return self.parameters.frame_col_id != -1
+
+    def is_frame_col(self, c: Column) -> bool:
+        return c.id == self.parameters.frame_col_id
+
+    def frame_src_col(self) -> Optional[Column]:
+        """
+        Return the frame src col, or None if not applicable.
+        """
+        if self.parameters.frame_src_col_id == -1:
+            return None
+        return self.cols_by_id[self.parameters.frame_src_col_id]
+
+    def frame_idx_col(self) -> Optional[Column]:
+        """
+        Return the frame idx col, or None if not applicable.
+        """
+        if self.parameters.frame_idx_col_id == -1:
+            return None
+        return self.cols_by_id[self.parameters.frame_idx_col_id]
 
     def _record_value_expr(self, col: Column) -> None:
         """
@@ -287,6 +358,12 @@ class Table(SchemaObject):
     def columns(self) -> List[Column]:
         return self.cols
 
+    @property
+    def frame_col(self) -> Optional[Column]:
+        if self.parameters.frame_col_id == -1:
+            return None
+        return self.cols_by_id[self.parameters.frame_col_id]
+
     def describe(self) -> pd.DataFrame:
         pd_df = pd.DataFrame({
             'Column Name': [c.name for c in self.cols],
@@ -313,7 +390,7 @@ class Table(SchemaObject):
             sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(store.Table.MAX_VERSION))
 
         sa_cols = [self.rowid_col, self.v_min_col, self.v_max_col]
-        for col in self.cols:
+        for col in [c for c in self.cols if c.is_stored]:
             # re-create sql.Columns for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
             col.create_sa_cols()
@@ -343,7 +420,7 @@ class Table(SchemaObject):
         cols = [
             Column(
                 r.name, ColumnType.deserialize(r.col_type), primary_key=r.is_pk, nullable=r.is_nullable,
-                col_id=r.col_id, value_expr_str=r.value_expr, indexed=r.is_indexed)
+                stored=r.stored, col_id=r.col_id, value_expr_str=r.value_expr, indexed=r.is_indexed)
             for r in col_records
         ]
         for col in [col for col in cols if col.col_type.is_image_type()]:
@@ -353,7 +430,7 @@ class Table(SchemaObject):
 
 
 class TableSnapshot(Table):
-    def __init__(self, snapshot_record: store.TableSnapshot, cols: List[Column]):
+    def __init__(self, snapshot_record: store.TableSnapshot, params: Dict, cols: List[Column]):
         assert snapshot_record.db_id is not None
         assert snapshot_record.id is not None
         assert snapshot_record.dir_id is not None
@@ -363,7 +440,7 @@ class TableSnapshot(Table):
         # the name of the data table
         super().__init__(
             snapshot_record.db_id, snapshot_record.tbl_id, snapshot_record.dir_id, snapshot_record.name,
-            snapshot_record.tbl_version, cols)
+            snapshot_record.tbl_version, params, cols)
         self.snapshot_tbl_id = snapshot_record.id
         # it's safe to call _load_valid_rowids() here because the storage table already exists
         self._load_valid_rowids()
@@ -375,19 +452,6 @@ class TableSnapshot(Table):
     def display_name(cls) -> str:
         return 'table snapshot'
 
-@dataclasses.dataclass
-class TableParameters:
-    # garbage-collect old versions beyond this point, unless they are referenced in a snapshot
-    num_retained_versions: int = 10
-
-    # parameters for frame extraction
-    frame_src_col: int = -1 # column id
-    frame_col: int = -1 # column id
-    frame_idx_col: int = -1 # column id
-    extraction_fps: int = -1
-    ffmpeg_filter: Dict[str, str] = dataclasses.field(default_factory=dict)
-
-
 class MutableTable(Table):
     def __init__(self, tbl_record: store.Table, schema_version: int, cols: List[Column]):
         assert tbl_record.db_id is not None
@@ -396,13 +460,13 @@ class MutableTable(Table):
         assert tbl_record.name is not None
         assert tbl_record.current_version is not None
         super().__init__(
-            tbl_record.db_id, tbl_record.id, tbl_record.dir_id, tbl_record.name, tbl_record.current_version, cols)
+            tbl_record.db_id, tbl_record.id, tbl_record.dir_id, tbl_record.name, tbl_record.current_version,
+            tbl_record.parameters, cols)
         assert tbl_record.next_col_id is not None
         self.next_col_id = tbl_record.next_col_id
         assert tbl_record.next_row_id is not None
         self.next_row_id = tbl_record.next_row_id
         self.schema_version = schema_version
-        self.parameters = TableParameters(**tbl_record.parameters)
 
     def __repr__(self) -> str:
         return f'MutableTable(name={self.name})'
@@ -418,6 +482,7 @@ class MutableTable(Table):
         if c.name in self.cols_by_name:
             raise exc.DuplicateNameError(f'Column {c.name} already exists')
         assert self.next_col_id is not None
+        c.tbl = self
         c.id = self.next_col_id
         self.next_col_id += 1
 
@@ -454,17 +519,19 @@ class MutableTable(Table):
                 sql.insert(store.ColumnHistory.__table__)
                     .values(tbl_id=self.id, col_id=c.id, schema_version_add=self.schema_version))
             self._create_col_md(conn)
-            stmt = f'ALTER TABLE {self.storage_name()} ADD COLUMN {c.storage_name()} {c.col_type.to_sql()}'
-            conn.execute(sql.text(stmt))
-            if c.is_computed:
-                # we also need to create the errormsg and errortype storage cols
-                stmt = (f'ALTER TABLE {self.storage_name()} '
-                        f'ADD COLUMN {c.errormsg_storage_name()} {StringType().to_sql()} DEFAULT NULL')
+
+            if c.is_stored:
+                stmt = f'ALTER TABLE {self.storage_name()} ADD COLUMN {c.storage_name()} {c.col_type.to_sql()}'
                 conn.execute(sql.text(stmt))
-                stmt = (f'ALTER TABLE {self.storage_name()} '
-                        f'ADD COLUMN {c.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
-                conn.execute(sql.text(stmt))
-        self._create_sa_tbl()
+                if c.is_computed:
+                    # we also need to create the errormsg and errortype storage cols
+                    stmt = (f'ALTER TABLE {self.storage_name()} '
+                            f'ADD COLUMN {c.errormsg_storage_name()} {StringType().to_sql()} DEFAULT NULL')
+                    conn.execute(sql.text(stmt))
+                    stmt = (f'ALTER TABLE {self.storage_name()} '
+                            f'ADD COLUMN {c.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
+                    conn.execute(sql.text(stmt))
+                self._create_sa_tbl()
 
         row_count = self.count()
         if not c.is_computed or row_count == 0:
@@ -517,16 +584,16 @@ class MutableTable(Table):
             raise exc.Error(
                 f'Cannot drop column {name} because the following columns depend on it:\n',
                 f'{", ".join([c.name for c in col.dependent_cols])}')
-        if col.id == self.parameters.frame_col or col.id == self.parameters.frame_idx_col:
-            src_col_name = self.cols_by_id[self.parameters.frame_src_col].name
+        if col.id == self.parameters.frame_col_id or col.id == self.parameters.frame_idx_col_id:
+            src_col_name = self.cols_by_id[self.parameters.frame_src_col_id].name
             raise exc.Error(
                 f'Cannot drop column {name} because it is used for frame extraction on column {src_col_name}')
-        if col.id == self.parameters.frame_src_col:
+        if col.id == self.parameters.frame_src_col_id:
             # we also need to reset the frame extraction table parameters
-            self.parameters.frame_src_col = None
-            self.parameters.frame_col = None
-            self.parameters.frame_idx_col = None
-            self.parameters.extraction_fps = None
+            self.parameters.frame_src_col_id = -1
+            self.parameters.frame_col_id = -1
+            self.parameters.frame_idx_col_id = -1
+            self.parameters.extraction_fps = -1
 
         if col.value_expr is not None:
             # update Column.dependent_cols
@@ -610,7 +677,7 @@ class MutableTable(Table):
                 .values(
                     tbl_id=self.id, schema_version=self.version, col_id=c.id, pos=pos, name=c.name,
                     col_type=c.col_type.serialize(), is_nullable=c.nullable, is_pk=c.primary_key,
-                    value_expr=value_expr_str, is_indexed=c.is_indexed))
+                    value_expr=value_expr_str, stored=c.stored, is_indexed=c.is_indexed))
 
     def _convert_to_stored(self, col: Column, val: Any, rowid: int) -> Any:
         """
@@ -621,7 +688,7 @@ class MutableTable(Table):
         if col.col_type.is_image_type():
             # replace PIL.Image.Image with file path
             img = val
-            img_path = utils.get_computed_img_path(self.id, col.id, self.version, rowid)
+            img_path = ImageStore.get_path(self.id, col.id, self.version, rowid)
             img.save(img_path)
             return str(img_path)
         elif col.col_type.is_array_type():
@@ -662,28 +729,24 @@ class MutableTable(Table):
         pd_df = pd.DataFrame.from_records(rows, columns=columns)
         return self.insert_pandas(pd_df)
 
-    def insert_pandas(self, data: pd.DataFrame) -> str:
+    def _check_data(self, data: pd.DataFrame):
         """
-        If self.parameters.frame_src_col != None:
-        - each row (containing a video) is expanded into one row per extracted frame (at the rate of the fps parameter)
-        - parameters.frame_col is the image column that receives the extracted frame
-        - parameters.frame_idx_col is the integer column that receives the frame index (starting at 0)
+        Make sure 'data' conforms to schema.
         """
-        self._check_is_dropped()
         all_col_names = {col.name for col in self.cols}
         reqd_col_names = {col.name for col in self.cols if not col.nullable and col.value_expr is None}
-        if self.parameters.frame_src_col is not None:
-            reqd_col_names.discard(self.cols_by_id[self.parameters.frame_col].name)
-            reqd_col_names.discard(self.cols_by_id[self.parameters.frame_idx_col].name)
+        if self.extracts_frames():
+            reqd_col_names.discard(self.cols_by_id[self.parameters.frame_col_id].name)
+            reqd_col_names.discard(self.cols_by_id[self.parameters.frame_idx_col_id].name)
         given_col_names = set(data.columns)
         if not(reqd_col_names <= given_col_names):
             raise exc.InsertError(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')
         if not(given_col_names <= all_col_names):
             raise exc.InsertError(f'Unknown columns: {", ".join(given_col_names - all_col_names)}')
         computed_col_names = {col.name for col in self.cols if col.value_expr is not None}
-        if self.parameters.frame_src_col is not None:
-            computed_col_names.add(self.cols_by_id[self.parameters.frame_col].name)
-            computed_col_names.add(self.cols_by_id[self.parameters.frame_idx_col].name)
+        if self.extracts_frames():
+            computed_col_names.add(self.cols_by_id[self.parameters.frame_col_id].name)
+            computed_col_names.add(self.cols_by_id[self.parameters.frame_idx_col_id].name)
         if len(computed_col_names & given_col_names) > 0:
             raise exc.InsertError(
                 f'Provided values for computed columns: {", ".join(computed_col_names & given_col_names)}')
@@ -743,6 +806,11 @@ class MutableTable(Table):
                 for _, path_str in data[col.name].items():
                     if path_str is None:
                         continue
+                    path = pathlib.Path(path_str)
+                    if not path.is_file():
+                        raise exc.RuntimeError(
+                            f'For frame extraction, value for column {col.name} in row {idx} requires a valid '
+                            f'file path: {path}')
                     cap = cv2.VideoCapture(path_str)
                     success = cap.isOpened()
                     cap.release()
@@ -755,118 +823,162 @@ class MutableTable(Table):
                         raise exc.RuntimeError(
                             f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
+    def insert_pandas(self, data: pd.DataFrame) -> str:
+        """
+        If self.parameters.frame_src_col_id != None:
+        - each row (containing a video) is expanded into one row per extracted frame (at the rate of the fps parameter)
+        - parameters.frame_col_id is the image column that receives the extracted frame
+        - parameters.frame_idx_col_id is the integer column that receives the frame index (starting at 0)
+        """
+        self._check_is_dropped()
+        self._check_data(data)
+
         # we're creating a new version
         self.version += 1
 
+        if self.extracts_frames():
+            video_col = self.cols_by_id[self.parameters.frame_src_col_id]
+            frame_col = self.cols_by_id[self.parameters.frame_col_id]
+            frame_idx_col = self.cols_by_id[self.parameters.frame_idx_col_id]
+        else:
+            video_col, frame_col, frame_idx_col = None, None, None
+
         # frame extraction from videos
-        if self.parameters.frame_src_col is not None:
-            video_col = self.cols_by_id[self.parameters.frame_src_col]
-            frame_col = self.cols_by_id[self.parameters.frame_col]
-            frame_idx_col = self.cols_by_id[self.parameters.frame_idx_col]
-
-            # check data: video_column needs to contain valid file paths
-            for idx, path_str in data[video_col.name].items():
-                path = pathlib.Path(path_str)
-                if not path.is_file():
-                    raise exc.RuntimeError(
-                        f'For frame extraction, value for column {col.name} in row {idx} requires a valid '
-                        f'file path: {path}')
-
-            # expand each row in 'data' into one row per frame, adding columns frame_column and frame_idx_column
-            expanded_rows: List[Dict] = []
+        frame_iters: List[Optional[FrameIterator]] = [None] * len(data)
+        num_rows = len(data)  # total number of rows, after frame extraction
+        if self.extracts_frames():
             print('Extracting frames...')
-            with tqdm(total=len(data)) as progress_bar:
-                for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
-                    input_row = input_tuple._asdict()
-                    path = input_row[video_col.name]
-                    # we need to generate a unique prefix for each set of frames corresponding to a single video
-                    frame_path_prefix = utils.get_extracted_frame_path(
-                        self.id, video_col.id, self.version, self.next_row_id + input_row_idx)
-                    frame_paths = video.extract_frames(
-                        path, frame_path_prefix, self.parameters.extraction_fps, self.parameters.ffmpeg_filter)
-                    frame_rows = [
-                        {frame_col.name: p, frame_idx_col.name: i, **input_row} for i, p in enumerate(frame_paths)
-                    ]
-                    expanded_rows.extend(frame_rows)
+            data.sort_values([video_col.name], axis=0, inplace=True)  # we need to order by video_col, frame_idx_col
+            with tqdm(total=data[video_col.name].count()) as progress_bar:
+                video_paths = list(data[video_col.name])
+                video_path_isnull = list(data[video_col.name].isna())
+                for i in range(len(data)):
+                    if video_path_isnull[i]:
+                        continue
+                    frame_iter = FrameIterator(
+                        video_paths[i], fps=self.parameters.extraction_fps, ffmpeg_filter=self.parameters.ffmpeg_filter)
+                    num_rows += frame_iter.num_frames() - 1
+                    frame_iters[i] = frame_iter
                     progress_bar.update(1)
-            data = pd.DataFrame.from_dict(expanded_rows, orient='columns')
-            data_cols = [self.cols_by_name[name] for name in data.columns]
 
-        rowids = range(self.next_row_id, self.next_row_id + len(data))
+        rowids = range(self.next_row_id, self.next_row_id + num_rows)
 
-        # prepare state for computed cols
+        # prepare state for stored computed cols
         from pixeltable import exprs
-        eval_ctx: Optional[exprs.ComputedColEvalCtx] = None
-        evaluator: Optional[exprs.ExprEvaluator] = None
-        input_col_refs: List[exprs.ColumnRef] = []  # columns needed as input for computing value_exprs
-        computed_cols = [col for col in self.cols if col.value_expr is not None]
-        value_exprs: List[exprs.Expr] = []  # for computed_cols
-        window_sort_exprs: List[exprs.Expr] = []
-        if len(computed_cols) > 0:
-            # create copies to avoid reusing past execution state; eval ctx and evaluator need to share these copies
-            value_exprs = [c.value_expr.copy() for c in computed_cols]
-            eval_ctx = exprs.ComputedColEvalCtx(
-                [(exprs.ColumnRef(computed_cols[i]), value_exprs[i]) for i in range(len(computed_cols))])
-            evaluator = exprs.ExprEvaluator(value_exprs, None, with_sql=False)
-            input_col_refs = [
-                e for e in evaluator.output_eval_exprs
-                # we're looking for ColumnRefs to Columns that aren't themselves computed
-                if isinstance(e, exprs.ColumnRef) and e.col.value_expr is None
-            ]
+        # create copies to avoid reusing past execution state; eval ctx and evaluator need to share these copies
+        stored = [[c, c.value_expr.copy()] for c in self.cols if c.is_computed and c.is_stored]
+        for i in range(len(stored)):
+            # substitute refs to computed columns until there aren't any
+            while True:
+                target = stored[i][1]
+                computed_col_refs = [
+                    e for e in target.subexprs() if isinstance(e, exprs.ColumnRef) and e.col.is_computed
+                ]
+                if len(computed_col_refs) == 0:
+                    break
+                for ref in computed_col_refs:
+                    assert ref.col.value_expr is not None
+                    stored[i][1] = stored[i][1].substitute(ref, ref.col.value_expr)
 
+        stored_exprs = [e for _, e in stored]
+        eval_ctx = exprs.ExprEvalCtx(stored_exprs, None, with_sql=False) if len(stored) > 0 else None
+        evaluator = exprs.ExprEvaluator(stored_exprs, None, with_sql=False) if len(stored) > 0 else None
+        input_col_refs = exprs.ExprSet([
+            e for e in exprs.Expr.list_subexprs(stored_exprs)
+            # we're looking for ColumnRefs to Columns that aren't themselves computed
+            if isinstance(e, exprs.ColumnRef) and not e.col.is_computed])
+
+        # if we're extracting frames, the ordering is dictated by that, and we already checked that
+        # all computed cols with window functions are compatible with that
+        # TODO: implement that check in add_column()
+        if not self.extracts_frames():
             # determine order_by clause for window functions, if any
             window_fn_calls = [
-                e for e in exprs.Expr.list_subexprs(value_exprs)
+                e for e in exprs.Expr.list_subexprs(stored_exprs)
                 if isinstance(e, exprs.FunctionCall) and e.is_window_fn_call
             ]
             window_sort_exprs = window_fn_calls[0].get_window_sort_exprs() if len(window_fn_calls) > 0 else []
-            fn_calls = [
-                e for e in exprs.Expr.list_subexprs(value_exprs)
-                if isinstance(e, exprs.FunctionCall)
-            ]
-            for call in fn_calls:
-                if call.fn.is_library_function:
-                    continue
-                _  =  call.fn.list()
-                a = 1
 
-        # construct new df with the storage column names, in order to iterate over it more easily
-        stored_data = {col.storage_name(): data[col.name] for col in data_cols}
-        stored_data_df = pd.DataFrame(data=stored_data)
-        if len(window_sort_exprs) > 0:
-            # need to sort data in order to compute windowed agg functions
-            storage_col_names = [e.col.storage_name() for e in window_sort_exprs]
-            stored_data_df.sort_values(storage_col_names, axis=0, inplace=True)
-        insert_values: List[Dict[str, Any]] = []
+            if len(window_sort_exprs) > 0:
+                # need to sort data in order to compute windowed agg functions
+                sort_col_names = [e.col.name for e in window_sort_exprs]
+                data.sort_values(sort_col_names, axis=0, inplace=True)
 
-        # we're also updating image indices
+        # switch to storage column names in 'data'
+        data = data.rename(
+            {col_name: self.cols_by_name[col_name].storage_name() for col_name in data.columns}, axis='columns',
+            inplace=False)
+
+        def input_rows() -> Generator[Dict[str, Any], None, None]:
+            """
+            Returns rows from 'data' as dict with rowid and v_min fields.
+            """
+            assert video_col is None
+            for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
+                output_row = {'rowid': rowids[input_row_idx], 'v_min': self.version, **input_tuple._asdict()}
+                yield output_row
+
+        def expanded_input_rows() -> Generator[Dict[str, Any], None, None]:
+            """
+            Returns rows from 'data' as dict with rowid and v_min fields, expanded with frames:
+            each input row turns into n output rows (n = number of frames in the input row's video)
+            """
+            assert video_col is not None
+            next_output_row_idx = 0
+            for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
+                for frame_idx, frame_path in frame_iters[input_row_idx]:
+                    rowid = rowids[next_output_row_idx]
+                    output_row = {
+                        'rowid': rowid, 'v_min': self.version, **input_tuple._asdict(),
+                        frame_idx_col.storage_name(): frame_idx,
+                    }
+                    if frame_col.is_stored:
+                        # move frame file to a permanent location
+                        frame_path = str(ImageStore.add(self.id, frame_col.id, self.version, rowid, frame_path))
+                        output_row[frame_col.storage_name()] = frame_path
+                    output_row['frame'] = PIL.Image.open(frame_path)
+                    next_output_row_idx += 1
+                    yield output_row
+
+
+        # we're also updating image indices; we're doing this with one idx.insert() call rather than piecemeal,
+        # because the index gets rebuilt from the ground up in each such call
         indexed_cols = [c for c in self.cols if c.is_indexed]
-        embeddings = {c.id: np.zeros((len(data), 512)) for c in indexed_cols}
-        num_excs = 0
+        embeddings = {c.id: np.zeros((num_rows, 512)) for c in indexed_cols}
         cols_with_excs: Set[int] = set()  # set of ids
-        if self.parameters.frame_src_col is not None:
-            print('Generating row data...')
-        with tqdm(total=len(stored_data_df)) as progress_bar:
-            for row_idx, row in enumerate(stored_data_df.itertuples(index=False)):
-                row_dict = {'rowid': rowids[row_idx], 'v_min': self.version, **row._asdict()}
+        num_excs = 0
+        print('Inserting rows...')
 
-                if len(computed_cols) > 0:
-                    # materialize computed column values
+        # TODO: typing for tqdm()
+        def output_rows(progress_bar: Any) -> Generator[Dict[str, Any], None, None]:
+            """
+            Return rows used to supply values to sql.insert().
+            """
+            row_generator = input_rows() if video_col is None else expanded_input_rows()
+            for row_idx, row in enumerate(row_generator):
+                if len(stored) > 0:
+                    # stored computed column values
                     data_row = [None] * eval_ctx.num_materialized
+
                     # copy inputs
                     for col_ref in input_col_refs:
-                        data_row[col_ref.data_row_idx] = row_dict[col_ref.col.storage_name()]
-                        # load image, if this is a file path
-                        if col_ref.col_type.is_image_type():
-                            data_row[col_ref.data_row_idx] = PIL.Image.open(data_row[col_ref.data_row_idx])
+                        if col_ref.col.id == self.parameters.frame_col_id:
+                            data_row[col_ref.data_row_idx] = row['frame']
+                        else:
+                            data_row[col_ref.data_row_idx] = row[col_ref.col.storage_name()]
+                            # load image, if this is a file path
+                            if col_ref.col_type.is_image_type():
+                                data_row[col_ref.data_row_idx] = PIL.Image.open(data_row[col_ref.data_row_idx])
+
                     _, exc_tb = evaluator.eval((), data_row)
                     if exc_tb is not None:
                         evaluator.propagate_excs(data_row)
 
-                    computed_vals_dict: Dict[str, Any] = {}
-                    for col_idx, col in enumerate(computed_cols):
-                        val = data_row[value_exprs[col_idx].data_row_idx]
+                    computed_vals_dict: Dict[str, Any] = {}  # key: column's storage name
+                    for col, value_expr in stored:
+                        val = data_row[value_expr.data_row_idx]
                         if isinstance(val, Exception):
+                            nonlocal num_excs
                             num_excs += 1
                             cols_with_excs.add(col.id)
                             computed_vals_dict[col.storage_name()] = None
@@ -874,37 +986,54 @@ class MutableTable(Table):
                             computed_vals_dict[col.errormsg_storage_name()] = str(val)
                         else:
                             # convert data values to storage format where necessary
-                            data_row[value_exprs[col_idx].data_row_idx] = \
-                                self._convert_to_stored(col, val, rowids[row_idx])
-                            computed_vals_dict[col.storage_name()] = data_row[value_exprs[col_idx].data_row_idx]
+                            data_row[value_expr.data_row_idx] = self._convert_to_stored(col, val, row['rowid'])
+                            computed_vals_dict[col.storage_name()] = data_row[value_expr.data_row_idx]
                             computed_vals_dict[col.errortype_storage_name()] = None
                             computed_vals_dict[col.errormsg_storage_name()] = None
-                    row_dict.update(computed_vals_dict)
+                    row.update(computed_vals_dict)
 
                 # compute embeddings
                 for c in indexed_cols:
-                    path_str = row_dict[c.storage_name()]
-                    try:
-                        img = Image.open(path_str)
-                        embeddings[c.id][row_idx] = clip.encode_image(img)
-                    except:
-                        # this shouldn't be happening at this point
-                        raise RuntimeError(f'Image column {c.name}: file does not exist or is invalid: {path_str}')
+                    img: Optional[PIL.Image.Image] = None
+                    if c.id == self.parameters.frame_col_id:
+                        img = row['frame']
+                    else:
+                        path_str = row[c.storage_name()]
+                        try:
+                            img = Image.open(path_str)
+                        except:
+                            # this shouldn't be happening at this point
+                            raise RuntimeError(f'Image column {c.name}: file does not exist or is invalid: {path_str}')
+                    embeddings[c.id][row_idx] = clip.encode_image(img)
 
-                insert_values.append(row_dict)
                 progress_bar.update(1)
+                yield row
+
+        with tqdm(total=num_rows) as progress_bar:
+            with Env.get().engine.begin() as conn:
+                # insert 1024 rows at a time
+                batch_size = 64
+                has_data = True
+                insert_values: List[Dict[str, Any]] = []
+                rows = output_rows(progress_bar)
+                while has_data:
+                    try:
+                        insert_values.append(next(rows))
+                    except StopIteration:
+                        has_data = False
+                    if len(insert_values) == batch_size or not has_data:
+                        conn.execute(sql.insert(self.sa_tbl), insert_values)
+                        insert_values = []
+
+                self.next_row_id += num_rows
+                conn.execute(
+                    sql.update(store.Table.__table__)
+                        .values({store.Table.current_version: self.version, store.Table.next_row_id: self.next_row_id})
+                        .where(store.Table.id == self.id))
 
         # update image indices
         for c in indexed_cols:
             c.idx.insert(embeddings[c.id], np.array(rowids))
-
-        with Env.get().engine.begin() as conn:
-            conn.execute(sql.insert(self.sa_tbl), insert_values)
-            self.next_row_id += len(data)
-            conn.execute(
-                sql.update(store.Table.__table__)
-                    .values({store.Table.current_version: self.version, store.Table.next_row_id: self.next_row_id})
-                    .where(store.Table.id == self.id))
 
         self.valid_rowids.update(rowids)
         if num_excs == 0:
@@ -922,23 +1051,6 @@ class MutableTable(Table):
 
     # TODO: delete() signature?
     #def delete(self, data: DataFrame) -> None:
-
-    def _delete_computed_imgs(self, version: int) -> None:
-        """
-        Delete image files computed for given version.
-        """
-        img_paths = utils.computed_imgs(tbl_id=self.id, version=version)
-        for p in img_paths:
-            os.remove(p)
-        return
-
-    def _delete_extracted_frames(self, version: int) -> None:
-        """
-        Delete extracted frames for given version.
-        """
-        frame_paths = utils.extracted_frames(tbl_id=self.id, version=version)
-        for p in frame_paths:
-            os.remove(p)
 
     def revert(self) -> None:
         self._check_is_dropped()
@@ -958,8 +1070,8 @@ class MutableTable(Table):
 
             conn = session.connection()
             # delete newly-added data
-            self._delete_computed_imgs(self.version)
-            self._delete_extracted_frames(self.version)
+            ImageStore.delete(self.id, v_min=self.version)
+            FileCache.get().clear(tbl_id=self.id)
             conn.execute(sql.delete(self.sa_tbl).where(self.sa_tbl.c.v_min == self.version))
             # revert new deletions
             conn.execute(
@@ -1002,6 +1114,8 @@ class MutableTable(Table):
                     .where(store.TableSchemaVersion.schema_version == self.schema_version) \
                     .scalar()
                 self.cols = self.load_cols(self.id, preceding_schema_version, session)
+                for c in self.cols:
+                    c.tbl = self
 
                 # drop all SchemaColumn records for this schema version prior to deleting from TableSchemaVersion
                 # (to avoid FK violations)
@@ -1037,6 +1151,28 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     def drop(self) -> None:
         self._check_is_dropped()
+        self.is_dropped = True
+
+        with orm.Session(Env.get().engine) as session:
+            # check if we have snapshots
+            num_references = session.query(sql.func.count(store.TableSnapshot.id)) \
+                .where(store.TableSnapshot.db_id == self.db_id) \
+                .where(store.TableSnapshot.tbl_id == self.id) \
+                .scalar()
+            if num_references == 0:
+                # we can delete this table altogether
+                ImageStore.delete(self.id)
+                FileCache.get().clear(self.id)
+                conn = session.connection()
+                conn.execute(sql.delete(store.SchemaColumn.__table__).where(store.SchemaColumn.tbl_id == self.id))
+                conn.execute(sql.delete(store.ColumnHistory.__table__).where(store.ColumnHistory.tbl_id == self.id))
+                conn.execute(
+                    sql.delete(store.TableSchemaVersion.__table__).where(store.TableSchemaVersion.tbl_id == self.id))
+                conn.execute(sql.delete(store.Table.__table__).where(store.Table.id == self.id))
+                self.sa_md.drop_all(bind=conn)
+                session.commit()
+                return
+
         with Env.get().engine.begin() as conn:
             conn.execute(
                 sql.update(store.Table.__table__).values({store.Table.is_mutable: False})
@@ -1110,9 +1246,9 @@ class MutableTable(Table):
 
         params = TableParameters(
             num_retained_versions,
-            cols_by_name[extract_frames_from].id if extract_frames_from is not None else None,
-            cols_by_name[extracted_frame_col].id if extracted_frame_col is not None else None,
-            cols_by_name[extracted_frame_idx_col].id if extracted_frame_idx_col is not None else None,
+            cols_by_name[extract_frames_from].id if extract_frames_from is not None else -1,
+            cols_by_name[extracted_frame_col].id if extracted_frame_col is not None else -1,
+            cols_by_name[extracted_frame_idx_col].id if extracted_frame_idx_col is not None else -1,
             extracted_fps,
             ffmpeg_filter)
 
@@ -1141,8 +1277,7 @@ class MutableTable(Table):
                     store.SchemaColumn(
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
                         col_type=col.col_type.serialize(), is_nullable=col.nullable, is_pk=col.primary_key,
-                        value_expr=value_expr_str, is_indexed=col.is_indexed
-                    )
+                        value_expr=value_expr_str, stored=c.stored, is_indexed=col.is_indexed)
                 )
                 session.flush()  # avoid FK violations in Postgres
 
@@ -1366,7 +1501,7 @@ class Db:
                 session.flush()
                 assert snapshot_record.id is not None
                 cols = Table.load_cols(tbl.id, tbl.schema_version, session)
-                snapshot = TableSnapshot(snapshot_record, cols)
+                snapshot = TableSnapshot(snapshot_record, dataclasses.asdict(tbl.parameters), cols)
                 snapshot_path = snapshot_dir_path.append(tbl.name)
                 self.paths[snapshot_path] = snapshot
 
@@ -1508,14 +1643,14 @@ class Db:
                 result[str(path)] = tbl
 
             # load all table snapshots
-            q = session.query(store.TableSnapshot, store.Dir.path) \
+            q = session.query(store.TableSnapshot, store.Dir.path, store.Table.parameters) \
                 .select_from(store.TableSnapshot) \
                 .join(store.Table) \
                 .join(store.Dir) \
                 .where(store.TableSnapshot.db_id == self.id)
-            for snapshot_record, dir_path in q.all():
+            for snapshot_record, dir_path, params in q.all():
                 cols = Table.load_cols(snapshot_record.tbl_id, snapshot_record.tbl_schema_version, session)
-                snapshot = TableSnapshot(snapshot_record, cols)
+                snapshot = TableSnapshot(snapshot_record, params, cols)
                 path = Path(dir_path, empty_is_valid=True).append(snapshot_record.name)
                 result[str(path)] = snapshot
 
