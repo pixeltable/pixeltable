@@ -2,9 +2,9 @@ from typing import List, Dict, Optional, Tuple
 import ffmpeg
 import glob
 import os
-from pathlib import Path
 from collections.abc import Iterator
 from pathlib import Path
+from uuid import uuid4
 
 import PIL
 
@@ -14,50 +14,14 @@ from pixeltable.function import Function, FunctionRegistry
 from pixeltable.type_system import IntType, ImageType, VideoType
 
 
-def extract_frames(
-        video_path_str: str, output_path_prefix: str, fps: int = 0, ffmpeg_filter: Optional[Dict[str, str]] = None
-) -> List[str]:
-    """
-    Extract frames at given fps as jpg files (fps == 0: all frames).
-    Returns list of frame file paths.
-    """
-    video_path = Path(video_path_str)
-    if not video_path.exists():
-        raise RuntimeError(f'File not found: {video_path_str}')
-    if not video_path.is_file():
-        raise RuntimeError(f'Not a file: {video_path_str}')
-    output_path_str = f'{output_path_prefix}_%07d.jpg'
-    s = ffmpeg.input(video_path)
-    if fps > 0:
-        s = s.filter('fps', fps)
-    if ffmpeg_filter is not None:
-        for key, val in ffmpeg_filter.items():
-            s = s.filter(key, val)
-    # vsync=0: required to apply filter, otherwise ffmpeg pads the output with duplicate frames
-    s = s.output(output_path_str, vsync=0, loglevel='quiet')
-    #print(s.get_args())
-    try:
-        s.run()
-    except ffmpeg.Error:
-        raise RuntimeError(f'ffmpeg exception')
-
-    # collect generated files
-    frame_paths = glob.glob(f'{output_path_prefix}_*.jpg')
-    frame_paths.sort()
-    return frame_paths
-
-def get_frame_count(video_path_str: str) -> int:
-    p = ffmpeg.probe(video_path_str)
-    video_stream_info = next((stream for stream in p['streams'] if stream['codec_type'] == 'video'), None)
-    return video_stream_info.nb_frames
-
+def num_tmp_frames() -> int:
+    files = glob.glob(str(Env.get().tmp_frames_dir / '*.jpg'))
+    return len(files)
 
 class FrameIterator:
     """
     Iterator for the frames of a video. Files returned by next() are deleted in the following next() call.
     """
-    next_iterator_id = 0  # used to generate unique output paths
-
     def __init__(self, video_path_str: str, fps: int = 0, ffmpeg_filter: Optional[Dict[str, str]] = None):
         # extract all frames into tmp_frames dir
         video_path = Path(video_path_str)
@@ -65,12 +29,33 @@ class FrameIterator:
             raise RuntimeError(f'File not found: {video_path_str}')
         if not video_path.is_file():
             raise RuntimeError(f'Not a file: {video_path_str}')
-        output_path = Env.get().tmp_frames_dir / f'{str(self.next_iterator_id)}_%07d.jpg'
-        s = ffmpeg.input(video_path)
-        if fps > 0:
-            s = s.filter('fps', fps)
-        if ffmpeg_filter is not None:
-            for key, val in ffmpeg_filter.items():
+        self.video_path = video_path
+        self.fps = fps
+        self.ffmpeg_filter = ffmpeg_filter
+        self.frame_files: List[str] = []
+        self.next_frame_idx = -1  # -1: extraction hasn't happened yet
+        self.id = uuid4().hex[:16]
+
+        # get estimate of # of frames
+        if ffmpeg_filter is None:
+            info = ffmpeg.probe(str(video_path_str))
+            video_stream = next((stream for stream in info['streams'] if stream['codec_type'] == 'video'), None)
+            if fps == 0:
+                self.est_num_frames = int(video_stream['nb_frames'])
+            else:
+                self.est_num_frames = int(fps * float(video_stream['duration']))
+        else:
+            # we won't know until we run the extraction
+            self.est_num_frames = None
+
+    def _extract_frames(self) -> None:
+        assert self.next_frame_idx == -1
+        output_path = Env.get().tmp_frames_dir / f'{self.id}_%07d.jpg'
+        s = ffmpeg.input(self.video_path)
+        if self.fps > 0:
+            s = s.filter('fps', self.fps)
+        if self.ffmpeg_filter is not None:
+            for key, val in self.ffmpeg_filter.items():
                 s = s.filter(key, val)
         # vsync=0: required to apply filter, otherwise ffmpeg pads the output with duplicate frames
         s = s.output(str(output_path), vsync=0, loglevel='quiet')
@@ -79,12 +64,10 @@ class FrameIterator:
             s.run()
         except ffmpeg.Error:
             raise RuntimeError(f'ffmpeg exception')
-        pattern = Env.get().tmp_frames_dir / f'{str(self.next_iterator_id)}_*.jpg'
+        pattern = Env.get().tmp_frames_dir / f'{self.id}_*.jpg'
         self.frame_files = glob.glob(str(pattern))
         self.frame_files.sort()  # make sure we iterate through these in frame number order
         self.next_frame_idx = 0
-
-        self.__class__.next_iterator_id += 1
 
     def __iter__(self) -> Iterator[Tuple[int, Path]]:
         return self
@@ -93,6 +76,8 @@ class FrameIterator:
         """
         Returns (frame idx, path to img file).
         """
+        if self.next_frame_idx == -1:
+            self._extract_frames()
         prev_frame_idx = self.next_frame_idx - 1
         if prev_frame_idx >= 0:
             # try to delete the file
@@ -112,11 +97,26 @@ class FrameIterator:
         Fast-forward to frame idx
         """
         assert frame_idx >= self.next_frame_idx
+        if self.next_frame_idx == -1:
+            self._extract_frames()
         while frame_idx < self.next_frame_idx:
             _ = self.__next__()
 
-    def num_frames(self) -> int:
-        return len(self.frame_files)
+    def __enter__(self) -> 'FrameIterator':
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        return self.close()
+
+    def close(self) -> None:
+        if self.next_frame_idx == -1:
+            # nothing to do
+            return
+        while True:
+            try:
+                _ = self.__next__()
+            except StopIteration:
+                return
 
 
 class FrameExtractor:

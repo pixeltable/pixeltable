@@ -845,7 +845,7 @@ class MutableTable(Table):
 
         # frame extraction from videos
         frame_iters: List[Optional[FrameIterator]] = [None] * len(data)
-        num_rows = len(data)  # total number of rows, after frame extraction
+        est_num_rows = len(data)  # total number of rows, after frame extraction
         if self.extracts_frames():
             print('Extracting frames...')
             data.sort_values([video_col.name], axis=0, inplace=True)  # we need to order by video_col, frame_idx_col
@@ -857,11 +857,19 @@ class MutableTable(Table):
                         continue
                     frame_iter = FrameIterator(
                         video_paths[i], fps=self.parameters.extraction_fps, ffmpeg_filter=self.parameters.ffmpeg_filter)
-                    num_rows += frame_iter.num_frames() - 1
+                    if frame_iter.est_num_frames is not None:
+                        est_num_rows += frame_iter.est_num_frames - 1
+                    else:
+                        est_num_rows = None
                     frame_iters[i] = frame_iter
                     progress_bar.update(1)
 
-        rowids = range(self.next_row_id, self.next_row_id + num_rows)
+        def rowid_generator(start_id: int) -> Generator[int, None, None]:
+            rowid = start_id
+            while True:
+                yield rowid
+                rowid += 1
+        rowids = rowid_generator(self.next_row_id)
 
         # prepare state for stored computed cols
         from pixeltable import exprs
@@ -915,7 +923,7 @@ class MutableTable(Table):
             """
             assert video_col is None
             for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
-                output_row = {'rowid': rowids[input_row_idx], 'v_min': self.version, **input_tuple._asdict()}
+                output_row = {'rowid': next(rowids), 'v_min': self.version, **input_tuple._asdict()}
                 yield output_row
 
         def expanded_input_rows() -> Generator[Dict[str, Any], None, None]:
@@ -926,25 +934,26 @@ class MutableTable(Table):
             assert video_col is not None
             next_output_row_idx = 0
             for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
-                for frame_idx, frame_path in frame_iters[input_row_idx]:
-                    rowid = rowids[next_output_row_idx]
-                    output_row = {
-                        'rowid': rowid, 'v_min': self.version, **input_tuple._asdict(),
-                        frame_idx_col.storage_name(): frame_idx,
-                    }
-                    if frame_col.is_stored:
-                        # move frame file to a permanent location
-                        frame_path = str(ImageStore.add(self.id, frame_col.id, self.version, rowid, frame_path))
-                        output_row[frame_col.storage_name()] = frame_path
-                    output_row['frame'] = PIL.Image.open(frame_path)
-                    next_output_row_idx += 1
-                    yield output_row
+                with frame_iters[input_row_idx] as frame_iter:
+                    for frame_idx, frame_path in frame_iter:
+                        rowid = next(rowids)
+                        output_row = {
+                            'rowid': rowid, 'v_min': self.version, **input_tuple._asdict(),
+                            frame_idx_col.storage_name(): frame_idx,
+                        }
+                        if frame_col.is_stored:
+                            # move frame file to a permanent location
+                            frame_path = str(ImageStore.add(self.id, frame_col.id, self.version, rowid, frame_path))
+                            output_row[frame_col.storage_name()] = frame_path
+                        output_row['frame'] = PIL.Image.open(frame_path)
+                        next_output_row_idx += 1
+                        yield output_row
 
 
         # we're also updating image indices; we're doing this with one idx.insert() call rather than piecemeal,
         # because the index gets rebuilt from the ground up in each such call
         indexed_cols = [c for c in self.cols if c.is_indexed]
-        embeddings = {c.id: np.zeros((num_rows, 512)) for c in indexed_cols}
+        embeddings = {c.id: [] for c in indexed_cols}  # value: List[np.array((512))]
         cols_with_excs: Set[int] = set()  # set of ids
         num_excs = 0
         print('Inserting rows...')
@@ -1004,27 +1013,30 @@ class MutableTable(Table):
                         except:
                             # this shouldn't be happening at this point
                             raise RuntimeError(f'Image column {c.name}: file does not exist or is invalid: {path_str}')
-                    embeddings[c.id][row_idx] = clip.encode_image(img)
+                    embeddings[c.id].append(clip.encode_image(img))
 
                 progress_bar.update(1)
                 yield row
 
-        with tqdm(total=num_rows) as progress_bar:
+        with tqdm(total=est_num_rows) as progress_bar:
             with Env.get().engine.begin() as conn:
-                # insert 1024 rows at a time
-                batch_size = 64
+                # insert 128 rows at a time
+                batch_size = 128
                 has_data = True
                 insert_values: List[Dict[str, Any]] = []
                 rows = output_rows(progress_bar)
+                num_rows = 0
                 while has_data:
                     try:
                         insert_values.append(next(rows))
+                        num_rows += 1
                     except StopIteration:
                         has_data = False
                     if len(insert_values) == batch_size or not has_data:
                         conn.execute(sql.insert(self.sa_tbl), insert_values)
                         insert_values = []
 
+                start_row_id = self.next_row_id
                 self.next_row_id += num_rows
                 conn.execute(
                     sql.update(store.Table.__table__)
@@ -1033,15 +1045,15 @@ class MutableTable(Table):
 
         # update image indices
         for c in indexed_cols:
-            c.idx.insert(embeddings[c.id], np.array(rowids))
+            c.idx.insert(np.asarray(embeddings[c.id]), np.arange(start_row_id, start_row_id + num_rows))
 
-        self.valid_rowids.update(rowids)
+        self.valid_rowids.update(range(start_row_id, start_row_id + num_rows))
         if num_excs == 0:
             cols_with_excs_str = ''
         else:
             cols_with_excs_str = f'across {len(cols_with_excs)} column{"" if len(cols_with_excs) == 1 else "s"}'
             cols_with_excs_str += f' ({", ".join([self.cols_by_id[id].name for id in cols_with_excs])})'
-        return f'Inserted {len(rowids)} rows with {num_excs} error{"" if num_excs == 1 else "s"} {cols_with_excs_str}'
+        return f'Inserted {num_rows} rows with {num_excs} error{"" if num_excs == 1 else "s"} {cols_with_excs_str}'
 
     def insert_csv(self, file_path: str) -> None:
         pass

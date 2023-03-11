@@ -10,6 +10,7 @@ from pixeltable import exceptions as exc
 from pixeltable import utils
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils.video import num_tmp_frames
 
 
 class TestVideo:
@@ -29,8 +30,10 @@ class TestVideo:
             tbl = db.create_table(
                 'test', cols, extract_frames_from='video', extracted_frame_col='frame',
                 extracted_frame_idx_col='frame_idx', extracted_fps=1)
+            assert num_tmp_frames() == 0
             tbl.insert_rows([[p] for p in video_filepaths[:2]], columns=['video'])
             _ = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+            assert num_tmp_frames() == 0
             return tbl
 
         # default case: extracted frames are cached but not stored
@@ -132,8 +135,3 @@ class TestVideo:
         t = db.get_table('test')
         _ = t[agg_fn(t.frame_idx, t.frame, group_by=t.video)].show()
         print(_)
-
-    def test_extraction(self, test_db: catalog.Db) -> None:
-        video_filepaths = get_video_files()
-        _ = utils.video.extract_frames(video_filepaths[2], '/home/marcel/tmp-frames/a', fps=0, ffmpeg_filter={'select': 'gte(n,650)'})
-        print(1)

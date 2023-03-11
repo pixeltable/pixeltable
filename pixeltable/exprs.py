@@ -279,6 +279,19 @@ class Expr(abc.ABC):
         """
         pass
 
+    def prepare(self) -> None:
+        """
+        Allow Expr class to set up execution state. This is called after this Expr and its entire tree of subexprs
+        has been initialized.
+        """
+        for c in self.components:
+            c.prepare()
+
+    @classmethod
+    def prepare_list(cls, expr_list: List['Expr']) -> None:
+        for e in expr_list:
+            e.prepare()
+
     @abc.abstractmethod
     def eval(self, data_row: List[Any]) -> None:
         """
@@ -286,6 +299,18 @@ class Expr(abc.ABC):
         Not called if sql_expr() != None (exception: Literal).
         """
         pass
+
+    def finalize(self) -> None:
+        """
+        Allow Expr class to tear down execution state. This is called after the last eval() call.
+        """
+        for c in self.components:
+            c.finalize()
+
+    @classmethod
+    def finalize_list(cls, expr_list: List['Expr']) -> None:
+        for e in expr_list:
+            e.finalize()
 
     def serialize(self) -> str:
         return json.dumps(self.as_dict())
@@ -567,6 +592,8 @@ class FrameColumnRef(ColumnRef):
         video_path = data_row[self._video_ref.data_row_idx]
         if self.frames is None or self.current_video != video_path:
             self.current_video = video_path
+            if self.frames is not None:
+                self.frames.close()
             self.frames = FrameIterator(
                 self.current_video, fps=self.tbl.parameters.extraction_fps,
                 ffmpeg_filter=self.tbl.parameters.ffmpeg_filter)
@@ -581,6 +608,10 @@ class FrameColumnRef(ColumnRef):
 
         if self.col.is_cached:
             FileCache.get().add(self.tbl.id, self.col.id, rowid, v_min, 0, frame_path)
+
+    def finalize(self) -> None:
+        if self.frames is not None:
+            self.frames.close()
 
 
 class FunctionCall(Expr):

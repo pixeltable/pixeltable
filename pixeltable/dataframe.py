@@ -135,6 +135,24 @@ class AnalysisInfo:
         expr.data_row_idx = self.next_data_row_idx
         self.next_data_row_idx += 1
 
+    def prepare_exec(self) -> None:
+        """
+        Call prepare() on all collected Exprs.
+        """
+        exprs.Expr.prepare_list(self.sql_scan_output_exprs)
+        exprs.Expr.prepare_list(self.agg_output_exprs)
+        if self.filter is not None:
+            self.filter.prepare()
+
+    def finalize_exec(self) -> None:
+        """
+        Call finalize() on all collected Exprs.
+        """
+        exprs.Expr.finalize_list(self.sql_scan_output_exprs)
+        exprs.Expr.finalize_list(self.agg_output_exprs)
+        if self.filter is not None:
+            self.filter.finalize()
+
 
 class DataFrame:
     def __init__(
@@ -379,9 +397,11 @@ class DataFrame:
             # do index lookup
             assert self.analysis_info.similarity_clause.img_col_ref.col.idx is not None
             embed = self.analysis_info.similarity_clause.embedding()
-            idx_rowids = self.analysis_info.similarity_clause.img_col_ref.col.idx.search(embed, n, self.tbl.valid_rowids)
+            idx = self.analysis_info.similarity_clause.img_col_ref.col.idx
+            idx_rowids = idx.search(embed, n, self.tbl.valid_rowids)
 
         with Env.get().engine.connect() as conn:
+            self.analysis_info.prepare_exec()
             # if we're retrieving an extracted frame column that is not stored, we also need the PK in order to
             # access the file cache
             stmt = self._create_select_stmt(
@@ -439,6 +459,7 @@ class DataFrame:
                 self._eval_agg_fns(agg_evaluator, sql_row, data_row, row_num)
                 result_row = [data_row[e.data_row_idx] for e in self.select_list]
                 yield result_row
+            self.analysis_info.finalize_exec()
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         try:

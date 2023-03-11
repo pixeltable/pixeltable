@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 import os
 import pandas as pd
 
@@ -7,6 +7,7 @@ import sqlalchemy.orm as orm
 from pixeltable import catalog, store
 from pixeltable.env import Env
 from pixeltable.function import FunctionRegistry
+from pixeltable import exceptions as exc
 
 __all__ = [
     'Client',
@@ -48,14 +49,21 @@ class Client:
         self.db_cache[name] = db
         return db
 
-    def drop_db(self, name: str, force: bool = False) -> None:
+    def drop_db(self, name: str, force: bool = False, ignore_errors: bool = False) -> None:
         if not force:
             return
         if name in self.db_cache:
             self.db_cache[name].delete()
             del self.db_cache[name]
         else:
-            catalog.Db.load(name).delete()
+            try:
+                db = catalog.Db.load(name)
+            except exc.UnknownEntityError as e:
+                if ignore_errors:
+                    return
+                else:
+                    raise e
+            db.delete()
 
     def get_db(self, name: str) -> catalog.Db:
         if name in self.db_cache:
