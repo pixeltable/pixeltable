@@ -17,7 +17,7 @@ a simple dataframe-style API directly in Python. This includes:
 * Perform keyword and image similarity search at the video frame level without having to worry about frame
 storage.
 * Access all Pixeltable-resident data directly as a PyTorch or TensorFlow dataset in your training scripts.
-* Understand the compute and storage costs of your data at the granularity of individual augmentation and
+* Understand the compute and storage costs of your data at the granularity of individual augmentations and
 get cost projections **before** adding new data and new augmentations.
 * Rely on Pixeltable's automatic versioning and snapshot functionality to protect against regressions
 and to ensure reproducibility.

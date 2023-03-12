@@ -43,7 +43,7 @@ class ColumnType:
         @classmethod
         def supertype(
                 cls, type1: 'Type', type2: 'Type',
-                # we need to pass this in because we can't easily add it as a class member
+                # we need to pass this in because we can't easily append it as a class member
                 common_supertypes: Dict[Tuple['Type', 'Type'], 'Type']
         ) -> Optional['Type']:
             if type1 == type2:

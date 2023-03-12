@@ -889,9 +889,9 @@ class MutableTable(Table):
                     stored[i][1] = stored[i][1].substitute(ref, ref.col.value_expr)
 
         stored_exprs = [e for _, e in stored]
-        eval_ctx = exprs.ExprEvalCtx(stored_exprs, None, with_sql=False) if len(stored) > 0 else None
-        evaluator = exprs.ExprEvaluator(stored_exprs, None, with_sql=False) if len(stored) > 0 else None
-        input_col_refs = exprs.ExprSet([
+        evaluator = exprs.Evaluator(stored_exprs, with_sql=False) if len(stored) > 0 else None
+        stored_exprs_ctx = evaluator.get_eval_ctx([e.data_row_idx for e in stored_exprs]) if len(stored) > 0 else None
+        input_col_refs = exprs.UniqueExprList([
             e for e in exprs.Expr.list_subexprs(stored_exprs)
             # we're looking for ColumnRefs to Columns that aren't themselves computed
             if isinstance(e, exprs.ColumnRef) and not e.col.is_computed])
@@ -967,7 +967,7 @@ class MutableTable(Table):
             for row_idx, row in enumerate(row_generator):
                 if len(stored) > 0:
                     # stored computed column values
-                    data_row = [None] * eval_ctx.num_materialized
+                    data_row = evaluator.prepare([], False)
 
                     # copy inputs
                     for col_ref in input_col_refs:
@@ -979,9 +979,7 @@ class MutableTable(Table):
                             if col_ref.col_type.is_image_type():
                                 data_row[col_ref.data_row_idx] = PIL.Image.open(data_row[col_ref.data_row_idx])
 
-                    _, exc_tb = evaluator.eval((), data_row)
-                    if exc_tb is not None:
-                        evaluator.propagate_excs(data_row)
+                    evaluator.eval(data_row, stored_exprs_ctx)
 
                     computed_vals_dict: Dict[str, Any] = {}  # key: column's storage name
                     for col, value_expr in stored:

@@ -10,6 +10,7 @@ import sqlalchemy as sql
 from PIL import Image
 import copy
 import traceback
+from types import TracebackType
 
 from pixeltable import catalog
 from pixeltable.env import Env
@@ -81,59 +82,19 @@ class AnalysisInfo:
         self.sql_scan_output_exprs: List[exprs.Expr] = []
         # output of the agg stage
         self.agg_output_exprs: List[exprs.Expr] = []
-        # select list providing the input to the SQL scan stage
-        self.sql_select_list: List[sql.sql.expression.ClauseElement] = []
         # Where clause of the Select stmt of the SQL scan stage
         self.sql_where_clause: Optional[sql.sql.expression.ClauseElement] = None
         # filter predicate applied to input rows of the SQL scan stage
         self.filter: Optional[exprs.Predicate] = None
         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
         self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
+        self.has_frame_col: bool = False
 
-        self.unique_exprs = exprs.ExprDict()
-        self.has_frame_col = False  # we're materializing self.tbl.frame_col
-        self.next_data_row_idx = 0
-
-    @property
-    def num_materialized(self) -> int:
-        return self.next_data_row_idx
-
-    def assign_idxs(self, expr_list: List[exprs.Expr]) -> None:
-        """
-        Assign data/sql_row_idx to exprs in expr_list and all their subcomponents.
-        An expr with to_sql() != None is assumed to be materialized fully via SQL; its components
-        aren't materialized and don't receive idxs.
-        For computed columns that aren't materialized, also records the value expr and its transitive dependencies.
-        """
-        for e in expr_list:
-            self._assign_idxs_aux(e)
-        self.agg_fn_calls = [e for e in self.unique_exprs if isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call]
-
-    def _assign_idxs_aux(self, expr: exprs.Expr) -> None:
-        if not self.unique_exprs.add(expr):
-            # nothing left to do
-            return
-
-        if isinstance(expr, exprs.FrameColumnRef):
-            self.has_frame_col = True
-
-        sql_expr = expr.sql_expr()
-        # if this can be materialized via SQL we don't need to look at its components;
-        # we special-case Literals because we don't want to have to stored them via SQL
-        if sql_expr is not None and not isinstance(expr, exprs.Literal):
-            assert expr.data_row_idx < 0
-            expr.data_row_idx = self.next_data_row_idx
-            self.next_data_row_idx += 1
-            expr.sql_row_idx = len(self.sql_select_list)
-            self.sql_select_list.append(sql_expr)
-            return
-
-        # expr value needs to be computed via Expr.eval()
-        for c in expr.components:
-            self._assign_idxs_aux(c)
-        assert expr.data_row_idx < 0
-        expr.data_row_idx = self.next_data_row_idx
-        self.next_data_row_idx += 1
+        self.evaluator: Optional[exprs.Evaluator] = None
+        self.sql_scan_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of SQL scan stage
+        self.agg_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of agg stage
+        self.filter_eval_ctx: List[exprs.Expr] = []
+        self.group_by_eval_ctx: List[exprs.Expr] = []
 
     def prepare_exec(self) -> None:
         """
@@ -196,32 +157,52 @@ class DataFrame:
             exprs.Expr.list_substitute(self.select_list, col_ref, frame_col_ref)
         self._substitute_unstored_cols()
 
+        # set up execution state
+        eval_exprs = self.select_list.copy()
         if info.filter is not None:
-            info.assign_idxs([info.filter])
+            eval_exprs.append(info.filter)
         if len(self.group_by_clause) > 0:
-            info.assign_idxs(self.group_by_clause)
+            eval_exprs.extend(self.group_by_clause)
+        info.evaluator = exprs.Evaluator(eval_exprs)
+        unique_exprs = info.evaluator.unique_exprs
+
+        # set up eval ctxs
+        filter_ids = [info.filter.data_row_idx] if info.filter is not None else []
+        info.filter_eval_ctx = info.evaluator.get_eval_ctx(filter_ids)
+        group_by_ids = [e.data_row_idx for e in self.group_by_clause] if len(self.group_by_clause) > 0 else []
+        info.group_by_eval_ctx = info.evaluator.get_eval_ctx(group_by_ids)
+        frame_col_ref_subexprs = [
+            e for e in exprs.Expr.list_subexprs(eval_exprs) if isinstance(e, exprs.FrameColumnRef)
+        ]
+        info.has_frame_col = len(frame_col_ref_subexprs) > 0
+        info.agg_fn_calls = [e for e in unique_exprs if isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call]
+
+        if len(self.group_by_clause) > 0:
             for e in self.group_by_clause:
                 self._analyze_group_by(e, True)
 
-        info.assign_idxs(self.select_list)
         grouping_expr_idxs = set([e.data_row_idx for e in self.group_by_clause])
-        item_is_agg = [self._analyze_select_list(e, grouping_expr_idxs)[0]  for e in self.select_list]
+        item_is_agg = [self._analyze_select_list(e, grouping_expr_idxs)[0] for e in self.select_list]
 
         if self.is_agg():
             # this is an aggregation
             if item_is_agg.count(False) > 0:
                 raise exc.Error(f'Invalid non-aggregate in select list: {self.select_list[item_is_agg.find(False)]}')
+
             # the agg stage materializes select list items that haven't already been provided by SQL
             info.agg_output_exprs = [e for e in self.select_list if e.sql_row_idx == -1]
-            # our sql scan stage needs to stored: grouping exprs, arguments of agg fn calls
-            info.sql_scan_output_exprs = copy.copy(self.group_by_clause)
-            unique_args: Set[int] = set()
+            info.agg_eval_ctx = info.evaluator.get_eval_ctx([e.data_row_idx for e in info.agg_output_exprs])
+
+            # our sql scan stage needs to materialize: grouping exprs, arguments of agg fn calls
+            sql_scan_expr_ids = set([e.data_row_idx for e in self.group_by_clause])
             for fn_call in info.agg_fn_calls:
                 for c in fn_call.components:
-                    unique_args.add(c.data_row_idx)
-            all_exprs = {e.data_row_idx: e for e in info.unique_exprs}
-            info.sql_scan_output_exprs.extend([all_exprs[idx] for idx in unique_args])
+                    sql_scan_expr_ids.add(c.data_row_idx)
+            info.sql_scan_eval_ctx = info.evaluator.get_eval_ctx(list(sql_scan_expr_ids))
+            info.sql_scan_output_exprs = [info.evaluator.unique_exprs[id] for id in sql_scan_expr_ids]
         else:
+            info.sql_scan_eval_ctx = info.evaluator.get_eval_ctx([e.data_row_idx for e in self.select_list])
+            # this assumes we don't need to call finalize() on the where clause
             info.sql_scan_output_exprs = self.select_list
 
     def _substitute_unstored_cols(self) -> None:
@@ -323,31 +304,34 @@ class DataFrame:
                 input_vals = [data_row[d.data_row_idx] for d in fn_call.dependencies()]
                 raise exc.ExprEvalError(fn_call, expr_msg, e, exc_tb, input_vals, row_num)
 
-    def _eval_agg_fns(
-            self, evaluator: exprs.ExprEvaluator, sql_row: List[Any], data_row: List[Any], row_num: int) -> None:
-        _, exc_tb = evaluator.eval(sql_row, data_row)
+    def _eval_agg_fns(self, data_row: List[Any], row_num: int) -> None:
+        info = self.analysis_info
+        exc_tb = info.evaluator.eval(data_row, info.agg_eval_ctx)
         if exc_tb is not None:
             # first expr with exception
             exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
-            exc_expr = self.analysis_info.unique_exprs.get(exc_idx)
+            exc_expr = self.analysis_info.evaluator.unique_exprs[exc_idx]
             expr_msg = f'value() function of the aggregate {exc_expr}'
             raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, [], row_num)
 
-    def _eval_sql_scan(
-            self, evaluator: exprs.ExprEvaluator, sql_row: List[Any], data_row: List[Any], row_num: int,
-            ignore_errors: bool
-    ) -> bool:
-        passes_filter, exc_tb = evaluator.eval(sql_row, data_row)
-        if exc_tb is not None:
-            if ignore_errors:
-                evaluator.propagate_excs(data_row)
-            else:
-                # first expr with exception
-                exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
-                exc_expr = self.analysis_info.unique_exprs.get(exc_idx)
-                expr_msg = f'expression {exc_expr}'
-                input_vals = [data_row[d.data_row_idx] for d in exc_expr.dependencies()]
-                raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, input_vals, row_num)
+    def _eval_sql_scan(self, data_row: List[Any], row_num: int, ignore_errors: bool) -> bool:
+        info = self.analysis_info
+        exc_tb: Optional[TracebackType] = None
+        passes_filter = True
+        if info.filter is not None:
+            exc_tb = info.evaluator.eval(data_row, info.filter_eval_ctx)
+            if exc_tb is None:
+                passes_filter = data_row[info.filter.data_row_idx]
+        if exc_tb is None and passes_filter:
+            exc_tb = info.evaluator.eval(data_row, info.sql_scan_eval_ctx)
+
+        if exc_tb is not None and not ignore_errors:
+            # first expr with exception
+            exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
+            exc_expr = self.analysis_info.evaluator.unique_exprs[exc_idx]
+            expr_msg = f'expression {exc_expr}'
+            input_vals = [data_row[d.data_row_idx] for d in exc_expr.dependencies()]
+            raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, input_vals, row_num)
         return passes_filter
 
     def exec(
@@ -367,13 +351,13 @@ class DataFrame:
             item.bind_rel_paths(None)
         if self.analysis_info is None:
             self.analyze()
-        if self.analysis_info.similarity_clause is not None and n > 100:
+        info = self.analysis_info
+        if info.similarity_clause is not None and n > 100:
             raise exc.RuntimeError(f'nearest()/matches() requires show(n <= 100): n={n}')
 
         # determine order_by clause for window functions or grouping, if present
         window_fn_calls = [
-            e for e in self.analysis_info.unique_exprs
-            if isinstance(e, exprs.FunctionCall) and e.is_window_fn_call
+            e for e in info.evaluator.unique_exprs if isinstance(e, exprs.FunctionCall) and e.is_window_fn_call
         ]
         if len(window_fn_calls) > 0 and self.is_agg():
             raise exc.Error(f'Cannot combine window functions with non-windowed aggregation')
@@ -381,49 +365,42 @@ class DataFrame:
         # TODO: check compatibility of window clauses
         if len(window_fn_calls) > 0:
             order_by_exprs = window_fn_calls[0].get_window_sort_exprs()
-        elif self.analysis_info.has_frame_col:
+        elif info.has_frame_col:
             # we're materializing extracted frames and need to order by the frame src and idx cols
             order_by_exprs = [exprs.ColumnRef(self.tbl.frame_src_col()), exprs.ColumnRef(self.tbl.frame_idx_col())]
         elif self.is_agg():
             # TODO: collect aggs with order-by and analyze for compatibility
-            order_by_exprs = self.group_by_clause + self.analysis_info.agg_fn_calls[0].get_agg_order_by()
+            order_by_exprs = self.group_by_clause + info.agg_fn_calls[0].get_agg_order_by()
         order_by_clause = [e.sql_expr() for e in order_by_exprs]
         for i in range(len(order_by_exprs)):
             if order_by_clause[i] is None:
                 raise exc.Error(f'order_by element cannot be expressed in SQL: {order_by_exprs[i]}')
 
         idx_rowids: List[int] = []  # rowids returned by index lookup
-        if self.analysis_info.similarity_clause is not None:
+        if info.similarity_clause is not None:
             # do index lookup
-            assert self.analysis_info.similarity_clause.img_col_ref.col.idx is not None
-            embed = self.analysis_info.similarity_clause.embedding()
-            idx = self.analysis_info.similarity_clause.img_col_ref.col.idx
+            assert info.similarity_clause.img_col_ref.col.idx is not None
+            embed = info.similarity_clause.embedding()
+            idx = info.similarity_clause.img_col_ref.col.idx
             idx_rowids = idx.search(embed, n, self.tbl.valid_rowids)
 
         with Env.get().engine.connect() as conn:
-            self.analysis_info.prepare_exec()
+            info.prepare_exec()
             # if we're retrieving an extracted frame column that is not stored, we also need the PK in order to
             # access the file cache
             stmt = self._create_select_stmt(
-                self.analysis_info.sql_select_list, self.analysis_info.sql_where_clause, idx_rowids,
-                select_pk or self.analysis_info.has_frame_col,
+                info.evaluator.sql_select_list, info.sql_where_clause, idx_rowids, select_pk or info.has_frame_col,
                 order_by_clause)
             num_rows = 0  # number of output rows
-            sql_scan_evaluator = exprs.ExprEvaluator(
-                self.analysis_info.sql_scan_output_exprs, self.analysis_info.filter)
-            agg_evaluator = exprs.ExprEvaluator(self.analysis_info.agg_output_exprs, None)\
-                if len(self.analysis_info.agg_output_exprs) > 0 else None
 
             current_group: Optional[List[Any]] = None  # for grouping agg, the values of the group-by exprs
             sql_rows = conn.execute(stmt)  # this might raise an exception
+            data_row: List[Any] = []
             for row_num, row in enumerate(sql_rows):
                 sql_row = row._data
-                # to retrieve frames from the file cache, we need the PK (rowid and v_min), which we append to the
-                # data row as a tuple
-                data_row: List[Any] = [None] * (self.analysis_info.num_materialized + self.analysis_info.has_frame_col)
-                if self.analysis_info.has_frame_col:
-                    data_row[-1] = (sql_row[-2], sql_row[-1])
-                passes_filter = self._eval_sql_scan(sql_scan_evaluator, sql_row, data_row, row_num, ignore_errors)
+                last_data_row = data_row
+                data_row = info.evaluator.prepare(sql_row, info.has_frame_col)
+                passes_filter = self._eval_sql_scan(data_row, row_num, ignore_errors)
                 if not passes_filter:
                     continue
 
@@ -436,7 +413,7 @@ class DataFrame:
                         self._reset_agg_state(row_num)
                     if group != current_group:
                         # we're entering a new group, emit a row for the last one
-                        self._eval_agg_fns(agg_evaluator, last_sql_row, last_data_row, row_num)
+                        self._eval_agg_fns(last_data_row, row_num)
                         result_row = [last_data_row[e.data_row_idx] for e in self.select_list]
                         current_group = group
                         self._reset_agg_state(row_num)
@@ -446,8 +423,6 @@ class DataFrame:
                     if select_pk:
                         result_row.extend(sql_row[-2:])
 
-                last_data_row = data_row
-                last_sql_row = row._data
                 if result_row is not None:
                     yield result_row
                     num_rows += 1
@@ -456,10 +431,10 @@ class DataFrame:
 
             if self.is_agg():
                 # we need to emit the output row for the current group
-                self._eval_agg_fns(agg_evaluator, sql_row, data_row, row_num)
+                self._eval_agg_fns(data_row, row_num)
                 result_row = [data_row[e.data_row_idx] for e in self.select_list]
                 yield result_row
-            self.analysis_info.finalize_exec()
+            info.finalize_exec()
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         try:
@@ -476,7 +451,7 @@ class DataFrame:
             assert e.exc_tb is not None
             stack_trace = traceback.format_tb(e.exc_tb)
             if len(stack_trace) > 2:
-                # add a stack trace if the exception happened in user code
+                # append a stack trace if the exception happened in user code
                 # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
                 nl = '\n'
                 # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
@@ -572,7 +547,7 @@ class DataFrame:
             order_by_exprs: List[sql.sql.expression.ClauseElement]
     ) -> sql.sql.expression.Select:
         pk_cols = [self.tbl.rowid_col, self.tbl.v_min_col] if select_pk else []
-        # we add pk_cols at the end so that the already-computed sql row indices remain correct
+        # we append pk_cols so that the already-computed sql row indices remain correct
         stmt = sql.select(*select_list, *pk_cols) \
             .where(self.tbl.v_min_col <= self.tbl.version) \
             .where(self.tbl.v_max_col > self.tbl.version)

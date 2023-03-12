@@ -162,6 +162,8 @@ class TestExprs:
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
+        _ = t[t.c2, t.c6.f3, t.c2 + t.c6.f3, (t.c2 + t.c6.f3) / (t.c6.f3 + 1)].show()
+        _ = t[t.c2 + t.c2].show()
         for op1, op2 in [(t.c2, t.c2), (t.c3, t.c3)]:
             _ = t[op1 + op2].show()
             _ = t[op1 - op2].show()
@@ -408,5 +410,11 @@ class TestExprs:
 
     def test_aggregates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        _ = t[t.c2 % 2, sum(t.c2), count(t.c2), sum(t.c2) + count(t.c2), sum(t.c2) + t.c2 % 2].group_by(t.c2 % 2).show()
+        _ = t[t.c2 % 2, sum(t.c2), count(t.c2), sum(t.c2) + count(t.c2), sum(t.c2) + (t.c2 % 2)]\
+            .group_by(t.c2 % 2).show()
+
+        with pytest.raises(exc.Error):
+            _ = t[sum(t.c2) + t.c2].group_by(t.c2 % 2).show()
+        with pytest.raises(exc.Error):
+            _ = t[sum(count(t.c2))].group_by(t.c2 % 2).show()
         print(_)

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import abc
 import copy
 import datetime
@@ -293,7 +294,7 @@ class Expr(abc.ABC):
             e.prepare()
 
     @abc.abstractmethod
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         """
         Compute the expr value for data_row and store the result in data_row[data_row_idx].
         Not called if sql_expr() != None (exception: Literal).
@@ -490,7 +491,7 @@ class ColumnRef(Expr):
             assert self.col.sa_errormsg_col is not None
             return self.col.sa_errormsg_col
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         # we get called while materializing computed cols
         pass
 
@@ -504,46 +505,6 @@ class ColumnRef(Expr):
         if d['prop'] != cls.Property.VALUE.value:
             result = getattr(result, cls.Property(d['prop']).name.lower())
         return result
-
-
-class CachedColumnRef(ColumnRef):
-    """
-    A reference to a computed image column for which values are computed on-demand and are cached in the FileCache.
-    The backing store table does not contain this column.
-    """
-    def __init__(self, col: catalog.Column):
-        super().__init__(col)
-        assert col.value_expr is not None
-        assert col.is_stored is None  # None: values are cached
-        self.components = [col.value_expr.copy()]  # we need to compute values at query execution time
-        self.tbl_id = self.col.tbl.id
-        self.evaluator: Optional[ExprEvaluator] = None
-
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
-        return None
-
-    @property
-    def _value_expr(self) -> Expr:
-        return self.components[0]
-
-    def eval(self, data_row: List[Any]) -> None:
-        # probe cache
-        rowid, v_min = data_row[0]
-        file_path = FileCache.get().lookup(self.tbl_id, self.col.id, rowid, v_min)
-        if file_path is not None:
-            try:
-                img = PIL.Image.open(file_path)
-                data_row[self.data_row_idx] = img
-                return
-            except Exception:
-                raise exc.RuntimeError(f'Error reading image file: {file_path}')
-        # we need to compute value_expr
-        if self.evaluator is None:
-            self.evaluator = ExprEvaluator(self._value_expr)
-        self.evaluator.eval((), data_row)
-        data_row[self.data_row_idx] = data_row[self._value_expr.data_row_idx]
-        # TODO: update cache, for which we need to write the image to a file
-        #FileCache.get().add(self.tbl_id, self.col.id, rowid, v_min, query_ts?, file_path)
 
 
 class FrameColumnRef(ColumnRef):
@@ -575,7 +536,7 @@ class FrameColumnRef(ColumnRef):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         if self.col.is_cached:
             # probe cache
             rowid, v_min = data_row[-1]
@@ -612,6 +573,7 @@ class FrameColumnRef(ColumnRef):
     def finalize(self) -> None:
         if self.frames is not None:
             self.frames.close()
+            self.frames = None
 
 
 class FunctionCall(Expr):
@@ -757,7 +719,7 @@ class FunctionCall(Expr):
                 i += 1
         return args
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         args = self._make_args(data_row)
         if not self.fn.is_aggregate:
             data_row[self.data_row_idx] = self.fn.eval_fn(*args)
@@ -944,7 +906,7 @@ class ImageMemberAccess(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         caller_val = data_row[self._caller.data_row_idx]
         try:
             data_row[self.data_row_idx] = getattr(caller_val, self.member_name)
@@ -1101,7 +1063,7 @@ class JsonPath(Expr):
                 result.append(f'[{_print_slice(element)}]')
         return ''.join(result)
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         val = data_row[self._anchor.data_row_idx]
         if self.compiled_path is not None:
             val = self.compiled_path.search(val)
@@ -1141,7 +1103,7 @@ class Literal(Expr):
         # that involve literals (like Where c > 0)
         return sql.sql.expression.literal(self.val)
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         # this will be called, even though sql_expr() does not return None
         data_row[self.data_row_idx] = self.val
 
@@ -1202,7 +1164,7 @@ class InlineDict(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         result = {}
         for key, idx, val in self.dict_items:
             assert isinstance(key, str)
@@ -1279,7 +1241,7 @@ class InlineArray(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         result = [None] * len(self.elements)
         for i, (child_idx, val) in enumerate(self.elements):
             if child_idx >= 0:
@@ -1333,7 +1295,7 @@ class ArraySlice(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         val = data_row[self._array.data_row_idx]
         data_row[self.data_row_idx] = val[self.index]
 
@@ -1486,7 +1448,7 @@ class CompoundPredicate(Predicate):
         combined = operator(*sql_exprs)
         return combined
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         if self.operator == LogicalOperator.NOT:
             data_row[self.data_row_idx] = not data_row[self.components[0].data_row_idx]
         else:
@@ -1543,7 +1505,7 @@ class Comparison(Predicate):
         if self.operator == ComparisonOperator.GE:
             return left >= right
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         if self.operator == ComparisonOperator.LT:
             data_row[self.data_row_idx] = data_row[self._op1.data_row_idx] < data_row[self._op2.data_row_idx]
         elif self.operator == ComparisonOperator.LE:
@@ -1591,7 +1553,7 @@ class ImageSimilarityPredicate(Predicate):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         assert False
 
     def _as_dict(self) -> Dict:
@@ -1624,7 +1586,7 @@ class IsNull(Predicate):
             return None
         return e == None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         data_row[self.data_row_idx] = data_row[self.components[0].data_row_idx] is None
 
     @classmethod
@@ -1686,7 +1648,7 @@ class ArithmeticExpr(Expr):
         if self.operator == ArithmeticOperator.MOD:
             return left % right
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         op1_val = data_row[self._op1.data_row_idx]
         op2_val = data_row[self._op2.data_row_idx]
         # check types if we couldn't do that prior to execution
@@ -1741,7 +1703,7 @@ class ObjectRef(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         # this will be called, but the value has already been materialized elsewhere
         pass
 
@@ -1763,7 +1725,7 @@ class JsonMapper(Expr):
         scope_anchor = ObjectRef(self.target_expr_scope, self)
         self.components = [src_expr, target_expr, scope_anchor]
         self.parent_mapper: Optional[JsonMapper] = None
-        self.evaluator: Optional[ExprEvaluator] = None
+        self.target_expr_eval_ctx: List[Expr] = []
 
     def bind_rel_paths(self, mapper: Optional['JsonMapper']) -> None:
         self._src_expr.bind_rel_paths(mapper)
@@ -1823,7 +1785,7 @@ class JsonMapper(Expr):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any]) -> None:
+    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
         # this will be called, but the value has already been materialized elsewhere
         src = data_row[self._src_expr.data_row_idx]
         if not isinstance(src, list):
@@ -1832,12 +1794,12 @@ class JsonMapper(Expr):
             return
 
         result = [None] * len(src)
-        if self.evaluator is None:
-            self.evaluator = ExprEvaluator([self._target_expr], None)
+        if len(self.target_expr_eval_ctx) == 0:
+            self.target_expr_eval_ctx = evaluator.get_eval_ctx([self._target_expr.data_row_idx])
         for i, val in enumerate(src):
             data_row[self.scope_anchor.data_row_idx] = val
             # stored target_expr
-            _, exc_tb = self.evaluator.eval((), data_row)
+            exc_tb = evaluator.eval(data_row, self.target_expr_eval_ctx)
             assert exc_tb is None
             result[i] = data_row[self._target_expr.data_row_idx]
         data_row[self.data_row_idx] = result
@@ -1854,135 +1816,118 @@ class JsonMapper(Expr):
         return cls(components[0], components[1])
 
 
-class ExprEvaluator:
+class Evaluator:
     """
-    Materializes values for a list of output exprs, subject to passing a filter.
-
-    ex.: the select list [<img col 1>.alpha_composite(<img col 2>), <text col 3>]
-    - sql row composition: [<file path col 1>, <file path col 2>, <text col 3>]
-    - data row composition: [Image, str, Image, Image]
-    - copy_exprs: [
-        ColumnRef(data_row_idx: 2, sql_row_idx: 0, col: <col 1>)
-        ColumnRef(data_row_idx: 3, sql_row_idx: 1, col: <col 2>)
-        ColumnRef(data_row_idx: 1, sql_row_idx: 2, col: <col 3>)
-      ]
-    - eval_exprs: [ImageMethodCall(data_row_idx: 0, sql_row_id: -1)]
+    Evaluates a list of Exprs against a data row.
     """
 
-    def __init__(self, output_exprs: List[Expr], filter: Optional[Predicate], with_sql: bool = True):
-        # TODO: add self.literal_exprs so that we don't need to retrieve those from SQL
-        # exprs that are materialized directly via SQL query and for which results can be copied from sql row
-        # into data row
-        self.filter_copy_exprs: List[Expr] = []
-        self.output_copy_exprs: List[Expr] = []
-        # exprs for which we need to call eval() to compute the value; must be called in the order stored here
-        self.filter_eval_exprs: List[Expr] = []
-        self.output_eval_exprs: List[Expr] = []
-        self.filter = filter
-        # key: expr id, value: ids of exprs that transitively depend on it
-        self.dependents: Dict[int, Set[int]] = defaultdict(set)
-        # a map from an expr id to the output exprs it belongs to
-        # (a subexpr can be shared across multiple output exprs)
-        self.output_expr_ids: Dict[int, Set[int]] = defaultdict(set)
-
-        unique_ids: Set[int] = set()
-        # analyze filter first, so that it can be evaluated before output_exprs
-        if filter is not None:
-            self._analyze_expr(filter, filter.scope(), self.filter_copy_exprs, self.filter_eval_exprs, unique_ids)
-        for expr in output_exprs:
-            self._analyze_expr(expr, expr.scope(), self.output_copy_exprs, self.output_eval_exprs, unique_ids, expr)
-            # compute self.dependents
-            self._record_dependencies(expr)
-            # compute self.output_expr_ids
-            self._record_output_expr_id(expr, expr.data_row_idx)
-
-    def _analyze_expr(
-            self, expr: Expr, scope: ExprScope, copy_exprs: List[Expr], eval_exprs: List[Expr], unique_ids: Set[int],
-            output_expr: Expr = None
-    ) -> None:
+    def __init__(self, expr_list: List[Expr], with_sql: bool = True):
         """
-        Determine unique dependencies of expr and accumulate those in copy_exprs and eval_exprs.
-        Dependencies that are not in 'scope' are assumed to have been materialized already and are ignored.
-        Also populate output_expr_ids.
+        Set up Evaluator to evaluate any Expr in expr_list.
+        If with_sql == True, assumes that exprs that have a SQL equivalent (to_sql() != None) will be materialized
+        via SQL, and that none of its dependencies will need to be materialized.
         """
-        if expr.data_row_idx in unique_ids:
-            return
-        unique_ids.add(expr.data_row_idx)
+        self.sql_exprs: List[Expr] = []  # contains Exprs with sql_row_idx != -1
 
-        if expr.sql_row_idx >= 0:
-            # this can be copied, no need to look at its dependencies
-            copy_exprs.append(expr)
-            return
+        # all following list are indexed with data_row_idx
+        self.unique_exprs = UniqueExprList()  # dependencies precede their dependents
+        self.next_data_row_idx = 0
+        # select list providing the input to the SQL scan stage
+        self.sql_select_list: List[sql.sql.expression.ClauseElement] = []
 
-        for d in expr.dependencies():
-            if d.scope() != scope:
+        # execution state:
+        #self.has_val: List[bool] = []  # flag per data_row element
+
+        for e in expr_list:
+            self._assign_idxs(e, with_sql)
+
+        for i in range(len(self.unique_exprs)):
+            assert self.unique_exprs[i].data_row_idx == i
+
+        # record transitive dependencies
+        self.dependencies = [set() for _ in range(self.num_materialized)]
+        for i in range(self.num_materialized):
+            expr = self.unique_exprs[i]
+            if expr.sql_row_idx != -1:
+                # it is materialized directly by SQL and therefore doesn't depend on other exprs
                 continue
-            self._analyze_expr(d, scope, copy_exprs, eval_exprs, unique_ids)
-        # make sure to eval() this after its dependencies
-        eval_exprs.append(expr)
+            for d in self.unique_exprs[i].dependencies():
+                self.dependencies[i].add(d.data_row_idx)
+                self.dependencies[i].update(self.dependencies[d.data_row_idx])
 
-    def _record_dependencies(self, target: Expr) -> None:
-        for d in target.dependencies():
-            self._record_dependent(d, target)
-            self._record_dependencies(d)
+        # derive transitive dependents
+        self.dependents = [set() for _ in range(self.num_materialized)]
+        for i in range(self.num_materialized):
+            for j in self.dependencies[i]:
+                self.dependents[j].add(i)
 
-    def _record_dependent(self, e: Expr, dependent: Expr) -> None:
-        """
-        Record 'dependent' for all of its transitive dependencies.
-        """
-        self.dependents[e.data_row_idx].add(dependent.data_row_idx)
-        for d in e.dependencies():
-            self._record_dependent(d, dependent)
+        # records the Exprs in parameter 'expr_list' that a subexpr belongs to
+        # (a subexpr can be shared across multiple output exprs)
+        self.output_expr_ids = [set() for _ in range(self.num_materialized)]
+        for e in expr_list:
+            self._record_output_expr_id(e, e.data_row_idx)
+
+    def _assign_idxs(self, expr: Expr, with_sql: bool) -> None:
+        if expr in self.unique_exprs:
+            # expr is a duplicate: we copy sql_/data_row_idx for itself and its components
+            original = self.unique_exprs[expr]
+            expr.data_row_idx = original.data_row_idx
+            expr.sql_row_idx = original.sql_row_idx
+            if expr.sql_row_idx == -1:
+                for c in expr.components:
+                    self._assign_idxs(c, with_sql)
+            # nothing left to do
+            return
+
+        if with_sql:
+            sql_expr = expr.sql_expr()
+            # if this can be materialized via SQL we don't need to look at its components;
+            # we special-case Literals because we don't want to have to materialize them via SQL
+            if sql_expr is not None and not isinstance(expr, Literal):
+                assert expr.data_row_idx < 0
+                expr.data_row_idx = self.next_data_row_idx
+                self.next_data_row_idx += 1
+                expr.sql_row_idx = len(self.sql_select_list)
+                self.sql_select_list.append(sql_expr)
+                self.sql_exprs.append(expr)
+                self.unique_exprs.append(expr)
+                return
+
+        # expr value needs to be computed via Expr.eval()
+        for c in expr.components:
+            self._assign_idxs(c, with_sql)
+        assert expr.data_row_idx < 0
+        expr.data_row_idx = self.next_data_row_idx
+        self.next_data_row_idx += 1
+        self.unique_exprs.append(expr)
 
     def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
         self.output_expr_ids[e.data_row_idx].add(output_expr_id)
         for d in e.dependencies():
             self._record_output_expr_id(d, output_expr_id)
 
-    def eval(self, sql_row: Tuple[Any], data_row: List[Any]) -> Tuple[bool, TracebackType]:
-        """
-        If the filter predicate evaluates to True, populates the data_row slots of the output_exprs.
-        If an expr.eval() raises an exception, records the exception in the corresponding slot of data_row
-        and omits any of that expr's dependents's eval().
-        Returns (passes filter, exception traceback for the first exception that was recorded)
-        """
-        if self.filter is not None:
-            # we need to evaluate the remaining filter predicate first
-            self._copy_to_data_row(self.filter_copy_exprs, sql_row, data_row)
-            for expr in self.filter_eval_exprs:
-                try:
-                    expr.eval(data_row)
-                except Exception as e:
-                    data_row[expr.data_row_idx] = e
-                    return False, True
-            if not data_row[self.filter.data_row_idx]:
-                return False, None
+    @property
+    def num_materialized(self) -> int:
+        return self.next_data_row_idx
 
-        # stored output_exprs
-        exc_tb: Optional[TracebackType] = None
-        skip_exprs: Set[int] = set()  # skip dependents of exprs that had exception
-        self._copy_to_data_row(self.output_copy_exprs, sql_row, data_row)
-        for expr in self.output_eval_exprs:
-            if expr.data_row_idx in skip_exprs:
-                continue
-            try:
-                expr.eval(data_row)
-            except Exception as e:
-                _, _, exc_tb = sys.exc_info()
-                data_row[expr.data_row_idx] = e
-                skip_exprs.update(self.dependents[expr.data_row_idx])
-
-        return True, exc_tb
-
-    def _copy_to_data_row(self, exprs: List[Expr], sql_row: Tuple[Any], data_row: List[Any]):
+    def prepare(self, sql_row: List[Any], with_pk: bool = False) -> List[Any]:
         """
-        Copy expr values from sql to data row.
+        Prepare for evaluation by initializing data_row from given sql_row.
+        with_pk == True: sql_row's last element is PK tuple, which we append to the data_row.
+        Returns data row.
         """
-        for expr in exprs:
-            assert expr.sql_row_idx != -1
+        data_row = [None] * (self.num_materialized + with_pk)
+        # sql_row might have the PK added to the end
+        assert len(sql_row) >= len(self.sql_exprs)
+        if with_pk:
+            data_row[-1] = (sql_row[-2], sql_row[-1])
+
+        for i in range(len(self.sql_exprs)):
+            data_row[self.sql_exprs[i].data_row_idx] = sql_row[i]
+            expr = self.sql_exprs[i]
             if expr.col_type.is_image_type():
                 # column value is a file path that we need to open
-                file_path = sql_row[expr.sql_row_idx]
+                file_path = sql_row[i]
                 try:
                     img = PIL.Image.open(file_path)
                     data_row[expr.data_row_idx] = img
@@ -1990,19 +1935,52 @@ class ExprEvaluator:
                     raise exc.RuntimeError(f'Error reading image file: {file_path}')
             elif expr.col_type.is_array_type():
                 # column value is a saved numpy array
-                array_data = sql_row[expr.sql_row_idx]
+                array_data = sql_row[i]
                 data_row[expr.data_row_idx] = np.load(io.BytesIO(array_data))
             else:
-                data_row[expr.data_row_idx] = sql_row[expr.sql_row_idx]
+                data_row[expr.data_row_idx] = sql_row[i]
+        return data_row
 
-    def propagate_excs(self, data_row: List[Any]) -> None:
+    def get_eval_ctx(self, targets: List[int]) -> List[Expr]:
         """
-        Propage exceptions in data_row to their respective output_expr slots.
+        Return list of dependencies needed to evaluate the given target exprs. This excludes exprs that
+        are materialized in SQL (sql_row_idx != -1)
         """
-        for i, exc_val in [(i, val) for i, val in enumerate(data_row) if isinstance(val, Exception)]:
-            assert i in self.output_expr_ids
-            for j in self.output_expr_ids[i]:
-                data_row[j] = exc_val
+        all_dependencies: Set[int] = set()
+        for id in targets:
+            assert id < self.num_materialized
+            all_dependencies.update(self.dependencies[id])
+        all_dependencies.update(targets)
+        result_ids = list(all_dependencies)
+        result_ids = [id for id in result_ids if self.unique_exprs[id].sql_row_idx == -1]
+        result_ids.sort()
+        return [self.unique_exprs[id] for id in result_ids]
+
+    def eval(self, data_row: List[Any], ctx: List[Expr]) -> Optional[TracebackType]:
+        """
+        Populates the slots in data_row given in ctx.
+        If an expr.eval() raises an exception, records the exception in the corresponding slot of data_row
+        and omits any of that expr's dependents's eval().
+        Returns exception traceback for the first exception that was recorded
+        """
+        exc_tb: Optional[TracebackType] = None
+        skip_exprs: Set[int] = set()  # skip dependents of exprs that had exception
+        for expr in ctx:
+            if expr.data_row_idx in skip_exprs:
+                continue
+            try:
+                expr.eval(data_row, self)
+            except Exception as exc:
+                _, _, exc_tb = sys.exc_info()
+                data_row[expr.data_row_idx] = exc
+                skip_exprs.update(self.dependents[expr.data_row_idx])
+
+        if exc_tb is not None:
+            # propagate exceptions in data_row to their respective output_expr slots
+            for i, exc_val in [(i, val) for i, val in enumerate(data_row) if isinstance(val, Exception)]:
+                for j in self.output_expr_ids[i]:
+                    data_row[j] = exc_val
+        return exc_tb
 
 
 class ExprDict:
@@ -2041,18 +2019,18 @@ class ExprDict:
         return iter(self.unique_exprs)
 
 
-class ExprSet:
+class UniqueExprList:
     """
-    Implements standard set() semantics for Exprs. We can't use set() because Expr doesn't have a __hash__()
-    and Expr.__eq__() has been repurposed.
+    A List[Expr] which ignores duplicates and which supports [] access by Expr.equals().
+    We can't use set() because Expr doesn't have a __hash__() and Expr.__eq__() has been repurposed.
     """
     def __init__(self, elements: Optional[Iterable[Expr]] = None):
         self.unique_exprs: List[Expr] = []
         if elements is not None:
             for e in elements:
-                self.add(e)
+                self.append(e)
 
-    def add(self, expr: Expr) -> None:
+    def append(self, expr: Expr) -> None:
         try:
             _ = next(e for e in self.unique_exprs if e.equals(expr))
         except StopIteration:
@@ -2072,69 +2050,12 @@ class ExprSet:
     def __iter__(self) -> Iterator[Expr]:
         return iter(self.unique_exprs)
 
-
-class ExprEvalCtx:
-    """
-    Assigns execution state necessary to stored a list of Exprs into a data row:
-    - Expr.sql_/data_row_idx
-
-    Data row:
-    - List[Any]
-    - contains slots for all materialized component exprs (ie, not for predicates that turn into the SQL Where clause):
-    a) every DataFrame.select_list expr
-    b) the parts of the where clause predicate that cannot be evaluated in SQL
-    b) every component expr of a) and b), recursively
-    - IMAGE columns are materialized immediately as a PIL.Image.Image
-
-    ex.: the select list [<img col 1>.alpha_composite(<img col 2>), <text col 3>]
-    - sql row composition: [<file path col 1>, <file path col 2>, <text col 3>]
-    - data row composition: [Image, str, Image, Image]
-    """
-
-    def __init__(self, output_exprs: List[Expr], filter: Optional[Predicate], with_sql: bool = True):
-        """
-        Init for list of materialized exprs and a possible filter.
-        with_sql == True: if an expr e has a e.sql_expr(), its components do not need to be materialized
-        (and consequently also don't get data_row_idx assigned) and the expr value is produced via a Select stmt
-        """
-
-        # objects needed to stored the SQL result row
-        self.sql_exprs: List[sql.sql.expression.ClauseElement] = []
-        self.unique_exprs = ExprDict()
-        self.next_data_row_idx = 0
-
-        if filter is not None:
-            self._analyze_expr(filter, with_sql)
-        for expr in output_exprs:
-            self._analyze_expr(expr, with_sql)
-
-    @property
-    def num_materialized(self) -> int:
-        return self.next_data_row_idx
-
-    def _analyze_expr(self, expr: Expr, with_sql: bool) -> None:
-        """
-        Assign Expr.data_row_idx and possibly Expr.sql_row_idx.
-        """
-        if not self.unique_exprs.add(expr):
-            # nothing left to do
-            return
-
-        if with_sql:
-            sql_expr = expr.sql_expr()
-            # if this can be materialized via SQL we don't need to look at its components;
-            # we special-case Literals because we don't want to have to stored them via SQL
-            if sql_expr is not None and not isinstance(expr, Literal):
-                assert expr.data_row_idx < 0
-                expr.data_row_idx = self.next_data_row_idx
-                self.next_data_row_idx += 1
-                expr.sql_row_idx = len(self.sql_exprs)
-                self.sql_exprs.append(sql_expr)
-                return
-
-        # expr value needs to be computed via Expr.eval()
-        for c in expr.components:
-            self._analyze_expr(c, with_sql)
-        assert expr.data_row_idx < 0
-        expr.data_row_idx = self.next_data_row_idx
-        self.next_data_row_idx += 1
+    def __getitem__(self, index: object) -> Optional[Expr]:
+        assert isinstance(index, int) or isinstance(index, Expr)
+        if isinstance(index, int):
+            return self.unique_exprs[index]
+        else:
+            try:
+                return next(e for e in self.unique_exprs if e.equals(index))
+            except StopIteration:
+                return None
