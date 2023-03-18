@@ -1,13 +1,11 @@
 import pytest
 import PIL
-import ffmpeg
 
 import pixeltable as pt
 from pixeltable.type_system import VideoType, IntType, ImageType
 from pixeltable.tests.utils import get_video_files
 from pixeltable import catalog
 from pixeltable import exceptions as exc
-from pixeltable import utils
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.imgstore import ImageStore
 from pixeltable.utils.video import num_tmp_frames
@@ -86,6 +84,48 @@ class TestVideo:
         # for some reason there's one extra frame in tbl2
         assert tbl.count() == tbl2.count() - 1
 
+    def test_cached_cols(self, test_db: catalog.Db) -> None:
+        video_filepaths = get_video_files()
+        db = test_db
+        # all image cols are stored=None by default
+        cols = [
+            catalog.Column('video', VideoType(), nullable=False),
+            catalog.Column('frame', ImageType(), nullable=False),
+            catalog.Column('frame_idx', IntType(), nullable=False),
+        ]
+        t = db.create_table(
+            'test', cols, extract_frames_from = 'video', extracted_frame_col = 'frame',
+            extracted_frame_idx_col = 'frame_idx', extracted_fps = 1)
+        # c2 and c4 depend directly on c1, c3 depends on it indirectly
+        t.add_column(catalog.Column('c1', computed_with=t.frame.resize((224, 224))))
+        t.add_column(catalog.Column('c2', computed_with=t.c1.rotate(10)))
+        t.add_column(catalog.Column('c3', computed_with=t.c2.rotate(20)))
+        t.add_column(catalog.Column('c4', computed_with=t.c1.rotate(30)))
+        cache_stats = FileCache.get().stats()
+        for name in ['c1', 'c2', 'c3', 'c4']:
+            assert not t.cols_by_name[name].is_stored
+        t.insert_rows([[p] for p in video_filepaths], columns=['video'])
+        cache_stats = FileCache.get().stats()
+        _ = t[t.c1, t.c2, t.c3, t.c4].show(0)
+
+        # the query populated the cache
+        cache_stats = FileCache.get().stats()
+        assert cache_stats.num_requests == t.count() * 5  # 5 cached cols
+        assert cache_stats.num_hits == 0  # nothing cached on first access
+
+        # at this point, all requests should be served from the cache, and we're accessing 4 cached cols
+        # (not 5: the frame col doesn't need to be accessed)
+        _ = t[t.c1, t.c2, t.c3, t.c4].show(0)
+        cache_stats = FileCache.get().stats()
+        assert cache_stats.num_requests == t.count() * (5 + 4)
+        assert cache_stats.num_hits == t.count() * 4
+
+        cl = pt.Client()
+        _ = cl.get_db('test')
+        _ = cl.cache_stats()
+        _ = cl.cache_util()
+        print(_)
+
     def test_make_video(self, test_db: catalog.Db) -> None:
         video_filepaths = get_video_files()
         db = test_db
@@ -116,7 +156,7 @@ class TestVideo:
                 return cls()
             def update(self, frame: PIL.Image.Image) -> None:
                 self.sum += 1
-            def value(self) -> str:
+            def value(self) -> int:
                 return self.sum
 
         agg_fn = pt.make_aggregate_function(
@@ -128,6 +168,7 @@ class TestVideo:
         # make sure it works
         _ = t[agg_fn(t.frame_idx, t.frame, group_by=t.video)].show()
         db.create_function('agg_fn', agg_fn)
+
         # reload from store
         cl = pt.Client()
         db = cl.get_db('test')

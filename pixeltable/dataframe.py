@@ -11,12 +11,14 @@ from PIL import Image
 import copy
 import traceback
 from types import TracebackType
+from time import time
 
 from pixeltable import catalog
 from pixeltable.env import Env
 from pixeltable.type_system import ColumnType
 from pixeltable import exprs
 from pixeltable import exceptions as exc
+from pixeltable.utils.filecache import FileCache
 
 __all__ = [
     'DataFrame'
@@ -88,7 +90,8 @@ class AnalysisInfo:
         self.filter: Optional[exprs.Predicate] = None
         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
         self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
-        self.has_frame_col: bool = False
+        self.has_frame_col: bool = False  # True if we're referencing the frame col
+        self.has_cached_col: bool = False  # True if we're referencing a cached col (incl. the frame col)
 
         self.evaluator: Optional[exprs.Evaluator] = None
         self.sql_scan_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of SQL scan stage
@@ -96,14 +99,14 @@ class AnalysisInfo:
         self.filter_eval_ctx: List[exprs.Expr] = []
         self.group_by_eval_ctx: List[exprs.Expr] = []
 
-    def prepare_exec(self) -> None:
+    def prepare_exec(self, query_ts: float) -> None:
         """
         Call prepare() on all collected Exprs.
         """
-        exprs.Expr.prepare_list(self.sql_scan_output_exprs)
-        exprs.Expr.prepare_list(self.agg_output_exprs)
+        exprs.Expr.prepare_list(self.sql_scan_output_exprs, query_ts)
+        exprs.Expr.prepare_list(self.agg_output_exprs, query_ts)
         if self.filter is not None:
-            self.filter.prepare()
+            self.filter.prepare(query_ts)
 
     def finalize_exec(self) -> None:
         """
@@ -175,6 +178,10 @@ class DataFrame:
             e for e in exprs.Expr.list_subexprs(eval_exprs) if isinstance(e, exprs.FrameColumnRef)
         ]
         info.has_frame_col = len(frame_col_ref_subexprs) > 0
+        cached_col_ref_subexprs = [
+            e for e in exprs.Expr.list_subexprs(eval_exprs) if isinstance(e, exprs.ColumnRef) and e.col.is_cached
+        ]
+        info.has_cached_col = len(cached_col_ref_subexprs) > 0 or info.has_frame_col
         info.agg_fn_calls = [e for e in unique_exprs if isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call]
 
         if len(self.group_by_clause) > 0:
@@ -294,7 +301,7 @@ class DataFrame:
                 expr_msg = f'init() function of the aggregate {fn_call}'
                 raise exc.ExprEvalError(fn_call, expr_msg, e, exc_tb, [], row_num)
 
-    def _update_agg_state(self, data_row: List[Any], row_num: int) -> None:
+    def _update_agg_state(self, data_row: exprs.DataRow, row_num: int) -> None:
         for fn_call in self.analysis_info.agg_fn_calls:
             try:
                 fn_call.update(data_row)
@@ -304,7 +311,7 @@ class DataFrame:
                 input_vals = [data_row[d.data_row_idx] for d in fn_call.dependencies()]
                 raise exc.ExprEvalError(fn_call, expr_msg, e, exc_tb, input_vals, row_num)
 
-    def _eval_agg_fns(self, data_row: List[Any], row_num: int) -> None:
+    def _eval_agg_fns(self, data_row: exprs.DataRow, row_num: int) -> None:
         info = self.analysis_info
         exc_tb = info.evaluator.eval(data_row, info.agg_eval_ctx)
         if exc_tb is not None:
@@ -314,7 +321,7 @@ class DataFrame:
             expr_msg = f'value() function of the aggregate {exc_expr}'
             raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, [], row_num)
 
-    def _eval_sql_scan(self, data_row: List[Any], row_num: int, ignore_errors: bool) -> bool:
+    def _eval_sql_scan(self, data_row: exprs.DataRow, row_num: int, ignore_errors: bool) -> bool:
         info = self.analysis_info
         exc_tb: Optional[TracebackType] = None
         passes_filter = True
@@ -336,7 +343,7 @@ class DataFrame:
 
     def exec(
             self, n: int = 20, select_pk: bool = False, ignore_errors: bool = False
-    ) -> Generator[List[Any], None, None]:
+    ) -> Generator[exprs.DataRow, None, None]:
         """
         Returned value: list of select list values.
         If select_pk == True, also selects the primary key of the storage table (which is rowid and v_min).
@@ -385,21 +392,22 @@ class DataFrame:
             idx_rowids = idx.search(embed, n, self.tbl.valid_rowids)
 
         with Env.get().engine.connect() as conn:
-            info.prepare_exec()
+            self.start_ts = FileCache.get().get_current_ts()
+            info.prepare_exec(self.start_ts)
             # if we're retrieving an extracted frame column that is not stored, we also need the PK in order to
             # access the file cache
             stmt = self._create_select_stmt(
-                info.evaluator.sql_select_list, info.sql_where_clause, idx_rowids, select_pk or info.has_frame_col,
+                info.evaluator.sql_select_list, info.sql_where_clause, idx_rowids, select_pk or info.has_cached_col,
                 order_by_clause)
             num_rows = 0  # number of output rows
 
             current_group: Optional[List[Any]] = None  # for grouping agg, the values of the group-by exprs
             sql_rows = conn.execute(stmt)  # this might raise an exception
-            data_row: List[Any] = []
+            data_row = exprs.DataRow(0)
             for row_num, row in enumerate(sql_rows):
                 sql_row = row._data
                 last_data_row = data_row
-                data_row = info.evaluator.prepare(sql_row, info.has_frame_col)
+                data_row = info.evaluator.prepare(sql_row, self.start_ts, info.has_cached_col)
                 passes_filter = self._eval_sql_scan(data_row, row_num, ignore_errors)
                 if not passes_filter:
                     continue

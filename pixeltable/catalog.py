@@ -98,11 +98,7 @@ class Column:
             self.col_type = col_type
         assert self.col_type is not None
 
-        # TODO: fix this for extracted frame cols, which are effectively computed
-        #if stored == False and not(self.is_computed and self.col_type.is_image_type()):
-            #raise exc.Error(f'Column {name}: stored={stored} only applies to computed image columns')
         self.stored = stored
-
         self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us
         self.id = col_id
         self.primary_key = primary_key
@@ -119,6 +115,21 @@ class Column:
         self.is_indexed = indexed
         self.idx: Optional[VectorIndex] = None
 
+    def check_value_expr(self) -> None:
+        assert self.value_expr is not None
+        from pixeltable import exprs
+        if self.stored == False and self.is_computed and self._has_window_fn_call():
+            raise exc.Error(
+                f'Column {self.name}: stored={self.stored} not supported for columns computed with window functions:'
+                f'\n{self.value_expr}')
+
+    def _has_window_fn_call(self) -> bool:
+        if self.value_expr is None:
+            return False
+        from pixeltable import exprs
+        l = list(self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call))
+        return len(l) > 0
+
     @property
     def is_computed(self) -> bool:
         return self.compute_func is not None or self.value_expr is not None or self.value_expr_str is not None
@@ -129,10 +140,10 @@ class Column:
         Returns True if column is materialized in the stored table.
         Note that the extracted frame col is effectively computed.
         """
-        # or (not self.is_computed and not self.id == self.tbl.parameters.frame_col_id)
         return self.stored == True \
-               or (not self.id == self.tbl.parameters.frame_col_id) \
-               or not self.col_type.is_image_type()
+            or (not self.is_computed and not self.id == self.tbl.parameters.frame_col_id) \
+            or not self.col_type.is_image_type() \
+            or self._has_window_fn_call()
 
     @property
     def is_cached(self) -> bool:
@@ -333,8 +344,11 @@ class Table(SchemaObject):
         if col_name not in self.cols_by_name:
             raise AttributeError(f'Column {col_name} unknown')
         col = self.cols_by_name[col_name]
-        from pixeltable.exprs import ColumnRef
-        return ColumnRef(col)
+        from pixeltable.exprs import ColumnRef, FrameColumnRef
+        if self.is_frame_col(col):
+            return FrameColumnRef(col)
+        else:
+            return ColumnRef(col)
 
     def __getitem__(self, index: object) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame']:
         if isinstance(index, str):
@@ -490,6 +504,7 @@ class MutableTable(Table):
             # create value_expr from compute_func
             self._create_value_expr(c, self.cols_by_name)
         if c.value_expr is not None:
+            c.check_value_expr()
             self._record_value_expr(c)
 
         self.cols.append(c)
@@ -534,7 +549,7 @@ class MutableTable(Table):
                 self._create_sa_tbl()
 
         row_count = self.count()
-        if not c.is_computed or row_count == 0:
+        if not c.is_computed or not c.is_stored or row_count == 0:
             return ''
         # for some reason, it's not possible to run the following updates in the same transaction as the one
         # that we just used to create the metadata (sqlalchemy hangs when exec() tries to run the query)
@@ -1218,11 +1233,15 @@ class MutableTable(Table):
     ) -> 'MutableTable':
         # make sure col names are unique (within the table) and assign ids
         cols_by_name: Dict[str, Column] = {}
-        for pos, c in enumerate(cols):
-            if c.name in cols_by_name:
-                raise exc.DuplicateNameError(f'Duplicate column: {c.name}')
-            c.id = pos
-            cols_by_name[c.name] = c
+        for pos, col in enumerate(cols):
+            if col.name in cols_by_name:
+                raise exc.DuplicateNameError(f'Duplicate column: {col.name}')
+            col.id = pos
+            cols_by_name[col.name] = col
+            if col.value_expr is None and col.compute_func is not None:
+                cls._create_value_expr(col, cols_by_name)
+            if col.is_computed:
+                col.check_value_expr()
 
         # check frame extraction params, if present
         if extract_frames_from is not None:
@@ -1279,15 +1298,13 @@ class MutableTable(Table):
             for pos, col in enumerate(cols):
                 session.add(store.ColumnHistory(tbl_id=tbl_record.id, col_id=col.id, schema_version_add=0))
                 session.flush()  # avoid FK violations in Postgres
-                if col.value_expr is None and col.compute_func is not None:
-                    cls._create_value_expr(col, cols_by_name)
                 # Column.dependent_cols for existing cols is wrong at this point, but Table.init() will set it correctly
                 value_expr_str = col.value_expr.serialize() if col.value_expr is not None else None
                 session.add(
                     store.SchemaColumn(
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
                         col_type=col.col_type.serialize(), is_nullable=col.nullable, is_pk=col.primary_key,
-                        value_expr=value_expr_str, stored=c.stored, is_indexed=col.is_indexed)
+                        value_expr=value_expr_str, stored=col.stored, is_indexed=col.is_indexed)
                 )
                 session.flush()  # avoid FK violations in Postgres
 
@@ -1395,8 +1412,8 @@ class PathDict:
         if not isinstance(parent, expected_parent_type):
             raise exc.UnknownEntityError(f'{str(parent_path)} needs to be a {expected_parent_type.display_name()}')
 
-    def get(self, path_type: Type[SchemaObject]) -> List[Path]:
-        return [obj for _, obj in self.paths.items() if isinstance(obj, path_type)]
+    def get(self, path_type: Type[SchemaObject]) -> List[SchemaObject]:
+        return [obj for obj in self.paths.values() if isinstance(obj, path_type)]
 
     def get_children(self, parent: Path, child_type: Optional[Type[SchemaObject]], recursive: bool) -> List[Path]:
         candidates = [

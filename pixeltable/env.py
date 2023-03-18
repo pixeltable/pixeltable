@@ -91,6 +91,11 @@ class Env:
         self._filecache_dir = self._home / 'filecache'
 
     @property
+    def home(self) -> Path:
+        assert self._home is not None
+        return self._home
+
+    @property
     def img_dir(self) -> Path:
         assert self._img_dir is not None
         return self._img_dir

@@ -84,7 +84,7 @@ class TestTable:
         print(html_str)
         # TODO: check html_str
 
-    def test_create_video(self, test_db: catalog.Db) -> None:
+    def test_create_video_table(self, test_db: catalog.Db) -> None:
         db = test_db
         cols = [
             catalog.Column('video', VideoType(), nullable=False),
@@ -116,6 +116,7 @@ class TestTable:
             update_fn=WindowFnAggregator.update,
             value_fn=WindowFnAggregator.value,
             requires_order_by=True, allows_window=True)
+        # cols computed with window functions are stored by default
         tbl.add_column((catalog.Column('c5', computed_with=window_fn(tbl.frame_idx, group_by=tbl.video))))
 
         params = tbl.parameters
@@ -125,12 +126,9 @@ class TestTable:
         tbl = db.get_table('test')
         assert tbl.parameters == params
         tbl.insert_rows([[get_video_files()[0]]], ['video'])
-        # * 4: we have four stored img cols
-        # TODO: change to * 2 when stored=False is implemented for computed image cols
-        assert ImageStore.count(tbl.id) == tbl.count() * 4
+        # * 2: we have four stored img cols
+        assert ImageStore.count(tbl.id) == tbl.count() * 2
         html_str = tbl.show(n=100)._repr_html_()
-        # TODO: check html_str
-        _ = tbl[make_video(tbl.frame_idx, tbl.frame)].group_by(tbl.video).show()
 
         # revert() clears stored images and the cache
         tbl.revert()
@@ -229,6 +227,10 @@ class TestTable:
         t.add_column(catalog.Column('c8', computed_with=t.c3.detections['*'].bounding_box))
         t.add_column(catalog.Column('c9', FloatType(), computed_with=lambda c2: math.sqrt(c2)))
 
+        # unstored cols that compute window functions aren't currently supported
+        with pytest.raises((exc.Error)):
+            t.add_column(catalog.Column('c10', computed_with=sum(t.c1, group_by=t.c1), stored=False))
+
         # Column.dependent_cols are computed correctly
         assert len(t.c1.col.dependent_cols) == 2
         assert len(t.c2.col.dependent_cols) == 3
@@ -300,12 +302,14 @@ class TestTable:
         schema = [c1]
         t = db.create_table('test', schema)
         t.add_column(catalog.Column('c2', computed_with=t.img.width))
-        t.add_column(catalog.Column('c3', computed_with=t.img.rotate(90)))
+        # c3 is cached but not stored
+        t.add_column(catalog.Column('c3', computed_with=t.img.rotate(90), stored=None))
 
         data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         t.insert_pandas(data_df.loc[0:20, ['img']])
         _ = t.show()
-        assert ImageStore.count(t.id) == t.count()
+        assert ImageStore.count(t.id) == 0
+        #assert FileCache.get().num_files(t.id) == t.count()
 
         # test loading from store
         cl2 = pt.Client()
@@ -318,14 +322,15 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert_pandas(data_df.loc[0:20, ['img']])
-        assert ImageStore.count(t.id) == t2.count()
+        assert ImageStore.count(t.id) == 0
+        #assert FileCache.get().num_files(t.id) == t2.count()
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
         print(tbl_df)
 
         # revert also removes computed images
         t2.revert()
-        assert ImageStore.count(t2.id) == t2.count()
+        assert ImageStore.count(t2.id) == 0
 
     def test_computed_window_fn(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
         db = test_db

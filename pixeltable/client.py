@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Any
 import os
 import pandas as pd
 
@@ -8,6 +8,8 @@ from pixeltable import catalog, store
 from pixeltable.env import Env
 from pixeltable.function import FunctionRegistry
 from pixeltable import exceptions as exc
+from pixeltable.utils.filecache import FileCache
+from pixeltable.utils import store_utils
 
 __all__ = [
     'Client',
@@ -75,3 +77,39 @@ class Client:
     def list_dbs(self) -> List[str]:
         with orm.Session(store.engine) as session:
             return [r[0] for r in session.query(store.Db.name)]
+
+    # TODO: why is this not resolved?
+    #def cache_stats(self) -> pd.io.formats.style.Styler:
+    def cache_stats(self) -> Any:
+        stats = FileCache.get().stats()
+        hit_ratio = stats.num_hits / stats.num_requests
+        df = pd.DataFrame(data={
+            'a': ['# requests', '# hits', '# misses', 'hit %', '# evictions'],
+            'b': [
+                stats.num_requests, stats.num_hits, stats.num_requests - stats.num_hits, round(hit_ratio * 100),
+                stats.num_evictions
+            ]})
+        return df.style.hide().hide(axis='columns').set_properties(**{'text-align': 'left'})
+
+    # TODO: why is this not resolved?
+    #def cache_util(self) -> pd.io.formats.style.Styler:
+    def cache_util(self) -> Any:
+        names = {(name[0], name[1]): (name[2], name[3], name[4]) for name in store_utils.column_names()}
+
+        cache = FileCache.get()
+        util = cache.stats().util
+        db_names = [names[(entry.tbl_id, entry.col_id)][0] for entry in util]
+        tbl_names = [names[(entry.tbl_id, entry.col_id)][1] for entry in util]
+        col_names = [names[(entry.tbl_id, entry.col_id)][2] for entry in util]
+        sizes = [entry.total_size for entry in util]
+        num_files = [entry.num_files for entry in util]
+        rel_sizes = [round(100 * entry.total_size / cache.capacity, 2) for entry in util]
+        df = pd.DataFrame(data={
+            'Db': db_names,
+            'Table': tbl_names,
+            'Column': col_names,
+            'Total Size': sizes,
+            '# Files': num_files,
+            '% Capacity': rel_sizes,
+        })
+        return df.style.hide().set_properties(**{'text-align': 'left'})

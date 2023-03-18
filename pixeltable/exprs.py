@@ -3,7 +3,6 @@ import abc
 import copy
 import datetime
 import enum
-import inspect
 import sys
 import typing
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Iterator
@@ -11,8 +10,8 @@ from types import TracebackType
 import operator
 import json
 import io
-from collections import defaultdict
 from collections.abc import Iterable
+from uuid import uuid4
 
 import PIL.Image
 import jmespath
@@ -27,6 +26,7 @@ from pixeltable import exceptions as exc
 from pixeltable.utils import clip
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.video import FrameIterator
+from pixeltable.env import Env
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -98,10 +98,10 @@ class ExprScope:
     Representation of the scope in which an Expr needs to be evaluated. Used to determine nesting of scopes.
     parent is None: outermost scope
     """
-    def __init__(self, parent: Optional['ExprScope']):
+    def __init__(self, parent: Optional[ExprScope]):
         self.parent = parent
 
-    def is_contained_in(self, other: 'ExprScope') -> bool:
+    def is_contained_in(self, other: ExprScope) -> bool:
         if self == other:
             return True
         if self.parent is None:
@@ -129,7 +129,7 @@ class Expr(abc.ABC):
         self.sql_row_idx = -1
         self.components: List[Expr] = []  # the subexprs that are needed to construct this expr
 
-    def dependencies(self) -> List['Expr']:
+    def dependencies(self) -> List[Expr]:
         """
         Returns all exprs that need to have been evaluated before eval() can be called on this one.
         """
@@ -144,7 +144,7 @@ class Expr(abc.ABC):
                 result = c_scope
         return result
 
-    def bind_rel_paths(self, mapper: Optional['JsonMapper'] = None) -> None:
+    def bind_rel_paths(self, mapper: Optional[JsonMapper] = None) -> None:
         """
         Binds relative JsonPaths to mapper.
         This needs to be done in a separate phase after __init__(), because RelativeJsonPath()(-1) cannot be resolved
@@ -159,7 +159,7 @@ class Expr(abc.ABC):
         """
         return ''
 
-    def equals(self, other: 'Expr') -> bool:
+    def equals(self, other: Expr) -> bool:
         """
         Subclass-specific comparison. Implemented as a function because __eq__() is needed to construct Comparisons.
         """
@@ -173,7 +173,7 @@ class Expr(abc.ABC):
         return self._equals(other)
 
     @classmethod
-    def list_equals(cls, a: List['Expr'], b: List['Expr']) -> bool:
+    def list_equals(cls, a: List[Expr], b: List[Expr]) -> bool:
         if len(a) != len(b):
             return False
         for i in range(len(a)):
@@ -181,7 +181,7 @@ class Expr(abc.ABC):
                 return False
         return True
 
-    def copy(self) -> 'Expr':
+    def copy(self) -> Expr:
         """
         Creates a copy that can be evaluated separately: it doesn't share any eval context (data/sql_row_idx)
         but shares everything else (catalog objects, etc.)
@@ -195,16 +195,16 @@ class Expr(abc.ABC):
         return result
 
     @classmethod
-    def copy_list(cls, expr_list: List['Expr']) -> List['Expr']:
+    def copy_list(cls, expr_list: List[Expr]) -> List[Expr]:
         return [e.copy() for e in expr_list]
 
-    def __deepcopy__(self, memo={}) -> 'Expr':
+    def __deepcopy__(self, memo={}) -> Expr:
         # we don't need to create an actual deep copy because all state other than execution state is read-only
         result = self.copy()
         memo[id(self)] = result
         return result
 
-    def substitute(self, old: 'Expr', new: 'Expr') -> 'Expr':
+    def substitute(self, old: Expr, new: Expr) -> Expr:
         """
         Replace 'old' with 'new recursively.
         """
@@ -215,7 +215,7 @@ class Expr(abc.ABC):
         return self
 
     @classmethod
-    def list_substitute(cls, expr_list: List['Expr'], old: 'Expr', new: 'Expr') -> None:
+    def list_substitute(cls, expr_list: List[Expr], old: Expr, new: Expr) -> None:
         for i in range(len(expr_list)):
             expr_list[i] = expr_list[i].substitute(old, new)
 
@@ -230,29 +230,32 @@ class Expr(abc.ABC):
         return str(self)
 
     @classmethod
-    def print_list(cls, expr_list: List['Expr']) -> str:
+    def print_list(cls, expr_list: List[Expr]) -> str:
         if len(expr_list) == 1:
             return str(expr_list[0])
         return f'({", ".join([str(e) for e in expr_list])})'
 
-    def subexprs(self) -> Generator['Expr', None, None]:
+    def subexprs(self, filter: Optional[Callable[[Expr], bool]] = None) -> Generator[Expr, None, None]:
         """
         Iterate over all subexprs, including self.
         """
         for c in self.components:
-            yield from c.subexprs()
-        yield self
+            yield from c.subexprs(filter)
+        if filter is None or filter(self):
+            yield self
 
     @classmethod
-    def list_subexprs(cls, expr_list: List['Expr']) -> Generator['Expr', None, None]:
+    def list_subexprs(
+            cls, expr_list: List[Expr], filter: Optional[Callable[[Expr], bool]] = None
+    ) -> Generator[Expr, None, None]:
         """
         Produce subexprs for all exprs in list.
         """
         for e in expr_list:
-            yield from e.subexprs()
+            yield from e.subexprs(filter)
 
     @classmethod
-    def from_object(cls, o: object) -> Optional['Expr']:
+    def from_object(cls, o: object) -> Optional[Expr]:
         """
         Try to turn a literal object into an Expr.
         """
@@ -265,7 +268,7 @@ class Expr(abc.ABC):
         return None
 
     @abc.abstractmethod
-    def _equals(self, other: 'Expr') -> bool:
+    def _equals(self, other: Expr) -> bool:
         pass
 
     @abc.abstractmethod
@@ -280,21 +283,21 @@ class Expr(abc.ABC):
         """
         pass
 
-    def prepare(self) -> None:
+    def prepare(self, query_ts: float) -> None:
         """
         Allow Expr class to set up execution state. This is called after this Expr and its entire tree of subexprs
         has been initialized.
         """
         for c in self.components:
-            c.prepare()
+            c.prepare(query_ts)
 
     @classmethod
-    def prepare_list(cls, expr_list: List['Expr']) -> None:
+    def prepare_list(cls, expr_list: List[Expr], query_ts: float) -> None:
         for e in expr_list:
-            e.prepare()
+            e.prepare(query_ts)
 
     @abc.abstractmethod
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         """
         Compute the expr value for data_row and store the result in data_row[data_row_idx].
         Not called if sql_expr() != None (exception: Literal).
@@ -309,7 +312,7 @@ class Expr(abc.ABC):
             c.finalize()
 
     @classmethod
-    def finalize_list(cls, expr_list: List['Expr']) -> None:
+    def finalize_list(cls, expr_list: List[Expr]) -> None:
         for e in expr_list:
             e.finalize()
 
@@ -327,7 +330,7 @@ class Expr(abc.ABC):
         }
 
     @classmethod
-    def as_dict_list(self, expr_list: List['Expr']) -> List[Dict]:
+    def as_dict_list(self, expr_list: List[Expr]) -> List[Dict]:
         return [e.as_dict() for e in expr_list]
 
     def _as_dict(self) -> Dict:
@@ -336,11 +339,11 @@ class Expr(abc.ABC):
         return {}
 
     @classmethod
-    def deserialize(cls, dict_str: str, t: catalog.Table) -> 'Expr':
+    def deserialize(cls, dict_str: str, t: catalog.Table) -> Expr:
         return cls.from_dict(json.loads(dict_str), t)
 
     @classmethod
-    def from_dict(cls, d: Dict, t: catalog.Table) -> 'Expr':
+    def from_dict(cls, d: Dict, t: catalog.Table) -> Expr:
         """
         Turn dict that was produced by calling Expr.as_dict() into an instance of the correct Expr subclass.
         """
@@ -352,21 +355,21 @@ class Expr(abc.ABC):
         return type_class._from_dict(d, components, t)
 
     @classmethod
-    def from_dict_list(cls, dict_list: List[Dict], t: catalog.Table) -> List['Expr']:
+    def from_dict_list(cls, dict_list: List[Dict], t: catalog.Table) -> List[Expr]:
         return [cls.from_dict(d, t) for d in dict_list]
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List['Expr'], t: catalog.Table) -> 'Expr':
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
         assert False, 'not implemented'
 
-    def __getitem__(self, index: object) -> 'Expr':
+    def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             return JsonPath(self).__getitem__(index)
         if self.col_type.is_array_type():
             return ArraySlice(self, index)
         raise exc.Error(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> 'ImageMemberAccess':
+    def __getattr__(self, name: str) -> ImageMemberAccess:
         """
         ex.: <img col>.rotate(60)
         """
@@ -376,29 +379,29 @@ class Expr(abc.ABC):
             return JsonPath(self).__getattr__(name)
         raise exc.RuntimeError(f'Member access not supported on type {self.col_type}: {name}')
 
-    def __lt__(self, other: object) -> 'Comparison':
+    def __lt__(self, other: object) -> Comparison:
         return self._make_comparison(ComparisonOperator.LT, other)
 
-    def __le__(self, other: object) -> 'Comparison':
+    def __le__(self, other: object) -> Comparison:
         return self._make_comparison(ComparisonOperator.LE, other)
 
-    def __eq__(self, other: object) -> 'Comparison':
+    def __eq__(self, other: object) -> Comparison:
         if other is None:
             return IsNull(self)
         return self._make_comparison(ComparisonOperator.EQ, other)
 
-    def __ne__(self, other: object) -> 'Comparison':
+    def __ne__(self, other: object) -> Comparison:
         if other is None:
             return CompoundPredicate(LogicalOperator.NOT, [IsNull(self)])
         return self._make_comparison(ComparisonOperator.NE, other)
 
-    def __gt__(self, other: object) -> 'Comparison':
+    def __gt__(self, other: object) -> Comparison:
         return self._make_comparison(ComparisonOperator.GT, other)
 
-    def __ge__(self, other: object) -> 'Comparison':
+    def __ge__(self, other: object) -> Comparison:
         return self._make_comparison(ComparisonOperator.GE, other)
 
-    def _make_comparison(self, op: ComparisonOperator, other: object) -> 'Comparison':
+    def _make_comparison(self, op: ComparisonOperator, other: object) -> Comparison:
         """
         other: Union[Expr, LiteralPythonTypes]
         """
@@ -409,22 +412,22 @@ class Expr(abc.ABC):
             return Comparison(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
-    def __add__(self, other: object) -> 'ArithmeticExpr':
+    def __add__(self, other: object) -> ArithmeticExpr:
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
-    def __sub__(self, other: object) -> 'ArithmeticExpr':
+    def __sub__(self, other: object) -> ArithmeticExpr:
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> 'ArithmeticExpr':
+    def __mul__(self, other: object) -> ArithmeticExpr:
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
-    def __truediv__(self, other: object) -> 'ArithmeticExpr':
+    def __truediv__(self, other: object) -> ArithmeticExpr:
         return self._make_arithmetic_expr(ArithmeticOperator.DIV, other)
 
-    def __mod__(self, other: object) -> 'ArithmeticExpr':
+    def __mod__(self, other: object) -> ArithmeticExpr:
         return self._make_arithmetic_expr(ArithmeticOperator.MOD, other)
 
-    def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'ArithmeticExpr':
+    def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> ArithmeticExpr:
         """
         other: Union[Expr, LiteralPythonTypes]
         """
@@ -472,7 +475,7 @@ class ColumnRef(Expr):
             return self.col.name
         return f'{self.col.name}.{self.prop.name.lower()}'
 
-    def _equals(self, other: 'ColumnRef') -> bool:
+    def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col and self.prop == other.prop
 
     def __str__(self) -> str:
@@ -481,6 +484,8 @@ class ColumnRef(Expr):
         return f'{self.col.name}.{self.prop.name.lower()}'
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        if not self.col.is_stored:
+            return None
         if self.prop == self.Property.VALUE:
             assert self.col.sa_col is not None
             return self.col.sa_col
@@ -491,7 +496,7 @@ class ColumnRef(Expr):
             assert self.col.sa_errormsg_col is not None
             return self.col.sa_errormsg_col
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # we get called while materializing computed cols
         pass
 
@@ -499,7 +504,7 @@ class ColumnRef(Expr):
         return {'col_id': self.col.id, 'prop': self.prop.value}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> 'Expr':
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
         assert 'col_id' in d
         result = cls(t.cols_by_id[d['col_id']])
         if d['prop'] != cls.Property.VALUE.value:
@@ -507,10 +512,18 @@ class ColumnRef(Expr):
         return result
 
 
+def _is_cached_col_ref(expr: Expr) -> bool:
+    """
+    Returns True if Evaluator handles caching for the referenced column.
+    """
+    return isinstance(expr, ColumnRef) and expr.col.is_cached and not expr.col.tbl.is_frame_col(expr.col)
+
+
 class FrameColumnRef(ColumnRef):
     """
     Reference to an unstored extracted frame column.
     Frames are extracted from videos if they're not in the cache.
+    TODO: create window function that can do frame extraction and remove this class.
     """
     def __init__(self, col: catalog.Column):
         assert col.col_type.is_image_type()
@@ -524,6 +537,7 @@ class FrameColumnRef(ColumnRef):
         # execution state
         self.current_video: Optional[str] = None
         self.frames: Optional[FrameIterator] = None
+        self.query_ts = 0.0  # needed for FileCache interactions
 
     @property
     def _video_ref(self) -> ColumnRef:
@@ -536,7 +550,7 @@ class FrameColumnRef(ColumnRef):
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         if self.col.is_cached:
             # probe cache
             rowid, v_min = data_row[-1]
@@ -568,7 +582,10 @@ class FrameColumnRef(ColumnRef):
         data_row[self.data_row_idx] = frame
 
         if self.col.is_cached:
-            FileCache.get().add(self.tbl.id, self.col.id, rowid, v_min, 0, frame_path)
+            FileCache.get().add(self.tbl.id, self.col.id, rowid, v_min, self.query_ts, frame_path)
+
+    def prepare(self, query_ts: float) -> None:
+        self.query_ts = query_ts
 
     def finalize(self) -> None:
         if self.frames is not None:
@@ -626,7 +643,7 @@ class FunctionCall(Expr):
     def _eval_fn(self) -> Optional[Callable]:
         return self.fn.eval_fn
 
-    def _equals(self, other: 'FunctionCall') -> bool:
+    def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
             return False
         if len(self.args) != len(other.args):
@@ -701,7 +718,7 @@ class FunctionCall(Expr):
         assert self.is_agg_fn_call
         self.aggregator = self.fn.init_fn()
 
-    def update(self, data_row: List[Any]) -> None:
+    def update(self, data_row: DataRow) -> None:
         """
         Update agg state
         """
@@ -709,7 +726,7 @@ class FunctionCall(Expr):
         args = self._make_args(data_row)
         self.fn.update_fn(self.aggregator, *args)
 
-    def _make_args(self, data_row: List[Any]) -> List[Any]:
+    def _make_args(self, data_row: DataRow) -> List[Any]:
         args = copy.copy(self.args)
         # fill in missing child values
         i = 0
@@ -719,7 +736,7 @@ class FunctionCall(Expr):
                 i += 1
         return args
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         args = self._make_args(data_row)
         if not self.fn.is_aggregate:
             data_row[self.data_row_idx] = self.fn.eval_fn(*args)
@@ -747,7 +764,7 @@ class FunctionCall(Expr):
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> 'Expr':
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
         assert 'fn' in d
         assert 'args' in d
         # reassemble args
@@ -900,13 +917,13 @@ class ImageMemberAccess(Expr):
         # TODO: verify signature
         return ImageMethodCall(self.member_name, caller, *args, **kwargs)
 
-    def _equals(self, other: 'ImageMemberAccess') -> bool:
+    def _equals(self, other: ImageMemberAccess) -> bool:
         return self.member_name == other.member_name
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         caller_val = data_row[self._caller.data_row_idx]
         try:
             data_row[self.data_row_idx] = getattr(caller_val, self.member_name)
@@ -942,7 +959,7 @@ class ImageMethodCall(FunctionCall):
         return {'method_name': self.method_name, 'args': self.args, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> 'Expr':
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
         """
         We're implementing this, instead of letting FunctionCall handle it, in order to return an
         ImageMethodCall instead of a FunctionCall, which is useful for testing that a serialize()/deserialize()
@@ -1035,7 +1052,7 @@ class JsonPath(Expr):
         anchor_name = self._anchor.display_name() if self._anchor is not None else ''
         return f'{anchor_name}.{self._json_path()}'
 
-    def _equals(self, other: 'JsonPath') -> bool:
+    def _equals(self, other: JsonPath) -> bool:
         return self.path_elements == other.path_elements
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
@@ -1063,7 +1080,7 @@ class JsonPath(Expr):
                 result.append(f'[{_print_slice(element)}]')
         return ''.join(result)
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         val = data_row[self._anchor.data_row_idx]
         if self.compiled_path is not None:
             val = self.compiled_path.search(val)
@@ -1095,7 +1112,7 @@ class Literal(Expr):
             return f"'{self.val}'"
         return str(self.val)
 
-    def _equals(self, other: 'Literal') -> bool:
+    def _equals(self, other: Literal) -> bool:
         return self.val == other.val
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
@@ -1103,7 +1120,7 @@ class Literal(Expr):
         # that involve literals (like Where c > 0)
         return sql.sql.expression.literal(self.val)
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # this will be called, even though sql_expr() does not return None
         data_row[self.data_row_idx] = self.val
 
@@ -1158,13 +1175,13 @@ class InlineDict(Expr):
                 item_strs.append(f"'{key}': {str(val)}")
         return '{' + ', '.join(item_strs) + '}'
 
-    def _equals(self, other: 'InlineDict') -> bool:
+    def _equals(self, other: InlineDict) -> bool:
         return self.dict_items == other.dict_items
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         result = {}
         for key, idx, val in self.dict_items:
             assert isinstance(key, str)
@@ -1235,13 +1252,13 @@ class InlineArray(Expr):
         elem_strs = [str(val) if val is not None else str(self.components[idx]) for idx, val in self.elements]
         return f'[{", ".join(elem_strs)}]'
 
-    def _equals(self, other: 'InlineDict') -> bool:
+    def _equals(self, other: InlineDict) -> bool:
         return self.elements == other.elements
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         result = [None] * len(self.elements)
         for i, (child_idx, val) in enumerate(self.elements):
             if child_idx >= 0:
@@ -1289,13 +1306,13 @@ class ArraySlice(Expr):
     def _array(self) -> Expr:
         return self.components[0]
 
-    def _equals(self, other: 'ArraySlice') -> bool:
+    def _equals(self, other: ArraySlice) -> bool:
         return self.index == other.index
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         val = data_row[self._array.data_row_idx]
         data_row[self.data_row_idx] = val[self.index]
 
@@ -1358,7 +1375,7 @@ class Predicate(Expr):
             raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
         return CompoundPredicate(LogicalOperator.OR, [self, other])
 
-    def __invert__(self) -> 'CompoundPredicate':
+    def __invert__(self) -> CompoundPredicate:
         return CompoundPredicate(LogicalOperator.NOT, [self])
 
 
@@ -1400,7 +1417,7 @@ class CompoundPredicate(Predicate):
         else:
             self.components.append(operand)
 
-    def _equals(self, other: 'CompoundPredicate') -> bool:
+    def _equals(self, other: CompoundPredicate) -> bool:
         return self.operator == other.operator
 
     def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional[Predicate]]:
@@ -1448,7 +1465,7 @@ class CompoundPredicate(Predicate):
         combined = operator(*sql_exprs)
         return combined
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         if self.operator == LogicalOperator.NOT:
             data_row[self.data_row_idx] = not data_row[self.components[0].data_row_idx]
         else:
@@ -1476,7 +1493,7 @@ class Comparison(Predicate):
     def __str__(self) -> str:
         return f'{self._op1} {self.operator} {self._op2}'
 
-    def _equals(self, other: 'Comparison') -> bool:
+    def _equals(self, other: Comparison) -> bool:
         return self.operator == other.operator
 
     @property
@@ -1505,7 +1522,7 @@ class Comparison(Predicate):
         if self.operator == ComparisonOperator.GE:
             return left >= right
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         if self.operator == ComparisonOperator.LT:
             data_row[self.data_row_idx] = data_row[self._op1.data_row_idx] < data_row[self._op2.data_row_idx]
         elif self.operator == ComparisonOperator.LE:
@@ -1547,13 +1564,13 @@ class ImageSimilarityPredicate(Predicate):
         op_str = 'nearest' if self.img is not None else 'matches'
         return f'{str(self.img_col_ref)}.{op_str}({"<img>" if self.img is not None else self.text})'
 
-    def _equals(self, other: 'ImageSimilarityPredicate') -> bool:
+    def _equals(self, other: ImageSimilarityPredicate) -> bool:
         return False
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         assert False
 
     def _as_dict(self) -> Dict:
@@ -1577,7 +1594,7 @@ class IsNull(Predicate):
     def __str__(self) -> str:
         return f'{str(self.components[0])} == None'
 
-    def _equals(self, other: 'ImageSimilarityPredicate') -> bool:
+    def _equals(self, other: ImageSimilarityPredicate) -> bool:
         return True
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
@@ -1586,7 +1603,7 @@ class IsNull(Predicate):
             return None
         return e == None
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         data_row[self.data_row_idx] = data_row[self.components[0].data_row_idx] is None
 
     @classmethod
@@ -1621,7 +1638,7 @@ class ArithmeticExpr(Expr):
         op2_str = f'({self._op2})' if isinstance(self._op2, ArithmeticExpr) else str(self._op2)
         return f'{op1_str} {str(self.operator)} {op2_str}'
 
-    def _equals(self, other: 'ArithmeticExpr') -> bool:
+    def _equals(self, other: ArithmeticExpr) -> bool:
         return self.operator == other.operator
 
     @property
@@ -1648,7 +1665,7 @@ class ArithmeticExpr(Expr):
         if self.operator == ArithmeticOperator.MOD:
             return left % right
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         op1_val = data_row[self._op1.data_row_idx]
         op2_val = data_row[self._op2.data_row_idx]
         # check types if we couldn't do that prior to execution
@@ -1685,7 +1702,7 @@ class ObjectRef(Expr):
     Reference to an intermediate result, such as the "scope variable" produced by a JsonMapper.
     The object is generated/materialized elsewhere and establishes a new scope.
     """
-    def __init__(self, scope: ExprScope, owner: 'JsonMapper'):
+    def __init__(self, scope: ExprScope, owner: JsonMapper):
         # TODO: do we need an Unknown type after all?
         super().__init__(JsonType())  # JsonType: this could be anything
         self._scope = scope
@@ -1697,13 +1714,13 @@ class ObjectRef(Expr):
     def __str__(self) -> str:
         assert False
 
-    def _equals(self, other: 'ObjectRef') -> bool:
+    def _equals(self, other: ObjectRef) -> bool:
         return self.owner is other.owner
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # this will be called, but the value has already been materialized elsewhere
         pass
 
@@ -1727,7 +1744,7 @@ class JsonMapper(Expr):
         self.parent_mapper: Optional[JsonMapper] = None
         self.target_expr_eval_ctx: List[Expr] = []
 
-    def bind_rel_paths(self, mapper: Optional['JsonMapper']) -> None:
+    def bind_rel_paths(self, mapper: Optional[JsonMapper]) -> None:
         self._src_expr.bind_rel_paths(mapper)
         self._target_expr.bind_rel_paths(self)
         self.parent_mapper = mapper
@@ -1738,12 +1755,12 @@ class JsonMapper(Expr):
         # need to ignore target_expr
         return self._src_expr.scope()
 
-    def dependencies(self) -> List['Expr']:
+    def dependencies(self) -> List[Expr]:
         result = [self._src_expr]
         result.extend(self._target_dependencies(self._target_expr))
         return result
 
-    def _target_dependencies(self, e: Expr) -> List['Expr']:
+    def _target_dependencies(self, e: Expr) -> List[Expr]:
         """
         Return all subexprs of e of which the scope isn't contained in target_expr_scope.
         Those need to be evaluated before us.
@@ -1756,7 +1773,7 @@ class JsonMapper(Expr):
             result.extend(self._target_dependencies(c))
         return result
 
-    def equals(self, other: 'Expr') -> bool:
+    def equals(self, other: Expr) -> bool:
         """
         We override equals() because we need to avoid comparing our scope anchor.
         """
@@ -1779,13 +1796,13 @@ class JsonMapper(Expr):
     def scope_anchor(self) -> Expr:
         return self.components[2]
 
-    def _equals(self, other: 'JsonMapper') -> bool:
+    def _equals(self, other: JsonMapper) -> bool:
         return True
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         return None
 
-    def eval(self, data_row: List[Any], evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # this will be called, but the value has already been materialized elsewhere
         src = data_row[self._src_expr.data_row_idx]
         if not isinstance(src, list):
@@ -1816,6 +1833,27 @@ class JsonMapper(Expr):
         return cls(components[0], components[1])
 
 
+class DataRow:
+    """
+    Encapsulates data and execution state needed by Evaluator.
+    """
+    def __init__(self, size: int):
+        self.vals: List[Any] = [None] * size
+        self.has_val = [False] * size
+
+    def __getitem__(self, index: object) -> Any:
+        assert self.has_val[index]
+        return self.vals[index]
+
+    def __setitem__(self, index: object, val: Any) -> None:
+        # we allow overwriting
+        self.vals[index] = val
+        self.has_val[index] = True
+
+    def __len__(self) -> int:
+        return len(self.vals)
+
+
 class Evaluator:
     """
     Evaluates a list of Exprs against a data row.
@@ -1831,12 +1869,14 @@ class Evaluator:
 
         # all following list are indexed with data_row_idx
         self.unique_exprs = UniqueExprList()  # dependencies precede their dependents
+        self.value_exprs: Dict[int, Expr] = {}  # records value exprs of cached ColumnRefs; needed during execution
         self.next_data_row_idx = 0
         # select list providing the input to the SQL scan stage
         self.sql_select_list: List[sql.sql.expression.ClauseElement] = []
 
         # execution state:
-        #self.has_val: List[bool] = []  # flag per data_row element
+        # start time of query; needed for FileCache interactions
+        self.query_ts = 0.0
 
         for e in expr_list:
             self._assign_idxs(e, with_sql)
@@ -1866,6 +1906,11 @@ class Evaluator:
         self.output_expr_ids = [set() for _ in range(self.num_materialized)]
         for e in expr_list:
             self._record_output_expr_id(e, e.data_row_idx)
+
+        # execution state for cached ColRefs
+        self.cached_col_ref_ctxs = {
+            id: self.get_eval_ctx([value_expr.data_row_idx]) for id, value_expr in self.value_exprs.items()
+        }
 
     def _assign_idxs(self, expr: Expr, with_sql: bool) -> None:
         if expr in self.unique_exprs:
@@ -1901,6 +1946,10 @@ class Evaluator:
         self.next_data_row_idx += 1
         self.unique_exprs.append(expr)
 
+        if _is_cached_col_ref(expr):
+            self.value_exprs[expr.data_row_idx] = expr.col.value_expr.copy()
+            self._assign_idxs(self.value_exprs[expr.data_row_idx], with_sql)
+
     def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
         self.output_expr_ids[e.data_row_idx].add(output_expr_id)
         for d in e.dependencies():
@@ -1910,13 +1959,16 @@ class Evaluator:
     def num_materialized(self) -> int:
         return self.next_data_row_idx
 
-    def prepare(self, sql_row: List[Any], with_pk: bool = False) -> List[Any]:
+    def prepare(self, sql_row: List[Any], query_ts: float, with_pk: bool = False) -> DataRow:
         """
         Prepare for evaluation by initializing data_row from given sql_row.
         with_pk == True: sql_row's last element is PK tuple, which we append to the data_row.
+        query_ts: starting timestamp of current query; we set this here, not in init(), because the Evaluator
+        object is reused across multiple executions of the same query.
         Returns data row.
         """
-        data_row = [None] * (self.num_materialized + with_pk)
+        self.query_ts = query_ts
+        data_row = DataRow(self.num_materialized + with_pk)
         # sql_row might have the PK added to the end
         assert len(sql_row) >= len(self.sql_exprs)
         if with_pk:
@@ -1956,7 +2008,7 @@ class Evaluator:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def eval(self, data_row: List[Any], ctx: List[Expr]) -> Optional[TracebackType]:
+    def eval(self, data_row: DataRow, ctx: List[Expr]) -> Optional[TracebackType]:
         """
         Populates the slots in data_row given in ctx.
         If an expr.eval() raises an exception, records the exception in the corresponding slot of data_row
@@ -1966,10 +2018,36 @@ class Evaluator:
         exc_tb: Optional[TracebackType] = None
         skip_exprs: Set[int] = set()  # skip dependents of exprs that had exception
         for expr in ctx:
-            if expr.data_row_idx in skip_exprs:
+            if expr.data_row_idx in skip_exprs or data_row.has_val[expr.data_row_idx]:
                 continue
+
             try:
-                expr.eval(data_row, self)
+                if _is_cached_col_ref(expr):
+                    # check cache
+                    assert expr.col_type.is_image_type()
+                    col = expr.col
+                    rowid, v_min = data_row[-1]
+                    file_path = FileCache.get().lookup(col.tbl.id, col.id, rowid, v_min)
+                    if file_path is not None:
+                        try:
+                            img = PIL.Image.open(file_path)
+                            data_row[expr.data_row_idx] = img
+                        except Exception:
+                            raise exc.RuntimeError(f'Error reading image file: {file_path}')
+                    else:
+                        value_expr_ctx = self.cached_col_ref_ctxs[expr.data_row_idx]
+                        _ = self.eval(data_row, value_expr_ctx)
+                        value_expr = self.value_exprs[expr.data_row_idx]
+                        img = data_row[value_expr.data_row_idx]
+                        data_row[expr.data_row_idx] = img
+                        fc = FileCache.get()
+                        if fc.can_admit(self.query_ts):
+                            # save image to a random location, it'll get moved into the cache
+                            file_path = Env.get().tmp_frames_dir / f'{uuid4().hex}.jpg'
+                            img.save(file_path)
+                            fc.add(col.tbl.id, col.id, rowid, v_min, self.query_ts, file_path)
+                else:
+                    expr.eval(data_row, self)
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 data_row[expr.data_row_idx] = exc
@@ -1977,7 +2055,7 @@ class Evaluator:
 
         if exc_tb is not None:
             # propagate exceptions in data_row to their respective output_expr slots
-            for i, exc_val in [(i, val) for i, val in enumerate(data_row) if isinstance(val, Exception)]:
+            for i, exc_val in [(i, val) for i, val in enumerate(data_row.vals) if isinstance(val, Exception)]:
                 for j in self.output_expr_ids[i]:
                     data_row[j] = exc_val
         return exc_tb
