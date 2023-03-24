@@ -5,14 +5,15 @@ from pixeltable.type_system import IntType, FloatType
 from pixeltable import catalog
 import pixeltable as pt
 from pixeltable import exceptions as exc
-import pixeltable.functions
 
 
 def dummy_fn(i: int) -> int:
     return i
 
 class TestFunction:
-    func = Function.make_function(IntType(), [IntType()], lambda x: x + 1)
+    @pt.function(return_type=IntType(), param_types=[IntType()])
+    def func(x: int) -> int:
+        return x + 1
 
     class Aggregator:
         def __init__(self):

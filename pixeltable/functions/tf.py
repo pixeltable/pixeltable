@@ -4,7 +4,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 
 
-from pixeltable.type_system import ColumnType, ArrayType
+from pixeltable.type_system import ColumnType, ArrayType, FloatType
 import pixeltable.utils.tf as tf_utils
 from pixeltable.function import Function
 
@@ -18,4 +18,4 @@ def TFModelFunction(
             tensor = preprocess(tensor)
         output = model.predict(tensor)
         return output[0]
-    return Function.make_function(ArrayType(output_shape, dtype=ColumnType.DType.FLOAT32), [param_type], predict)
+    return Function.make_function(ArrayType(output_shape, dtype=FloatType()), [param_type], predict)

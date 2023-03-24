@@ -1,4 +1,4 @@
-import dataclasses
+from __future__ import annotations
 import sys
 from typing import Optional, Callable, Dict, List, Any, Tuple
 import importlib
@@ -27,11 +27,11 @@ class Signature:
         return result
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> 'Signature':
+    def from_dict(cls, d: Dict[str, Any]) -> Signature:
         parameters = [(p[0], ColumnType.from_dict(p[1])) for p in d['parameters']]
         return cls(ColumnType.from_dict(d['return_type']), parameters)
 
-    def __eq__(self, other: 'Signature') -> bool:
+    def __eq__(self, other: Signature) -> bool:
         if self.return_type != other.return_type or (self.parameters is None) != (other.parameters is None):
             return False
         if self.parameters is None:
@@ -81,7 +81,7 @@ class Function:
             }
 
         @classmethod
-        def from_dict(cls, d: Dict[str, Any]) -> 'Metadata':
+        def from_dict(cls, d: Dict[str, Any]) -> Function.Metadata:
             result = cls(Signature.from_dict(d['signature']), d['is_agg'], d['is_library_fn'])
             result.requires_order_by = d['requires_order_by']
             result.allows_std_agg = d['allows_std_agg']
@@ -92,7 +92,7 @@ class Function:
 
 
     def __init__(
-            self, md: 'Function.Metadata', id: Optional[int] = None,
+            self, md: Function.Metadata, id: Optional[int] = None,
             module_name: Optional[str] = None, eval_symbol: Optional[str] = None, init_symbol: Optional[str] = None,
             update_symbol: Optional[str] = None, value_symbol: Optional[str] = None,
             eval_fn: Optional[Callable] = None, init_fn: Optional[Callable] = None,
@@ -152,7 +152,7 @@ class Function:
         return Signature(return_type, parameters)
 
     @classmethod
-    def make_function(cls, return_type: ColumnType, param_types: List[ColumnType], eval_fn: Callable) -> 'Function':
+    def make_function(cls, return_type: ColumnType, param_types: List[ColumnType], eval_fn: Callable) -> Function:
         assert eval_fn is not None
         signature = cls._create_signature(eval_fn, False, param_types, return_type)
         md = cls.Metadata(signature, False, False)
@@ -167,7 +167,7 @@ class Function:
             cls, return_type: ColumnType, param_types: List[ColumnType],
             init_fn: Callable, update_fn: Callable, value_fn: Callable,
             requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
-    ) -> 'Function':
+    ) -> Function:
         assert init_fn is not None and update_fn is not None and value_fn is not None
         signature = cls._create_signature(update_fn, True, param_types, return_type)
         md = cls.Metadata(signature, True, False)
@@ -187,7 +187,7 @@ class Function:
     @classmethod
     def make_library_function(
             cls, return_type: ColumnType, param_types: List[ColumnType], module_name: str, eval_symbol: str
-    ) -> 'Function':
+    ) -> Function:
         assert module_name is not None and eval_symbol is not None
         eval_fn = cls._resolve_symbol(module_name, eval_symbol)
         signature = cls._create_signature(eval_fn, False, param_types, return_type)
@@ -199,7 +199,7 @@ class Function:
             cls, return_type: ColumnType, param_types: List[ColumnType],
             module_name: str, init_symbol: str, update_symbol: str, value_symbol: str,
             requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
-    ) -> 'Function':
+    ) -> Function:
         assert module_name is not None and init_symbol is not None and update_symbol is not None \
                and value_symbol is not None
         update_fn = cls._resolve_symbol(module_name, update_symbol)
@@ -320,7 +320,7 @@ class Function:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict) -> 'Function':
+    def from_dict(cls, d: Dict) -> Function:
         assert 'id' in d
         if d['id'] is not None:
             assert d['module_name'] is None
@@ -334,15 +334,22 @@ class Function:
                 init_symbol=d['init_symbol'], update_symbol=d['update_symbol'], value_symbol=d['value_symbol'])
 
 
+def function(*, return_type: ColumnType, param_types: List[ColumnType]) -> Callable:
+    """Returns decorator to create a Function from a function definition.
+    """
+    def decorator(fn: Callable) -> Function:
+        return Function.make_function(return_type, param_types, fn)
+    return decorator
+
 class FunctionRegistry:
     """
     A central registry for all Functions. Handles interactions with the backing store.
     Function are loaded from the store on demand.
     """
-    _instance: Optional['FunctionRegistry'] = None
+    _instance: Optional[FunctionRegistry] = None
 
     @classmethod
-    def get(cls) -> 'FunctionRegistry':
+    def get(cls) -> FunctionRegistry:
         if cls._instance is None:
             cls._instance = FunctionRegistry()
         return cls._instance

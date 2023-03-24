@@ -17,9 +17,9 @@ class TestTypes:
                 'a': StringType(), 'b': IntType(), 'c': FloatType(), 'd': BoolType(), 'e': TimestampType(),
                 'f': ImageType(height=100, width=200, mode=ImageType.Mode.RGB),
                 'g': JsonType({'f1': StringType(), 'f2': IntType()}),
-                'h': ArrayType((224, 224, 3), dtype=ColumnType.Type.INT),
+                'h': ArrayType((224, 224, 3), dtype=IntType()),
             }),
-            ArrayType((224, 224, 3), dtype=ColumnType.Type.INT),
+            ArrayType((224, 224, 3), dtype=IntType()),
         ]
 
         for t in type_vals:

@@ -1,7 +1,7 @@
 import numpy as np
 import PIL
 
-from pixeltable.type_system import ImageType, ArrayType, ColumnType
+from pixeltable.type_system import ImageType, ArrayType, FloatType
 from pixeltable.function import Function, FunctionRegistry
 from pixeltable.exceptions import Error
 
@@ -15,7 +15,7 @@ def _draw_boxes(img: PIL.Image.Image, boxes: np.ndarray) -> PIL.Image.Image:
     return result
 
 draw_boxes = Function.make_library_function(
-    ImageType(), [ImageType(), ArrayType((None, 4), dtype=ColumnType.Type.FLOAT)], __name__, '_draw_boxes')
+    ImageType(), [ImageType(), ArrayType((None, 4), dtype=FloatType())], __name__, '_draw_boxes')
 FunctionRegistry.get().register_function(__name__, 'draw_boxes', draw_boxes)
 
 __all__ = [

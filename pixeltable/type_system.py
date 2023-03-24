@@ -1,3 +1,4 @@
+from __future__ import annotations
 import abc
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import enum
@@ -94,7 +95,7 @@ class ColumnType:
         return json.dumps(self.as_dict())
 
     @classmethod
-    def serialize_list(cls, type_list: List['ColumnType']) -> str:
+    def serialize_list(cls, type_list: List[ColumnType]) -> str:
         return json.dumps([t.as_dict() for t in type_list])
 
     def as_dict(self) -> Dict:
@@ -107,30 +108,30 @@ class ColumnType:
         return {}
 
     @classmethod
-    def deserialize(cls, type_str: str) -> 'ColumnType':
+    def deserialize(cls, type_str: str) -> ColumnType:
         type_dict = json.loads(type_str)
         return cls.from_dict(type_dict)
 
     @classmethod
-    def deserialize_list(cls, type_list_str: str) -> List['ColumnType']:
+    def deserialize_list(cls, type_list_str: str) -> List[ColumnType]:
         type_dict_list = json.loads(type_list_str)
         return [cls.from_dict(type_dict) for type_dict in type_dict_list]
 
     @classmethod
-    def from_dict(cls, type_dict: Dict) -> 'ColumnType':
+    def from_dict(cls, type_dict: Dict) -> ColumnType:
         assert '_classname' in type_dict
         type_class = globals()[type_dict['_classname']]
         return type_class._from_dict(type_dict)
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> 'ColumnType':
+    def _from_dict(cls, d: Dict) -> ColumnType:
         """
         Default implementation: simply invoke c'tor without arguments
         """
         return cls()
 
     @classmethod
-    def make_type(cls, t: Type) -> 'ColumnType':
+    def make_type(cls, t: Type) -> ColumnType:
         assert t != cls.Type.INVALID and t != cls.Type.ARRAY
         if t == cls.Type.STRING:
             return StringType()
@@ -162,7 +163,7 @@ class ColumnType:
         return True
 
     @classmethod
-    def supertype(cls, type1: 'ColumnType', type2: 'ColumnType') -> Optional['ColumnType']:
+    def supertype(cls, type1: ColumnType, type2: ColumnType) -> Optional[ColumnType]:
         if type1 == type2:
             return type1
 
@@ -184,7 +185,7 @@ class ColumnType:
 
     @classmethod
     @abc.abstractmethod
-    def _supertype(cls, type1: 'ColumnType', type2: 'ColumnType') -> Optional['ColumnType']:
+    def _supertype(cls, type1: ColumnType, type2: ColumnType) -> Optional[ColumnType]:
         """
         Class-specific implementation of determining the supertype. type1 and type2 are from the same subclass of
         ColumnType.
@@ -192,7 +193,7 @@ class ColumnType:
         pass
 
     @classmethod
-    def get_value_type(cls, val: Any) -> 'ColumnType':
+    def get_value_type(cls, val: Any) -> ColumnType:
         if isinstance(val, str):
             return StringType()
         if isinstance(val, int):
@@ -286,7 +287,7 @@ class ColumnType:
         """
         assert False
 
-    def conversion_fn(self, target: 'ColumnType') -> Optional[Callable[[Any], Any]]:
+    def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
         """
         Return Callable that converts a column value of type self to a value of type 'target'.
         Returns None if conversion isn't possible.
@@ -419,7 +420,7 @@ class JsonType(ColumnType):
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> 'ColumnType':
+    def _from_dict(cls, d: Dict) -> ColumnType:
         type_spec = None
         if 'type_spec' in d:
             type_spec = {
@@ -446,12 +447,12 @@ class JsonType(ColumnType):
 
 class ArrayType(ColumnType):
     def __init__(
-            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType.Type):
+            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType):
         super().__init__(self.Type.ARRAY)
         self.shape = shape
-        self.dtype = dtype
+        self.dtype = dtype._type
 
-    def _supertype(cls, type1: 'ArrayType', type2: 'ArrayType') -> Optional['ArrayType']:
+    def _supertype(cls, type1: ArrayType, type2: ArrayType) -> Optional[ArrayType]:
         if len(type1.shape) != len(type2.shape):
             return None
         base_type = ColumnType.supertype(type1.dtype, type2.dtype)
@@ -469,11 +470,11 @@ class ArrayType(ColumnType):
         return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name})'
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> 'ColumnType':
+    def _from_dict(cls, d: Dict) -> ColumnType:
         assert 'shape' in d
         assert 'dtype' in d
         shape = tuple(d['shape'])
-        dtype = cls.Type(d['dtype'])
+        dtype = cls.make_type(cls.Type(d['dtype']))
         return cls(shape, dtype)
 
     def to_sql(self) -> str:
@@ -552,7 +553,7 @@ class ImageType(ColumnType):
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> 'ColumnType':
+    def _from_dict(cls, d: Dict) -> ColumnType:
         assert 'width' in d
         assert 'height' in d
         assert 'mode' in d
@@ -599,7 +600,7 @@ class VideoType(ColumnType):
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> 'ColumnType':
+    def _from_dict(cls, d: Dict) -> ColumnType:
         return cls()
 
     def to_sql(self) -> str:

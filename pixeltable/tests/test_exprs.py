@@ -48,8 +48,12 @@ class TestExprs:
         assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         # compound predicates with Python functions
-        udf = pt.make_function(BoolType(), [StringType()], lambda a: True)
-        udf2 = pt.make_function(BoolType(), [IntType()], lambda a: True)
+        @pt.function(return_type=BoolType(), param_types=[StringType()])
+        def udf(_: str) -> bool:
+            return True
+        @pt.function(return_type=BoolType(), param_types=[IntType()])
+        def udf2(_: int) -> bool:
+            return True
 
         # & can be split
         p = (t.c1 == 'test string') & udf(t.c1)
@@ -100,7 +104,9 @@ class TestExprs:
             _ = t[(t.c6.f2 + 1) / (t.c2 - 10)].show()
 
         # the same, but with an inline function
-        f = pt.make_function(FloatType(), [IntType(), IntType()], lambda a, b: a / b)
+        @pt.function(return_type=FloatType(), param_types=[IntType(), IntType()])
+        def f(a: int, b: int) -> float:
+            return a / b
         with pytest.raises(exc.Error):
             _ = t[f(t.c2 + 1, t.c2)].show()
 
@@ -246,7 +252,7 @@ class TestExprs:
         #_ = t[t.c6.f2].show()
         #_ = t[t.c6.f5].show()
         _ = t[t.c6.f6.f8].show()
-        _ = t[cast(t.c6.f6.f8, ArrayType((4,), ColumnType.Type.FLOAT))].show()
+        _ = t[cast(t.c6.f6.f8, ArrayType((4,), FloatType()))].show()
 
         # top-level is array
         #_ = t[t.c7['*'].f1].show()
@@ -256,7 +262,7 @@ class TestExprs:
         _ = t[t.c7[0].f6.f8].show()
         _ = t[t.c7[:2].f6.f8].show()
         _ = t[t.c7[::-1].f6.f8].show()
-        _ = t[cast(t.c7['*'].f6.f8, ArrayType((2, 4), ColumnType.Type.FLOAT))].show()
+        _ = t[cast(t.c7['*'].f6.f8, ArrayType((2, 4), FloatType()))].show()
         print(_)
 
     def test_arrays(self, test_tbl: catalog.Table) -> None:

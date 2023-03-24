@@ -7,7 +7,7 @@ import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable import catalog
 from pixeltable.type_system import \
-    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, ColumnType
+    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files
 from pixeltable.functions import make_video, sum
 from pixeltable.utils.imgstore import ImageStore
@@ -15,6 +15,16 @@ from pixeltable.utils.filecache import FileCache
 
 
 class TestTable:
+    # exc for a % 10 == 0
+    @pt.function(return_type=FloatType(), param_types=[IntType()])
+    def f1(a: int) -> float:
+        return a / (a % 10)
+
+    # exception for a == None; this should not get triggered
+    @pt.function(return_type=FloatType(), param_types=[FloatType()])
+    def f2(a: float) -> float:
+        return a + 1
+
     def test_create(self, test_db: catalog.Db) -> None:
         db = test_db
         db.create_dir('dir1')
@@ -284,10 +294,7 @@ class TestTable:
         schema = [c2]
         t = db.create_table('test', schema)
 
-        f1 = pt.make_function(FloatType(), [IntType()], lambda a: a / (a % 10))  # exc for a % 10 == 0
-        # exception for a == None; this should not get triggered
-        f2 = pt.make_function(FloatType(), [FloatType()], lambda a: a + 1)
-        status_str = t.add_column(catalog.Column('add1', computed_with=f2(f1(t.c2))))
+        status_str = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
 
         data_df = test_tbl[test_tbl.c2].show(0).to_pandas()
         status_str = t.insert_pandas(data_df)
@@ -448,10 +455,7 @@ class TestTable:
         assert len(result) == 1
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
-        f1 = pt.make_function(FloatType(), [IntType()], lambda a: a / (a % 10))  # exc for a % 10 == 0
-        # exception for a == None; this should not get triggered
-        f2 = pt.make_function(FloatType(), [FloatType()], lambda a: a + 1)
-        status_str = t.add_column(catalog.Column('add3', computed_with=f2(f1(t.c2))))
+        status_str = t.add_column(catalog.Column('add3', computed_with=self.f2(self.f1(t.c2))))
         assert '10 errors' in status_str
         result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()
         assert len(result) == 10
@@ -460,6 +464,6 @@ class TestTable:
         t = test_tbl
         fn = lambda c2: np.full((3, 4), c2)
         t.add_column(
-            catalog.Column('computed1', col_type=ArrayType((3, 4), dtype=ColumnType.Type.INT), computed_with=fn))
+            catalog.Column('computed1', col_type=ArrayType((3, 4), dtype=IntType()), computed_with=fn))
         _ = t.describe()
         print(_)

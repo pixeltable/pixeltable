@@ -26,7 +26,7 @@ and to ensure reproducibility.
 
 1. Install Postgres
 
-    On MacOS, [postgresapp.com](postgresapp.com) is a convenient way to do that.
+    On MacOS, [postgresapp.com](https://postgresapp.com) is a convenient way to do that.
 
 2. `pip install git+https://gitlab.com/pixeltable/python-sdk/`
 
@@ -60,14 +60,14 @@ to get an overview of Pixeltable.
 
 ## API Summary
 
-Import convention:
-```
+Import conventions:
+```python
 import pixeltable as pt
 import pixeltable.functions as ptf
 ```
 
 ### Creating a client
-```
+```python
 cl = pt.Client()
 ```
 
@@ -97,7 +97,7 @@ cl = pt.Client()
 ### Frame extraction for video data
 
 Creating a table with video data and automatic frame extraction:
-```
+```python
 c1 = pt.Column('video', pt.VideoType())
 c2 = pt.Column('frame_idx', pt.IntType())
 c3 = pt.Column('frame', pt.ImageType())
@@ -112,7 +112,7 @@ t = db.create_table(
 `extracted_fps=0` extracts frames at the original frame rate.
 
 For additional filtering, add keyword argument `ffmpeg_filter={...}`, for example
-```
+```python
 ffmpeg_filter={'select': 'gt(scene,0.4)'}
 ```
 
@@ -169,7 +169,7 @@ or `~(t.frame.mode == 'RGB')`.
 ### Computed columns
 
 The values in a computed column are automatically filled when data is added:
-```
+```python
 t.add_column(pt.Column('c_added', computed_with=(t.frame_idx + 1)))
 ```
 
@@ -177,13 +177,13 @@ Computed columns have attributes `errortype` and `errormsg`, which contain the e
 in rows where the `computed_with` expression results in an exception (the column value itself will be `None`).
 
 Example:
-```
+```python
 t[t.c_added.errortype != None][t.c_added.errortype, t.c_added.errormsg].show()
 ```
 returns the exception type and message for rows with an exception.
 
 ### Inserting data into a table
-```
+```python
 t.insert_rows([['/path/to/video1.mp4'], ['/path/to/video2.mp4']], columns=['video'])
 ```
 Each row is a list of column values (do not provide values for computed columns). The
@@ -206,7 +206,7 @@ Methods can be chained, for example: `t.frame.resize((224, 224)).rotate(90).conv
 ### Functions
 
 Functions can be used to transform data, both during querying as well as when data is added to a table.
-```
+```python
 add1 = pt.Function(return_type=pt.IntType(), param_types=[pt.IntType()], eval_fn=lambda x: x + 1)
 ```
 
@@ -218,7 +218,7 @@ As a computed column: `t.add_column(pt.Column('c', computed_with=add1(t.frame_id
 
 In order to enable similarity on specific image columns, create those columns with `indexed=True`.
 This will compute an embedding for every image and store it in a vector index.
-```
+```python
 c3 = pt.Column('frame', pt.ImageType(), indexed=True)
 ```
 

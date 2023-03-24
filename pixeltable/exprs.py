@@ -810,8 +810,8 @@ _PIL_METHOD_INFO: Dict[str, Union[ColumnType, Callable]] = {
     'effect_spread': _caller_return_type,
     'entropy': FloatType(),
     'filter': _caller_return_type,
-    'getbands': ArrayType((None,), ColumnType.Type.STRING),
-    'getbbox': ArrayType((4,), ColumnType.Type.INT),
+    'getbands': ArrayType((None,), StringType()),
+    'getbbox': ArrayType((4,), IntType()),
     'getchannel': _caller_return_type,
     'getcolors': JsonType(),
     'getextrema': JsonType(),
@@ -1212,7 +1212,7 @@ class InlineArray(Expr):
     """
     def __init__(self, elements: Tuple):
         # we need to call this in order to populate self.components
-        super().__init__(ArrayType((len(elements),), ColumnType.Type.INT))
+        super().__init__(ArrayType((len(elements),), IntType()))
 
         # elements contains
         # - for Expr elements: (index into components, None)
@@ -1241,10 +1241,11 @@ class InlineArray(Expr):
                 return
 
         if element_type.is_scalar_type():
-            self.col_type = ArrayType((len(self.elements),), element_type.type_enum)
+            self.col_type = ArrayType((len(self.elements),), element_type)
         elif element_type.is_array_type():
             assert isinstance(element_type, ArrayType)
-            self.col_type = ArrayType((len(self.elements), *element_type.shape), element_type.dtype)
+            self.col_type = ArrayType(
+                (len(self.elements), *element_type.shape), ColumnType.make_type(element_type.dtype))
         elif element_type.is_json_type():
             self.col_type = JsonType()
 
