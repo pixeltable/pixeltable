@@ -1,4 +1,6 @@
 from typing import List, Dict, Optional, Tuple
+
+import docker
 import ffmpeg
 import glob
 import os
@@ -48,7 +50,7 @@ class FrameIterator:
             # we won't know until we run the extraction
             self.est_num_frames = None
 
-    def _extract_frames(self) -> None:
+    def _extract_frames_old(self) -> None:
         assert self.next_frame_idx == -1
         output_path = Env.get().tmp_frames_dir / f'{self.id}_%07d.jpg'
         s = ffmpeg.input(self.video_path)
@@ -59,11 +61,43 @@ class FrameIterator:
                 s = s.filter(key, val)
         # vsync=0: required to apply filter, otherwise ffmpeg pads the output with duplicate frames
         s = s.output(str(output_path), vsync=0, loglevel='quiet')
-        # _ = s.get_args()
+        _ = s.get_args()
         try:
             s.run()
         except ffmpeg.Error:
             raise RuntimeError(f'ffmpeg exception')
+        pattern = Env.get().tmp_frames_dir / f'{self.id}_*.jpg'
+        self.frame_files = glob.glob(str(pattern))
+        self.frame_files.sort()  # make sure we iterate through these in frame number order
+        self.next_frame_idx = 0
+
+    def _extract_frames(self) -> None:
+        assert self.next_frame_idx == -1
+
+        # use ffmpeg-python to construct the command
+        s = ffmpeg.input(str(Path('/input') / self.video_path.name))
+        if self.fps > 0:
+            s = s.filter('fps', self.fps)
+        if self.ffmpeg_filter is not None:
+            for key, val in self.ffmpeg_filter.items():
+                s = s.filter(key, val)
+        # vsync=0: required to apply filter, otherwise ffmpeg pads the output with duplicate frames
+        s = s.output(str(Path('/output') / f'{self.id}_%07d.jpg'), vsync=0, loglevel='quiet')
+        command = ' '.join([f"'{arg}'" for arg in s.get_args()])  # quote everything to deal with spaces
+
+        cl = docker.from_env()
+        _ = cl.containers.run(
+            'jrottenberg/ffmpeg:4.1-alpine',
+            command,
+            detach=False,
+            remove=True,
+            volumes={
+                self.video_path.parent: {'bind': '/input', 'mode': 'rw'},
+                str(Env.get().tmp_frames_dir): {'bind': '/output', 'mode': 'rw'},
+            },
+            user=os.getuid(),
+        )
+
         pattern = Env.get().tmp_frames_dir / f'{self.id}_*.jpg'
         self.frame_files = glob.glob(str(pattern))
         self.frame_files.sort()  # make sure we iterate through these in frame number order

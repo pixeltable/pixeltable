@@ -2,6 +2,7 @@ from typing import List
 import numpy as np
 import pandas as pd
 import datetime
+import os
 
 import pytest
 
@@ -19,8 +20,13 @@ from pixeltable.utils.filecache import FileCache
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory) -> None:
     from pixeltable.env import Env
+    # set the relevant env vars for Client() to connect to the test db
+    home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
+    os.environ['PIXELTABLE_HOME'] = home_dir
+    test_db = 'test'
+    os.environ['PIXELTABLE_DB'] = test_db
     # this also runs create_all()
-    Env.get().set_up(str(tmp_path_factory.mktemp('base') / '.pixeltable'), 'test', echo=True)
+    Env.get().set_up(echo=True)
     FileCache.get().clear()
     yield
     # leave db in place for debugging purposes

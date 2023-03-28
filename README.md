@@ -24,23 +24,25 @@ and to ensure reproducibility.
 
 ## Installation
 
-1. Install Postgres
+1. Install Docker
 
-    On MacOS, [postgresapp.com](https://postgresapp.com) is a convenient way to do that.
+    On MacOS: follow [these](https://docs.docker.com/desktop/install/mac-install/) instructions.
 
 2. `pip install git+https://gitlab.com/pixeltable/python-sdk/`
 
 3. Install additional dependencies
    - Install PyTorch (required for CLIP): see [here](https://pytorch.org/get-started/locally/).
    - Install CLIP: `pip install git+https://github.com/openai/CLIP.git`
-   - If you want to work with videos, you also need to install `ffmpeg`.
 
 ## Setup
 
-Pixeltable requires a home directory and a Postgres database, and both are created automatically the
+Pixeltable requires a home directory and a container running Postgres, and both are created automatically the
 first time you create a Pixeltable client (see below). The location of the home directory is
-`~/.pixeltable` (or the value of the `PIXELTABLE_HOME` environment variable). The following
-environment variables determine how Pixeltable connects to the Postgres instance.
+`~/.pixeltable` (or the value of the `PIXELTABLE_HOME` environment variable).
+
+The following environment variables determine how Pixeltable connects to the containerized Postgres instance
+(but don't need to be set; the defaults work out-of-the-box). Note that it doesn't use the standard
+Postgres port (which is 5432) in order to avoid conflicts with an existing Postgres service.
 
 |Environment Variable|Default|
 |----|----|
@@ -48,8 +50,7 @@ environment variables determine how Pixeltable connects to the Postgres instance
 | `PIXELTABLE_DB`| `pixeltable` |
 | `PIXELTABLE_DB_USER` | |
 | `PIXELTABLE_DB_PASSWORD` | |
-| `PIXELTABLE_DB_HOST` | `localhost` |
-| `PIXELTABLE_DB_PORT` | `5432` |
+| `PIXELTABLE_DB_PORT` | `6543` |
 | `PIXELTABLE_FILECACHE_SIZE` | 10GB |
 
 ## Overview
@@ -88,10 +89,10 @@ cl = pt.Client()
 | Rename a table| `db.rename_table('video_data', 'vd')` |
 | List tables| `db.list_tables()` |
 | Delete a table| `db.drop_table('video_data')` |
-| Create a stored function| `db.create_function('func_name', pt.Function(...))` |
+| Create a stored function| `db.create_function('func_name', ...)` |
 | Load a stored function| `f = db.get_function('func_name')` |
 | Rename a stored function| `db.rename_function('func_name', 'better_name')` |
-| Update a stored function| `db.update_function('func_name', pt.Function(...))` |
+| Update a stored function| `db.update_function('func_name', ...)` |
 | Delete a stored function| `db.drop_function('func_name')` |
 
 ### Frame extraction for video data
@@ -207,7 +208,9 @@ Methods can be chained, for example: `t.frame.resize((224, 224)).rotate(90).conv
 
 Functions can be used to transform data, both during querying as well as when data is added to a table.
 ```python
-add1 = pt.Function(return_type=pt.IntType(), param_types=[pt.IntType()], eval_fn=lambda x: x + 1)
+@pt.function(return_type=pt.IntType(), param_types=[pt.IntType()])
+def add1(x):
+    return x + 1
 ```
 
 For querying: `t[t.frame_idx, add1(t.frame_idx)].show()`

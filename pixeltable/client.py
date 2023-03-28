@@ -22,11 +22,7 @@ class Client:
 
     def __init__(self) -> None:
         self.db_cache: Dict[str, catalog.Db] = {}
-        Env.get().set_up(
-            os.environ.get('PIXELTABLE_HOME'), os.environ.get('PIXELTABLE_DB'),
-            db_user=os.environ.get('PIXELTABLE_DB_USER'), db_password=os.environ.get('PIXELTABLE_DB_PASSWORD'),
-            db_host=os.environ.get('PIXELTABLE_DB_HOST'), db_port=os.environ.get('PIXELTABLE_DB_PORT'),
-            max_filecache_size=os.environ.get('PIXELTABLE_FILECACHE_SIZE'))
+        Env.get().set_up()
 
     def list_functions(self) -> pd.DataFrame:
         func_info = FunctionRegistry.get().list_functions()
@@ -75,7 +71,7 @@ class Client:
         return db
 
     def list_dbs(self) -> List[str]:
-        with orm.Session(store.engine) as session:
+        with orm.Session(Env.get().engine) as session:
             return [r[0] for r in session.query(store.Db.name)]
 
     # TODO: why is this not resolved?

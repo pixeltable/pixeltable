@@ -1,6 +1,8 @@
 from typing import Tuple
+import time
 
 import sqlalchemy as sql
+import psycopg2
 
 from pixeltable import store
 from pixeltable.env import Env
