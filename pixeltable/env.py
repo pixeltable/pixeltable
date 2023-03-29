@@ -39,13 +39,15 @@ class Env:
         self._db_port: Optional[int] = None
         self._store_container: Optional[docker.models.containers.Container] = None
 
-    @property
-    def db_url(self) -> str:
+    def db_url(self, hide_passwd: bool = False) -> str:
         assert self._db_user is not None
         assert self._db_password is not None
         assert self._db_name is not None
         assert self._db_port is not None
-        return f'postgresql://{self._db_user}:{self._db_password}@localhost:{self._db_port}/{self._db_name}'
+        return (
+            f'postgresql://{self._db_user}:{"*****" if hide_passwd else self._db_password}'
+            f'@localhost:{self._db_port}/{self._db_name}'
+        )
 
     @property
     def db_service_url(self) -> str:
@@ -67,7 +69,7 @@ class Env:
         self._max_filecache_size = int(os.environ.get('PIXELTABLE_MAX_FILECACHE_SIZE', f'{10 * 1024 * 1024 * 1024}'))
 
         if not self._home.exists():
-            print(f'setting up Pixeltable at {self._home}, db at {self.db_url}')
+            print(f'setting up Pixeltable at {self._home}, db at {self.db_url(hide_passwd=True)}')
             self._home.mkdir()
             init_home_dir = True
         else:
@@ -82,18 +84,18 @@ class Env:
             self._tmp_frames_dir.mkdir()
             self._filecache_dir.mkdir()
             self.tear_down()
-            if not database_exists(self.db_url):
+            if not database_exists(self.db_url()):
                 print('creating database')
-                create_database(self.db_url)
+                create_database(self.db_url())
             print('creating engine')
-            self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
+            self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
             from pixeltable import store
             store.Base.metadata.create_all(self._sa_engine)
         else:
-            if not database_exists(self.db_url):
-                raise RuntimeError(f'Database not found: {self.db_url}')
+            if not database_exists(self.db_url()):
+                raise RuntimeError(f'Database not found: {self.db_url(hide_passwd=True)}')
             if self._sa_engine is None:
-                self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
+                self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
             # discard tmp frames
             shutil.rmtree(self._tmp_frames_dir)
             self._tmp_frames_dir.mkdir()
@@ -105,9 +107,8 @@ class Env:
         cl = docker.from_env()
         try:
             self._store_container = cl.containers.get('pixeltable-store')
-            print('found existing Postgres container')
         except docker.errors.NotFound:
-            print('starting Postgres container')
+            print('starting store container')
             self._store_container = cl.containers.run(
                 'postgres:15-alpine',
                 detach=True,
@@ -138,22 +139,21 @@ class Env:
         except psycopg2.OperationalError:
             return False
 
-    def _wait_for_postgres(self, num_attempts: int = 5) -> None:
+    def _wait_for_postgres(self, num_attempts: int = 20) -> None:
         """
         Waits for the service to be up.
         """
         i = 0
         while not self._postgres_is_up() and i < num_attempts:
-            print('waiting for postgres')
+            print('waiting for store container to start...')
             time.sleep(i + 1)
             i += 1
         if not self._postgres_is_up():
             raise RuntimeError(f'Postgres is not running: {self.db_service_url}')
 
     def tear_down(self) -> None:
-        db_url = f'postgresql:///{self._db_name}'
-        if database_exists(db_url):
-            drop_database(db_url)
+        if database_exists(self.db_url()):
+            drop_database(self.db_url())
 
     def set_home(self, home: Path) -> None:
         if self._home is not None:

@@ -30,10 +30,6 @@ and to ensure reproducibility.
 
 2. `pip install git+https://gitlab.com/pixeltable/python-sdk/`
 
-3. Install additional dependencies
-   - Install PyTorch (required for CLIP): see [here](https://pytorch.org/get-started/locally/).
-   - Install CLIP: `pip install git+https://github.com/openai/CLIP.git`
-
 ## Setup
 
 Pixeltable requires a home directory and a container running Postgres, and both are created automatically the

@@ -1,21 +1,20 @@
 import numpy as np
 import PIL.Image
-import clip
-import torch
+import open_clip
 import PIL.Image
 
 
-_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-_model, _preprocess = clip.load("ViT-B/32", device=_device)
+_model, _, _preprocess = open_clip.create_model_and_transforms('ViT-B-32-quickgelu', pretrained='laion400m_e32')
+_tokenizer = open_clip.get_tokenizer('ViT-B-32-quickgelu')
 
 def encode_image(img: PIL.Image.Image) -> np.ndarray:
-    preprocessed = _preprocess(img).unsqueeze(0).to(_device)
+    preprocessed = _preprocess(img).unsqueeze(0)
     features = _model.encode_image(preprocessed)
     val = features.numpy(force=True).squeeze()
     return val
 
 def encode_text(txt: str) -> np.ndarray:
-    preprocessed = clip.tokenize([txt]).to(_device)
+    preprocessed = _tokenizer([txt])
     features = _model.encode_text(preprocessed)
     val = features.numpy(force=True).squeeze()
     return val
