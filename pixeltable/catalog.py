@@ -862,7 +862,7 @@ class MutableTable(Table):
         frame_iters: List[Optional[FrameIterator]] = [None] * len(data)
         est_num_rows = len(data)  # total number of rows, after frame extraction
         if self.extracts_frames():
-            print('Extracting frames...')
+            print('Counting frames...')
             data.sort_values([video_col.name], axis=0, inplace=True)  # we need to order by video_col, frame_idx_col
             with tqdm(total=data[video_col.name].count()) as progress_bar:
                 video_paths = list(data[video_col.name])

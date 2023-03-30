@@ -1,19 +1,17 @@
 from typing import List, Dict, Optional, Tuple
-
-import docker
-import ffmpeg
 import glob
 import os
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
+import json
 
+import docker
+import ffmpeg
 import PIL
 
 from pixeltable.exceptions import RuntimeError
 from pixeltable.env import Env
-from pixeltable.function import Function, FunctionRegistry
-from pixeltable.type_system import IntType, ImageType, VideoType
 
 
 def num_tmp_frames() -> int:
@@ -40,36 +38,23 @@ class FrameIterator:
 
         # get estimate of # of frames
         if ffmpeg_filter is None:
-            info = ffmpeg.probe(str(video_path_str))
-            video_stream = next((stream for stream in info['streams'] if stream['codec_type'] == 'video'), None)
+            cl = docker.from_env()
+            command = (
+                f'-v error -select_streams v:0 -show_entries stream=nb_frames,duration -print_format json '
+                f'/input/{self.video_path.name}'
+            )
+            output = cl.containers.run(
+                'sjourdan/ffprobe:latest', command, detach=False, remove=True,
+                volumes={str(video_path.parent): {'bind': '/input', 'mode': 'ro'}},
+            )
+            info = json.loads(output)
             if fps == 0:
-                self.est_num_frames = int(video_stream['nb_frames'])
+                self.est_num_frames = int(info['streams'][0]['nb_frames'])
             else:
-                self.est_num_frames = int(fps * float(video_stream['duration']))
+                self.est_num_frames = int(fps * float(info['streams'][0]['duration']))
         else:
             # we won't know until we run the extraction
             self.est_num_frames = None
-
-    def _extract_frames_old(self) -> None:
-        assert self.next_frame_idx == -1
-        output_path = Env.get().tmp_frames_dir / f'{self.id}_%07d.jpg'
-        s = ffmpeg.input(self.video_path)
-        if self.fps > 0:
-            s = s.filter('fps', self.fps)
-        if self.ffmpeg_filter is not None:
-            for key, val in self.ffmpeg_filter.items():
-                s = s.filter(key, val)
-        # vsync=0: required to apply filter, otherwise ffmpeg pads the output with duplicate frames
-        s = s.output(str(output_path), vsync=0, loglevel='quiet')
-        _ = s.get_args()
-        try:
-            s.run()
-        except ffmpeg.Error:
-            raise RuntimeError(f'ffmpeg exception')
-        pattern = Env.get().tmp_frames_dir / f'{self.id}_*.jpg'
-        self.frame_files = glob.glob(str(pattern))
-        self.frame_files.sort()  # make sure we iterate through these in frame number order
-        self.next_frame_idx = 0
 
     def _extract_frames(self) -> None:
         assert self.next_frame_idx == -1
