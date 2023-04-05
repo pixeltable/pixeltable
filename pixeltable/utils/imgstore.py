@@ -1,3 +1,4 @@
+import time
 import glob
 import os
 import re
@@ -10,7 +11,7 @@ from pixeltable.env import Env
 
 class ImageStore:
     """
-    Utilities functions to manage images stored in Env.img_dir
+    Utilities to manage images stored in Env.img_dir
     """
     pattern = re.compile(r'(\d+)_(\d+)_(\d+)_\d+.jpg')
 

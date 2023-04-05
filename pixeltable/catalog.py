@@ -823,9 +823,7 @@ class MutableTable(Table):
                         continue
                     path = pathlib.Path(path_str)
                     if not path.is_file():
-                        raise exc.RuntimeError(
-                            f'For frame extraction, value for column {col.name} in row {idx} requires a valid '
-                            f'file path: {path}')
+                        raise RuntimeError(f'Column {col.name}: file does not exist: {path_str}')
                     cap = cv2.VideoCapture(path_str)
                     success = cap.isOpened()
                     cap.release()

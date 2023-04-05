@@ -1,3 +1,4 @@
+from typing import Optional
 import pytest
 import PIL
 
@@ -16,7 +17,7 @@ class TestVideo:
         video_filepaths = get_video_files()
         db = test_db
 
-        def create_and_insert(stored: bool) -> catalog.Table:
+        def create_and_insert(stored: Optional[bool]) -> catalog.Table:
             FileCache.get().clear()
             cols = [
                 catalog.Column('video', VideoType(), nullable=False),
@@ -30,6 +31,7 @@ class TestVideo:
                 extracted_frame_idx_col='frame_idx', extracted_fps=1)
             assert num_tmp_frames() == 0
             tbl.insert_rows([[p] for p in video_filepaths[:2]], columns=['video'])
+            assert num_tmp_frames() == 0
             _ = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
             assert num_tmp_frames() == 0
             return tbl
