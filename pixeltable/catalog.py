@@ -2,7 +2,7 @@ from typing import Optional, List, Set, Dict, Any, Type, Union, Callable, Genera
 import re
 import inspect
 import io
-import os
+import logging
 import dataclasses
 import pathlib
 
@@ -28,6 +28,9 @@ from pixeltable.utils.filecache import FileCache
 
 _ID_RE = r'[a-zA-Z]\w*'
 _PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
+
+
+_logger = logging.getLogger('pixeltable')
 
 
 class Column:
@@ -1290,7 +1293,6 @@ class MutableTable(Table):
                 tbl_id=tbl_record.id, schema_version=0, preceding_schema_version=0)
             session.add(tbl_version_record)
             session.flush()  # avoid FK violations in Postgres
-            print(f'creating table {name}, id={tbl_record.id}')
 
             cols_by_name: Dict[str, Column] = {}  # records the cols we have seen so far
             for pos, col in enumerate(cols):
@@ -1317,6 +1319,7 @@ class MutableTable(Table):
             tbl = MutableTable(tbl_record, 0, cols)
             tbl.sa_md.create_all(bind=session.connection())
             session.commit()
+            _logger.info(f'created table {name}, id={tbl_record.id}')
             return tbl
 
 

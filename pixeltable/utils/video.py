@@ -10,6 +10,7 @@ from uuid import uuid4
 import json
 import threading
 import queue
+import logging
 
 import docker
 import ffmpeg
@@ -20,6 +21,8 @@ from watchdog.events import PatternMatchingEventHandler, FileSystemEvent
 from pixeltable.exceptions import RuntimeError
 from pixeltable.env import Env
 
+
+_logger = logging.getLogger('pixeltable')
 
 def num_tmp_frames() -> int:
     files = glob.glob(str(Env.get().tmp_frames_dir / '*.jpg'))
@@ -42,6 +45,7 @@ class FrameIterator:
         self.id = uuid4().hex[:16]
         self.idx_re = re.compile(fr'{self.id}_(\d+)\.jpg')  # pattern to extract frame idx from filename
         self.num_frames: Optional[int] = None  # the known number of frames
+        _logger.debug(f'FrameIterator: id={self.id} path={self.video_path} fps={self.fps} filter={self.ffmpeg_filter}')
 
         # get estimate of # of frames
         if ffmpeg_filter is None:
@@ -50,6 +54,7 @@ class FrameIterator:
                 f'-v error -select_streams v:0 -show_entries stream=nb_frames,duration -print_format json '
                 f'/input/{self.video_path.name}'
             )
+            _logger.debug(f'running ffprobe: {command}')
             output = cl.containers.run(
                 'sjourdan/ffprobe:latest', command, detach=False, remove=True,
                 volumes={str(video_path.parent): {'bind': '/input', 'mode': 'ro'}},
@@ -91,6 +96,7 @@ class FrameIterator:
                 self.output_queue = output_queue
 
             def on_closed(self, event: FileSystemEvent) -> None:
+                _logger.debug(f'added to file queue: {event.src_path}')
                 self.output_queue.put(event)
 
         # start watching for files in tmp_frames_dir
@@ -99,6 +105,7 @@ class FrameIterator:
         self.observer.schedule(handler, path=str(Env.get().tmp_frames_dir), recursive=False)
         self.observer.start()
 
+        _logger.debug(f'running ffmpeg: {command}')
         cl = docker.from_env()
         self.container = cl.containers.run(
             'jrottenberg/ffmpeg:4.1-alpine',
@@ -134,6 +141,7 @@ class FrameIterator:
             # try to delete the file
             try:
                 os.remove(str(self.frame_paths[prev_frame_idx]))
+                _logger.debug(f'removed {self.frame_paths[prev_frame_idx]}')
             except FileNotFoundError as e:
                 # nothing to worry about, someone else grabbed it
                 pass
@@ -163,6 +171,7 @@ class FrameIterator:
                     if m is None:
                         raise RuntimeError('Could not extract frame count from ffmpeg output')
                     self.num_frames = int(m.group(1))
+                    _logger.debug(f'container exited, num_frames={self.num_frames}')
                     if self.next_frame_idx == self.num_frames:
                         self.observer.stop()
                         self.observer.join()
@@ -180,6 +189,7 @@ class FrameIterator:
         assert self.frame_paths[self.next_frame_idx] is not None
         result = (self.next_frame_idx, self.frame_paths[self.next_frame_idx])
         self.next_frame_idx += 1
+        _logger.debug(f'returning {result}')
         return result
 
     def _add_path(self, path: Path) -> None:

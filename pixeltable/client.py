@@ -1,6 +1,6 @@
 from typing import List, Dict, Optional, Tuple, Any
-import os
 import pandas as pd
+import logging
 
 import sqlalchemy.orm as orm
 
@@ -17,12 +17,38 @@ __all__ = [
 
 
 class Client:
-    """Missing docstring.
+    """
+    Client for interacting with a Pixeltable environment.
     """
 
     def __init__(self) -> None:
         self.db_cache: Dict[str, catalog.Db] = {}
         Env.get().set_up()
+
+    def logging(
+            self, *, to_stdout: Optional[bool] = None, level: Optional[int] = None,
+            add: Optional[str] = None, remove: Optional[str] = None
+    ) -> None:
+        """
+        Configure logging.
+
+        to_stdout: if True, also log to stdout
+        level: default log level
+        add: comma-separated list of (module name, log level) tuples
+        remove: comma-separated list of module names
+        """
+        if to_stdout is not None:
+            Env.get().log_to_stdout(to_stdout)
+        if level is not None:
+            Env.get().set_log_level(level)
+        if add is not None:
+            for module, level in [t.split(':') for t in add.split(',')]:
+                Env.get().set_module_log_level(module, int(level))
+        if remove is not None:
+            for module in remove.split(','):
+                Env.get().set_module_log_level(module, None)
+        if to_stdout is None and level is None and add is None and remove is None:
+            Env.get().print_log_config()
 
     def list_functions(self) -> pd.DataFrame:
         func_info = FunctionRegistry.get().list_functions()
