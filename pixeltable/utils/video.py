@@ -71,8 +71,10 @@ class FrameIterator:
         # runtime state
         self.next_frame_idx = -1  # -1: extraction hasn't happened yet
         self.container: Optional[docker.models.containers.Container] = None
-        self.path_queue = queue.SimpleQueue()
         self.observer: Optional[Observer] = None
+        self.path_queue = queue.SimpleQueue()  # filled by self.observer
+        # we keep a list of frames, indexed by frame_idx, because the notifications about new frames
+        # may arrive out of order
         self.frame_paths: List[Optional[str]] = []
 
     def _start_extraction(self) -> None:
@@ -91,17 +93,25 @@ class FrameIterator:
         command = ' '.join([f"'{arg}'" for arg in s.get_args()])  # quote everything to deal with spaces
 
         class Handler(PatternMatchingEventHandler):
-            def __init__(self, pattern: str, output_queue: queue.SimpleQueue):
+            def __init__(
+                    self, pattern: str, output_queue: queue.SimpleQueue, container: docker.models.containers.Container):
                 super().__init__(patterns=[pattern], ignore_patterns=None, ignore_directories=True, case_sensitive=True)
                 self.output_queue = output_queue
+                self.container = container
 
             def on_closed(self, event: FileSystemEvent) -> None:
-                _logger.debug(f'added to file queue: {event.src_path}')
                 self.output_queue.put(event)
+                _logger.debug(f'added {event.src_path} to path_queue (len={self.output_queue.qsize()})')
+                # we pause the container if it gets too far ahead of us
+                # if self.output_queue.qsize() == 20:
+                #     self.container.reload()
+                #     if self.container.status == 'running':
+                #         _logger.debug(f'pausing container: {self.container.id}')
+                #         self.container.pause()
 
         # start watching for files in tmp_frames_dir
         self.observer = Observer()
-        handler = Handler(f'{self.id}_*.jpg', self.path_queue)
+        handler = Handler(f'{self.id}_*.jpg', self.path_queue, self.container)
         self.observer.schedule(handler, path=str(Env.get().tmp_frames_dir), recursive=False)
         self.observer.start()
 
@@ -120,12 +130,6 @@ class FrameIterator:
             group_add=[os.getgid()],
         )
         self.next_frame_idx = 0
-
-        while False:
-            self.container.reload()
-            if self.container.status == 'exited':
-                break
-            time.sleep(0.1)
 
     def __iter__(self) -> Iterator[Tuple[int, Path]]:
         return self
@@ -159,7 +163,7 @@ class FrameIterator:
 
         # we need to return the frame at next_frame_idx; make sure we have it
         while self.frame_paths[self.next_frame_idx] is None:
-            # check whether extraction is done
+            # check on the container status
             if self.container.status != 'exited':
                 self.container.reload()
                 if self.container.status == 'exited':
@@ -176,7 +180,12 @@ class FrameIterator:
                         self.observer.stop()
                         self.observer.join()
                         raise StopIteration
+                if self.container.status == 'paused' and self.path_queue.qsize() < 10:
+                    # the producer is paused and we're running low on frames: we need to unpause the container
+                    _logger.debug(f'unpausing container: {self.container.id}')
+                    self.container.unpause()
 
+            _logger.debug(f'waiting for {self.next_frame_idx} (len={self.path_queue.qsize()}, container status={self.container.status}')
             # wait for the next frame to be extracted;
             # we need a timeout to avoid a deadlock situation:
             # the container hasn't exited yet, but we have already returned the last frame
@@ -212,24 +221,49 @@ class FrameIterator:
         assert frame_idx >= self.next_frame_idx
         if self.next_frame_idx == -1:
             self._start_extraction()
+        _logger.debug(f'seeking to frame {frame_idx}')
         while frame_idx < self.next_frame_idx:
             _ = self.__next__()
 
     def __enter__(self) -> FrameIterator:
+        _logger.debug(f'__enter__ {self.id}')
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        _logger.debug(f'__exit__ {self.id}')
         return self.close()
 
     def close(self) -> None:
+        _logger.debug(f'closing FrameIterator {self.id}')
         if self.next_frame_idx == -1:
             # nothing to do
             return
-        while True:
+        # check if the container is still running; if so, stop it
+        self.container.reload()
+        if self.container.status != 'exited':
+            _logger.debug(f'stopping container {self.container.id}')
+            self.container.stop()
+        self.container.remove()
+        self.observer.stop()
+        self.observer.join()
+
+        # remove all remaining files:
+        # - whatever is left in path_queue
+        # - whatever is left in frame_paths, from next_frame_idx-1 to the end
+        while not self.path_queue.empty():
+            event = self.path_queue.get()
             try:
-                _ = self.__next__()
-            except StopIteration:
-                return
+                os.remove(event.src_path)
+                _logger.debug(f'removed {event.src_path}')
+            except FileNotFoundError:
+                pass
+        # also remove the frame we returned last
+        for path in [path for path in self.frame_paths[self.next_frame_idx - 1:] if path is not None]:
+            try:
+                os.remove(path)
+                _logger.debug(f'removed {path}')
+            except FileNotFoundError:
+                pass
 
 
 class FrameExtractor:

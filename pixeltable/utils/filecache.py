@@ -6,9 +6,12 @@ import glob
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
-import pandas as pd
+import logging
 
 from pixeltable.env import Env
+
+
+_logger = logging.getLogger('pixeltable')
 
 @dataclass(eq=True, frozen=True)
 class CellId:
@@ -109,6 +112,9 @@ class FileCache:
         entries = list(self.cache.values())  # list(): avoid dealing with values() return type
         if tbl_id is not None:
             entries = [e for e in entries if e.cell_id.tbl_id == tbl_id]
+            _logger.debug(f'clearing {len(entries)} entries from file cache for table {tbl_id}')
+        else:
+            _logger.debug(f'clearing {len(entries)} entries from file cache')
         for entry in entries:
             del self.cache[entry.cell_id]
             self.total_size -= entry.size
@@ -118,12 +124,14 @@ class FileCache:
         else:
             # need to reset to default
             self.capacity = Env.get().max_filecache_size
+        _logger.debug(f'setting file cache capacity to {self.capacity}')
 
     def lookup(self, tbl_id: int, col_id: int, row_id: int, v_min: int) -> Optional[Path]:
         self.num_requests += 1
         cell_id = CellId(tbl_id, col_id, row_id, v_min)
         entry = self.cache.get(cell_id, None)
         if entry is None:
+            _logger.debug(f'file cache miss for {cell_id}')
             return None
         # update mtime and cache
         path = entry.path()
@@ -132,6 +140,7 @@ class FileCache:
         entry.last_accessed_ts = file_info.st_mtime
         self.cache.move_to_end(cell_id, last=True)
         self.num_hits += 1
+        _logger.debug(f'file cache hit for {cell_id}')
         return path
 
     def can_admit(self, query_ts: int) -> bool:
@@ -160,11 +169,13 @@ class FileCache:
                 lru_entry = next(iter(self.cache.values()))
                 if lru_entry.last_accessed_ts >= query_ts:
                     # the current query brought this entry in: switch to MRU and ignore this put()
+                    _logger.debug('file cache switched to MRU')
                     return
                 self.cache.popitem(last=False)
                 self.total_size -= lru_entry.size
                 self.num_evictions += 1
                 os.remove(str(lru_entry.path()))
+                _logger.debug(f'evicted entry for cell {lru_entry.cell_id} from file cache')
                 if self.total_size + file_info.st_size <= self.capacity:
                     break
 
@@ -173,6 +184,7 @@ class FileCache:
         self.cache[entry.cell_id] = entry
         self.total_size += entry.size
         os.rename(str(path), str(entry.path()))
+        _logger.debug(f'added entry for cell {cell_id} to file cache')
 
     def stats(self) -> CacheStats:
         # collect column stats

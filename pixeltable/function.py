@@ -6,12 +6,15 @@ import sqlalchemy as sql
 from sqlalchemy.sql.expression import func as sql_func
 import cloudpickle
 import inspect
+import logging
 
 from pixeltable.type_system import ColumnType
 from pixeltable import store
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
 
+
+_logger = logging.getLogger('pixeltable')
 
 class Signature:
     def __init__(self, return_type: ColumnType, parameters: Optional[List[Tuple[str, ColumnType]]]):
@@ -290,12 +293,12 @@ class Function:
                and self.eval_fn == other.eval_fn and self.init_fn == other.init_fn \
                and self.update_fn == other.update_fn and self.value_fn == other.value_fn
 
-    def list(self) -> None:
+    def source(self) -> None:
         """
         Print source code
         """
         if self.is_library_function:
-            raise exc.Error(f'list() not valid for library functions: {self.display_name}')
+            raise exc.Error(f'source() not valid for library functions: {self.display_name}')
         if self.md.src == '':
             print('sources not available')
         print(self.md.src)
@@ -323,7 +326,6 @@ class Function:
     def from_dict(cls, d: Dict) -> Function:
         assert 'id' in d
         if d['id'] is not None:
-            assert d['module_name'] is None
             return FunctionRegistry.get().get_function(d['id'])
         else:
             assert 'module_name' in d
@@ -416,6 +418,7 @@ class FunctionRegistry:
                 func = Function(
                     md, id=id,
                     eval_fn=eval_fn, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn)
+                _logger.info(f'Loaded function {name} from store')
                 self.stored_fns_by_id[id] = func
         assert id in self.stored_fns_by_id
         return self.stored_fns_by_id[id]
@@ -425,10 +428,17 @@ class FunctionRegistry:
             name: Optional[str] = None
     ) -> None:
         with Env.get().engine.begin() as conn:
+            _logger.debug(f'Pickling function {name}')
             eval_fn_str = cloudpickle.dumps(fn.eval_fn) if fn.eval_fn is not None else None
             init_fn_str = cloudpickle.dumps(fn.init_fn) if fn.init_fn is not None else None
             update_fn_str = cloudpickle.dumps(fn.update_fn) if fn.update_fn is not None else None
             value_fn_str = cloudpickle.dumps(fn.value_fn) if fn.value_fn is not None else None
+            total_size = \
+                (len(eval_fn_str) if eval_fn_str is not None else 0) + \
+                (len(init_fn_str) if init_fn_str is not None else 0) + \
+                (len(update_fn_str) if update_fn_str is not None else 0) + \
+                (len(value_fn_str) if value_fn_str is not None else 0)
+            _logger.debug(f'Pickled function {name} ({total_size} bytes)')
 
             res = conn.execute(
                 sql.insert(store.Function.__table__)
@@ -437,6 +447,7 @@ class FunctionRegistry:
                         eval_obj=eval_fn_str, init_obj=init_fn_str, update_obj=update_fn_str, value_obj=value_fn_str))
             fn.id = res.inserted_primary_key[0]
             self.stored_fns_by_id[fn.id] = fn
+            _logger.info(f'Created function {name} in store')
 
     def update_function(self, id: int, new_fn: Function) -> None:
         """
@@ -457,6 +468,7 @@ class FunctionRegistry:
                 sql.update(store.Function.__table__)
                     .values(updates)
                     .where(store.Function.id == id))
+            _logger.info(f'Updated function {new_fn.md.fqn} (id={id}) in store')
         if id in self.stored_fns_by_id:
             if new_fn.eval_fn is not None:
                 self.stored_fns_by_id[id].eval_fn = new_fn.eval_fn
@@ -473,6 +485,7 @@ class FunctionRegistry:
             conn.execute(
                 sql.delete(store.Function.__table__)
                     .where(store.Function.id == id))
+            _logger.info(f'Deleted function with id {id} from store')
 
 
 # def create_module_list() -> None:

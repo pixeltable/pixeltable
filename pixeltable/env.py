@@ -43,10 +43,10 @@ class Env:
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
-        self._default_log_level = logging.DEBUG
-        self._logger.setLevel(self._default_log_level)
+        self._logger.setLevel(logging.DEBUG)  # allow everything to pass, we filter in _log_filter()
         self._logger.propagate = False
         self._logger.addFilter(self._log_filter)
+        self._default_log_level = logging.INFO
         self._logfilename: Optional[str] = None
         self._log_to_stdout = False
         self._module_log_level: Dict[str, int] = {}  # module name -> log level

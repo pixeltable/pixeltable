@@ -162,7 +162,7 @@ class Column:
         from pixeltable import exprs
         if self.value_expr is None or not isinstance(self.value_expr, exprs.FunctionCall):
             return
-        self.value_expr.fn.list()
+        self.value_expr.fn.source()
 
     def create_sa_cols(self) -> None:
         """
@@ -537,10 +537,12 @@ class MutableTable(Table):
                 sql.insert(store.ColumnHistory.__table__)
                     .values(tbl_id=self.id, col_id=c.id, schema_version_add=self.schema_version))
             self._create_col_md(conn)
+            _logger.info(f'Added column {c.name} to table {self.name}, new version: {self.version}')
 
             if c.is_stored:
                 stmt = f'ALTER TABLE {self.storage_name()} ADD COLUMN {c.storage_name()} {c.col_type.to_sql()}'
                 conn.execute(sql.text(stmt))
+                added_storage_cols = [c.storage_name()]
                 if c.is_computed:
                     # we also need to create the errormsg and errortype storage cols
                     stmt = (f'ALTER TABLE {self.storage_name()} '
@@ -549,7 +551,9 @@ class MutableTable(Table):
                     stmt = (f'ALTER TABLE {self.storage_name()} '
                             f'ADD COLUMN {c.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
                     conn.execute(sql.text(stmt))
+                    added_storage_cols.extend([c.errormsg_storage_name(), c.errortype_storage_name()])
                 self._create_sa_tbl()
+                _logger.info(f'Added columns {added_storage_cols} to storage table {self.storage_name()}')
 
         row_count = self.count()
         if not c.is_computed or not c.is_stored or row_count == 0:
@@ -588,7 +592,9 @@ class MutableTable(Table):
                                     .where(self.rowid_col == rowid)
                                     .where(self.v_min_col == v_min))
                         progress_bar.update(1)
-                    return f'Added {row_count} column values with {num_excs} error{"" if num_excs == 1 else "s"}'
+                    msg = f'added {row_count} column values with {num_excs} error{"" if num_excs == 1 else "s"}'
+                    _logger.info(f'Column {c.name}: {msg}')
+                    return msg
                 except sql.exc.DBAPIError as e:
                     self.drop_column(c.name)
                     raise exc.Error(f'Error during SQL execution:\n{e}')
@@ -654,6 +660,7 @@ class MutableTable(Table):
                     .where(store.ColumnHistory.col_id == col.id))
             self._create_col_md(conn)
         self._create_sa_tbl()
+        _logger.info(f'Dropped column {name} from table {self.name}, new version: {self.version}')
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         self._check_is_dropped()
@@ -686,6 +693,7 @@ class MutableTable(Table):
                     .values(tbl_id=self.id, schema_version=self.schema_version,
                             preceding_schema_version=preceding_schema_version))
             self._create_col_md(conn)
+        _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def _create_col_md(self, conn: sql.engine.base.Connection) -> None:
         for pos, c in enumerate(self.cols):
@@ -1067,7 +1075,9 @@ class MutableTable(Table):
         else:
             cols_with_excs_str = f'across {len(cols_with_excs)} column{"" if len(cols_with_excs) == 1 else "s"}'
             cols_with_excs_str += f' ({", ".join([self.cols_by_id[id].name for id in cols_with_excs])})'
-        return f'Inserted {num_rows} rows with {num_excs} error{"" if num_excs == 1 else "s"} {cols_with_excs_str}'
+        msg = f'inserted {num_rows} rows with {num_excs} error{"" if num_excs == 1 else "s"} {cols_with_excs_str}'
+        _logger.info(f'Table {self.name}: {msg}, new version {self.version}')
+        return msg
 
     def insert_csv(self, file_path: str) -> None:
         pass
@@ -1165,6 +1175,7 @@ class MutableTable(Table):
                     .where(store.Table.id == self.id))
 
             session.commit()
+            _logger.info(f'Table {self.name}: reverted to version {self.version}')
 
     # MODULE-LOCAL, NOT PUBLIC
     def rename(self, new_name: str) -> None:
@@ -1457,6 +1468,7 @@ class Db:
             self.id, dir.id, path.name, schema, num_retained_versions, extract_frames_from, extracted_frame_col,
             extracted_frame_idx_col, extracted_fps, ffmpeg_filter)
         self.paths[path] = tbl
+        _logger.info(f'Created table {path_str}')
         return tbl
 
     def get_table(self, path_str: str) -> Table:
@@ -1479,6 +1491,7 @@ class Db:
         del self.paths[path]
         self.paths[new_path] = tbl
         tbl.rename(new_name)
+        _logger.info(f'Renamed table {path_str} to {str(new_path)}')
 
     def move_table(self, tbl_path: str, dir_path: str) -> None:
         pass
@@ -1502,6 +1515,7 @@ class Db:
         assert isinstance(tbl, MutableTable)
         tbl.drop()
         del self.paths[path]
+        _logger.info(f'Dropped table {path_str}')
 
     def create_snapshot(self, path_str: str, tbl_paths: List[str]) -> None:
         snapshot_dir_path = Path(path_str)
@@ -1545,6 +1559,7 @@ class Db:
             assert dir_record.id is not None
             self.paths[path] = Dir(dir_record.id)
             session.commit()
+            _logger.info(f'Created directory {path_str}')
 
     def rm_dir(self, path_str: str) -> None:
         path = Path(path_str)
@@ -1565,6 +1580,7 @@ class Db:
             dir = self.paths[path]
             conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.id == dir.id))
         del self.paths[path]
+        _logger.info(f'Removed directory {path_str}')
 
     def list_dirs(self, path_str: str = '', recursive: bool = True) -> List[str]:
         path = Path(path_str, empty_is_valid=True)
@@ -1581,6 +1597,7 @@ class Db:
         FunctionRegistry.get().create_function(func, self.id, dir.id, path.name)
         self.paths[path] = NamedFunction(func.id, dir.id, path.name)
         func.md.fqn = f'{self.name}.{path}'
+        _logger.info(f'Created function {path_str}')
 
     def rename_function(self, path_str: str, new_path_str: str) -> None:
         """
@@ -1604,6 +1621,7 @@ class Db:
         self.paths[new_path] = named_fn
         func = FunctionRegistry.get().get_function(named_fn.id)
         func.md.fqn = f'{self.name}.{new_path}'
+        _logger.info(f'Renamed function {path_str} to {new_path_str}')
 
     def update_function(self, path_str: str, new_func: Function) -> None:
         """
@@ -1621,6 +1639,7 @@ class Db:
         if func.is_aggregate != new_func.is_aggregate:
             raise exc.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
         FunctionRegistry.get().update_function(named_fn.id, func)
+        _logger.info(f'Updated function {path_str}')
 
     def get_function(self, path_str: str) -> Function:
         path = Path(path_str)
@@ -1646,6 +1665,7 @@ class Db:
         named_fn = self.paths[path]
         FunctionRegistry.get().delete_function(named_fn.id)
         del self.paths[path]
+        _logger.info(f'Dropped function {path_str}')
 
     def _load_dirs(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
@@ -1726,6 +1746,7 @@ class Db:
             session.add(dir_record)
             session.flush()
             session.commit()
+            _logger.info(f'Created db {name}')
         assert db_id is not None
         return Db(db_id, name)
 

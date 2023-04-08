@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import datetime
 import os
+import logging
 
 import pytest
 
@@ -35,6 +36,7 @@ def init_env(tmp_path_factory) -> None:
 @pytest.fixture(scope='function')
 def test_db(init_env) -> catalog.Db:
     cl = pt.Client()
+    cl.logging(level=logging.DEBUG)
     db = cl.create_db(f'test')
     yield db
     cl.drop_db(db.name, force=True)
@@ -98,7 +100,15 @@ def test_tbl(test_db: catalog.Db) -> catalog.Table:
     return t
 
 @pytest.fixture(scope='function')
-def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
+def test_stored_fn(test_db: catalog.Db) -> pt.Function:
+    @pt.function(return_type=pt.IntType(), param_types=[pt.IntType()])
+    def test_fn(x):
+        return x + 1
+    test_db.create_function('test_fn', test_fn)
+    return test_fn
+
+@pytest.fixture(scope='function')
+def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List[exprs.Expr]:
     t = test_tbl
     return [
         t.c1,
@@ -120,8 +130,8 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
         t.c8.errortype,
         t.c8.errormsg,
         ptf.sum(t.c2, group_by=t.c4, order_by=t.c3),
+        test_stored_fn(t.c2),
     ]
-
 
 @pytest.fixture(scope='function')
 def img_tbl(test_db: catalog.Db) -> catalog.Table:
