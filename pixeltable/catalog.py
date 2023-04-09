@@ -881,8 +881,9 @@ class MutableTable(Table):
                         continue
                     frame_iter = FrameIterator(
                         video_paths[i], fps=self.parameters.extraction_fps, ffmpeg_filter=self.parameters.ffmpeg_filter)
-                    if frame_iter.est_num_frames is not None:
-                        est_num_rows += frame_iter.est_num_frames - 1
+                    num_frames = frame_iter.est_num_frames()
+                    if num_frames is not None:
+                        est_num_rows += num_frames - 1
                     else:
                         est_num_rows = None
                     frame_iters[i] = frame_iter

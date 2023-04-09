@@ -32,7 +32,13 @@ class TestVideo:
             assert num_tmp_frames() == 0
             tbl.insert_rows([[p] for p in video_filepaths[:2]], columns=['video'])
             assert num_tmp_frames() == 0
-            _ = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+            total_num_rows = tbl.count()
+            result = tbl[tbl.frame_idx >= 5][tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+            assert len(result) == total_num_rows - 2 * 5
+            result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(3)
+            assert len(result) == 3
+            result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+            assert len(result) == total_num_rows
             assert num_tmp_frames() == 0
             return tbl
 
