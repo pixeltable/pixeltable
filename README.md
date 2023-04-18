@@ -55,6 +55,10 @@ Download and run
 [this notebook](https://gitlab.com/pixeltable/python-sdk/-/raw/master/tutorials/Pixeltable%20Overview.ipynb)
 to get an overview of Pixeltable.
 
+If you are interested in working with video and how to interact with videos at the frame level through Pixeltable,
+download and run
+[this notebook](https://gitlab.com/pixeltable/python-sdk/-/raw/master/tutorials/Object%20Detection%20in%20Videos.ipynb).
+
 ## API Summary
 
 Import conventions:
