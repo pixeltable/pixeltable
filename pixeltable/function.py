@@ -52,7 +52,8 @@ class Signature:
 
 
 class Function:
-    """
+    """Wrapper for a Python function.
+
     A Function's executable function is specified either directly or as module/symbol.
     In the former case, the function needs to be pickled and stored for serialization.
     In the latter case, the executable function is resolved in init().
@@ -338,6 +339,11 @@ class Function:
 
 def function(*, return_type: ColumnType, param_types: List[ColumnType]) -> Callable:
     """Returns decorator to create a Function from a function definition.
+
+    Example:
+        >>> @pt.function(param_types=[pt.IntType()], return_type=pt.IntType())
+        ... def my_function(x):
+        ...    return x + 1
     """
     def decorator(fn: Callable) -> Function:
         return Function.make_function(return_type, param_types, fn)

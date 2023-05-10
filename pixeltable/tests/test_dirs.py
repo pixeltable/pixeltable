@@ -13,36 +13,36 @@ class TestDirs:
         for name in dirs:
             db.create_dir(name)
 
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             db.create_dir('1dir')
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             db.create_dir('_dir1')
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             db.create_dir('dir 1')
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             db.create_dir('dir1..sub2')
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             db.create_dir('dir1.sub2.')
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             db.create_dir('dir1:sub2.')
 
         # existing dirs
-        with pytest.raises(exc.DuplicateNameError):
+        with pytest.raises(exc.Error):
             db.create_dir('dir1')
-        with pytest.raises(exc.DuplicateNameError):
+        with pytest.raises(exc.Error):
             db.create_dir('dir1.sub1')
-        with pytest.raises(exc.DuplicateNameError):
+        with pytest.raises(exc.Error):
             db.create_dir('dir1.sub1.subsub1')
 
         # existing table
         make_tbl(db, 'dir1.t1')
-        with pytest.raises(exc.DuplicateNameError):
+        with pytest.raises(exc.Error):
             db.create_dir('dir1.t1')
 
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             db.create_dir('dir2.sub2')
         make_tbl(db, 't2')
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             db.create_dir('t2.sub2')
 
         # new client: force loading from store
@@ -70,16 +70,16 @@ class TestDirs:
         make_tbl(db, 't1')
         make_tbl(db, 'dir1.t1')
 
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             db.rm_dir('1dir')
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             db.rm_dir('dir1..sub1')
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             db.rm_dir('dir2')
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             db.rm_dir('t1')
 
-        with pytest.raises(exc.DirectoryNotEmptyError):
+        with pytest.raises(exc.Error):
             db.rm_dir('dir1')
 
     def test_rename_tbl(self, test_db: catalog.Db) -> None:

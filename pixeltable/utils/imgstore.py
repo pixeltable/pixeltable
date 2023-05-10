@@ -13,7 +13,7 @@ class ImageStore:
     """
     Utilities to manage images stored in Env.img_dir
     """
-    pattern = re.compile(r'(\d+)_(\d+)_(\d+)_\d+.jpg')
+    pattern = re.compile(r'(\d+)_(\d+)_(\d+)_\d+.jpg')  # tbl_id, col_id, version, rowid
 
     @classmethod
     def get_path(cls, tbl_id: int, col_id: int, version: int, rowid: int) -> Path:

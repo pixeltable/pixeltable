@@ -377,7 +377,7 @@ class Expr(abc.ABC):
             return ImageMemberAccess(name, self)
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
-        raise exc.RuntimeError(f'Member access not supported on type {self.col_type}: {name}')
+        raise exc.Error(f'Member access not supported on type {self.col_type}: {name}')
 
     def __lt__(self, other: object) -> Comparison:
         return self._make_comparison(ComparisonOperator.LT, other)
@@ -561,7 +561,7 @@ class FrameColumnRef(ColumnRef):
                     data_row[self.data_row_idx] = img
                     return
                 except Exception:
-                    raise exc.RuntimeError(f'Error reading image file: {file_path}')
+                    raise exc.Error(f'Error reading image file: {file_path}')
 
         # extract frame
         video_path = data_row[self._video_ref.data_row_idx]
@@ -578,7 +578,7 @@ class FrameColumnRef(ColumnRef):
         try:
             frame = PIL.Image.open(frame_path)
         except Exception:
-            raise exc.RuntimeError(f'Error reading image file: {frame_path}')
+            raise exc.Error(f'Error reading image file: {frame_path}')
         data_row[self.data_row_idx] = frame
 
         if self.col.is_cached:
@@ -603,7 +603,7 @@ class FunctionCall(Expr):
         if signature.parameters is not None:
             # check if arg types match param types and convert values, if necessary
             if len(args) != len(signature.parameters):
-                raise exc.RuntimeError(
+                raise exc.Error(
                     f"Number of arguments doesn't match signature: {args} vs {signature}")
             args = list(args)
             for i in range(len(args)):
@@ -616,7 +616,7 @@ class FunctionCall(Expr):
                     continue
                 converter = args[i].col_type.conversion_fn(param_type)
                 if converter is None:
-                    raise exc.RuntimeError(f'Cannot convert {args[i].col_type} to {param_type}')
+                    raise exc.Error(f'Cannot convert {args[i].col_type} to {param_type}')
                 if converter == ColumnType.no_conversion:
                     # nothing to do
                     continue
@@ -868,7 +868,7 @@ class ImageMemberAccess(Expr):
         elif member_name in self.attr_info:
             super().__init__(self.attr_info[member_name])
         else:
-            raise exc.RuntimeError(f'Unknown Image member: {member_name}')
+            raise exc.Error(f'Unknown Image member: {member_name}')
         self.member_name = member_name
         self.components = [caller]
 
@@ -899,9 +899,9 @@ class ImageMemberAccess(Expr):
             # - caller must be ColumnRef
             # - signature is (PIL.Image.Image)
             if not isinstance(caller, ColumnRef):
-                raise exc.RuntimeError(f'nearest(): caller must be an IMAGE column')
+                raise exc.Error(f'nearest(): caller must be an IMAGE column')
             if len(args) != 1 or not isinstance(args[0], PIL.Image.Image):
-                raise exc.RuntimeError(
+                raise exc.Error(
                     f'nearest(): required signature is (PIL.Image.Image) (passed: {call_signature})')
             return ImageSimilarityPredicate(caller, img=args[0])
 
@@ -909,9 +909,9 @@ class ImageMemberAccess(Expr):
             # - caller must be ColumnRef
             # - signature is (str)
             if not isinstance(caller, ColumnRef):
-                raise exc.RuntimeError(f'matches(): caller must be an IMAGE column')
+                raise exc.Error(f'matches(): caller must be an IMAGE column')
             if len(args) != 1 or not isinstance(args[0], str):
-                raise exc.RuntimeError(f"matches(): required signature is (str) (passed: {call_signature})")
+                raise exc.Error(f"matches(): required signature is (str) (passed: {call_signature})")
             return ImageSimilarityPredicate(caller, text=args[0])
 
         # TODO: verify signature
@@ -1024,9 +1024,9 @@ class JsonPath(Expr):
         Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
         """
         if not self.is_relative_path():
-            raise exc.RuntimeError(f'() for an absolute path is invalid')
+            raise exc.Error(f'() for an absolute path is invalid')
         if len(args) != 1 or not isinstance(args[0], int) or args[0] >= 0:
-            raise exc.RuntimeError(f'R() requires a negative index')
+            raise exc.Error(f'R() requires a negative index')
         return JsonPath(None, [], args[0])
 
     def __getattr__(self, name: str) -> 'JsonPath':
@@ -1036,16 +1036,16 @@ class JsonPath(Expr):
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, str):
             if index != '*':
-                raise exc.RuntimeError(f'Invalid json list index: {index}')
+                raise exc.Error(f'Invalid json list index: {index}')
         else:
             if not isinstance(index, slice) and not isinstance(index, int):
-                raise exc.RuntimeError(f'Invalid json list index: {index}')
+                raise exc.Error(f'Invalid json list index: {index}')
         return JsonPath(self._anchor, self.path_elements + [index])
 
     def __rshift__(self, other: object) -> 'JsonMapper':
         rhs_expr = Expr.from_object(other)
         if rhs_expr is None:
-            raise exc.RuntimeError(f'>> requires an expression on the right-hand side, found {type(other)}')
+            raise exc.Error(f'>> requires an expression on the right-hand side, found {type(other)}')
         return JsonMapper(self, rhs_expr)
 
     def display_name(self) -> str:
@@ -1145,7 +1145,7 @@ class InlineDict(Expr):
         self.dict_items: List[Tuple[str, int, Any]] = []
         for key, val in d.items():
             if not isinstance(key, str):
-                raise exc.RuntimeError(f'Dictionary requires string keys, {key} has type {type(key)}')
+                raise exc.Error(f'Dictionary requires string keys, {key} has type {type(key)}')
             val = copy.deepcopy(val)
             if isinstance(val, dict):
                 val = InlineDict(val)
@@ -1671,10 +1671,10 @@ class ArithmeticExpr(Expr):
         op2_val = data_row[self._op2.data_row_idx]
         # check types if we couldn't do that prior to execution
         if self._op1.col_type.is_json_type() and not isinstance(op1_val, int) and not isinstance(op1_val, float):
-            raise exc.RuntimeError(
+            raise exc.Error(
                 f'{self.operator} requires numeric type, but {self._op1} has type {type(op1_val).__name__}')
         if self._op2.col_type.is_json_type() and not isinstance(op2_val, int) and not isinstance(op2_val, float):
-            raise exc.RuntimeError(
+            raise exc.Error(
                 f'{self.operator} requires numeric type, but {self._op2} has type {type(op2_val).__name__}')
 
         if self.operator == ArithmeticOperator.ADD:
@@ -1985,7 +1985,7 @@ class Evaluator:
                     img = PIL.Image.open(file_path)
                     data_row[expr.data_row_idx] = img
                 except Exception:
-                    raise exc.RuntimeError(f'Error reading image file: {file_path}')
+                    raise exc.Error(f'Error reading image file: {file_path}')
             elif expr.col_type.is_array_type():
                 # column value is a saved numpy array
                 array_data = sql_row[i]

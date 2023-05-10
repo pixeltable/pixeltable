@@ -1,0 +1,12 @@
+# API Documentation
+
+```{toctree}
+:maxdepth: 1
+client
+column
+db
+function
+mutable_table
+table
+table_snapshot
+```

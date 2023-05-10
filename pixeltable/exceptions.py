@@ -15,27 +15,3 @@ class ExprEvalError(Exception):
     exc_tb: TracebackType
     input_vals: List[Any]
     row_num: int
-
-
-class DuplicateNameError(Exception):
-    pass
-
-
-class UnknownEntityError(Exception):
-    pass
-
-
-class BadFormatError(Exception):
-    pass
-
-
-class DirectoryNotEmptyError(Exception):
-    pass
-
-
-class InsertError(Exception):
-    pass
-
-
-class RuntimeError(Exception):
-    pass

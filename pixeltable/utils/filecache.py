@@ -22,7 +22,7 @@ class CellId:
 
 
 class CacheEntry:
-    filename_pattern = re.compile(r'(\d+)_(\d+)_(\d+)_(\d+)\.(\w+)')
+    filename_pattern = re.compile(r'(\d+)_(\d+)_(\d+)_(\d+)\.(\w+)')  # tbl_id, col_id, v_min, row_id, suffix
 
     def __init__(self, cell_id: CellId, size: int, last_accessed_ts: int, suffix: str):
         self.cell_id = cell_id
@@ -42,8 +42,8 @@ class CacheEntry:
         assert matched is not None
         tbl_id = int(matched.group(1))
         col_id = int(matched.group(2))
-        row_id = int(matched.group(3))
-        v_min = int(matched.group(4))
+        v_min = int(matched.group(3))
+        row_id = int(matched.group(4))
         suffix = f'.{matched.group(5)}'
         file_info = os.stat(str(path))
         return cls(CellId(tbl_id, col_id, row_id, v_min), file_info.st_size, file_info.st_mtime, suffix)

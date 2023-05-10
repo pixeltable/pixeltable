@@ -1,7 +1,7 @@
 from .client import Client
 from .dataframe import DataFrame
-from .catalog import Column
-from .exceptions import UnknownEntityError, Error
+from .catalog import Column, Db, MutableTable, TableSnapshot, Table
+from .exceptions import Error, Error
 from .type_system import \
     ColumnType, StringType, IntType, FloatType, BoolType,  TimestampType, JsonType, ArrayType, ImageType, VideoType
 from .function import Function, function
@@ -16,8 +16,11 @@ make_library_aggregate_function = Function.make_library_aggregate_function
 __all__ = [
     'Client',
     'DataFrame',
+    'Db',
     'Column',
-    'UnknownEntityError',
+    'MutableTable',
+    'Table',
+    'TableSnapshot',
     'Error',
     'ColumnType',
     'StringType',
@@ -29,6 +32,7 @@ __all__ = [
     'ArrayType',
     'ImageType',
     'VideoType',
+    'Function',
     'function',
     'make_aggregate_function',
     'make_library_function',

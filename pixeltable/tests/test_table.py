@@ -36,25 +36,25 @@ class TestTable:
         _ = db.create_table('test', schema)
         _ = db.create_table('dir1.test', schema)
 
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             _ = db.create_table('1test', schema)
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             _ = catalog.Column('1c', StringType())
-        with pytest.raises(exc.DuplicateNameError):
+        with pytest.raises(exc.Error):
             _ = db.create_table('test2', [c1, c1])
-        with pytest.raises(exc.DuplicateNameError):
+        with pytest.raises(exc.Error):
             _ = db.create_table('test', schema)
-        with pytest.raises(exc.DuplicateNameError):
+        with pytest.raises(exc.Error):
             _ = db.create_table('test2', [c1, c1])
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             _ = db.create_table('dir2.test2', schema)
 
         _ = db.list_tables()
         _ = db.list_tables('dir1')
 
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             _ = db.list_tables('1dir')
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             _ = db.list_tables('dir2')
 
         # test loading with new client
@@ -72,11 +72,11 @@ class TestTable:
         db.drop_table('test2')
         db.drop_table('dir1.test')
 
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             db.drop_table('test')
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             db.drop_table('dir1.test2')
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             db.drop_table('.test2')
 
     def test_create_images(self, test_db: catalog.Db) -> None:
@@ -159,37 +159,37 @@ class TestTable:
         assert ImageStore.count(tbl.id) == 0
         assert FileCache.get().num_files(tbl.id) == 0
 
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             # missing parameters
             _ = db.create_table(
                 'exc', cols, extract_frames_from='video',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             # wrong column type
             _ = db.create_table(
                 'exc', cols, extract_frames_from='frame', extracted_frame_col='frame',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             # wrong column type
             _ = db.create_table(
                 'exc', cols, extract_frames_from='video', extracted_frame_col='frame_idx',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             # wrong column type
             _ = db.create_table(
                 'exc', cols, extract_frames_from='video', extracted_frame_col='frame',
                 extracted_frame_idx_col='frame', extracted_fps=0)
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             # unknown column
             _ = db.create_table(
                 'exc', cols, extract_frames_from='breaks', extracted_frame_col='frame',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             # unknown column
             _ = db.create_table(
                 'exc', cols, extract_frames_from='video', extracted_frame_col='breaks',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        with pytest.raises(exc.BadFormatError):
+        with pytest.raises(exc.Error):
             # unknown column
             _ = db.create_table(
                 'exc', cols, extract_frames_from='video', extracted_frame_col='frame',
@@ -205,7 +205,7 @@ class TestTable:
         # incompatible schema
         t2 = make_tbl(db, 'test2', ['c2', 'c1'])
         t2_data = create_table_data(t2)
-        with pytest.raises(exc.InsertError):
+        with pytest.raises(exc.Error):
             t1.insert_pandas(t2_data)
 
         # TODO: test data checks
@@ -256,7 +256,7 @@ class TestTable:
         _ = t.show()
 
         # not allowed to pass values for computed cols
-        with pytest.raises(exc.InsertError):
+        with pytest.raises(exc.Error):
             data_df2 = create_table_data(t, num_rows=10)
             t.insert_pandas(data_df2)
 
@@ -391,7 +391,7 @@ class TestTable:
 
         tbl.revert()
         # can't revert a version referenced by a snapshot
-        with pytest.raises(exc.RuntimeError):
+        with pytest.raises(exc.Error):
             tbl.revert()
 
     def test_add_column(self, test_tbl: catalog.Table) -> None:

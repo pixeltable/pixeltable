@@ -18,7 +18,7 @@ import PIL
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler, FileSystemEvent
 
-from pixeltable.exceptions import RuntimeError
+from pixeltable.exceptions import Error
 from pixeltable.env import Env
 
 
@@ -42,9 +42,9 @@ class FrameIterator:
         # extract all frames into tmp_frames dir
         video_path = Path(video_path_str)
         if not video_path.exists():
-            raise RuntimeError(f'File not found: {video_path_str}')
+            raise Error(f'File not found: {video_path_str}')
         if not video_path.is_file():
-            raise RuntimeError(f'Not a file: {video_path_str}')
+            raise Error(f'Not a file: {video_path_str}')
         self.video_path = video_path
         self.fps = fps
         self.ffmpeg_filter = ffmpeg_filter
@@ -212,7 +212,7 @@ class FrameIterator:
             # extract frame count with regular expression
             m = re.search(r'frame=\s*(\d+)', info_line.decode('utf-8'))
             if m is None:
-                raise RuntimeError('Could not extract frame count from ffmpeg output')
+                raise Error('Could not extract frame count from ffmpeg output')
             self.num_frames = int(m.group(1))
             _logger.debug(f'container exited, num_frames={self.num_frames}')
         return self.container.status
@@ -223,7 +223,7 @@ class FrameIterator:
         """
         m = self.idx_re.match(path.name)
         if m is None:
-            raise RuntimeError(f'Unexpected frame path: {path}')
+            raise Error(f'Unexpected frame path: {path}')
         idx = int(m.group(1))
         idx -= 1  # ffmpeg starts at 1
         self.frame_paths[idx] = path

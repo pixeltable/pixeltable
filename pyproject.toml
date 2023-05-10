@@ -46,6 +46,14 @@ pytest = "^7.2.1"
 #default = false
 #secondary = true
 
+
+
+[tool.poetry.group.docs.dependencies]
+sphinx = ">=5.2,<7"
+sphinx-book-theme = "^1.0.1"
+myst-nb = "^0.17.2"
+myst-parser = ">=0.18,<0.19"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

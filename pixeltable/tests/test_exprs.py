@@ -282,7 +282,7 @@ class TestExprs:
         df = t[[t.img, t.img.rotate(60)]]
         _ = df.show(n=100)._repr_html_()
 
-        with pytest.raises(exc.RuntimeError):
+        with pytest.raises(exc.Error):
             _ = t[t.img.rotate]
 
     def test_img_members(self, img_tbl) -> None:
@@ -354,9 +354,9 @@ class TestExprs:
         probe = t[t.img].show(1)
         img = probe[0, 0]
 
-        with pytest.raises(exc.RuntimeError):
+        with pytest.raises(exc.Error):
             _ = t[t.img.nearest(img)].show(10)
-        with pytest.raises(exc.RuntimeError):
+        with pytest.raises(exc.Error):
             _ = t[t.img.matches('musical instrument')].show(10)
 
     def test_serialization(
@@ -402,6 +402,7 @@ class TestExprs:
         print(_)
         # backfill works
         t.add_column(catalog.Column('c9', computed_with=sum(t.c2, group_by=t.c4, order_by=t.c3)))
+        _ = t.c9.col._has_window_fn_call()
 
         c2 = catalog.Column('c2', IntType(), nullable=False)
         c3 = catalog.Column('c3', FloatType(), nullable=False)

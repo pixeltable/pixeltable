@@ -34,35 +34,44 @@ _logger = logging.getLogger('pixeltable')
 
 
 class Column:
-    """
-    Representation of a column in the schema of a Table/DataFrame.
-
-    Members:
-    - sa_col: column in the stored table for the values of this Column
-
-    For computed columns:
-    - sa_errormsg_col: column in the stored table for the exception string produced by running self.value_expr
-    - sa_errortype_col: column in the stored table for the exception type name produced by running self.value_expr
+    """Representation of a column in the schema of a Table/DataFrame.
     """
     def __init__(
             self, name: str, col_type: Optional[ColumnType] = None,
             computed_with: Optional[Union['Expr', Callable]] = None,
             primary_key: bool = False, nullable: bool = True, stored: Optional[bool] = None,
+            indexed: bool = False,
             # these parameters aren't set by users
             col_id: Optional[int] = None,
-            value_expr_str: Optional[str] = None, indexed: bool = False):
-        """
-        Computed columns: those have a non-None computed_with argument
-        - when constructed by the user: 'computed_with' was constructed explicitly and is passed in;
-          'value_expr_str' is None and col_type is None
-        - when loaded from store: 'value_expr_str' is the serialized form and col_type is set;
-          'computed_with' is None
-        Computed_with is a Callable:
+            value_expr_str: Optional[str] = None):
+        """Column constructor.
+
+        Args:
+            name: column name
+            col_type: column type; can be None if the type can be derived from ``computed_with``
+            computed_with: a callable or an Expr object that computes the column value
+            primary_key: if True, this column is part of the primary key
+            nullable: if True, this column can be NULL/None
+            stored: determines whether a computed column is present in the stored table or cached or neither (see below)
+            indexed: if True, this column has a nearest neighbor index (only valid for image columns)
+            col_id: column ID (only used internally)
+            value_expr_str: serialized form of ``computed_with`` (only used internally)
+
+        Computed columns: those have a non-None ``computed_with`` argument
+
+        - when constructed by the user: ``computed_with`` was constructed explicitly and is passed in;
+          ``value_expr_str`` is None and col_type is None
+        - when loaded from store: ``value_expr_str`` is the serialized form and col_type is set;
+          ``computed_with`` is None
+
+        ``computed_with`` is a Callable:
+
         - the callable's parameter names must correspond to existing columns in the table for which this Column
           is being used
-        - col_type needs to be set to the callable's return type
+        - ``col_type`` needs to be set to the callable's return type
 
-        stored (only valid for computed cols):
+        ``stored`` (only valid for computed columns):
+
         - if True: the column is present in the stored table
         - if False: the column is not present in the stored table and always recomputed during a query and never cached
         - if None: the column is not present in the stored table but column values are cached during retrieval
@@ -70,7 +79,7 @@ class Column:
         indexed: only valid for image columns; if true, maintains an NN index for this column
         """
         if re.fullmatch(_ID_RE, name) is None:
-            raise exc.BadFormatError(f"Invalid column name: '{name}'")
+            raise exc.Error(f"Invalid column name: '{name}'")
         self.name = name
         if col_type is None and computed_with is None:
             raise exc.Error(f'Column {name}: col_type is required if computed_with is not specified')
@@ -107,7 +116,10 @@ class Column:
         self.primary_key = primary_key
         # computed cols are always nullable
         self.nullable = nullable or computed_with is not None or value_expr_str is not None
+
+        # column in the stored table for the values of this Column
         self.sa_col: Optional[sql.schema.Column] = None
+
         # computed cols also have storage columns for the exception string and type
         self.sa_errormsg_col: Optional[sql.schema.Column] = None
         self.sa_errortype_col: Optional[sql.schema.Column] = None
@@ -155,7 +167,7 @@ class Column:
         """
         return not self.is_stored and self.stored is None
 
-    def list(self) -> None:
+    def source(self) -> None:
         """
         If this is a computed col and the top-level expr is a function call, print the source, if possible.
         """
@@ -261,6 +273,8 @@ class TableParameters:
 
 
 class Table(SchemaObject):
+    """Base class for tables.
+    """
     def __init__(
             self, db_id: int, tbl_id: int, dir_id: int, name: str, version: int, params: Dict, cols: List[Column]):
         super().__init__(tbl_id)
@@ -270,7 +284,7 @@ class Table(SchemaObject):
         self.name = name
         for pos, col in enumerate(cols):
             if re.fullmatch(_ID_RE, col.name) is None:
-                raise exc.BadFormatError(f"Invalid column name: '{col.name}'")
+                raise exc.Error(f"Invalid column name: '{col.name}'")
             assert col.id is not None
             col.tbl = self
         self.cols = cols
@@ -282,6 +296,13 @@ class Table(SchemaObject):
         # we can't call _load_valid_rowids() here because the storage table may not exist yet
         self.valid_rowids: Set[int] = set()
 
+        # if we're being initialized from stored metadata:
+        # create Column.value_expr for computed cols now, prior to calling _create_sa_tbl()
+        from pixeltable.exprs import Expr
+        for col in self.cols:
+            if col.value_expr_str is not None and col.value_expr is None:
+                col.value_expr = Expr.deserialize(col.value_expr_str, self)
+
         # sqlalchemy-related metadata; used to insert and query the storage table
         self.sa_md = sql.MetaData()
         self._create_sa_tbl()
@@ -291,7 +312,7 @@ class Table(SchemaObject):
         # this guarantees that references always point backwards
         for col in self.cols:
             col.tbl = self
-            if col.value_expr is not None or col.value_expr_str is not None:
+            if col.value_expr is not None:
                 self._record_value_expr(col)
 
     def extracts_frames(self) -> bool:
@@ -317,14 +338,9 @@ class Table(SchemaObject):
         return self.cols_by_id[self.parameters.frame_idx_col_id]
 
     def _record_value_expr(self, col: Column) -> None:
+        """Update Column.dependent_cols for all cols referenced in col.value_expr.
         """
-        Update Column.dependent_cols for all cols referenced in col.value_expr.
-        Creates col.value_expr if it doesn't exist yet.
-        """
-        from pixeltable.exprs import Expr, ColumnRef
-        if col.value_expr is None:
-            assert col.value_expr_str is not None
-            col.value_expr = Expr.deserialize(col.value_expr_str, self)
+        from pixeltable.exprs import ColumnRef
 
         refd_col_ids = [e.col.id for e in col.value_expr.subexprs() if isinstance(e, ColumnRef)]
         refd_cols = [self.cols_by_id[id] for id in refd_col_ids]
@@ -344,6 +360,8 @@ class Table(SchemaObject):
                 self.valid_rowids.add(rowid)
 
     def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
+        """Return a ColumnRef for the given column name.
+        """
         if col_name not in self.cols_by_name:
             raise AttributeError(f'Column {col_name} unknown')
         col = self.cols_by_name[col_name]
@@ -354,6 +372,8 @@ class Table(SchemaObject):
             return ColumnRef(col)
 
     def __getitem__(self, index: object) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame']:
+        """Return a ColumnRef for the given column name, or a DataFrame for the given slice.
+        """
         if isinstance(index, str):
             # basically <tbl>.<colname>
             return self.__getattr__(index)
@@ -361,14 +381,20 @@ class Table(SchemaObject):
         return DataFrame(self).__getitem__(index)
 
     def df(self) -> 'pixeltable.dataframe.DataFrame':
+        """Return a DataFrame for this table.
+        """
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
         return DataFrame(self)
 
     def show(self, *args, **kwargs) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+        """Return rows from this table.
+        """
         return self.df().show(*args, **kwargs)
 
     def count(self) -> int:
+        """Return the number of rows in this table.
+        """
         return self.df().count()
 
     @property
@@ -398,7 +424,7 @@ class Table(SchemaObject):
 
     def _check_is_dropped(self) -> None:
         if self.is_dropped:
-            raise exc.RuntimeError('Table has been dropped')
+            raise exc.Error('Table has been dropped')
 
     def _create_sa_tbl(self) -> None:
         self.rowid_col = sql.Column('rowid', sql.BigInteger, nullable=False)
@@ -470,6 +496,8 @@ class TableSnapshot(Table):
         return 'table snapshot'
 
 class MutableTable(Table):
+    """A :py:class:`Table` that can be modified.
+    """
     def __init__(self, tbl_record: store.Table, schema_version: int, cols: List[Column]):
         assert tbl_record.db_id is not None
         assert tbl_record.id is not None
@@ -493,11 +521,39 @@ class MutableTable(Table):
         return 'table'
 
     def add_column(self, c: Column) -> str:
+        """Adds a column to the table.
+
+        Args:
+            c: The column to add.
+
+        Returns:
+            For computed columns, returns execution status.
+
+        Raises:
+            Error: If the column name is invalid or already exists.
+
+        Examples:
+            Add an int column with ``None`` values:
+
+            >>> tbl.add_column(Column('new_col', IntType()))
+
+            For a table with int column ``x``, add a column that is the factorial of ``x``. Note that the names of
+            the parameters of the ``computed_with`` Callable must correspond to existing column names (the column
+            values are then passed as arguments to the Callable):
+
+            >>> tbl.add_column(Column('factorial', IntType(), computed_with=lambda x: math.factorial(x)))
+
+            For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
+            90 degrees (note that in this case, the column type is inferred from the ``computed_with`` expression):
+
+            >>> tbl.add_column(Column('rotated', computed_with=tbl.frame.rotate(90)))
+            'added ...'
+        """
         self._check_is_dropped()
         if re.fullmatch(_ID_RE, c.name) is None:
-            raise exc.BadFormatError(f"Invalid column name: '{c.name}'")
+            raise exc.Error(f"Invalid column name: '{c.name}'")
         if c.name in self.cols_by_name:
-            raise exc.DuplicateNameError(f'Column {c.name} already exists')
+            raise exc.Error(f'Column {c.name} already exists')
         assert self.next_col_id is not None
         c.tbl = self
         c.id = self.next_col_id
@@ -600,9 +656,20 @@ class MutableTable(Table):
                     raise exc.Error(f'Error during SQL execution:\n{e}')
 
     def drop_column(self, name: str) -> None:
+        """Drop a column from the table.
+
+        Args:
+            name: The name of the column to drop.
+
+        Raises:
+            Error: If the column does not exist or if it is referenced by a computed column.
+
+        Example:
+            >>> tbl.drop_column('factorial')
+        """
         self._check_is_dropped()
         if name not in self.cols_by_name:
-            raise exc.UnknownEntityError
+            raise exc.Error(f'Unknown column: {name}')
         col = self.cols_by_name[name]
         if len(col.dependent_cols) > 0:
             raise exc.Error(
@@ -663,13 +730,25 @@ class MutableTable(Table):
         _logger.info(f'Dropped column {name} from table {self.name}, new version: {self.version}')
 
     def rename_column(self, old_name: str, new_name: str) -> None:
+        """Rename a column.
+
+        Args:
+            old_name: The current name of the column.
+            new_name: The new name of the column.
+
+        Raises:
+            Error: If the column does not exist or if the new name is invalid or already exists.
+
+        Example:
+            >>> tbl.rename_column('factorial', 'fac')
+        """
         self._check_is_dropped()
         if old_name not in self.cols_by_name:
-            raise exc.UnknownEntityError(f'Unknown column: {old_name}')
+            raise exc.Error(f'Unknown column: {old_name}')
         if re.fullmatch(_ID_RE, new_name) is None:
-            raise exc.BadFormatError(f"Invalid column name: '{new_name}'")
+            raise exc.Error(f"Invalid column name: '{new_name}'")
         if new_name in self.cols_by_name:
-            raise exc.DuplicateNameError(f'Column {new_name} already exists')
+            raise exc.Error(f'Column {new_name} already exists')
         col = self.cols_by_name[old_name]
         del self.cols_by_name[old_name]
         col.name = new_name
@@ -727,9 +806,29 @@ class MutableTable(Table):
             return val
 
     def insert_rows(self, rows: List[List[Any]], columns: List[str] = []) -> None:
-        """
-        Insert rows into table. 'Columns' is a list of column names that specify the columns present in 'rows'.
-        'Columns' == empty: all columns are present in 'rows'.
+        """Insert rows into table.
+
+        Args:
+            rows: A list of rows to insert. Each row is a list of values, one for each column.
+            columns: A list of column names that specify the columns present in ``rows``.
+                If ``columns`` is empty, all columns are present in ``rows``.
+
+        Raises:
+            Error: If the number of columns in ``rows`` does not match the number of columns in the table or in ``columns``.
+
+        Examples:
+            Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Note that the ``columns``
+            argument is required here because ``rows`` only contain two columns.
+
+            >>> tbl.insert_rows([[1, 1], [2, 2]], columns=['a', 'b'])
+
+            Assuming a table with columns ``video``, ``frame`` and ``frame_idx`` and set up for automatic frame extraction,
+            insert a single row containing a video file path (the video contains 100 frames). The row will be expanded
+            into 100 rows, one for each frame, and the ``frame`` and ``frame_idx`` columns will be populated accordingly.
+            Note that the ``columns`` argument is unnecessary here because only the ``video`` column is required.
+
+            >>> tbl.insert_rows([['/path/to/video.mp4']])
+
         """
         assert len(rows) > 0
         if len(rows[0]) != len(self.cols) and len(columns) == 0:
@@ -766,41 +865,41 @@ class MutableTable(Table):
             reqd_col_names.discard(self.cols_by_id[self.parameters.frame_idx_col_id].name)
         given_col_names = set(data.columns)
         if not(reqd_col_names <= given_col_names):
-            raise exc.InsertError(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')
+            raise exc.Error(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')
         if not(given_col_names <= all_col_names):
-            raise exc.InsertError(f'Unknown columns: {", ".join(given_col_names - all_col_names)}')
+            raise exc.Error(f'Unknown columns: {", ".join(given_col_names - all_col_names)}')
         computed_col_names = {col.name for col in self.cols if col.value_expr is not None}
         if self.extracts_frames():
             computed_col_names.add(self.cols_by_id[self.parameters.frame_col_id].name)
             computed_col_names.add(self.cols_by_id[self.parameters.frame_idx_col_id].name)
         if len(computed_col_names & given_col_names) > 0:
-            raise exc.InsertError(
+            raise exc.Error(
                 f'Provided values for computed columns: {", ".join(computed_col_names & given_col_names)}')
 
         # check types
         provided_cols = [self.cols_by_name[name] for name in data.columns]
         for col in provided_cols:
             if col.col_type.is_string_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires string data but contains {data.dtypes[col.name]}')
+                raise exc.Error(f'Column {col.name} requires string data but contains {data.dtypes[col.name]}')
             if col.col_type.is_int_type() and not pd.api.types.is_integer_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires integer data but contains {data.dtypes[col.name]}')
+                raise exc.Error(f'Column {col.name} requires integer data but contains {data.dtypes[col.name]}')
             if col.col_type.is_float_type() and not pd.api.types.is_numeric_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires numerical data but contains {data.dtypes[col.name]}')
+                raise exc.Error(f'Column {col.name} requires numerical data but contains {data.dtypes[col.name]}')
             if col.col_type.is_bool_type() and not pd.api.types.is_bool_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires boolean data but contains {data.dtypes[col.name]}')
+                raise exc.Error(f'Column {col.name} requires boolean data but contains {data.dtypes[col.name]}')
             if col.col_type.is_timestamp_type() and not pd.api.types.is_datetime64_any_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(f'Column {col.name} requires datetime data but contains {data.dtypes[col.name]}')
+                raise exc.Error(f'Column {col.name} requires datetime data but contains {data.dtypes[col.name]}')
             if col.col_type.is_json_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(
+                raise exc.Error(
                     f'Column {col.name} requires dictionary data but contains {data.dtypes[col.name]}')
             if col.col_type.is_array_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(
+                raise exc.Error(
                     f'Column {col.name} requires array data but contains {data.dtypes[col.name]}')
             if col.col_type.is_image_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(
+                raise exc.Error(
                     f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
             if col.col_type.is_video_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
-                raise exc.InsertError(
+                raise exc.Error(
                     f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
 
         # check data
@@ -811,7 +910,7 @@ class MutableTable(Table):
                 nulls = data[col.name].isna()
                 max_val_idx = nulls.idxmax()
                 if nulls[max_val_idx]:
-                    raise exc.RuntimeError(
+                    raise exc.Error(
                         f'Column {col.name}: row {max_val_idx} contains None for a non-nullable column')
                 pass
 
@@ -823,9 +922,9 @@ class MutableTable(Table):
                     try:
                         _ = Image.open(path_str)
                     except FileNotFoundError:
-                        raise exc.RuntimeError(f'Column {col.name}: file does not exist: {path_str}')
+                        raise exc.Error(f'Column {col.name}: file does not exist: {path_str}')
                     except PIL.UnidentifiedImageError:
-                        raise exc.RuntimeError(f'Column {col.name}: not a valid image file: {path_str}')
+                        raise exc.Error(f'Column {col.name}: not a valid image file: {path_str}')
 
             # image cols: make sure file path points to a valid image file; build index if col is indexed
             if col.col_type.is_video_type():
@@ -834,7 +933,7 @@ class MutableTable(Table):
                         continue
                     path = pathlib.Path(path_str)
                     if not path.is_file():
-                        raise RuntimeError(f'Column {col.name}: file does not exist: {path_str}')
+                        raise exc.Error(f'Column {col.name}: file does not exist: {path_str}')
                     cap = cv2.VideoCapture(path_str)
                     success = cap.isOpened()
                     cap.release()
@@ -844,12 +943,14 @@ class MutableTable(Table):
             if col.col_type.is_json_type():
                 for idx, d in data[col.name].items():
                     if d is not None and not isinstance(d, dict) and not isinstance(d, list):
-                        raise exc.RuntimeError(
+                        raise exc.Error(
                             f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
     def insert_pandas(self, data: pd.DataFrame) -> str:
-        """
+        """Insert data from pandas DataFrame into this table.
+
         If self.parameters.frame_src_col_id != None:
+
         - each row (containing a video) is expanded into one row per extracted frame (at the rate of the fps parameter)
         - parameters.frame_col_id is the image column that receives the extracted frame
         - parameters.frame_idx_col_id is the integer column that receives the frame index (starting at 0)
@@ -1035,7 +1136,7 @@ class MutableTable(Table):
                             img = Image.open(path_str)
                         except:
                             # this shouldn't be happening at this point
-                            raise RuntimeError(f'Image column {c.name}: file does not exist or is invalid: {path_str}')
+                            raise exc.Error(f'Image column {c.name}: file does not exist or is invalid: {path_str}')
                     embeddings[c.id].append(clip.encode_image(img))
 
                 progress_bar.update(1)
@@ -1080,19 +1181,15 @@ class MutableTable(Table):
         _logger.info(f'Table {self.name}: {msg}, new version {self.version}')
         return msg
 
-    def insert_csv(self, file_path: str) -> None:
-        pass
-
-    # TODO: update() signature?
-    #def update(self, data: pd.DataFrame) -> None:
-
-    # TODO: delete() signature?
-    #def delete(self, data: DataFrame) -> None:
-
     def revert(self) -> None:
+        """Reverts the table to the previous version.
+
+        .. warning::
+            This operation is irreversible.
+        """
         self._check_is_dropped()
         if self.version == 0:
-            raise exc.RuntimeError('Cannot revert version 0')
+            raise exc.Error('Cannot revert version 0')
         # check if the current version is referenced by a snapshot
         with orm.Session(Env.get().engine) as session:
             # make sure we don't have a snapshot referencing this version
@@ -1102,7 +1199,7 @@ class MutableTable(Table):
                 .where(store.TableSnapshot.tbl_version == self.version) \
                 .scalar()
             if num_references > 0:
-                raise exc.RuntimeError(
+                raise exc.Error(
                     f'Current version is needed for {num_references} snapshot{"s" if num_references > 1 else ""}')
 
             conn = session.connection()
@@ -1248,7 +1345,7 @@ class MutableTable(Table):
         cols_by_name: Dict[str, Column] = {}
         for pos, col in enumerate(cols):
             if col.name in cols_by_name:
-                raise exc.DuplicateNameError(f'Duplicate column: {col.name}')
+                raise exc.Error(f'Duplicate column: {col.name}')
             col.id = pos
             cols_by_name[col.name] = col
             if col.value_expr is None and col.compute_func is not None:
@@ -1260,27 +1357,27 @@ class MutableTable(Table):
         if extract_frames_from is not None:
             assert extracted_frame_col is not None and extracted_frame_idx_col is not None and extracted_fps is not None
             if extract_frames_from is not None and extract_frames_from not in cols_by_name:
-                raise exc.BadFormatError(f'Unknown column in extract_frames_from: {extract_frames_from}')
+                raise exc.Error(f'Unknown column in extract_frames_from: {extract_frames_from}')
             col_type = cols_by_name[extract_frames_from].col_type
             is_nullable = cols_by_name[extract_frames_from].nullable
             if not col_type.is_video_type():
-                raise exc.BadFormatError(
+                raise exc.Error(
                     f'extract_frames_from requires the name of a column of type video, but {extract_frames_from} has '
                     f'type {col_type}')
             if extracted_frame_col is not None and extracted_frame_col not in cols_by_name:
-                raise exc.BadFormatError(f'Unknown column in extracted_frame_col: {extracted_frame_col}')
+                raise exc.Error(f'Unknown column in extracted_frame_col: {extracted_frame_col}')
             col_type = cols_by_name[extracted_frame_col].col_type
             if not col_type.is_image_type():
-                raise exc.BadFormatError(
+                raise exc.Error(
                     f'extracted_frame_col requires the name of a column of type image, but {extracted_frame_col} has '
                     f'type {col_type}')
             # the src column determines whether the frame column is nullable
             cols_by_name[extracted_frame_col].nullable = is_nullable
             if extracted_frame_idx_col is not None and extracted_frame_idx_col not in cols_by_name:
-                raise exc.BadFormatError(f'Unknown column in extracted_frame_idx_col: {extracted_frame_idx_col}')
+                raise exc.Error(f'Unknown column in extracted_frame_idx_col: {extracted_frame_idx_col}')
             col_type = cols_by_name[extracted_frame_idx_col].col_type
             if not col_type.is_int_type():
-                raise exc.BadFormatError(
+                raise exc.Error(
                     f'extracted_frame_idx_col requires the name of a column of type int, but {extracted_frame_idx_col} '
                     f'has type {col_type}')
             # the src column determines whether the frame idx column is nullable
@@ -1338,7 +1435,7 @@ class MutableTable(Table):
 class Path:
     def __init__(self, path: str, empty_is_valid: bool=False):
         if path == '' and not empty_is_valid or path != '' and re.fullmatch(_PATH_RE, path) is None:
-            raise exc.BadFormatError(f"Invalid path format: '{path}'")
+            raise exc.Error(f"Invalid path format: '{path}'")
         self.components = path.split('.')
 
     @property
@@ -1407,23 +1504,33 @@ class PathDict:
     def check_is_valid(
             self, path: Path, expected: Optional[Type[SchemaObject]],
             expected_parent_type: Type[DirBase] = DirBase) -> None:
+        """Check that path is valid and that the object at path has the expected type.
+
+        Args:
+            path: path to check
+            expected: expected type of object at path or None if object should not exist
+            expected_parent_type: expected type of parent of object at path
+
+        Raises:
+            Error if path is invalid or object at path has wrong type
+        """
         path_str = str(path)
         # check for existence
         if expected is not None:
             if path_str not in self.paths:
-                raise exc.UnknownEntityError(path_str)
+                raise exc.Error(f'{path_str} does not exist')
             obj = self.paths[path_str]
             if not isinstance(obj, expected):
-                raise exc.UnknownEntityError(f'{path_str} needs to be a {expected.display_name()}')
+                raise exc.Error(f'{path_str} needs to be a {expected.display_name()}')
         if expected is None and path_str in self.paths:
-            raise exc.DuplicateNameError(f"'{path_str}' already exists")
+            raise exc.Error(f"'{path_str}' already exists")
         # check for containing directory
         parent_path = path.parent
         if str(parent_path) not in self.paths:
-            raise exc.UnknownEntityError(f'Directory {str(parent_path)}')
+            raise exc.Error(f'Directory {str(parent_path)} does not exist')
         parent = self.paths[str(parent_path)]
         if not isinstance(parent, expected_parent_type):
-            raise exc.UnknownEntityError(f'{str(parent_path)} needs to be a {expected_parent_type.display_name()}')
+            raise exc.Error(f'{str(parent_path)} needs to be a {expected_parent_type.display_name()}')
 
     def get(self, path_type: Type[SchemaObject]) -> List[SchemaObject]:
         return [obj for obj in self.paths.values() if isinstance(obj, path_type)]
@@ -1438,6 +1545,10 @@ class PathDict:
 
 
 class Db:
+    """Handle to a database.
+
+    Use this handle to create and manage tables, functions, and directories in the database.
+    """
     def __init__(self, db_id: int, name: str):
         self.id = db_id
         self.name = name
@@ -1452,6 +1563,38 @@ class Db:
             extracted_frame_idx_col: Optional[str] = None, extracted_fps: Optional[int] = None,
             ffmpeg_filter: Optional[Dict[str, str]] = None,
     ) -> MutableTable:
+        """Create a new table in the database.
+
+        Args:
+            path_str: Path to the table.
+            schema: List of Columns in the table.
+            num_retained_versions: Number of versions of the table to retain.
+            extract_frames_from: Name of the video column from which to extract frames.
+            extracted_frame_col: Name of the image column in which to store the extracted frames.
+            extracted_frame_idx_col: Name of the int column in which to store the frame indices.
+            extracted_fps: Frame rate at which to extract frames. 0: extract all frames.
+            ffmpeg_filter: Filter to apply to the video before extracting frames.
+
+        Returns:
+            The newly created table.
+
+        Raises:
+            Error: if the path already exists or is invalid.
+
+        Examples:
+            Create a table with an int and a string column:
+
+            >>> table = db.create_table('my_table', schema=[Column('col1', IntType()), Column('col2', StringType())])
+
+            Create a table to store videos with automatic frame extraction. This requires a minimum of 3 columns:
+            a video column, an image column to store the extracted frames, and an int column to store the frame
+            indices.
+
+            >>> table = db.create_table('my_table',
+            ... schema=[Column('video', VideoType()), Column('frame', ImageType()), Column('frame_idx', IntType())],
+            ... extract_frames_from='video', extracted_frame_col='frame', extracted_frame_idx_col='frame_idx',
+            ... extracted_fps=1)
+        """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
         dir = self.paths[path.parent]
@@ -1460,11 +1603,11 @@ class Db:
         frame_extraction_param_count = int(extract_frames_from is not None) + int(extracted_frame_col is not None)\
             + int(extracted_frame_idx_col is not None) + int(extracted_fps is not None)
         if frame_extraction_param_count != 0 and frame_extraction_param_count != 4:
-            raise exc.BadFormatError(
+            raise exc.Error(
                 'Frame extraction requires that all parameters (extract_frames_from, extracted_frame_col, '
                 'extracted_frame_idx_col, extracted_fps) be specified')
         if frame_extraction_param_count == 0 and ffmpeg_filter is not None:
-            raise exc.BadFormatError(f'ffmpeg_filter only valid in conjunction with other frame extraction parameters')
+            raise exc.Error(f'ffmpeg_filter only valid in conjunction with other frame extraction parameters')
         tbl = MutableTable.create(
             self.id, dir.id, path.name, schema, num_retained_versions, extract_frames_from, extracted_frame_col,
             extracted_frame_idx_col, extracted_fps, ffmpeg_filter)
@@ -1472,18 +1615,54 @@ class Db:
         _logger.info(f'Created table {path_str}')
         return tbl
 
-    def get_table(self, path_str: str) -> Table:
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=Table)
-        obj = self.paths[path]
+    def get_table(self, path: str) -> Table:
+        """Get a handle to a table (regular or snapshot) from the database.
+
+        Args:
+            path: Path to the table.
+
+        Returns:
+            A :py:class:`MutableTable` or :py:class:`TableSnapshot` object.
+
+        Raises:
+            Error: If the path does not exist or does not designate a table.
+
+        Example:
+            Get handle for a table in the top-level directory:
+
+            >>> table = db.get_table('my_table')
+
+            For a table in a subdirectory:
+
+            >>> table = db.get_table('subdir.my_table')
+
+            For a snapshot in the top-level directory:
+
+            >>> table = db.get_table('my_snapshot')
+        """
+        p = Path(path)
+        self.paths.check_is_valid(p, expected=Table)
+        obj = self.paths[p]
         assert isinstance(obj, Table)
         return obj
 
     def rename_table(self, path_str: str, new_name: str) -> None:
+        """Rename a table in the database.
+
+        Args:
+            path_str: Path to the table.
+            new_name: New name for the table.
+
+        Raises:
+            Error: If the path does not exist or does not designate a table.
+
+        Example:
+            >>> db.rename_table('my_table', 'new_name_for_same_table')
+        """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=MutableTable)
         if re.fullmatch(_ID_RE, new_name) is None:
-            raise exc.BadFormatError(f"Invalid table name: '{new_name}'")
+            raise exc.Error(f"Invalid table name: '{new_name}'")
         new_path = path.parent.append(new_name)
         self.paths.check_is_valid(new_path, expected=None, expected_parent_type=Dir)
 
@@ -1495,15 +1674,63 @@ class Db:
         _logger.info(f'Renamed table {path_str} to {str(new_path)}')
 
     def move_table(self, tbl_path: str, dir_path: str) -> None:
+        """Move a table to a new directory.
+
+        .. warning::
+            Not implemented yet.
+
+        Args:
+            tbl_path: Path to the table.
+            dir_path: Path to the new directory.
+
+        Raises:
+            UnknownEntityError: If the path does not exist or does not designate a table.
+        """
         pass
 
     def list_tables(self, dir_path: str = '', recursive: bool = True) -> List[str]:
+        """List the tables in a directory.
+
+        Args:
+            dir_path: Path to the directory. Defaults to the root directory.
+            recursive: Whether to list tables in subdirectories as well.
+
+        Returns:
+            A list of table paths.
+
+        Raises:
+            Error: If the path does not exist or does not designate a directory.
+
+        Examples:
+            List tables in top-level directory:
+
+            >>> db.list_tables()
+            ['my_table', ...]
+
+            List tables in 'dir1':
+
+            >>> db.list_tables('dir1')
+            [...]
+        """
         assert dir_path is not None
         path = Path(dir_path, empty_is_valid=True)
         self.paths.check_is_valid(path, expected=DirBase)
         return [str(p) for p in self.paths.get_children(path, child_type=Table, recursive=recursive)]
 
     def drop_table(self, path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
+        """Drop a table from the database.
+
+        Args:
+            path_str: Path to the table.
+            force: Whether to drop the table even if it has unsaved changes.
+            ignore_errors: Whether to ignore errors if the table does not exist.
+
+        Raises:
+            Error: If the path does not exist or does not designate a table and ignore_errors is False.
+
+        Example:
+            >>> db.drop_table('my_table')
+        """
         path = Path(path_str)
         try:
             self.paths.check_is_valid(path, expected=MutableTable)
@@ -1519,6 +1746,15 @@ class Db:
         _logger.info(f'Dropped table {path_str}')
 
     def create_snapshot(self, path_str: str, tbl_paths: List[str]) -> None:
+        """Create a snapshot of a set of tables.
+
+        Args:
+            path_str: Path to the snapshot directory.
+            tbl_paths: Paths to the tables to snapshot.
+
+        Raises:
+            Error: If the path already exists or the parent does not exist.
+        """
         snapshot_dir_path = Path(path_str)
         self.paths.check_is_valid(snapshot_dir_path, expected=None, expected_parent_type=Dir)
         tbls: List[MutableTable] = []
@@ -1551,6 +1787,21 @@ class Db:
             session.commit()
 
     def create_dir(self, path_str: str) -> None:
+        """Create a directory.
+
+        Args:
+            path_str: Path to the directory.
+
+        Raises:
+            Error: If the path already exists or the parent is not a directory.
+
+        Examples:
+            >>> db.create_dir('my_dir')
+
+            Create a subdirectory:
+
+            >>> db.create_dir('my_dir.sub_dir')
+        """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
         with orm.Session(Env.get().engine) as session:
@@ -1563,12 +1814,27 @@ class Db:
             _logger.info(f'Created directory {path_str}')
 
     def rm_dir(self, path_str: str) -> None:
+        """Remove a directory.
+
+        Args:
+            path_str: Path to the directory.
+
+        Raises:
+            Error: If the path does not exist or does not designate a directory or if the directory is not empty.
+
+        Examples:
+            >>> db.rm_dir('my_dir')
+
+            Remove a subdirectory:
+
+            >>> db.rm_dir('my_dir.sub_dir')
+        """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=Dir)
 
         # make sure it's empty
         if len(self.paths.get_children(path, child_type=None, recursive=True)) > 0:
-            raise exc.DirectoryNotEmptyError(f'Directory {path_str}')
+            raise exc.Error(f'Directory {path_str} is not empty')
         # TODO: figure out how to make force=True work in the presence of snapshots
 #        # delete tables
 #        for tbl_path in self.paths.get_children(path, child_type=Table, recursive=True):
@@ -1584,11 +1850,43 @@ class Db:
         _logger.info(f'Removed directory {path_str}')
 
     def list_dirs(self, path_str: str = '', recursive: bool = True) -> List[str]:
+        """List the directories in a directory.
+
+        Args:
+            path_str: Path to the directory.
+            recursive: Whether to list subdirectories recursively.
+
+        Returns:
+            List of directory paths.
+
+        Raises:
+            Error: If the path does not exist or does not designate a directory.
+
+        Example:
+            >>> db.list_dirs('my_dir', recursive=True)
+            ['my_dir', 'my_dir.sub_dir1']
+        """
         path = Path(path_str, empty_is_valid=True)
         self.paths.check_is_valid(path, expected=DirBase)
         return [str(p) for p in self.paths.get_children(path, child_type=DirBase, recursive=recursive)]
 
     def create_function(self, path_str: str, func: Function) -> None:
+        """Create a stored function.
+
+        Args:
+            path_str: path where the function gets stored
+            func: previously created Function object
+
+        Raises:
+            Error: if the path already exists or the parent is not a directory
+        Examples:
+            Create a function ``detect()`` that takes an image and returns a JSON object, and store it in ``my_dir``:
+
+            >>> pt.function(param_types=[ImageType()], return_type=JsonType())
+            ... def detect(img):
+            ... ...
+            >>> db.create_function('my_dir.detect', detect)
+        """
         if func.is_library_function:
             raise exc.Error(f'Cannot create a named function for a library function')
         path = Path(path_str)
@@ -1601,13 +1899,28 @@ class Db:
         _logger.info(f'Created function {path_str}')
 
     def rename_function(self, path_str: str, new_path_str: str) -> None:
-        """
-        Assign a new name and/or move the function to a different directory.
+        """Assign a new name and/or move the function to a different directory.
+
+        Args:
+            path_str: path to the function to be renamed
+            new_path_str: new path for the function
+
+        Raises:
+            Error: if the path does not exist or new_path already exists
+
+        Examples:
+            Rename the stored function ``my_dir.detect()`` to ``detect2()``:
+
+            >>> db.rename_function('my_dir.detect', 'my_dir.detect2')
+
+            Move the stored function ``my_dir.detect()`` to the top-level directory:
+
+            >>> db.rename_function('my_dir.detect', 'detect')
         """
         path = Path(path_str)
         new_path = Path(new_path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
-        self.paths.check_is_valid(new_path, expected=None)
+        self.paths.check_is_valid(new_path, expected=None, expected_parent_type=Dir)
         named_fn = self.paths[path]
         new_dir = self.paths[new_path.parent]
         with Env.get().engine.begin() as conn:
@@ -1624,25 +1937,45 @@ class Db:
         func.md.fqn = f'{self.name}.{new_path}'
         _logger.info(f'Renamed function {path_str} to {new_path_str}')
 
-    def update_function(self, path_str: str, new_func: Function) -> None:
+    def update_function(self, path_str: str, func: Function) -> None:
+        """Update the implementation of a stored function.
+
+        Args:
+            path_str: path to the function to be updated
+            func: new function implementation
+
+        Raises:
+            Error: if the path does not exist or ``func`` has a different signature than the stored function.
         """
-        Update the Function for given path with func.
-        """
-        if new_func.is_library_function:
+        if func.is_library_function:
             raise exc.Error(f'Cannot update a named function to a library function')
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
-        func = FunctionRegistry.get().get_function(named_fn.id)
-        if func.md.signature != new_func.md.signature:
+        f = FunctionRegistry.get().get_function(named_fn.id)
+        if f.md.signature != func.md.signature:
             raise exc.Error(
-                f'The function signature cannot be changed. The existing signature is {func.md.signature}')
-        if func.is_aggregate != new_func.is_aggregate:
+                f'The function signature cannot be changed. The existing signature is {f.md.signature}')
+        if f.is_aggregate != func.is_aggregate:
             raise exc.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
         FunctionRegistry.get().update_function(named_fn.id, func)
         _logger.info(f'Updated function {path_str}')
 
     def get_function(self, path_str: str) -> Function:
+        """Get a handle to a stored function.
+
+        Args:
+            path_str: path to the function
+
+        Returns:
+            Function object
+
+        Raises:
+            Error: if the path does not exist or is not a function
+
+        Example:
+            >>> detect = db.get_function('my_dir.detect')
+        """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
@@ -1652,13 +1985,22 @@ class Db:
         return func
 
     def drop_function(self, path_str: str, ignore_errors: bool = False) -> None:
-        """
-        Deletes function from db, provided that no computed columns depend on it.
+        """Deletes stored function.
+
+        Args:
+            path_str: path to the function
+            ignore_errors: if True, does not raise if the function does not exist
+
+        Raises:
+            Error: if the path does not exist or is not a function
+
+        Example:
+            >>> db.drop_function('my_dir.detect')
         """
         path = Path(path_str)
         try:
             self.paths.check_is_valid(path, expected=NamedFunction)
-        except exc.UnknownEntityError as e:
+        except exc.Error as e:
             if ignore_errors:
                 return
             else:
@@ -1735,7 +2077,7 @@ class Db:
             # check for duplicate name
             is_duplicate = session.query(sql.func.count(store.Db.id)).where(store.Db.name == name).scalar() > 0
             if is_duplicate:
-                raise exc.DuplicateNameError(f"Db '{name}' already exists")
+                raise exc.Error(f"Db '{name}' already exists")
 
             db_record = store.Db(name=name)
             session.add(db_record)
@@ -1753,18 +2095,24 @@ class Db:
 
     @classmethod
     def load(cls, name: str) -> 'Db':
+        """Load db by name.
+
+        Raises:
+            Error: if db does not exist or the name is invalid
+        """
         if re.fullmatch(_ID_RE, name) is None:
-            raise exc.BadFormatError(f"Invalid db name: '{name}'")
+            raise exc.Error(f"Invalid db name: '{name}'")
         with orm.Session(Env.get().engine) as session:
             try:
                 db_record = session.query(store.Db).where(store.Db.name == name).one()
                 return Db(db_record.id, db_record.name)
             except sql.exc.NoResultFound:
-                raise exc.UnknownEntityError(f'Db {name}')
+                raise exc.Error(f'Db {name} does not exist')
 
     def delete(self) -> None:
-        """
-        Delete db and all associated data.
+        """Delete db and all associated data.
+
+        :meta private:
         """
         with Env.get().engine.begin() as conn:
             conn.execute(sql.delete(store.TableSnapshot.__table__).where(store.TableSnapshot.db_id == self.id))

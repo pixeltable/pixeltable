@@ -73,7 +73,7 @@ class DataFrameResultSet:
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, tuple):
             if len(index) != 2 or not isinstance(index[0], int) or not isinstance(index[1], int):
-                raise exc.RuntimeError(f'Bad index: {index}')
+                raise exc.Error(f'Bad index: {index}')
             return self.rows[index[0]][index[1]]
 
 
@@ -145,12 +145,12 @@ class DataFrame:
                 similarity_clauses, info.filter = info.filter.split_conjuncts(
                     lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
                 if len(similarity_clauses) > 1:
-                    raise exc.RuntimeError(f'More than one nearest() or matches() not supported')
+                    raise exc.Error(f'More than one nearest() or matches() not supported')
                 if len(similarity_clauses) == 1:
                     info.similarity_clause = similarity_clauses[0]
                     img_col = info.similarity_clause.img_col_ref.col
                     if not img_col.is_indexed:
-                        raise exc.RuntimeError(
+                        raise exc.Error(
                             f'nearest()/matches() not available for unindexed column {img_col.name}')
 
         if self.tbl.frame_col is not None and not self.tbl.frame_col.is_stored:
@@ -360,7 +360,7 @@ class DataFrame:
             self.analyze()
         info = self.analysis_info
         if info.similarity_clause is not None and n > 100:
-            raise exc.RuntimeError(f'nearest()/matches() requires show(n <= 100): n={n}')
+            raise exc.Error(f'nearest()/matches() requires show(n <= 100): n={n}')
 
         # determine order_by clause for window functions or grouping, if present
         window_fn_calls = [
@@ -494,7 +494,7 @@ class DataFrame:
         if self.select_list is None or len(self.select_list) != 1 \
             or not isinstance(self.select_list[0], exprs.ColumnRef) \
             or not self.select_list[0].col_type.is_string_type():
-            raise exc.RuntimeError(f'categoricals_map() can only be applied to an individual string column')
+            raise exc.Error(f'categoricals_map() can only be applied to an individual string column')
         assert isinstance(self.select_list[0], exprs.ColumnRef)
         col = self.select_list[0].col
         stmt = sql.select(sql.distinct(col.sa_col)) \
@@ -524,7 +524,7 @@ class DataFrame:
             index = [index]
         if isinstance(index, list):
             if self.select_list is not None:
-                raise exc.RuntimeError(f'[] for column selection is only allowed once')
+                raise exc.Error(f'[] for column selection is only allowed once')
             # analyze select list; wrap literals with the corresponding expressions and update it in place
             for i in range(len(index)):
                 expr = index[i]
@@ -533,9 +533,9 @@ class DataFrame:
                 if isinstance(expr, list):
                     index[i] = expr = exprs.InlineArray(tuple(expr))
                 if not isinstance(expr, exprs.Expr):
-                    raise exc.RuntimeError(f'Invalid expression in []: {expr}')
+                    raise exc.Error(f'Invalid expression in []: {expr}')
                 if expr.col_type.is_invalid_type():
-                    raise exc.RuntimeError(f'Invalid type: {expr}')
+                    raise exc.Error(f'Invalid type: {expr}')
                 # TODO: check that ColumnRefs in expr refer to self.tbl
             return DataFrame(self.tbl, select_list=index, where_clause=self.where_clause)
         raise TypeError(f'Invalid index type: {type(index)}')

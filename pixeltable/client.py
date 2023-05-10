@@ -22,6 +22,8 @@ class Client:
     """
 
     def __init__(self) -> None:
+        """Constructs a client.
+        """
         self.db_cache: Dict[str, catalog.Db] = {}
         Env.get().set_up()
 
@@ -29,13 +31,13 @@ class Client:
             self, *, to_stdout: Optional[bool] = None, level: Optional[int] = None,
             add: Optional[str] = None, remove: Optional[str] = None
     ) -> None:
-        """
-        Configure logging.
+        """Configure logging.
 
-        to_stdout: if True, also log to stdout
-        level: default log level
-        add: comma-separated list of (module name, log level) tuples
-        remove: comma-separated list of module names
+        Args:
+            to_stdout: if True, also log to stdout
+            level: default log level
+            add: comma-separated list of (module name, log level) tuples
+            remove: comma-separated list of module names
         """
         if to_stdout is not None:
             Env.get().log_to_stdout(to_stdout)
@@ -51,6 +53,11 @@ class Client:
             Env.get().print_log_config()
 
     def list_functions(self) -> pd.DataFrame:
+        """Returns information about all registered functions.
+
+        Returns:
+            Pandas DataFrame with columns 'Path', 'Name', 'Parameters', 'Return Type', 'Is Agg', 'Library'
+        """
         func_info = FunctionRegistry.get().list_functions()
         paths = ['.'.join(info.fqn.split('.')[:-1]) for info in func_info]
         names = [info.fqn.split('.')[-1] for info in func_info]
@@ -69,20 +76,48 @@ class Client:
         return pd_df.hide(axis='index')
 
     def create_db(self, name: str) -> catalog.Db:
+        """Creates a new database.
+
+        Args:
+            name: name of the database to create; must be a valid identifier (ie, no spaces or special characters)
+
+        Returns:
+            The newly created database.
+
+        Example:
+            >>> db = client.create_db('my_db')
+        """
         db = catalog.Db.create(name)
         self.db_cache[name] = db
         return db
 
     def drop_db(self, name: str, force: bool = False, ignore_errors: bool = False) -> None:
+        """Drops a database.
+
+        .. warning::
+            This will delete all data in the database and cannot be undone.
+            You are required to set ``force=True`` to actually drop the database.
+
+        Args:
+            name: name of the database to drop
+            force: required to be True to actually drop the database (default: False)
+            ignore_errors: if True, doesn't raise if the database does not exist
+
+        Raises:
+            Error: if the database does not exist or ``force`` is not True
+
+        Example:
+            >>> client.drop_db('my_db', force=True)
+        """
         if not force:
-            return
+            raise exc.Error('You must set force=True to drop a database.')
         if name in self.db_cache:
             self.db_cache[name].delete()
             del self.db_cache[name]
         else:
             try:
                 db = catalog.Db.load(name)
-            except exc.UnknownEntityError as e:
+            except exc.Error as e:
                 if ignore_errors:
                     return
                 else:
@@ -90,6 +125,20 @@ class Client:
             db.delete()
 
     def get_db(self, name: str) -> catalog.Db:
+        """Returns a handle to a database.
+
+        Args:
+            name: name of the database
+
+        Returns:
+            The database.
+
+        Raises:
+            Error: if the database does not exist
+
+        Example:
+            >>> db = client.get_db('my_db')
+        """
         if name in self.db_cache:
             return self.db_cache[name]
         db = catalog.Db.load(name)
@@ -97,12 +146,22 @@ class Client:
         return db
 
     def list_dbs(self) -> List[str]:
+        """Returns a list of all databases.
+
+        Returns:
+            List of the names of all databases.
+        """
         with orm.Session(Env.get().engine) as session:
             return [r[0] for r in session.query(store.Db.name)]
 
     # TODO: why is this not resolved?
     #def cache_stats(self) -> pd.io.formats.style.Styler:
     def cache_stats(self) -> Any:
+        """Returns statistics about the cache.
+
+        Returns:
+            Pandas DataFrame containing cache statistics (number of requests, hits, misses, hit ratio, evictions).
+        """
         stats = FileCache.get().stats()
         hit_ratio = stats.num_hits / stats.num_requests
         df = pd.DataFrame(data={
@@ -116,6 +175,12 @@ class Client:
     # TODO: why is this not resolved?
     #def cache_util(self) -> pd.io.formats.style.Styler:
     def cache_util(self) -> Any:
+        """Returns information about the cache utilization.
+
+        Returns:
+            Pandas DataFrame containing cache utilization information (database, table, column, size, number of files,
+            relative size).
+        """
         names = {(name[0], name[1]): (name[2], name[3], name[4]) for name in store_utils.column_names()}
 
         cache = FileCache.get()

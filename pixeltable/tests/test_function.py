@@ -47,9 +47,9 @@ class TestFunction:
         assert fn2.md.fqn == 'test.test_fn'
         assert fn2.eval_fn(1) == 2
 
-        with pytest.raises(exc.DuplicateNameError):
+        with pytest.raises(exc.Error):
             db.create_function('test_fn', self.func)
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             db.create_function('dir1.test_fn', self.func)
         with pytest.raises(exc.Error):
             library_fn = Function.make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
@@ -95,21 +95,21 @@ class TestFunction:
         FunctionRegistry.get().clear_cache()
         cl = pt.Client()
         db2 = cl.get_db('test')
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             db2.rename_function('test_fn2', 'test_fn')
         db2.rename_function('test_fn', 'test_fn2')
         func = db2.get_function('test_fn2')
         assert func.eval_fn(1) == 2
         assert func.md.fqn == 'test.test_fn2'
 
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             _ = db2.get_function('test_fn')
 
         # move function between directories
         db2.create_dir('functions')
         db2.create_dir('functions2')
         db2.create_function('functions.func1', self.func)
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             db2.rename_function('functions2.func1', 'functions.func1')
         db2.rename_function('functions.func1', 'functions2.func1')
         func = db2.get_function('functions2.func1')
@@ -122,7 +122,7 @@ class TestFunction:
         func = db3.get_function('functions2.func1')
         assert func.eval_fn(1) == 2
         assert func.md.fqn == 'test.functions2.func1'
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             _ = db3.get_function('functions.func1')
 
     def test_drop(self, test_db: catalog.Db) -> None:
@@ -133,7 +133,7 @@ class TestFunction:
         db2 = cl.get_db('test')
         db2.drop_function('test_fn')
 
-        with pytest.raises(exc.UnknownEntityError):
+        with pytest.raises(exc.Error):
             _ = db2.get_function('test_fn')
 
     def test_list(self, test_db: catalog.Db) -> None:
