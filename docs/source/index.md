@@ -33,11 +33,14 @@ and to ensure reproducibility.
 
     On MacOS: follow [these](https://docs.docker.com/desktop/install/mac-install/) instructions.
 
-2. `pip install git+https://gitlab.com/pixeltable/python-sdk/`
+2. `pip install git+https://github.com/mkornacker/pixeltable`
 
-## Overview
+## First Steps
 
-For an overview of Pixeltable, take a look at {doc}`tutorials/Pixeltable Overview`.
+For a general overview of Pixeltable, take a look at the {doc}`tutorials/Pixeltable Overview`.
+
+If you are interested in working with video data and how to interact with videos at the frame level
+through Pixeltable, take a look at {doc}`tutorials/Object Detection in Videos`.
 
 :::{toctree}
 :hidden:
