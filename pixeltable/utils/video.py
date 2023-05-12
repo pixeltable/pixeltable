@@ -65,6 +65,11 @@ class FrameIterator:
         self.frame_paths: Dict[int, str] = {}
         self.frame_idx_offset = 0  # > 0 if seek() gets called before the first next() call
 
+    def _input_filename(self) -> str:
+        """Get the escaped filename of the video file as it appears inside the docker container.
+        """
+        return f'/input/{self.video_path.name}'.replace("'", r"'\''")
+
     def est_num_frames(self) -> Optional[int]:
         """Get estimate of # of frames.
         """
@@ -73,9 +78,11 @@ class FrameIterator:
             return None
 
         cl = docker.from_env()
+        filename = f'/input/{self.video_path.name}'.replace("'", r"'\''")
+
         command = (
-            f'-v error -select_streams v:0 -show_entries stream=nb_frames,duration -print_format json '
-            f'/input/{self.video_path.name}'
+            f"-v error -select_streams v:0 -show_entries stream=nb_frames,duration -print_format json "
+            f"'{self._input_filename()}'"
         )
         _logger.debug(f'running ffprobe: {command}')
         output = cl.containers.run(
@@ -92,7 +99,7 @@ class FrameIterator:
         assert not self.started_extraction
 
         # use ffmpeg-python to construct the command
-        s = ffmpeg.input(str(Path('/input') / self.video_path.name))
+        s = ffmpeg.input(self._input_filename())
         if self.fps > 0:
             s = s.filter('fps', self.fps)
         if self.frame_idx_offset > 0:

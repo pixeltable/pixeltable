@@ -36,7 +36,7 @@ class Client:
         Args:
             to_stdout: if True, also log to stdout
             level: default log level
-            add: comma-separated list of (module name, log level) tuples
+            add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
             remove: comma-separated list of module names
         """
         if to_stdout is not None:

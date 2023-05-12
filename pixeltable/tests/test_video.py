@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 import pytest
 import PIL
 
@@ -13,47 +13,47 @@ from pixeltable.utils.video import num_tmp_frames
 
 
 class TestVideo:
+    def create_and_insert(self, db: catalog.Db, stored: Optional[bool], paths: List[str]) -> catalog.Table:
+        FileCache.get().clear()
+        cols = [
+            catalog.Column('video', VideoType(), nullable=False),
+            catalog.Column('frame', ImageType(), nullable=False, stored=stored, indexed=True),
+            catalog.Column('frame_idx', IntType(), nullable=False),
+        ]
+        # extract frames at fps=1
+        db.drop_table('test', ignore_errors=True)
+        tbl = db.create_table(
+            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
+            extracted_frame_idx_col='frame_idx', extracted_fps=1)
+        assert num_tmp_frames() == 0
+        tbl.insert_rows([[p] for p in paths], columns=['video'])
+        assert num_tmp_frames() == 0
+        total_num_rows = tbl.count()
+        result = tbl[tbl.frame_idx >= 5][tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+        assert len(result) == total_num_rows - 2 * 5
+        result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(3)
+        assert len(result) == 3
+        result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+        assert len(result) == total_num_rows
+        assert num_tmp_frames() == 0
+        return tbl
+
     def test_basic(self, test_db: catalog.Db) -> None:
         video_filepaths = get_video_files()
         db = test_db
 
-        def create_and_insert(stored: Optional[bool]) -> catalog.Table:
-            FileCache.get().clear()
-            cols = [
-                catalog.Column('video', VideoType(), nullable=False),
-                catalog.Column('frame', ImageType(), nullable=False, stored=stored, indexed=True),
-                catalog.Column('frame_idx', IntType(), nullable=False),
-            ]
-            # extract frames at fps=1
-            db.drop_table('test', ignore_errors=True)
-            tbl = db.create_table(
-                'test', cols, extract_frames_from='video', extracted_frame_col='frame',
-                extracted_frame_idx_col='frame_idx', extracted_fps=1)
-            assert num_tmp_frames() == 0
-            tbl.insert_rows([[p] for p in video_filepaths[:2]], columns=['video'])
-            assert num_tmp_frames() == 0
-            total_num_rows = tbl.count()
-            result = tbl[tbl.frame_idx >= 5][tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
-            assert len(result) == total_num_rows - 2 * 5
-            result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(3)
-            assert len(result) == 3
-            result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
-            assert len(result) == total_num_rows
-            assert num_tmp_frames() == 0
-            return tbl
-
         # default case: extracted frames are cached but not stored
-        tbl = create_and_insert(None)
+        tbl = self.create_and_insert(db, None, video_filepaths)
         assert ImageStore.count(tbl.id) == 0
         assert FileCache.get().num_files() == tbl.count()
 
         # extracted frames are neither stored nor cached
-        tbl = create_and_insert(False)
+        tbl = self.create_and_insert(db, False, video_filepaths)
         assert ImageStore.count(tbl.id) == 0
         assert FileCache.get().num_files() == 0
 
         # extracted frames are stored
-        tbl = create_and_insert(True)
+        tbl = self.create_and_insert(db, True, video_filepaths)
         assert ImageStore.count(tbl.id) == tbl.count()
         assert FileCache.get().num_files() == 0
         # revert() also removes extracted frames
