@@ -90,9 +90,15 @@ class FrameIterator:
             volumes={str(self.video_path.parent): {'bind': '/input', 'mode': 'ro'}},
         )
         info = json.loads(output)
+        if 'streams' not in info or len(info['streams']) == 0:
+            return None
         if self.fps == 0:
+            if 'nb_frames' not in info['streams'][0]:
+                return None
             return int(info['streams'][0]['nb_frames'])
         else:
+            if 'duration' not in info['streams'][0]:
+                return None
             return int(self.fps * float(info['streams'][0]['duration']))
 
     def _start_extraction(self) -> None:

@@ -30,7 +30,7 @@ class TestVideo:
         assert num_tmp_frames() == 0
         total_num_rows = tbl.count()
         result = tbl[tbl.frame_idx >= 5][tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
-        assert len(result) == total_num_rows - 2 * 5
+        assert len(result) == total_num_rows - len(paths) * 5
         result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(3)
         assert len(result) == 3
         result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
@@ -88,7 +88,7 @@ class TestVideo:
             'test2', cols, extract_frames_from='video', extracted_frame_col='frame',
             extracted_frame_idx_col='frame_idx', extracted_fps=0,
             ffmpeg_filter={'select': 'isnan(prev_selected_t)+gte(t-prev_selected_t, 1)'})
-        tbl2.insert_rows([[p] for p in video_filepaths[:2]], columns=['video'])
+        tbl2.insert_rows([[p] for p in video_filepaths], columns=['video'])
         # for some reason there's one extra frame in tbl2
         assert tbl.count() == tbl2.count() - 1
 
