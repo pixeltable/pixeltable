@@ -31,8 +31,8 @@ class FrameIterator:
     """
     Iterator over the frames of a video. Files returned by next() are deleted in the following next() call.
 
-    Frames are extracted with ffmpeg, which is run in a detached docker container. The container is paused
-    when the number of frames accumulated in tmp_frames_dir exceeds HIGH_WATER_MARK, and unpaused when it
+    Frames are extracted in the background with ffmpeg, which is run in a detached docker container. The container is
+    paused when the number of frames accumulated in tmp_frames_dir exceeds HIGH_WATER_MARK, and unpaused when it
     drops below LOW_WATER_MARK.
     """
     HIGH_WATER_MARK = 100
@@ -123,7 +123,10 @@ class FrameIterator:
                 super().__init__(patterns=[pattern], ignore_patterns=None, ignore_directories=True, case_sensitive=True)
                 self.caller = caller
 
-            def on_closed(self, event: FileSystemEvent) -> None:
+            # We look for on_modified here, instead of on_delete, because the latter doesn't get triggered on MacOS.
+            # This assumes that the file is written atomically, which may or may not be the case for ffmpeg.
+            # TODO: add logic to deal with multiple on_modified events for the same file
+            def on_modified(self, event: FileSystemEvent) -> None:
                 self.caller.path_queue.put(event)
                 _logger.debug(f'added {event.src_path} to path_queue (len={self.caller.path_queue.qsize()})')
                 # we pause the container if it gets too far ahead of us

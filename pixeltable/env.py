@@ -76,6 +76,7 @@ class Env:
         print(f'logging to {self._logfilename}')
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
         print(f'default log level: {logging.getLevelName(self._default_log_level)}')
+        print(f'module log levels: {",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}')
 
     def log_to_stdout(self, enable: bool = True) -> None:
         self._log_to_stdout = enable
