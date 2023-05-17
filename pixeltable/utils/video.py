@@ -124,8 +124,8 @@ class FrameIterator:
                 self.caller = caller
 
             # We look for on_modified here, instead of on_delete, because the latter doesn't get triggered on MacOS.
-            # This assumes that the file is written atomically, which may or may not be the case for ffmpeg.
-            # TODO: add logic to deal with multiple on_modified events for the same file
+            # There is no assumption that the files are written atomically, and we might see this fire more than once
+            # for the same file.
             def on_modified(self, event: FileSystemEvent) -> None:
                 self.caller.path_queue.put(event)
                 _logger.debug(f'added {event.src_path} to path_queue (len={self.caller.path_queue.qsize()})')
@@ -178,14 +178,16 @@ class FrameIterator:
                 pass
             self.frame_paths.pop(prev_frame_idx)
 
-        if self.next_frame_idx == self.num_frames:
-            self.observer.stop()
-            self.observer.join()
-            raise StopIteration
-
-        # we need to return the frame at next_frame_idx; make sure we have it
-        while self.next_frame_idx not in self.frame_paths:
+        # we need to return the path for next_frame_idx; wait until we have the path for next_frame_idx+1 so
+        # that we can be certain that next_frame_idx is complete
+        while True:
             status = self._update_container_status()  # also updates num_frames after exit
+            if self.next_frame_idx + 1 in self.frame_paths:
+                # we have seen data for frame n + 1, so frame n must be complete now
+                break
+            if self.next_frame_idx in self.frame_paths and self.next_frame_idx + 1 == self.num_frames:
+                # this is the last frame, and the container exited, so the frame is complete
+                break
             if self.next_frame_idx == self.num_frames:
                 self.observer.stop()
                 self.observer.join()
@@ -196,11 +198,11 @@ class FrameIterator:
                 self.container.unpause()
 
             _logger.debug((
-                f'waiting for idx {self.next_frame_idx} '
+                f'waiting for idx {self.next_frame_idx+1} '
                 f'(len={self.path_queue.qsize()}, container status={self.container.status})'))
             # wait for the next frame to be extracted;
             # we need a timeout to avoid a deadlock situation:
-            # the container hasn't exited yet, but we have already returned the last frame
+            # the container hasn't exited yet, but has already extracted the last frame
             try:
                 event = self.path_queue.get(timeout=1)
                 self._add_path(Path(event.src_path))
