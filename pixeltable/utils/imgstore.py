@@ -13,20 +13,13 @@ class ImageStore:
     """
     Utilities to manage images stored in Env.img_dir
     """
-    pattern = re.compile(r'(\d+)_(\d+)_(\d+)_\d+.jpg')  # tbl_id, col_id, version, rowid
+    pattern = re.compile(r'(\d+)_(\d+)_(\d+)_\d+.\w+')  # tbl_id, col_id, version, rowid, suffix
 
     @classmethod
-    def get_path(cls, tbl_id: int, col_id: int, version: int, rowid: int) -> Path:
-        return Env.get().img_dir / f'{tbl_id}_{col_id}_{version}_{rowid}.jpg'
-
-    @classmethod
-    def add(cls, tbl_id: int, col_id: int, version: int, rowid: int, file_path: str) -> Path:
+    def get_path(cls, tbl_id: int, col_id: int, version: int, rowid: int, suffix: str) -> Path:
+        """Return Path for the target cell.
         """
-        Move file to store
-        """
-        new_path = cls.get_path(tbl_id, col_id, version, rowid)
-        os.rename(file_path, str(new_path))
-        return new_path
+        return Env.get().img_dir / f'{tbl_id}_{col_id}_{version}_{rowid}.{suffix}'
 
     @classmethod
     def delete(cls, tbl_id: int, v_min: Optional[int] = None) -> None:
@@ -34,7 +27,7 @@ class ImageStore:
         Delete all images belonging to tbl_id. If v_min is given, only deletes images with version >= v_min
         """
         assert tbl_id is not None
-        paths = glob.glob(str(Env.get().img_dir / f'{tbl_id}_*_*_*.jpg'))
+        paths = glob.glob(str(Env.get().img_dir / f'{tbl_id}_*_*_*.*'))
         if v_min is not None:
             paths = [
                 Env.get().img_dir / matched[0]
@@ -48,12 +41,12 @@ class ImageStore:
         """
         Return number of images for given tbl_id.
         """
-        paths = glob.glob(str(Env.get().img_dir / f'{tbl_id}_*_*_*.jpg'))
+        paths = glob.glob(str(Env.get().img_dir / f'{tbl_id}_*_*_*.*'))
         return len(paths)
 
     @classmethod
     def stats(cls) -> List[Tuple[int, int, int, int]]:
-        paths = glob.glob(str(Env.get().img_dir / '*.jpg'))
+        paths = glob.glob(str(Env.get().img_dir / '*.*'))
         d: Dict[Tuple[int, int], List[int]] = defaultdict(lambda: [0, 0])
         for p in paths:
             matched = re.match(cls.pattern, Path(p).name)

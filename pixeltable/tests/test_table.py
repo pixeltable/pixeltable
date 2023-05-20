@@ -274,7 +274,7 @@ class TestTable:
 
         # not allowed to pass values for computed cols
         with pytest.raises(exc.Error):
-            data_df2 = create_table_data(t, num_rows=10)
+            data_df2 = create_table_data(t, ['c1', 'c2', 'c3', 'c4'], num_rows=10)
             t.insert_pandas(data_df2)
 
         # computed col references non-existent col

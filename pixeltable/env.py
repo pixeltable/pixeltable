@@ -12,6 +12,7 @@ import logging
 import sys
 import platform
 
+from nos.client import InferenceClient
 
 class Env:
     """
@@ -38,6 +39,7 @@ class Env:
         self._db_name: Optional[str] = None
         self._db_port: Optional[int] = None
         self._store_container: Optional[docker.models.containers.Container] = None
+        self._nos_client: Optional[InferenceClient] = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -100,6 +102,7 @@ class Env:
         return False
 
     def set_up(self, echo: bool = False) -> None:
+        self.log_to_stdout(True)
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
         self._home = home
@@ -119,12 +122,16 @@ class Env:
             # we don't have our logger set up yet, so print to stdout
             print(msg)
             self._home.mkdir()
-            self._img_dir.mkdir()
-            self._nnidx_dir.mkdir()
-            self._log_dir.mkdir()
             init_home_dir = True
         else:
             init_home_dir = False
+
+        if not self._img_dir.exists():
+            self._img_dir.mkdir()
+        if not self._nnidx_dir.exists():
+            self._nnidx_dir.mkdir()
+        if not self._log_dir.exists():
+            self._log_dir.mkdir()
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
@@ -149,6 +156,8 @@ class Env:
             self._logger.info(f'found database {self.db_url(hide_passwd=True)}')
             if self._sa_engine is None:
                 self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
+
+        self.log_to_stdout(False)
 
     def _set_up_runtime(self) -> None:
         """
@@ -177,7 +186,28 @@ class Env:
                 remove=True,
             )
             self._wait_for_postgres()
-        return
+
+        # try:
+        #     self._nos_container = cl.containers.get('nos-grpc-server')
+        #     self._logger.info('found NOS container')
+        # except docker.errors.NotFound:
+        #     self._logger.info('starting NOS container')
+        #     self._nos_container = cl.containers.run(
+        #         'autonomi/nos:latest-cpu',
+        #         command='nos-grpc-server',
+        #         detach=True,
+        #         name='nos-grpc-server',
+        #         ports={'50051/tcp': 50051},
+        #         environment={'NOS_HOME': '/app/.nos', 'NOS_LOGGING_LEVEL': 'DEBUG'},
+        #         volumes={Path.home() / '.nos': {'bind': '/app/.nos', 'mode': 'rw'}},
+        #         shm_size='4g',
+        #         remove=True,
+        #     )
+        #
+        # self._logger.info('connecting to NOS')
+        # self._nos_client = InferenceClient()
+        # self._logger.info('waiting for NOS')
+        # self._nos_client.WaitForServer()
 
     def _postgres_is_up(self) -> bool:
         """
@@ -236,3 +266,8 @@ class Env:
     def engine(self) -> sql.engine.base.Engine:
         assert self._sa_engine is not None
         return self._sa_engine
+
+    @property
+    def nos_client(self) -> InferenceClient:
+        assert self._nos_client is not None
+        return self._nos_client

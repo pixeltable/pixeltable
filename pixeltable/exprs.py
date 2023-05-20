@@ -11,6 +11,7 @@ import operator
 import json
 import io
 from collections.abc import Iterable
+import time
 
 import PIL.Image
 import jmespath
@@ -24,6 +25,7 @@ from pixeltable.function import Function
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
 from pixeltable.utils.video import FrameIterator
+from pixeltable.utils.imgstore import ImageStore
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -210,6 +212,21 @@ class Expr(abc.ABC):
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(old, new)
         return self
+
+    def resolve_computed_cols(self) -> Expr:
+        """
+        Replace ColRefs to computed columns with their value exprs recursively.
+        """
+        result = self
+        while True:
+            computed_col_refs = [
+                e for e in self.subexprs() if isinstance(e, ColumnRef) and e.col.is_computed
+            ]
+            if len(computed_col_refs) == 0:
+                return result
+            for ref in computed_col_refs:
+                assert ref.col.value_expr is not None
+                result = result.substitute(ref, ref.col.value_expr)
 
     @classmethod
     def list_substitute(cls, expr_list: List[Expr], old: Expr, new: Expr) -> None:
@@ -1788,14 +1805,33 @@ class JsonMapper(Expr):
 
 class DataRow:
     """
-    Encapsulates data and execution state needed by Evaluator.
+    Encapsulates data and execution state needed by Evaluator and DataRowSet.
     """
     def __init__(self, size: int):
         self.vals: List[Any] = [None] * size
         self.has_val = [False] * size
 
+        # img_files:
+        # - path of file for image in vals[i]
+        # - None if vals[i] is not an image or if the image hasn't been written to a file yet
+        self.img_files: Optional[str] = [None] * size
+
     def __getitem__(self, index: object) -> Any:
         assert self.has_val[index]
+        if self.img_files[index] is not None and self.vals[index] is None:
+            self.vals[index] = PIL.Image.open(self.img_files[index])
+        return self.vals[index]
+
+    def get_stored_val(self, index: object) -> Any:
+        """Return the value that is stored in the db"""
+        assert self.has_val[index]
+        if self.img_files[index] is not None:
+            return str(self.img_files[index])
+        if isinstance(self.vals[index], np.ndarray):
+            np_array = self.vals[index]
+            buffer = io.BytesIO()
+            np.save(buffer, np_array)
+            return buffer.getvalue()
         return self.vals[index]
 
     def __setitem__(self, index: object, val: Any) -> None:
@@ -1803,8 +1839,33 @@ class DataRow:
         self.vals[index] = val
         self.has_val[index] = True
 
+    def flush_img(self, index: object, filepath: Optional[str] = None) -> None:
+        if not self.has_val[index]:
+            return
+        if self.vals[index] is None:
+            # nothing to do
+            return
+        if self.img_files[index] is None:
+            if filepath is not None:
+                # we want to save this to a file
+                self.img_files[index] = filepath
+                self.vals[index].save(filepath)
+            else:
+                # we discard the content of this cell
+                self.has_val[index] = False
+        else:
+            # we already have a file for this image, nothing left to do
+            pass
+        self.vals[index] = None
+
     def __len__(self) -> int:
         return len(self.vals)
+
+    def __copy__(self):
+        result = DataRow(len(self.vals))
+        result.vals = copy.copy(self.vals)
+        result.has_val = copy.copy(self.has_val)
+        return result
 
 
 class Evaluator:
@@ -1946,11 +2007,13 @@ class Evaluator:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def eval(self, data_row: DataRow, ctx: List[Expr]) -> Optional[TracebackType]:
+    def eval(
+            self, data_row: DataRow, ctx: List[Expr], profile: Optional[List[float]] = None) -> Optional[TracebackType]:
         """
         Populates the slots in data_row given in ctx.
         If an expr.eval() raises an exception, records the exception in the corresponding slot of data_row
         and omits any of that expr's dependents's eval().
+        profile: if present, populated with execution time of each expr.eval() call; indexed by expr.data_row_idx
         Returns exception traceback for the first exception that was recorded
         """
         exc_tb: Optional[TracebackType] = None
@@ -1960,7 +2023,10 @@ class Evaluator:
                 continue
 
             try:
+                start_time = time.perf_counter()
                 expr.eval(data_row, self)
+                if profile is not None:
+                    profile[expr.data_row_idx] += time.perf_counter() - start_time
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 data_row[expr.data_row_idx] = exc
@@ -1972,6 +2038,74 @@ class Evaluator:
                 for j in self.output_expr_ids[i]:
                     data_row[j] = exc_val
         return exc_tb
+
+
+class DataRowSet:
+    """
+    Set of DataRows, indexed by rowid. Keeps track of image memory consumption and can flush images.
+    """
+    def __init__(
+            self, len: int, evaluator: Evaluator, stored_img_cols: List[catalog.Column],
+            stored_img_row_idxs: List[int], table_id: int, table_version: int):
+        self.rows = [evaluator.prepare([], False) for _ in range(len)]
+        self.evaluator = evaluator
+        self.stored_img_row_idxs = stored_img_row_idxs
+        self.stored_img_cols = stored_img_cols
+        img_row_idxs = [expr.data_row_idx for expr in evaluator.unique_exprs if expr.col_type.is_image_type()]
+        self.unstored_img_row_idxs = set(img_row_idxs) - set(stored_img_row_idxs)
+        self.table_id = table_id
+        self.table_version = table_version
+
+    def set_row_ids(self, row_ids: List[int]) -> None:
+        self.row_ids = row_ids
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def __getitem__(self, index: object) -> DataRow:
+        return self.rows[index]
+
+    def __setitem__(self, index: object, val: Any) -> None:
+        row_idx, col_idx = index
+        if col_idx in self.stored_img_row_idxs and isinstance(val, str):
+            # this is a filepath to an image
+            row = self.rows[row_idx]
+            assert row.img_files[col_idx] is None
+            row.img_files[col_idx] = val
+            row.has_val[col_idx] = True
+        else:
+            self.rows[row_idx][col_idx] = val
+
+    def flush_imgs(self, idx_range: slice) -> None:
+        """
+        Flushes images in the given range of rows.
+        """
+        for rowid, row in zip(self.row_ids[idx_range], self.rows[idx_range]):
+            for col, row_idx in zip(self.stored_img_cols, self.stored_img_row_idxs):
+                filepath = str(ImageStore.get_path(self.table_id, col.id, self.table_version, rowid, 'jpg')) \
+                    if col.is_computed else None
+                row.flush_img(row_idx, filepath)
+            for row_idx in self.unstored_img_row_idxs:
+                row.flush_img(row_idx)
+
+    def __iter__(self) -> Iterator[DataRow]:
+        return DataRowSetIterator(self)
+
+
+class DataRowSetIterator:
+    """
+    Iterator over a DataRowSet.
+    """
+    def __init__(self, data_row_set: DataRowSet):
+        self.data_row_set = data_row_set
+        self.index = 0
+
+    def __next__(self) -> DataRow:
+        if self.index >= len(self.data_row_set.rows):
+            raise StopIteration
+        row = self.data_row_set.rows[self.index]
+        self.index += 1
+        return row
 
 
 class ExprDict:

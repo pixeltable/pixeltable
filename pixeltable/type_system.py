@@ -4,8 +4,12 @@ from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import enum
 import datetime
 import json
-
 import os
+
+import nos
+
+from pixeltable import exceptions as exc
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 #import tensorflow as tf
 import PIL.Image
@@ -129,6 +133,32 @@ class ColumnType:
         Default implementation: simply invoke c'tor without arguments
         """
         return cls()
+
+    @classmethod
+    def from_nos(cls, type_info: nos.common.spec.ObjectTypeInfo) -> ColumnType:
+        """Convert ObjectTypeInfo to ColumnType"""
+        if type_info.base_spec() is None:
+            if type_info.base_type() == str:
+                return StringType()
+            if type_info.base_type() == int:
+                return IntType()
+            if type_info.base_type() == float:
+                return FloatType()
+            if type_info.base_type() == bool:
+                return BoolType()
+            else:
+                raise exc.Error(f'Cannot convert {type_info} to ColumnType')
+        elif isinstance(type_info.base_spec(), nos.common.ImageSpec):
+            size = None
+            if type_info.base_spec().shape is not None:
+                size = (type_info.base_spec().shape[1], type_info.base_spec().shape[0])
+            # TODO: set mode
+            return ImageType(size=size)
+        elif isinstance(type_info.base_spec(), nos.common.TensorSpec):
+            return ArrayType(shape=type_info.base_spec().shape, dtype=FloatType())
+        else:
+            raise exc.Error(f'Cannot convert {type_info} to ColumnType')
+
 
     @classmethod
     def make_type(cls, t: Type) -> ColumnType:

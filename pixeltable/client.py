@@ -25,6 +25,7 @@ class Client:
         """
         self.db_cache: Dict[str, catalog.Db] = {}
         Env.get().set_up()
+        #FunctionRegistry.get().register_nos_functions()
 
     def logging(
             self, *, to_stdout: Optional[bool] = None, level: Optional[int] = None,
