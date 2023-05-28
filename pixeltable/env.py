@@ -10,6 +10,7 @@ import psycopg2
 import docker
 import logging
 import sys
+import platform
 
 
 class Env:
@@ -171,7 +172,7 @@ class Env:
         except docker.errors.NotFound:
             self._logger.info('starting store container')
             self._store_container = cl.containers.run(
-                'postgres:15-alpine',
+                self._postgres_image(),
                 detach=True,
                 name='pixeltable-store',
                 ports={'5432/tcp': self._db_port},
@@ -213,6 +214,21 @@ class Env:
         if not self._postgres_is_up():
             self._logger.info('could not find store container')
             raise RuntimeError(f'Postgres is not running: {self.db_service_url}')
+
+    def _is_apple_cpu(self) -> bool:
+        return sys.platform == 'darwin' and platform.processor() == 'arm'
+
+    def _postgres_image(self) -> str:
+        if self._is_apple_cpu():
+            return 'arm64v8/postgres:15-alpine'
+        else:
+            return 'postgres:15-alpine'
+
+    def ffmpeg_image(self) -> str:
+       if self._is_apple_cpu():
+           return 'linuxserver/ffmpeg:arm64v8-latest'
+       else:
+           return 'linuxserver/ffmpeg:latest'
 
     def tear_down(self) -> None:
         if database_exists(self.db_url()):

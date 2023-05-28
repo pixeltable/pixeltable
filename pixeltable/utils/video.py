@@ -145,7 +145,7 @@ class FrameIterator:
         _logger.debug(f'running ffmpeg: {command}')
         cl = docker.from_env()
         self.container = cl.containers.run(
-            'jrottenberg/ffmpeg:4.1-alpine',
+            Env.get().ffmpeg_image(),
             command,
             detach=True,
             remove=False,  # make sure we can reload() after the container exits
@@ -153,8 +153,6 @@ class FrameIterator:
                 self.video_path.parent: {'bind': '/input', 'mode': 'rw'},
                 str(Env.get().tmp_frames_dir): {'bind': '/output', 'mode': 'rw'},
             },
-            user=os.getuid(),
-            group_add=[os.getgid()],
         )
         self.started_extraction = True
 
