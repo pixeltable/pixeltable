@@ -7,17 +7,14 @@ from pixeltable.type_system import VideoType, IntType, ImageType
 from pixeltable.tests.utils import get_video_files
 from pixeltable import catalog
 from pixeltable import exceptions as exc
-from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.imgstore import ImageStore
-from pixeltable.utils.video import num_tmp_frames
 
 
 class TestVideo:
     def create_and_insert(self, db: catalog.Db, stored: Optional[bool], paths: List[str]) -> catalog.Table:
-        FileCache.get().clear()
         cols = [
             catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False, stored=stored, indexed=True),
+            catalog.Column('frame', ImageType(), nullable=False, indexed=True),
             catalog.Column('frame_idx', IntType(), nullable=False),
         ]
         # extract frames at fps=1
@@ -25,37 +22,32 @@ class TestVideo:
         tbl = db.create_table(
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',
             extracted_frame_idx_col='frame_idx', extracted_fps=1)
-        assert num_tmp_frames() == 0
+        tbl.add_column(catalog.Column('transform', computed_with=tbl.frame.rotate(90), stored=stored))
         tbl.insert_rows([[p] for p in paths], columns=['video'])
-        assert num_tmp_frames() == 0
         total_num_rows = tbl.count()
-        result = tbl[tbl.frame_idx >= 5][tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+        result = tbl[tbl.frame_idx >= 5][tbl.frame_idx, tbl.frame, tbl.transform].show(0)
         assert len(result) == total_num_rows - len(paths) * 5
-        result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(3)
+        result = tbl[tbl.frame_idx, tbl.frame, tbl.transform].show(3)
         assert len(result) == 3
-        result = tbl[tbl.frame_idx, tbl.frame, tbl.frame.rotate(90)].show(0)
+        result = tbl[tbl.frame_idx, tbl.frame, tbl.transform].show(0)
         assert len(result) == total_num_rows
-        assert num_tmp_frames() == 0
         return tbl
 
     def test_basic(self, test_db: catalog.Db) -> None:
         video_filepaths = get_video_files()
         db = test_db
 
-        # default case: extracted frames are cached but not stored
+        # default case: extracted frames are not stored
         tbl = self.create_and_insert(db, None, video_filepaths)
         assert ImageStore.count(tbl.id) == 0
-        assert FileCache.get().num_files() == tbl.count()
 
-        # extracted frames are neither stored nor cached
+        # extracted frames are explicitly not stored
         tbl = self.create_and_insert(db, False, video_filepaths)
         assert ImageStore.count(tbl.id) == 0
-        assert FileCache.get().num_files() == 0
 
         # extracted frames are stored
         tbl = self.create_and_insert(db, True, video_filepaths)
         assert ImageStore.count(tbl.id) == tbl.count()
-        assert FileCache.get().num_files() == 0
         # revert() also removes extracted frames
         tbl.insert_rows([[p] for p in video_filepaths], columns=['video'])
         tbl.revert()
@@ -78,21 +70,7 @@ class TestVideo:
         snap = db.get_table('snap.test')
         _ = snap[snap.frame].show(10)
 
-        # fps=1 expressed as a filter
-        cols = [
-            catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False),
-            catalog.Column('frame_idx', IntType(), nullable=False),
-        ]
-        tbl2 = db.create_table(
-            'test2', cols, extract_frames_from='video', extracted_frame_col='frame',
-            extracted_frame_idx_col='frame_idx', extracted_fps=0,
-            ffmpeg_filter={'select': 'isnan(prev_selected_t)+gte(t-prev_selected_t, 1)'})
-        tbl2.insert_rows([[p] for p in video_filepaths], columns=['video'])
-        # for some reason there's one extra frame in tbl2
-        assert tbl.count() == tbl2.count() - 1
-
-    def test_cached_cols(self, test_db: catalog.Db) -> None:
+    def test_computed_cols(self, test_db: catalog.Db) -> None:
         video_filepaths = get_video_files()
         db = test_db
         # all image cols are stored=None by default
@@ -109,30 +87,10 @@ class TestVideo:
         t.add_column(catalog.Column('c2', computed_with=t.c1.rotate(10)))
         t.add_column(catalog.Column('c3', computed_with=t.c2.rotate(20)))
         t.add_column(catalog.Column('c4', computed_with=t.c1.rotate(30)))
-        cache_stats = FileCache.get().stats()
         for name in ['c1', 'c2', 'c3', 'c4']:
             assert not t.cols_by_name[name].is_stored
         t.insert_rows([[p] for p in video_filepaths], columns=['video'])
-        cache_stats = FileCache.get().stats()
         _ = t[t.c1, t.c2, t.c3, t.c4].show(0)
-
-        # the query populated the cache
-        cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == t.count() * 5  # 5 cached cols
-        assert cache_stats.num_hits == 0  # nothing cached on first access
-
-        # at this point, all requests should be served from the cache, and we're accessing 4 cached cols
-        # (not 5: the frame col doesn't need to be accessed)
-        _ = t[t.c1, t.c2, t.c3, t.c4].show(0)
-        cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == t.count() * (5 + 4)
-        assert cache_stats.num_hits == t.count() * 4
-
-        cl = pt.Client()
-        _ = cl.get_db('test')
-        _ = cl.cache_stats()
-        _ = cl.cache_util()
-        print(_)
 
     def test_make_video(self, test_db: catalog.Db) -> None:
         video_filepaths = get_video_files()
@@ -158,17 +116,17 @@ class TestVideo:
 
         class WindowAgg:
             def __init__(self):
-                self.sum = 0
+                self.img = None
             @classmethod
             def make_aggregator(cls) -> 'WindowAgg':
                 return cls()
             def update(self, frame: PIL.Image.Image) -> None:
-                self.sum += 1
-            def value(self) -> int:
-                return self.sum
+                self.img = frame
+            def value(self) -> PIL.Image.Image:
+                return self.img
 
         agg_fn = pt.make_aggregate_function(
-            IntType(), [ImageType()],
+            ImageType(), [ImageType()],
             init_fn=WindowAgg.make_aggregator,
             update_fn=WindowAgg.update,
             value_fn=WindowAgg.value,
@@ -176,6 +134,15 @@ class TestVideo:
         # make sure it works
         _ = t[agg_fn(t.frame_idx, t.frame, group_by=t.video)].show()
         db.create_function('agg_fn', agg_fn)
+        t.add_column(catalog.Column('agg', computed_with=agg_fn(t.frame_idx, t.frame, group_by=t.video)))
+        assert t.cols_by_name['agg'].is_stored
+        _ = t[pt.make_video(t.frame_idx, t.agg)].group_by(t.video).show()
+        print(_)
+
+        # image cols computed with a window function currently need to be stored
+        with pytest.raises(exc.Error):
+            t.add_column(
+                catalog.Column('agg2', computed_with=agg_fn(t.frame_idx, t.frame, group_by=t.video), stored=False))
 
         # reload from store
         cl = pt.Client()

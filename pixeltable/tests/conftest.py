@@ -15,7 +15,6 @@ from pixeltable.tests.utils import read_data_file, make_tbl, create_table_data
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
-from pixeltable.utils.filecache import FileCache
 
 
 @pytest.fixture(scope='session')
@@ -28,7 +27,6 @@ def init_env(tmp_path_factory) -> None:
     os.environ['PIXELTABLE_DB'] = test_db
     # this also runs create_all()
     Env.get().set_up(echo=True)
-    FileCache.get().clear()
     yield
     # leave db in place for debugging purposes
 

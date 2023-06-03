@@ -11,7 +11,6 @@ from pixeltable.type_system import \
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files
 from pixeltable.functions import make_video, sum
 from pixeltable.utils.imgstore import ImageStore
-from pixeltable.utils.filecache import FileCache
 
 
 class TestTable:
@@ -33,7 +32,7 @@ class TestTable:
         c3 = catalog.Column('c3', FloatType(), nullable=False)
         c4 = catalog.Column('c4', TimestampType(), nullable=False)
         schema = [c1, c2, c3, c4]
-        _ = db.create_table('test', schema)
+        tbl = db.create_table('test', schema)
         _ = db.create_table('dir1.test', schema)
 
         with pytest.raises(exc.Error):
@@ -56,6 +55,14 @@ class TestTable:
             _ = db.list_tables('1dir')
         with pytest.raises(exc.Error):
             _ = db.list_tables('dir2')
+
+        # 'stored' kwarg only applies to computed image columns
+        with pytest.raises(exc.Error):
+            tbl.add_column(catalog.Column('c5', IntType(), stored=False))
+        with pytest.raises(exc.Error):
+            tbl.add_column(catalog.Column('c5', ImageType(), stored=False))
+        with pytest.raises(exc.Error):
+            tbl.add_column(catalog.Column('c5', computed_with=(tbl.c2 + tbl.c3), stored=False))
 
         # test loading with new client
         cl2 = pt.Client()
@@ -128,6 +135,18 @@ class TestTable:
             requires_order_by=True, allows_window=True)
         # cols computed with window functions are stored by default
         tbl.add_column((catalog.Column('c5', computed_with=window_fn(tbl.frame_idx, group_by=tbl.video))))
+        assert tbl.cols_by_name['c5'].is_stored
+
+        # cannot store frame col
+        cols = [
+            catalog.Column('video', VideoType(), nullable=False),
+            catalog.Column('frame', ImageType(), nullable=False, stored=True),
+            catalog.Column('frame_idx', IntType(), nullable=False),
+        ]
+        with pytest.raises(exc.Error):
+            _ = db.create_table(
+                'test', cols, extract_frames_from='video', extracted_frame_col='frame',
+                extracted_frame_idx_col='frame_idx', extracted_fps=0)
 
         params = tbl.parameters
         # reload to make sure that metadata gets restored correctly
@@ -140,10 +159,9 @@ class TestTable:
         assert ImageStore.count(tbl.id) == tbl.count() * 2
         html_str = tbl.show(n=100)._repr_html_()
 
-        # revert() clears stored images and the cache
+        # revert() clears stored images
         tbl.revert()
         assert ImageStore.count(tbl.id) == 0
-        assert FileCache.get().num_files(tbl.id) == 0
 
         with pytest.raises(exc.Error):
             # can't drop frame col
@@ -157,7 +175,6 @@ class TestTable:
         _ = tbl.show()
         tbl.drop()
         assert ImageStore.count(tbl.id) == 0
-        assert FileCache.get().num_files(tbl.id) == 0
 
         with pytest.raises(exc.Error):
             # missing parameters
@@ -303,25 +320,16 @@ class TestTable:
         result_set = t[t.add1.errortype != None].show(0)
         assert len(result_set) == 10
 
-    def test_computed_img_cols(self, test_db: catalog.Db) -> None:
-        db = test_db
-        c1 = catalog.Column('img', ImageType(), nullable=False, indexed=True)
-        schema = [c1]
-        t = db.create_table('test', schema)
-        t.add_column(catalog.Column('c2', computed_with=t.img.width))
-        # c3 is cached but not stored
-        t.add_column(catalog.Column('c3', computed_with=t.img.rotate(90), stored=None))
-
+    def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
         data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         t.insert_pandas(data_df.loc[0:20, ['img']])
         _ = t.show()
-        assert ImageStore.count(t.id) == 0
-        #assert FileCache.get().num_files(t.id) == t.count()
+        assert ImageStore.count(t.id) == t.count() * stores_img_col
 
         # test loading from store
         cl2 = pt.Client()
         db2 = cl2.get_db('test')
-        t2 = db2.get_table('test')
+        t2 = db2.get_table(t.name)
         assert len(t.columns) == len(t2.columns)
         for i in range(len(t.columns)):
             if t.columns[i].value_expr is not None:
@@ -329,15 +337,29 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert_pandas(data_df.loc[0:20, ['img']])
-        assert ImageStore.count(t.id) == 0
-        #assert FileCache.get().num_files(t.id) == t2.count()
+        assert ImageStore.count(t2.id) == t2.count() * stores_img_col
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
         print(tbl_df)
 
         # revert also removes computed images
         t2.revert()
-        assert ImageStore.count(t2.id) == 0
+        assert ImageStore.count(t2.id) == t2.count() * stores_img_col
+
+    def test_computed_img_cols(self, test_db: catalog.Db) -> None:
+        db = test_db
+        c1 = catalog.Column('img', ImageType(), nullable=False, indexed=True)
+        schema = [c1]
+        t = db.create_table('test', schema)
+        t.add_column(catalog.Column('c2', computed_with=t.img.width))
+        # c3 is not stored by default
+        t.add_column(catalog.Column('c3', computed_with=t.img.rotate(90)))
+        self._test_computed_img_cols(t, stores_img_col=False)
+
+        t = db.create_table('test2', schema)
+        # c3 is now stored
+        t.add_column(catalog.Column('c3', computed_with=t.img.rotate(90), stored=True))
+        self._test_computed_img_cols(t, stores_img_col=True)
 
     def test_computed_window_fn(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
         db = test_db

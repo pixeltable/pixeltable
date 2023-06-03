@@ -5,6 +5,7 @@ import io
 import logging
 import dataclasses
 import pathlib
+import copy
 
 import PIL, cv2
 import numpy as np
@@ -23,7 +24,6 @@ from pixeltable.index import VectorIndex
 from pixeltable.function import Function, FunctionRegistry
 from pixeltable.utils.video import FrameIterator
 from pixeltable.utils.imgstore import ImageStore
-from pixeltable.utils.filecache import FileCache
 
 
 _ID_RE = r'[a-zA-Z]\w*'
@@ -52,7 +52,7 @@ class Column:
             computed_with: a callable or an Expr object that computes the column value
             primary_key: if True, this column is part of the primary key
             nullable: if True, this column can be NULL/None
-            stored: determines whether a computed column is present in the stored table or cached or neither (see below)
+            stored: determines whether a computed column is present in the stored table or recomputed on demand
             indexed: if True, this column has a nearest neighbor index (only valid for image columns)
             col_id: column ID (only used internally)
             value_expr_str: serialized form of ``computed_with`` (only used internally)
@@ -70,11 +70,11 @@ class Column:
           is being used
         - ``col_type`` needs to be set to the callable's return type
 
-        ``stored`` (only valid for computed columns):
+        ``stored`` (only valid for computed image columns):
 
         - if True: the column is present in the stored table
-        - if False: the column is not present in the stored table and always recomputed during a query and never cached
-        - if None: the column is not present in the stored table but column values are cached during retrieval
+        - if False: the column is not present in the stored table and recomputed during a query
+        - if None: the system chooses for you (at present, this is always False, but this may change in the future)
 
         indexed: only valid for image columns; if true, maintains an NN index for this column
         """
@@ -133,12 +133,12 @@ class Column:
     def check_value_expr(self) -> None:
         assert self.value_expr is not None
         from pixeltable import exprs
-        if self.stored == False and self.is_computed and self._has_window_fn_call():
+        if self.stored == False and self.is_computed and self.has_window_fn_call():
             raise exc.Error(
                 f'Column {self.name}: stored={self.stored} not supported for columns computed with window functions:'
                 f'\n{self.value_expr}')
 
-    def _has_window_fn_call(self) -> bool:
+    def has_window_fn_call(self) -> bool:
         if self.value_expr is None:
             return False
         from pixeltable import exprs
@@ -155,17 +155,8 @@ class Column:
         Returns True if column is materialized in the stored table.
         Note that the extracted frame col is effectively computed.
         """
-        return self.stored == True \
-            or (not self.is_computed and not self.id == self.tbl.parameters.frame_col_id) \
-            or not self.col_type.is_image_type() \
-            or self._has_window_fn_call()
-
-    @property
-    def is_cached(self) -> bool:
-        """
-        Returns True if column is not materialized in the stored table but cachable.
-        """
-        return not self.is_stored and self.stored is None
+        assert self.stored is not None
+        return self.stored
 
     def source(self) -> None:
         """
@@ -269,7 +260,6 @@ class TableParameters:
     frame_col_id: int = -1 # column id
     frame_idx_col_id: int = -1 # column id
     extraction_fps: int = -1
-    ffmpeg_filter: Dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 class Table(SchemaObject):
@@ -282,14 +272,15 @@ class Table(SchemaObject):
         self.dir_id = dir_id
         # TODO: this will be out-of-date after a rename()
         self.name = name
-        for pos, col in enumerate(cols):
+        # we create copies here because the Column objects might be owned by the caller
+        self.cols = [copy.copy(col) for col in cols]
+        for pos, col in enumerate(self.cols):
             if re.fullmatch(_ID_RE, col.name) is None:
                 raise exc.Error(f"Invalid column name: '{col.name}'")
             assert col.id is not None
             col.tbl = self
-        self.cols = cols
-        self.cols_by_name = {col.name: col for col in cols}
-        self.cols_by_id = {col.id: col for col in cols}
+        self.cols_by_name = {col.name: col for col in self.cols}
+        self.cols_by_id = {col.id: col for col in self.cols}
         self.version = version
         self.parameters = TableParameters(**params)
 
@@ -565,6 +556,14 @@ class MutableTable(Table):
         if c.value_expr is not None:
             c.check_value_expr()
             self._record_value_expr(c)
+
+        if c.stored is False and not (c.is_computed and c.col_type.is_image_type()):
+            raise exc.Error(f'Column {c.name}: stored={c.stored} only applies to computed image columns')
+        if c.stored is False and not (c.col_type.is_image_type() and not c.has_window_fn_call()):
+            raise exc.Error(
+                f'Column {c.name}: stored={c.stored} is not valid for image columns computed with a streaming function')
+        if c.stored is None:
+            c.stored = not(c.is_computed and c.col_type.is_image_type() and not c.has_window_fn_call())
 
         self.cols.append(c)
         self.cols_by_name[c.name] = c
@@ -970,7 +969,7 @@ class MutableTable(Table):
 
         # frame extraction from videos
         frame_iters: List[Optional[FrameIterator]] = [None] * len(data)
-        est_num_rows = len(data)  # total number of rows, after frame extraction
+        num_rows = len(data)  # total number of rows, after frame extraction
         if self.extracts_frames():
             print('Counting frames...')
             data.sort_values([video_col.name], axis=0, inplace=True)  # we need to order by video_col, frame_idx_col
@@ -980,13 +979,8 @@ class MutableTable(Table):
                 for i in range(len(data)):
                     if video_path_isnull[i]:
                         continue
-                    frame_iter = FrameIterator(
-                        video_paths[i], fps=self.parameters.extraction_fps, ffmpeg_filter=self.parameters.ffmpeg_filter)
-                    num_frames = frame_iter.est_num_frames()
-                    if num_frames is not None and est_num_rows is not None:
-                        est_num_rows += num_frames - 1
-                    else:
-                        est_num_rows = None
+                    frame_iter = FrameIterator(video_paths[i], fps=self.parameters.extraction_fps)
+                    num_rows += len(frame_iter) - 1
                     frame_iters[i] = frame_iter
                     progress_bar.update(1)
 
@@ -1061,17 +1055,13 @@ class MutableTable(Table):
             next_output_row_idx = 0
             for input_row_idx, input_tuple in enumerate(data.itertuples(index=False)):
                 with frame_iters[input_row_idx] as frame_iter:
-                    for frame_idx, frame_path in frame_iter:
+                    for frame_idx, frame in frame_iter:
                         rowid = next(rowids)
                         output_row = {
                             'rowid': rowid, 'v_min': self.version, **input_tuple._asdict(),
                             frame_idx_col.storage_name(): frame_idx,
                         }
-                        if frame_col.is_stored:
-                            # move frame file to a permanent location
-                            frame_path = str(ImageStore.add(self.id, frame_col.id, self.version, rowid, frame_path))
-                            output_row[frame_col.storage_name()] = frame_path
-                        output_row['frame'] = PIL.Image.open(frame_path)
+                        output_row['frame'] = frame
                         next_output_row_idx += 1
                         yield output_row
 
@@ -1142,7 +1132,7 @@ class MutableTable(Table):
                 progress_bar.update(1)
                 yield row
 
-        with tqdm(total=est_num_rows) as progress_bar:
+        with tqdm(total=num_rows) as progress_bar:
             with Env.get().engine.begin() as conn:
                 # insert 128 rows at a time
                 batch_size = 128
@@ -1205,7 +1195,6 @@ class MutableTable(Table):
             conn = session.connection()
             # delete newly-added data
             ImageStore.delete(self.id, v_min=self.version)
-            FileCache.get().clear(tbl_id=self.id)
             conn.execute(sql.delete(self.sa_tbl).where(self.sa_tbl.c.v_min == self.version))
             # revert new deletions
             conn.execute(
@@ -1297,7 +1286,6 @@ class MutableTable(Table):
             if num_references == 0:
                 # we can delete this table altogether
                 ImageStore.delete(self.id)
-                FileCache.get().clear(self.id)
                 conn = session.connection()
                 conn.execute(sql.delete(store.SchemaColumn.__table__).where(store.SchemaColumn.tbl_id == self.id))
                 conn.execute(sql.delete(store.ColumnHistory.__table__).where(store.ColumnHistory.tbl_id == self.id))
@@ -1339,7 +1327,7 @@ class MutableTable(Table):
         cls, db_id: int, dir_id: int, name: str, cols: List[Column],
         num_retained_versions: int,
         extract_frames_from: Optional[str], extracted_frame_col: Optional[str], extracted_frame_idx_col: Optional[str],
-        extracted_fps: Optional[int], ffmpeg_filter: Optional[Dict[str, str]]
+        extracted_fps: Optional[int],
     ) -> 'MutableTable':
         # make sure col names are unique (within the table) and assign ids
         cols_by_name: Dict[str, Column] = {}
@@ -1352,6 +1340,17 @@ class MutableTable(Table):
                 cls._create_value_expr(col, cols_by_name)
             if col.is_computed:
                 col.check_value_expr()
+            if col.stored is True and col.name == extracted_frame_col:
+                raise exc.Error(f'Column {col.name}: extracted frame column cannot be stored')
+            if col.stored is False and not(col.is_computed and col.col_type.is_image_type()):
+                raise exc.Error(f'Column {name}: stored={col.stored} only applies to computed image columns')
+            if col.stored is None:
+                if col.is_computed and col.col_type.is_image_type():
+                    col.stored = False
+                elif col.name == extracted_frame_col:
+                    col.stored = False
+                else:
+                    col.stored = True
 
         # check frame extraction params, if present
         if extract_frames_from is not None:
@@ -1364,6 +1363,7 @@ class MutableTable(Table):
                 raise exc.Error(
                     f'extract_frames_from requires the name of a column of type video, but {extract_frames_from} has '
                     f'type {col_type}')
+
             if extracted_frame_col is not None and extracted_frame_col not in cols_by_name:
                 raise exc.Error(f'Unknown column in extracted_frame_col: {extracted_frame_col}')
             col_type = cols_by_name[extracted_frame_col].col_type
@@ -1373,6 +1373,9 @@ class MutableTable(Table):
                     f'type {col_type}')
             # the src column determines whether the frame column is nullable
             cols_by_name[extracted_frame_col].nullable = is_nullable
+            # extracted frames are never stored
+            cols_by_name[extracted_frame_col].stored = False
+
             if extracted_frame_idx_col is not None and extracted_frame_idx_col not in cols_by_name:
                 raise exc.Error(f'Unknown column in extracted_frame_idx_col: {extracted_frame_idx_col}')
             col_type = cols_by_name[extracted_frame_idx_col].col_type
@@ -1388,8 +1391,7 @@ class MutableTable(Table):
             cols_by_name[extract_frames_from].id if extract_frames_from is not None else -1,
             cols_by_name[extracted_frame_col].id if extracted_frame_col is not None else -1,
             cols_by_name[extracted_frame_idx_col].id if extracted_frame_idx_col is not None else -1,
-            extracted_fps,
-            ffmpeg_filter)
+            extracted_fps)
 
         with orm.Session(Env.get().engine) as session:
             tbl_record = store.Table(
@@ -1561,7 +1563,6 @@ class Db:
             self, path_str: str, schema: List[Column], num_retained_versions: int = 10,
             extract_frames_from: Optional[str] = None, extracted_frame_col: Optional[str] = None,
             extracted_frame_idx_col: Optional[str] = None, extracted_fps: Optional[int] = None,
-            ffmpeg_filter: Optional[Dict[str, str]] = None,
     ) -> MutableTable:
         """Create a new table in the database.
 
@@ -1573,7 +1574,6 @@ class Db:
             extracted_frame_col: Name of the image column in which to store the extracted frames.
             extracted_frame_idx_col: Name of the int column in which to store the frame indices.
             extracted_fps: Frame rate at which to extract frames. 0: extract all frames.
-            ffmpeg_filter: Filter to apply to the video before extracting frames.
 
         Returns:
             The newly created table.
@@ -1606,11 +1606,11 @@ class Db:
             raise exc.Error(
                 'Frame extraction requires that all parameters (extract_frames_from, extracted_frame_col, '
                 'extracted_frame_idx_col, extracted_fps) be specified')
-        if frame_extraction_param_count == 0 and ffmpeg_filter is not None:
-            raise exc.Error(f'ffmpeg_filter only valid in conjunction with other frame extraction parameters')
+        if extracted_fps is not None and extracted_fps < 0:
+            raise exc.Error('extracted_fps must be >= 0')
         tbl = MutableTable.create(
             self.id, dir.id, path.name, schema, num_retained_versions, extract_frames_from, extracted_frame_col,
-            extracted_frame_idx_col, extracted_fps, ffmpeg_filter)
+            extracted_frame_idx_col, extracted_fps)
         self.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
         return tbl

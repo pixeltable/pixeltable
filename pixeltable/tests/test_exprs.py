@@ -402,7 +402,7 @@ class TestExprs:
         print(_)
         # backfill works
         t.add_column(catalog.Column('c9', computed_with=sum(t.c2, group_by=t.c4, order_by=t.c3)))
-        _ = t.c9.col._has_window_fn_call()
+        _ = t.c9.col.has_window_fn_call()
 
         c2 = catalog.Column('c2', IntType(), nullable=False)
         c3 = catalog.Column('c3', FloatType(), nullable=False)

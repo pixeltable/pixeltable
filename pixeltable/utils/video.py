@@ -1,22 +1,12 @@
 from __future__ import annotations
-import re
-import time
-from typing import List, Dict, Optional, Tuple
-import glob
-import os
+import math
+from typing import Optional, Tuple
 from collections.abc import Iterator
 from pathlib import Path
-from uuid import uuid4
-import json
-import threading
-import queue
 import logging
+import cv2
 
-import docker
-import ffmpeg
 import PIL
-from watchdog.observers import Observer
-from watchdog.events import PatternMatchingEventHandler, FileSystemEvent
 
 from pixeltable.exceptions import Error
 from pixeltable.env import Env
@@ -24,22 +14,12 @@ from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
 
-def num_tmp_frames() -> int:
-    return len(list(Env.get().tmp_frames_dir.glob('*.jpg')))
-
 class FrameIterator:
     """
-    Iterator over the frames of a video. Files returned by next() are deleted in the following next() call.
-
-    Frames are extracted in the background with ffmpeg, which is run in a detached docker container. The container is
-    paused when the number of frames accumulated in tmp_frames_dir exceeds HIGH_WATER_MARK, and unpaused when it
-    drops below LOW_WATER_MARK.
+    Iterator over the frames of a video.
     """
-    HIGH_WATER_MARK = 100
-    LOW_WATER_MARK = 10
 
-    def __init__(self, video_path_str: str, fps: int = 0, ffmpeg_filter: Optional[Dict[str, str]] = None):
-        # extract all frames into tmp_frames dir
+    def __init__(self, video_path_str: str, fps: int = 0):
         video_path = Path(video_path_str)
         if not video_path.exists():
             raise Error(f'File not found: {video_path_str}')
@@ -47,265 +27,80 @@ class FrameIterator:
             raise Error(f'Not a file: {video_path_str}')
         self.video_path = video_path
         self.fps = fps
-        self.ffmpeg_filter = ffmpeg_filter
-        self.id = uuid4().hex[:16]
-        self.idx_re = re.compile(fr'{self.id}_(\d+)\.jpg')  # pattern to extract frame idx from filename
-        self.num_frames: Optional[int] = None  # the known number of frames
-        _logger.debug(f'FrameIterator: id={self.id} path={self.video_path} fps={self.fps} filter={self.ffmpeg_filter}')
+        self.video_reader = cv2.VideoCapture(str(video_path))
+        if not self.video_reader.isOpened():
+            raise Error(f'Failed to open video: {video_path_str}')
+        video_fps = int(self.video_reader.get(cv2.CAP_PROP_FPS))
+        if fps > video_fps:
+            raise Error(f'Video {video_path_str}: requested fps ({fps}) exceeds that of the video ({video_fps})')
+        self.frame_freq = int(video_fps / fps) if fps > 0 else 1
+        num_video_frames = int(self.video_reader.get(cv2.CAP_PROP_FRAME_COUNT))
+        if num_video_frames == 0:
+            raise Error(f'Video {video_path_str}: failed to get number of frames')
+        # ceil: round up to ensure we count frame 0
+        self.num_frames = math.ceil(num_video_frames / self.frame_freq) if fps > 0 else num_video_frames
+        _logger.debug(f'FrameIterator: path={self.video_path} fps={self.fps}')
 
-
-        # runtime state
-        self.started_extraction = False
         self.next_frame_idx = 0
-        self.container: Optional[docker.models.containers.Container] = None
-        self.observer: Optional[Observer] = None
-        self.path_queue = queue.SimpleQueue()  # filled by self.observer
-        # we keep a stash of frames, indexed by frame_idx, because the notifications for new frames
-        # may arrive out of order
-        self.frame_paths: Dict[int, str] = {}
-        self.frame_idx_offset = 0  # > 0 if seek() gets called before the first next() call
 
-    def _input_filename(self) -> str:
-        """Get the escaped filename of the video file as it appears inside the docker container.
-        """
-        return f'/input/{self.video_path.name}'.replace("'", r"'\''")
-
-    def est_num_frames(self) -> Optional[int]:
-        """Get estimate of # of frames.
-        """
-        if self.ffmpeg_filter is not None:
-            # we won't know until we run the extraction
-            return None
-
-        cl = docker.from_env()
-        filename = f'/input/{self.video_path.name}'.replace("'", r"'\''")
-
-        command = (
-            f"-v error -select_streams v:0 -show_entries stream=nb_frames,duration -print_format json "
-            f"'{self._input_filename()}'"
-        )
-        _logger.debug(f'running ffprobe: {command}')
-        output = cl.containers.run(
-            'sjourdan/ffprobe:latest', command, detach=False, remove=True,
-            volumes={str(self.video_path.parent): {'bind': '/input', 'mode': 'ro'}},
-        )
-        info = json.loads(output)
-        if 'streams' not in info or len(info['streams']) == 0:
-            return None
-        if self.fps == 0:
-            if 'nb_frames' not in info['streams'][0]:
-                return None
-            return int(info['streams'][0]['nb_frames'])
-        else:
-            if 'duration' not in info['streams'][0]:
-                return None
-            return int(self.fps * float(info['streams'][0]['duration']))
-
-    def _start_extraction(self) -> None:
-        assert not self.started_extraction
-
-        # use ffmpeg-python to construct the command
-        s = ffmpeg.input(self._input_filename())
-        if self.fps > 0:
-            s = s.filter('fps', self.fps)
-        if self.frame_idx_offset > 0:
-            s = s.filter('trim', start_frame=self.frame_idx_offset)
-        if self.ffmpeg_filter is not None:
-            for key, val in self.ffmpeg_filter.items():
-                s = s.filter(key, val)
-        # vsync=0: required to apply filter, otherwise ffmpeg pads the output with duplicate frames
-        # threads=4: doesn't seem to go faster beyond that
-        s = s.output(str(Path('/output') / f'{self.id}_%07d.jpg'), vsync=0, threads=4)
-        command = ' '.join([f"'{arg}'" for arg in s.get_args()])  # quote everything to deal with spaces
-
-        class Handler(PatternMatchingEventHandler):
-            def __init__(self, pattern: str, caller: FrameIterator):
-                super().__init__(patterns=[pattern], ignore_patterns=None, ignore_directories=True, case_sensitive=True)
-                self.caller = caller
-
-            # We look for on_modified here, instead of on_delete, because the latter doesn't get triggered on MacOS.
-            # There is no assumption that the files are written atomically, and we might see this fire more than once
-            # for the same file.
-            def on_modified(self, event: FileSystemEvent) -> None:
-                self.caller.path_queue.put(event)
-                _logger.debug(f'added {event.src_path} to path_queue (len={self.caller.path_queue.qsize()})')
-                # we pause the container if it gets too far ahead of us
-                if self.caller.path_queue.qsize() == self.caller.HIGH_WATER_MARK:
-                    status = self.caller._update_container_status()
-                    if status == 'running':
-                        _logger.debug(f'pausing container: {self.caller.container.id}')
-                        self.caller.container.pause()
-
-        # start watching for files in tmp_frames_dir
-        self.observer = Observer()
-        handler = Handler(f'{self.id}_*.jpg', self)
-        self.observer.schedule(handler, path=str(Env.get().tmp_frames_dir), recursive=False)
-        self.observer.start()
-
-        _logger.debug(f'running ffmpeg: {command}')
-        cl = docker.from_env()
-        self.container = cl.containers.run(
-            Env.get().ffmpeg_image(),
-            command,
-            detach=True,
-            remove=False,  # make sure we can reload() after the container exits
-            volumes={
-                self.video_path.parent: {'bind': '/input', 'mode': 'rw'},
-                str(Env.get().tmp_frames_dir): {'bind': '/output', 'mode': 'rw'},
-            },
-        )
-        self.started_extraction = True
-
-    def __iter__(self) -> Iterator[Tuple[int, Path]]:
+    def __iter__(self) -> Iterator[Tuple[int, PIL.Image.Image]]:
         return self
 
-    def __next__(self) -> Tuple[int, Path]:
+    def __next__(self) -> Tuple[int, PIL.Image.Image]:
+        """Returns (frame idx, image).
         """
-        Returns (frame idx, path to img file).
-        """
-        if not self.started_extraction:
-            self._start_extraction()
-        prev_frame_idx = self.next_frame_idx - 1
-        if prev_frame_idx in self.frame_paths:
-            # try to delete the file
-            try:
-                os.remove(str(self.frame_paths[prev_frame_idx]))
-                _logger.debug(f'removed {self.frame_paths[prev_frame_idx]}')
-            except FileNotFoundError as e:
-                # nothing to worry about, someone else grabbed it
-                pass
-            self.frame_paths.pop(prev_frame_idx)
-
-        # we need to return the path for next_frame_idx; wait until we have the path for next_frame_idx+1 so
-        # that we can be certain that next_frame_idx is complete
         while True:
-            status = self._update_container_status()  # also updates num_frames after exit
-            if self.next_frame_idx + 1 in self.frame_paths:
-                # we have seen data for frame n + 1, so frame n must be complete now
-                break
-            if self.next_frame_idx in self.frame_paths and self.next_frame_idx + 1 == self.num_frames:
-                # this is the last frame, and the container exited, so the frame is complete
-                break
-            if self.next_frame_idx == self.num_frames:
-                self.observer.stop()
-                self.observer.join()
+            status, img = self.video_reader.read()
+            if not status:
+                _logger.debug(f'releasing video reader for {self.video_path}')
+                self.video_reader.release()
+                self.video_reader = None
                 raise StopIteration
-            if status == 'paused' and self.path_queue.qsize() < self.LOW_WATER_MARK:
-                # the producer is paused and we're running low on frames: we need to unpause the container
-                _logger.debug(f'unpausing container: {self.container.id}')
-                self.container.unpause()
-
-            _logger.debug((
-                f'waiting for idx {self.next_frame_idx+1} '
-                f'(len={self.path_queue.qsize()}, container status={self.container.status})'))
-            # wait for the next frame to be extracted;
-            # we need a timeout to avoid a deadlock situation:
-            # the container hasn't exited yet, but has already extracted the last frame
-            try:
-                event = self.path_queue.get(timeout=1)
-                self._add_path(Path(event.src_path))
-            except queue.Empty:
-                pass
-
-        assert self.next_frame_idx in self.frame_paths and self.frame_paths[self.next_frame_idx] is not None
-        result = (self.next_frame_idx + self.frame_idx_offset, self.frame_paths[self.next_frame_idx])
-        self.next_frame_idx += 1
-        _logger.debug(f'returning {result}')
-        return result
-
-    def _update_container_status(self) -> str:
-        if self.container.status == 'exited':
-            # nothing left to do
-            return self.container.status
-        old_status = self.container.status
-        self.container.reload()
-
-        # if the container exited since we last checked, we need to update num_frames
-        if old_status != 'exited' and self.container.status == 'exited':
-            # get actual number of frames from stdout
-            log_output = self.container.logs(stdout=True).splitlines()
-            info_line = log_output[-2]
-            # extract frame count with regular expression
-            m = re.search(r'frame=\s*(\d+)', info_line.decode('utf-8'))
-            if m is None:
-                raise Error('Could not extract frame count from ffmpeg output')
-            self.num_frames = int(m.group(1))
-            _logger.debug(f'container exited, num_frames={self.num_frames}')
-        return self.container.status
-
-    def _add_path(self, path: Path) -> None:
-        """
-        Add a path to the frame_paths at the correct index.
-        """
-        m = self.idx_re.match(path.name)
-        if m is None:
-            raise Error(f'Unexpected frame path: {path}')
-        idx = int(m.group(1))
-        idx -= 1  # ffmpeg starts at 1
-        self.frame_paths[idx] = path
+            # -1: CAP_PROP_POS_FRAMES points to the next frame
+            if (self.video_reader.get(cv2.CAP_PROP_POS_FRAMES) - 1) % self.frame_freq == 0:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                result = (self.next_frame_idx, PIL.Image.fromarray(img))
+                self.next_frame_idx += 1
+                return result
 
     def seek(self, frame_idx: int) -> None:
-        """
-        Fast-forward to frame idx
+        """Fast-forward to frame idx
         """
         assert frame_idx >= self.next_frame_idx  # can't seek backwards
-        _logger.debug(f'seeking to frame {frame_idx}')
-        if not self.started_extraction:
-            self.frame_idx_offset = frame_idx
+        if frame_idx == self.next_frame_idx:
             return
-        while self.next_frame_idx + self.frame_idx_offset < frame_idx:
-            # fast-forward to frame_idx
-            _ = self.__next__()
+        _logger.debug(f'seeking to frame {frame_idx}')
+        self.video_reader.set(cv2.CAP_PROP_POS_FRAMES, frame_idx * self.frame_freq)
+        self.next_frame_idx = frame_idx
+
+    def __len__(self) -> int:
+        return self.num_frames
 
     def __enter__(self) -> FrameIterator:
-        _logger.debug(f'__enter__ {self.id}')
+        _logger.debug(f'__enter__ {self.video_path}')
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        _logger.debug(f'__exit__ {self.id}')
-        return self.close()
+        _logger.debug(f'__exit__ {self.video_path}')
+        self.close()
 
     def close(self) -> None:
-        _logger.debug(f'closing FrameIterator {self.id}')
-        if self.next_frame_idx == -1:
-            # nothing to do
-            return
-        # check if the container is still running; if so, stop it
-        self.container.reload()
-        if self.container.status != 'exited':
-            _logger.debug(f'stopping container {self.container.id}')
-            self.container.stop()
-            # we want to wait for the container to stop producing files before stopping the observer,
-            # otherwise we end up with a bunch of left-behind files
-            self.container.wait()
-            _logger.debug(f'container {self.container.id} stopped')
-        self.container.remove()
-        self.observer.stop()
-        self.observer.join()
-
-        # remove all remaining files in tmp_frames_dir
-        # (observer might have missed some events, so we need to see what we find in tmp_frames_dir)
-        for path in Env.get().tmp_frames_dir.glob(f'{self.id}_*'):
-            try:
-                os.remove(path)
-                _logger.debug(f'removed {path}')
-            except FileNotFoundError:
-                pass
+        if self.video_reader is not None:
+            self.video_reader.release()
+            self.video_reader = None
 
 
 class FrameExtractor:
     """
     Implements the extract_frame window function.
     """
-    def __init__(self, video_path_str: str, fps: int = 0, ffmpeg_filter: Optional[Dict[str, str]] = None):
-        self.frames = FrameIterator(video_path_str, fps=fps, ffmpeg_filter=ffmpeg_filter)
+    def __init__(self, video_path_str: str, fps: int = 0):
+        self.frames = FrameIterator(video_path_str, fps=fps)
         self.current_frame_path: Optional[str] = None
 
     @classmethod
-    def make_aggregator(
-            cls, video_path_str: str, fps: int = 0, ffmpeg_filter: Optional[Dict[str, str]] = None
-    ) -> FrameExtractor:
-        return cls(video_path_str, fps=fps, ffmpeg_filter=ffmpeg_filter)
+    def make_aggregator(cls, video_path_str: str, fps: int = 0) -> FrameExtractor:
+        return cls(video_path_str, fps=fps)
 
     def update(self, frame_idx: int) -> None:
         self.frames.seek(frame_idx)

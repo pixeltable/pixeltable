@@ -30,12 +30,9 @@ class Env:
         self._home: Optional[Path] = None
         self._img_dir: Optional[Path] = None
         self._nnidx_dir: Optional[Path] = None
-        self._tmp_frames_dir: Optional[Path] = None
-        self._filecache_dir: Optional[Path] = None
         self._log_dir: Optional[Path] = None
         self._sa_engine: Optional[sql.engine.base.Engine] = None
         self._db_name: Optional[str] = None
-        self._max_filecache_size: Optional[int] = None
         self._db_user: Optional[str] = None
         self._db_password: Optional[str] = None
         self._db_name: Optional[str] = None
@@ -108,8 +105,6 @@ class Env:
         self._home = home
         self._img_dir = self._home / 'images'
         self._nnidx_dir = self._home / 'nnidxs'
-        self._tmp_frames_dir = self._home / 'tmp_frames'
-        self._filecache_dir = self._home / 'filecache'
         self._log_dir = self._home / 'logs'
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
@@ -118,7 +113,6 @@ class Env:
         self._db_user = os.environ.get('PIXELTABLE_DB_USER', 'postgres')
         self._db_password = os.environ.get('PIXELTABLE_DB_PASSWORD', 'pgpassword')
         self._db_port = os.environ.get('PIXELTABLE_DB_PORT', '6543')
-        self._max_filecache_size = int(os.environ.get('PIXELTABLE_MAX_FILECACHE_SIZE', f'{10 * 1024 * 1024 * 1024}'))
 
         if not self._home.exists():
             msg = f'setting up Pixeltable at {self._home}, db at {self.db_url(hide_passwd=True)}'
@@ -127,8 +121,6 @@ class Env:
             self._home.mkdir()
             self._img_dir.mkdir()
             self._nnidx_dir.mkdir()
-            self._tmp_frames_dir.mkdir()
-            self._filecache_dir.mkdir()
             self._log_dir.mkdir()
             init_home_dir = True
         else:
@@ -157,9 +149,6 @@ class Env:
             self._logger.info(f'found database {self.db_url(hide_passwd=True)}')
             if self._sa_engine is None:
                 self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
-            # discard tmp frames
-            shutil.rmtree(self._tmp_frames_dir)
-            self._tmp_frames_dir.mkdir()
 
     def _set_up_runtime(self) -> None:
         """
@@ -224,12 +213,6 @@ class Env:
         else:
             return 'postgres:15-alpine'
 
-    def ffmpeg_image(self) -> str:
-       if self._is_apple_cpu():
-           return 'linuxserver/ffmpeg:arm64v8-latest'
-       else:
-           return 'linuxserver/ffmpeg:latest'
-
     def tear_down(self) -> None:
         if database_exists(self.db_url()):
             drop_database(self.db_url())
@@ -250,21 +233,6 @@ class Env:
         return self._nnidx_dir
 
     @property
-    def tmp_frames_dir(self) -> Path:
-        assert self._tmp_frames_dir is not None
-        return self._tmp_frames_dir
-
-    @property
-    def filecache_dir(self) -> Path:
-        assert self._filecache_dir is not None
-        return self._filecache_dir
-
-    @property
     def engine(self) -> sql.engine.base.Engine:
         assert self._sa_engine is not None
         return self._sa_engine
-
-    @property
-    def max_filecache_size(self) -> int:
-        assert self._max_filecache_size is not None
-        return self._max_filecache_size

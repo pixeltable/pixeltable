@@ -11,7 +11,6 @@ import operator
 import json
 import io
 from collections.abc import Iterable
-from uuid import uuid4
 
 import PIL.Image
 import jmespath
@@ -24,9 +23,7 @@ from pixeltable.type_system import \
 from pixeltable.function import Function
 from pixeltable import exceptions as exc
 from pixeltable.utils import clip
-from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.video import FrameIterator
-from pixeltable.env import Env
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -283,19 +280,6 @@ class Expr(abc.ABC):
         """
         pass
 
-    def prepare(self, query_ts: float) -> None:
-        """
-        Allow Expr class to set up execution state. This is called after this Expr and its entire tree of subexprs
-        has been initialized.
-        """
-        for c in self.components:
-            c.prepare(query_ts)
-
-    @classmethod
-    def prepare_list(cls, expr_list: List[Expr], query_ts: float) -> None:
-        for e in expr_list:
-            e.prepare(query_ts)
-
     @abc.abstractmethod
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         """
@@ -304,17 +288,17 @@ class Expr(abc.ABC):
         """
         pass
 
-    def finalize(self) -> None:
+    def release(self) -> None:
         """
         Allow Expr class to tear down execution state. This is called after the last eval() call.
         """
         for c in self.components:
-            c.finalize()
+            c.release()
 
     @classmethod
-    def finalize_list(cls, expr_list: List[Expr]) -> None:
+    def release_list(cls, expr_list: List[Expr]) -> None:
         for e in expr_list:
-            e.finalize()
+            e.release()
 
     def serialize(self) -> str:
         return json.dumps(self.as_dict())
@@ -512,13 +496,6 @@ class ColumnRef(Expr):
         return result
 
 
-def _is_cached_col_ref(expr: Expr) -> bool:
-    """
-    Returns True if Evaluator handles caching for the referenced column.
-    """
-    return isinstance(expr, ColumnRef) and expr.col.is_cached and not expr.col.tbl.is_frame_col(expr.col)
-
-
 class FrameColumnRef(ColumnRef):
     """
     Reference to an unstored extracted frame column.
@@ -537,7 +514,6 @@ class FrameColumnRef(ColumnRef):
         # execution state
         self.current_video: Optional[str] = None
         self.frames: Optional[FrameIterator] = None
-        self.query_ts = 0.0  # needed for FileCache interactions
 
     @property
     def _video_ref(self) -> ColumnRef:
@@ -551,43 +527,19 @@ class FrameColumnRef(ColumnRef):
         return None
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        if self.col.is_cached:
-            # probe cache
-            rowid, v_min = data_row[-1]
-            file_path = FileCache.get().lookup(self.tbl.id, self.col.id, rowid, v_min)
-            if file_path is not None:
-                try:
-                    img = PIL.Image.open(file_path)
-                    data_row[self.data_row_idx] = img
-                    return
-                except Exception:
-                    raise exc.Error(f'Error reading image file: {file_path}')
-
         # extract frame
         video_path = data_row[self._video_ref.data_row_idx]
         if self.frames is None or self.current_video != video_path:
             self.current_video = video_path
             if self.frames is not None:
                 self.frames.close()
-            self.frames = FrameIterator(
-                self.current_video, fps=self.tbl.parameters.extraction_fps,
-                ffmpeg_filter=self.tbl.parameters.ffmpeg_filter)
+            self.frames = FrameIterator(self.current_video, fps=self.tbl.parameters.extraction_fps)
         frame_idx = data_row[self._frame_idx_ref.data_row_idx]
         self.frames.seek(frame_idx)
-        _, frame_path = next(self.frames, None)
-        try:
-            frame = PIL.Image.open(frame_path)
-        except Exception:
-            raise exc.Error(f'Error reading image file: {frame_path}')
+        _, frame = next(self.frames, None)
         data_row[self.data_row_idx] = frame
 
-        if self.col.is_cached:
-            FileCache.get().add(self.tbl.id, self.col.id, rowid, v_min, self.query_ts, frame_path)
-
-    def prepare(self, query_ts: float) -> None:
-        self.query_ts = query_ts
-
-    def finalize(self) -> None:
+    def release(self) -> None:
         if self.frames is not None:
             self.frames.close()
             self.frames = None
@@ -1870,14 +1822,9 @@ class Evaluator:
 
         # all following list are indexed with data_row_idx
         self.unique_exprs = UniqueExprList()  # dependencies precede their dependents
-        self.value_exprs: Dict[int, Expr] = {}  # records value exprs of cached ColumnRefs; needed during execution
         self.next_data_row_idx = 0
         # select list providing the input to the SQL scan stage
         self.sql_select_list: List[sql.sql.expression.ClauseElement] = []
-
-        # execution state:
-        # start time of query; needed for FileCache interactions
-        self.query_ts = 0.0
 
         for e in expr_list:
             self._assign_idxs(e, with_sql)
@@ -1908,10 +1855,6 @@ class Evaluator:
         for e in expr_list:
             self._record_output_expr_id(e, e.data_row_idx)
 
-        # execution state for cached ColRefs
-        self.cached_col_ref_ctxs = {
-            id: self.get_eval_ctx([value_expr.data_row_idx]) for id, value_expr in self.value_exprs.items()
-        }
 
     def _assign_idxs(self, expr: Expr, with_sql: bool) -> None:
         if expr in self.unique_exprs:
@@ -1947,10 +1890,6 @@ class Evaluator:
         self.next_data_row_idx += 1
         self.unique_exprs.append(expr)
 
-        if _is_cached_col_ref(expr):
-            self.value_exprs[expr.data_row_idx] = expr.col.value_expr.copy()
-            self._assign_idxs(self.value_exprs[expr.data_row_idx], with_sql)
-
     def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
         self.output_expr_ids[e.data_row_idx].add(output_expr_id)
         for d in e.dependencies():
@@ -1960,15 +1899,13 @@ class Evaluator:
     def num_materialized(self) -> int:
         return self.next_data_row_idx
 
-    def prepare(self, sql_row: List[Any], query_ts: float, with_pk: bool = False) -> DataRow:
+    def prepare(self, sql_row: List[Any], with_pk: bool = False) -> DataRow:
         """
         Prepare for evaluation by initializing data_row from given sql_row.
         with_pk == True: sql_row's last element is PK tuple, which we append to the data_row.
-        query_ts: starting timestamp of current query; we set this here, not in init(), because the Evaluator
         object is reused across multiple executions of the same query.
         Returns data row.
         """
-        self.query_ts = query_ts
         data_row = DataRow(self.num_materialized + with_pk)
         # sql_row might have the PK added to the end
         assert len(sql_row) >= len(self.sql_exprs)
@@ -2023,32 +1960,7 @@ class Evaluator:
                 continue
 
             try:
-                if _is_cached_col_ref(expr):
-                    # check cache
-                    assert expr.col_type.is_image_type()
-                    col = expr.col
-                    rowid, v_min = data_row[-1]
-                    file_path = FileCache.get().lookup(col.tbl.id, col.id, rowid, v_min)
-                    if file_path is not None:
-                        try:
-                            img = PIL.Image.open(file_path)
-                            data_row[expr.data_row_idx] = img
-                        except Exception:
-                            raise exc.RuntimeError(f'Error reading image file: {file_path}')
-                    else:
-                        value_expr_ctx = self.cached_col_ref_ctxs[expr.data_row_idx]
-                        _ = self.eval(data_row, value_expr_ctx)
-                        value_expr = self.value_exprs[expr.data_row_idx]
-                        img = data_row[value_expr.data_row_idx]
-                        data_row[expr.data_row_idx] = img
-                        fc = FileCache.get()
-                        if fc.can_admit(self.query_ts):
-                            # save image to a random location, it'll get moved into the cache
-                            file_path = Env.get().tmp_frames_dir / f'{uuid4().hex}.jpg'
-                            img.save(file_path)
-                            fc.add(col.tbl.id, col.id, rowid, v_min, self.query_ts, file_path)
-                else:
-                    expr.eval(data_row, self)
+                expr.eval(data_row, self)
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 data_row[expr.data_row_idx] = exc

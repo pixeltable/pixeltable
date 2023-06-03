@@ -18,7 +18,6 @@ from pixeltable.env import Env
 from pixeltable.type_system import ColumnType
 from pixeltable import exprs
 from pixeltable import exceptions as exc
-from pixeltable.utils.filecache import FileCache
 
 __all__ = [
     'DataFrame'
@@ -91,7 +90,6 @@ class AnalysisInfo:
         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
         self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
         self.has_frame_col: bool = False  # True if we're referencing the frame col
-        self.has_cached_col: bool = False  # True if we're referencing a cached col (incl. the frame col)
 
         self.evaluator: Optional[exprs.Evaluator] = None
         self.sql_scan_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of SQL scan stage
@@ -99,23 +97,14 @@ class AnalysisInfo:
         self.filter_eval_ctx: List[exprs.Expr] = []
         self.group_by_eval_ctx: List[exprs.Expr] = []
 
-    def prepare_exec(self, query_ts: float) -> None:
-        """
-        Call prepare() on all collected Exprs.
-        """
-        exprs.Expr.prepare_list(self.sql_scan_output_exprs, query_ts)
-        exprs.Expr.prepare_list(self.agg_output_exprs, query_ts)
-        if self.filter is not None:
-            self.filter.prepare(query_ts)
-
     def finalize_exec(self) -> None:
         """
-        Call finalize() on all collected Exprs.
+        Call release() on all collected Exprs.
         """
-        exprs.Expr.finalize_list(self.sql_scan_output_exprs)
-        exprs.Expr.finalize_list(self.agg_output_exprs)
+        exprs.Expr.release_list(self.sql_scan_output_exprs)
+        exprs.Expr.release_list(self.agg_output_exprs)
         if self.filter is not None:
-            self.filter.finalize()
+            self.filter.release()
 
 
 class DataFrame:
@@ -178,10 +167,6 @@ class DataFrame:
             e for e in exprs.Expr.list_subexprs(eval_exprs) if isinstance(e, exprs.FrameColumnRef)
         ]
         info.has_frame_col = len(frame_col_ref_subexprs) > 0
-        cached_col_ref_subexprs = [
-            e for e in exprs.Expr.list_subexprs(eval_exprs) if isinstance(e, exprs.ColumnRef) and e.col.is_cached
-        ]
-        info.has_cached_col = len(cached_col_ref_subexprs) > 0 or info.has_frame_col
         info.agg_fn_calls = [e for e in unique_exprs if isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call]
 
         if len(self.group_by_clause) > 0:
@@ -392,13 +377,10 @@ class DataFrame:
             idx_rowids = idx.search(embed, n, self.tbl.valid_rowids)
 
         with Env.get().engine.connect() as conn:
-            self.start_ts = FileCache.get().get_current_ts()
-            info.prepare_exec(self.start_ts)
             # if we're retrieving an extracted frame column that is not stored, we also need the PK in order to
             # access the file cache
             stmt = self._create_select_stmt(
-                info.evaluator.sql_select_list, info.sql_where_clause, idx_rowids, select_pk or info.has_cached_col,
-                order_by_clause)
+                info.evaluator.sql_select_list, info.sql_where_clause, idx_rowids, select_pk, order_by_clause)
             num_rows = 0  # number of output rows
 
             current_group: Optional[List[Any]] = None  # for grouping agg, the values of the group-by exprs
@@ -407,7 +389,7 @@ class DataFrame:
             for row_num, row in enumerate(sql_rows):
                 sql_row = row._data
                 last_data_row = data_row
-                data_row = info.evaluator.prepare(sql_row, self.start_ts, info.has_cached_col)
+                data_row = info.evaluator.prepare(sql_row)
                 passes_filter = self._eval_sql_scan(data_row, row_num, ignore_errors)
                 if not passes_filter:
                     continue
