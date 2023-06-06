@@ -5,27 +5,28 @@ import datetime
 import enum
 import sys
 import typing
-from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Iterator
+from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Iterator, Type
 from types import TracebackType
 import operator
 import json
 import io
 from collections.abc import Iterable
 import time
+from collections import namedtuple
 
 import PIL.Image
 import jmespath
 import numpy as np
 import sqlalchemy as sql
+import nos
 
 from pixeltable import catalog
 from pixeltable.type_system import \
     ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType, ArrayType
-from pixeltable.function import Function
-from pixeltable import exceptions as exc
-from pixeltable.utils import clip
+from pixeltable.function import Function, FunctionRegistry
+from pixeltable.exceptions import Error, ExprEvalError
 from pixeltable.utils.video import FrameIterator
-from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils import print_perf_counter_delta
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -114,18 +115,16 @@ _GLOBAL_SCOPE = ExprScope(None)
 class Expr(abc.ABC):
     """
     Rules for using state in subclasses:
-    - all state except for components and data/sql_row_idx is shared between copies of an Expr
-    - data/sql_row_idx is set during analysis (DataFrame.show())
+    - all state except for components and data_row_slot_idx is shared between copies of an Expr
+    - data_row_slot_idx is set during analysis (DataFrame.show())
     - during eval(), components can only be accessed via self.components; any Exprs outside of that won't
-      have data_row_idx set
+      have data_row_slot_idx set
     """
     def __init__(self, col_type: ColumnType):
         self.col_type = col_type
         # index of the expr's value in the data row; set for all materialized exprs; -1: invalid
         # not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
-        self.data_row_idx = -1
-        # index of the expr's value in the SQL row; only set for exprs that can be materialized in SQL; -1: invalid
-        self.sql_row_idx = -1
+        self.data_row_slot_idx = -1
         self.components: List[Expr] = []  # the subexprs that are needed to construct this expr
 
     def dependencies(self) -> List[Expr]:
@@ -182,14 +181,13 @@ class Expr(abc.ABC):
 
     def copy(self) -> Expr:
         """
-        Creates a copy that can be evaluated separately: it doesn't share any eval context (data/sql_row_idx)
+        Creates a copy that can be evaluated separately: it doesn't share any eval context (data_row_slot_idx)
         but shares everything else (catalog objects, etc.)
         """
         cls = self.__class__
         result = cls.__new__(cls)
         result.__dict__.update(self.__dict__)
-        result.data_row_idx = -1
-        result.sql_row_idx = -1
+        result.data_row_slot_idx = -1
         result.components = [c.copy() for c in self.components]
         return result
 
@@ -213,14 +211,18 @@ class Expr(abc.ABC):
             self.components[i] = self.components[i].substitute(old, new)
         return self
 
-    def resolve_computed_cols(self) -> Expr:
+    def resolve_computed_cols(self, unstored_only: bool) -> Expr:
         """
-        Replace ColRefs to computed columns with their value exprs recursively.
+        Recursively replace ColRefs to computed columns with their value exprs.
+
+        Args:
+            unstored_only: if True, only replace references to unstored computed columns
         """
         result = self
         while True:
             computed_col_refs = [
-                e for e in self.subexprs() if isinstance(e, ColumnRef) and e.col.is_computed
+                e for e in result.subexprs()
+                if isinstance(e, ColumnRef) and e.col.is_computed and (not e.col.is_stored or not unstored_only)
             ]
             if len(computed_col_refs) == 0:
                 return result
@@ -249,24 +251,41 @@ class Expr(abc.ABC):
             return str(expr_list[0])
         return f'({", ".join([str(e) for e in expr_list])})'
 
-    def subexprs(self, filter: Optional[Callable[[Expr], bool]] = None) -> Generator[Expr, None, None]:
+    def subexprs(
+            self, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+    ) -> Generator[Expr, None, None]:
         """
         Iterate over all subexprs, including self.
         """
-        for c in self.components:
-            yield from c.subexprs(filter)
-        if filter is None or filter(self):
+        is_match = filter is None or filter(self)
+        if not is_match or traverse_matches:
+            for c in self.components:
+                yield from c.subexprs(filter, traverse_matches=traverse_matches)
+        if is_match:
             yield self
+
+    def contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
+        """
+        Returns True if any subexpr is an instance of cls.
+        """
+        assert (cls is not None) != (filter is not None)  # need one of them
+        if cls is not None:
+            filter = lambda e: isinstance(e, cls)
+        try:
+            _ = next(self.subexprs(filter, traverse_matches=False))
+            return True
+        except StopIteration:
+            return False
 
     @classmethod
     def list_subexprs(
-            cls, expr_list: List[Expr], filter: Optional[Callable[[Expr], bool]] = None
+            cls, expr_list: List[Expr], filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Generator[Expr, None, None]:
         """
         Produce subexprs for all exprs in list.
         """
         for e in expr_list:
-            yield from e.subexprs(filter)
+            yield from e.subexprs(filter, traverse_matches)
 
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
@@ -300,7 +319,7 @@ class Expr(abc.ABC):
     @abc.abstractmethod
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         """
-        Compute the expr value for data_row and store the result in data_row[data_row_idx].
+        Compute the expr value for data_row and store the result in data_row[data_row_slot_idx].
         Not called if sql_expr() != None (exception: Literal).
         """
         pass
@@ -368,7 +387,7 @@ class Expr(abc.ABC):
             return JsonPath(self).__getitem__(index)
         if self.col_type.is_array_type():
             return ArraySlice(self, index)
-        raise exc.Error(f'Type {self.col_type} is not subscriptable')
+        raise Error(f'Type {self.col_type} is not subscriptable')
 
     def __getattr__(self, name: str) -> ImageMemberAccess:
         """
@@ -378,7 +397,7 @@ class Expr(abc.ABC):
             return ImageMemberAccess(name, self)
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
-        raise exc.Error(f'Member access not supported on type {self.col_type}: {name}')
+        raise Error(f'Member access not supported on type {self.col_type}: {name}')
 
     def __lt__(self, other: object) -> Comparison:
         return self._make_comparison(ComparisonOperator.LT, other)
@@ -458,12 +477,12 @@ class ColumnRef(Expr):
     def __getattr__(self, name: str) -> Expr:
         if name == self.Property.ERRORTYPE.name.lower():
             if not self.col.is_computed:
-                raise exc.Error(f'{name} not valid for a non-computed column: {self}')
+                raise Error(f'{name} not valid for a non-computed column: {self}')
             self.prop = self.Property.ERRORTYPE
             return self
         if name == self.Property.ERRORMSG.name.lower():
             if not self.col.is_computed:
-                raise exc.Error(f'{name} not valid for a non-computed column: {self}')
+                raise Error(f'{name} not valid for a non-computed column: {self}')
             self.prop = self.Property.ERRORMSG
             return self
         if self.col_type.is_json_type():
@@ -545,16 +564,16 @@ class FrameColumnRef(ColumnRef):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # extract frame
-        video_path = data_row[self._video_ref.data_row_idx]
+        video_path = data_row[self._video_ref.data_row_slot_idx]
         if self.frames is None or self.current_video != video_path:
             self.current_video = video_path
             if self.frames is not None:
                 self.frames.close()
             self.frames = FrameIterator(self.current_video, fps=self.tbl.parameters.extraction_fps)
-        frame_idx = data_row[self._frame_idx_ref.data_row_idx]
+        frame_idx = data_row[self._frame_idx_ref.data_row_slot_idx]
         self.frames.seek(frame_idx)
         _, frame = next(self.frames, None)
-        data_row[self.data_row_idx] = frame
+        data_row[self.data_row_slot_idx] = frame
 
     def release(self) -> None:
         if self.frames is not None:
@@ -572,7 +591,7 @@ class FunctionCall(Expr):
         if signature.parameters is not None:
             # check if arg types match param types and convert values, if necessary
             if len(args) != len(signature.parameters):
-                raise exc.Error(
+                raise Error(
                     f"Number of arguments doesn't match signature: {args} vs {signature}")
             args = list(args)
             for i in range(len(args)):
@@ -585,7 +604,7 @@ class FunctionCall(Expr):
                     continue
                 converter = args[i].col_type.conversion_fn(param_type)
                 if converter is None:
-                    raise exc.Error(f'Cannot convert {args[i].col_type} to {param_type}')
+                    raise Error(f'Cannot convert {args[i].col_type} to {param_type}')
                 if converter == ColumnType.no_conversion:
                     # nothing to do
                     continue
@@ -601,12 +620,25 @@ class FunctionCall(Expr):
             # record grouping exprs in self.components, we need to evaluate them to get partition vals
             self.group_by_idx = len(self.components)
             self.components.extend(group_by_exprs)
-        # we don't need to evaluate order_by_exprs, so they stay out of self.components
+        # we want to make sure that order_by_exprs get assigned slot_idxs, even though we won't need to evaluate them
+        # (that's done in SQL)
         self.order_by = order_by_exprs
+        self.components.extend(order_by_exprs)
+
+        nos_info = FunctionRegistry.get().get_nos_info(self.fn)
+        self.nos_batch_size = self._get_nos_batch_size(nos_info) if nos_info is not None else None
 
         # execution state for aggregate functions
         self.aggregator: Optional[Any] = None
         self.current_partition_vals: Optional[List[Any]] = None
+
+    def _get_nos_batch_size(self, info: nos.common.ModelSpec) -> int:
+        """Set batch_size"""
+        for _, type_info in info.signature.get_inputs_spec().items():
+            if isinstance(type_info, list):
+                # there are multiple options, we need to choose dynamically at runtime
+                return None
+            return type_info.batch_size()
 
     @property
     def _eval_fn(self) -> Optional[Callable]:
@@ -701,19 +733,19 @@ class FunctionCall(Expr):
         i = 0
         for j in range(len(args)):
             if args[j] is None:
-                args[j] = data_row[self.components[i].data_row_idx]
+                args[j] = data_row[self.components[i].data_row_slot_idx]
                 i += 1
         return args
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         args = self._make_args(data_row)
         if not self.fn.is_aggregate:
-            data_row[self.data_row_idx] = self.fn.eval_fn(*args)
+            data_row[self.data_row_slot_idx] = self.fn.eval_fn(*args)
         elif self.is_window_fn_call:
             if self.group_by_idx != -1:
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
-                partition_vals = [data_row[e.data_row_idx] for e in self.group_by]
+                partition_vals = [data_row[e.data_row_slot_idx] for e in self.group_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
                     self.aggregator = self.fn.init_fn()
@@ -721,10 +753,10 @@ class FunctionCall(Expr):
             elif self.aggregator is None:
                 self.aggregator = self.fn.init_fn()
             self.fn.update_fn(self.aggregator, *args)
-            data_row[self.data_row_idx] = self.fn.value_fn(self.aggregator)
+            data_row[self.data_row_slot_idx] = self.fn.value_fn(self.aggregator)
         else:
             assert self.is_agg_fn_call
-            data_row[self.data_row_idx] = self.fn.value_fn(self.aggregator)
+            data_row[self.data_row_slot_idx] = self.fn.value_fn(self.aggregator)
 
     def _as_dict(self) -> Dict:
         result = {'fn': self.fn.as_dict(), 'args': self.args, **super()._as_dict()}
@@ -837,7 +869,7 @@ class ImageMemberAccess(Expr):
         elif member_name in self.attr_info:
             super().__init__(self.attr_info[member_name])
         else:
-            raise exc.Error(f'Unknown Image member: {member_name}')
+            raise Error(f'Unknown Image member: {member_name}')
         self.member_name = member_name
         self.components = [caller]
 
@@ -861,16 +893,16 @@ class ImageMemberAccess(Expr):
         return cls(d['member_name'], components[0])
 
     # TODO: correct signature?
-    def __call__(self, *args, **kwargs) -> Union['ImageMethodCall', 'ImageSimilarityPredicate']:
+    def __call__(self, *args, **kwargs) -> Union[ImageMethodCall, ImageSimilarityPredicate]:
         caller = self._caller
         call_signature = f'({",".join([type(arg).__name__ for arg in args])})'
         if self.member_name == 'nearest':
             # - caller must be ColumnRef
             # - signature is (PIL.Image.Image)
             if not isinstance(caller, ColumnRef):
-                raise exc.Error(f'nearest(): caller must be an IMAGE column')
+                raise Error(f'nearest(): caller must be an IMAGE column')
             if len(args) != 1 or not isinstance(args[0], PIL.Image.Image):
-                raise exc.Error(
+                raise Error(
                     f'nearest(): required signature is (PIL.Image.Image) (passed: {call_signature})')
             return ImageSimilarityPredicate(caller, img=args[0])
 
@@ -878,9 +910,9 @@ class ImageMemberAccess(Expr):
             # - caller must be ColumnRef
             # - signature is (str)
             if not isinstance(caller, ColumnRef):
-                raise exc.Error(f'matches(): caller must be an IMAGE column')
+                raise Error(f'matches(): caller must be an IMAGE column')
             if len(args) != 1 or not isinstance(args[0], str):
-                raise exc.Error(f"matches(): required signature is (str) (passed: {call_signature})")
+                raise Error(f"matches(): required signature is (str) (passed: {call_signature})")
             return ImageSimilarityPredicate(caller, text=args[0])
 
         # TODO: verify signature
@@ -893,11 +925,11 @@ class ImageMemberAccess(Expr):
         return None
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        caller_val = data_row[self._caller.data_row_idx]
+        caller_val = data_row[self._caller.data_row_slot_idx]
         try:
-            data_row[self.data_row_idx] = getattr(caller_val, self.member_name)
+            data_row[self.data_row_slot_idx] = getattr(caller_val, self.member_name)
         except AttributeError:
-            data_row[self.data_row_idx] = None
+            data_row[self.data_row_slot_idx] = None
 
 
 class ImageMethodCall(FunctionCall):
@@ -993,9 +1025,9 @@ class JsonPath(Expr):
         Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
         """
         if not self.is_relative_path():
-            raise exc.Error(f'() for an absolute path is invalid')
+            raise Error(f'() for an absolute path is invalid')
         if len(args) != 1 or not isinstance(args[0], int) or args[0] >= 0:
-            raise exc.Error(f'R() requires a negative index')
+            raise Error(f'R() requires a negative index')
         return JsonPath(None, [], args[0])
 
     def __getattr__(self, name: str) -> 'JsonPath':
@@ -1005,16 +1037,16 @@ class JsonPath(Expr):
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, str):
             if index != '*':
-                raise exc.Error(f'Invalid json list index: {index}')
+                raise Error(f'Invalid json list index: {index}')
         else:
             if not isinstance(index, slice) and not isinstance(index, int):
-                raise exc.Error(f'Invalid json list index: {index}')
+                raise Error(f'Invalid json list index: {index}')
         return JsonPath(self._anchor, self.path_elements + [index])
 
     def __rshift__(self, other: object) -> 'JsonMapper':
         rhs_expr = Expr.from_object(other)
         if rhs_expr is None:
-            raise exc.Error(f'>> requires an expression on the right-hand side, found {type(other)}')
+            raise Error(f'>> requires an expression on the right-hand side, found {type(other)}')
         return JsonMapper(self, rhs_expr)
 
     def display_name(self) -> str:
@@ -1050,10 +1082,10 @@ class JsonPath(Expr):
         return ''.join(result)
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        val = data_row[self._anchor.data_row_idx]
+        val = data_row[self._anchor.data_row_slot_idx]
         if self.compiled_path is not None:
             val = self.compiled_path.search(val)
-        data_row[self.data_row_idx] = val
+        data_row[self.data_row_slot_idx] = val
 
 
 RELATIVE_PATH_ROOT = JsonPath(None)
@@ -1091,7 +1123,7 @@ class Literal(Expr):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # this will be called, even though sql_expr() does not return None
-        data_row[self.data_row_idx] = self.val
+        data_row[self.data_row_slot_idx] = self.val
 
     def _as_dict(self) -> Dict:
         return {'val': self.val, **super()._as_dict()}
@@ -1114,7 +1146,7 @@ class InlineDict(Expr):
         self.dict_items: List[Tuple[str, int, Any]] = []
         for key, val in d.items():
             if not isinstance(key, str):
-                raise exc.Error(f'Dictionary requires string keys, {key} has type {type(key)}')
+                raise Error(f'Dictionary requires string keys, {key} has type {type(key)}')
             val = copy.deepcopy(val)
             if isinstance(val, dict):
                 val = InlineDict(val)
@@ -1155,10 +1187,10 @@ class InlineDict(Expr):
         for key, idx, val in self.dict_items:
             assert isinstance(key, str)
             if idx >= 0:
-                result[key] = data_row[self.components[idx].data_row_idx]
+                result[key] = data_row[self.components[idx].data_row_slot_idx]
             else:
                 result[key] = copy.deepcopy(val)
-        data_row[self.data_row_idx] = result
+        data_row[self.data_row_slot_idx] = result
 
     def _as_dict(self) -> Dict:
         return {'dict_items': self.dict_items, **super()._as_dict()}
@@ -1232,10 +1264,10 @@ class InlineArray(Expr):
         result = [None] * len(self.elements)
         for i, (child_idx, val) in enumerate(self.elements):
             if child_idx >= 0:
-                result[i] = data_row[self.components[child_idx].data_row_idx]
+                result[i] = data_row[self.components[child_idx].data_row_slot_idx]
             else:
                 result[i] = copy.deepcopy(val)
-        data_row[self.data_row_idx] = np.array(result)
+        data_row[self.data_row_slot_idx] = np.array(result)
 
     def _as_dict(self) -> Dict:
         return {'elements': self.elements, **super()._as_dict()}
@@ -1283,8 +1315,8 @@ class ArraySlice(Expr):
         return None
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        val = data_row[self._array.data_row_idx]
-        data_row[self.data_row_idx] = val[self.index]
+        val = data_row[self._array.data_row_slot_idx]
+        data_row[self.data_row_slot_idx] = val[self.index]
 
     def _as_dict(self) -> Dict:
         index = []
@@ -1311,7 +1343,7 @@ class Predicate(Expr):
     def __init__(self) -> None:
         super().__init__(BoolType())
 
-    def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional['Predicate']]:
+    def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional[Predicate]]:
         """
         Return ClauseElement for what can be evaluated in SQL and a predicate for the remainder that needs to be
         evaluated in Python.
@@ -1321,7 +1353,7 @@ class Predicate(Expr):
         return (None, self) if e is None else (e, None)
 
     def split_conjuncts(
-            self, condition: Callable[['Predicate'], bool]) -> Tuple[List['Predicate'], Optional['Predicate']]:
+            self, condition: Callable[[Predicate], bool]) -> Tuple[List[Predicate], Optional[Predicate]]:
         """
         Returns clauses of a conjunction that meet condition in the first element.
         The second element contains remaining clauses, rolled into a conjunction.
@@ -1331,14 +1363,14 @@ class Predicate(Expr):
         else:
             return [], self
 
-    def __and__(self, other: object) -> 'CompoundPredicate':
+    def __and__(self, other: object) -> CompoundPredicate:
         if not isinstance(other, Expr):
             raise TypeError(f'Other needs to be an expression: {type(other)}')
         if not other.col_type.is_bool_type():
             raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
         return CompoundPredicate(LogicalOperator.AND, [self, other])
 
-    def __or__(self, other: object) -> 'CompoundPredicate':
+    def __or__(self, other: object) -> CompoundPredicate:
         if not isinstance(other, Expr):
             raise TypeError(f'Other needs to be an expression: {type(other)}')
         if not other.col_type.is_bool_type():
@@ -1416,7 +1448,7 @@ class CompoundPredicate(Predicate):
         return combined_sql_pred, combined_other
 
     def split_conjuncts(
-            self, condition: Callable[['Predicate'], bool]) -> Tuple[List['Predicate'], Optional['Predicate']]:
+            self, condition: Callable[[Predicate], bool]) -> Tuple[List[Predicate], Optional[Predicate]]:
         if self.operator == LogicalOperator.OR or self.operator == LogicalOperator.NOT:
             return super().split_conjuncts(condition)
         matches = [op for op in self.components if condition(op)]
@@ -1437,13 +1469,13 @@ class CompoundPredicate(Predicate):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         if self.operator == LogicalOperator.NOT:
-            data_row[self.data_row_idx] = not data_row[self.components[0].data_row_idx]
+            data_row[self.data_row_slot_idx] = not data_row[self.components[0].data_row_slot_idx]
         else:
             val = True if self.operator == LogicalOperator.AND else False
             op_function = operator.and_ if self.operator == LogicalOperator.AND else operator.or_
             for op in self.components:
-                val = op_function(val, data_row[op.data_row_idx])
-            data_row[self.data_row_idx] = val
+                val = op_function(val, data_row[op.data_row_slot_idx])
+            data_row[self.data_row_slot_idx] = val
 
     def _as_dict(self) -> Dict:
         return {'operator': self.operator.value, **super()._as_dict()}
@@ -1494,17 +1526,17 @@ class Comparison(Predicate):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         if self.operator == ComparisonOperator.LT:
-            data_row[self.data_row_idx] = data_row[self._op1.data_row_idx] < data_row[self._op2.data_row_idx]
+            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] < data_row[self._op2.data_row_slot_idx]
         elif self.operator == ComparisonOperator.LE:
-            data_row[self.data_row_idx] = data_row[self._op1.data_row_idx] <= data_row[self._op2.data_row_idx]
+            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] <= data_row[self._op2.data_row_slot_idx]
         elif self.operator == ComparisonOperator.EQ:
-            data_row[self.data_row_idx] = data_row[self._op1.data_row_idx] == data_row[self._op2.data_row_idx]
+            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] == data_row[self._op2.data_row_slot_idx]
         elif self.operator == ComparisonOperator.NE:
-            data_row[self.data_row_idx] = data_row[self._op1.data_row_idx] != data_row[self._op2.data_row_idx]
+            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] != data_row[self._op2.data_row_slot_idx]
         elif self.operator == ComparisonOperator.GT:
-            data_row[self.data_row_idx] = data_row[self._op1.data_row_idx] > data_row[self._op2.data_row_idx]
+            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] > data_row[self._op2.data_row_slot_idx]
         elif self.operator == ComparisonOperator.GE:
-            data_row[self.data_row_idx] = data_row[self._op1.data_row_idx] >= data_row[self._op2.data_row_idx]
+            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] >= data_row[self._op2.data_row_slot_idx]
 
     def _as_dict(self) -> Dict:
         return {'operator': self.operator.value, **super()._as_dict()}
@@ -1526,9 +1558,11 @@ class ImageSimilarityPredicate(Predicate):
 
     def embedding(self) -> np.ndarray:
         if self.text is not None:
-            return clip.encode_text(self.text)
+            from pixeltable.functions.text_embedding import openai_clip
+            return openai_clip.eval_fn(self.text)
         else:
-            return clip.encode_image(self.img)
+            from pixeltable.functions.image_embedding import openai_clip
+            return openai_clip.eval_fn(self.img)
 
     def __str__(self) -> str:
         op_str = 'nearest' if self.img is not None else 'matches'
@@ -1574,7 +1608,7 @@ class IsNull(Predicate):
         return e == None
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        data_row[self.data_row_idx] = data_row[self.components[0].data_row_idx] is None
+        data_row[self.data_row_slot_idx] = data_row[self.components[0].data_row_slot_idx] is None
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
@@ -1598,9 +1632,9 @@ class ArithmeticExpr(Expr):
 
         # do typechecking after initialization in order for __str__() to work
         if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
-            raise exc.Error(f'{self}: {operator} requires numeric types, but {op1} has type {op1.col_type}')
+            raise Error(f'{self}: {operator} requires numeric types, but {op1} has type {op1.col_type}')
         if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
-            raise exc.Error(f'{self}: {operator} requires numeric types, but {op2} has type {op2.col_type}')
+            raise Error(f'{self}: {operator} requires numeric types, but {op2} has type {op2.col_type}')
 
     def __str__(self) -> str:
         # add parentheses around operands that are ArithmeticExprs to express precedence
@@ -1636,26 +1670,26 @@ class ArithmeticExpr(Expr):
             return left % right
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        op1_val = data_row[self._op1.data_row_idx]
-        op2_val = data_row[self._op2.data_row_idx]
+        op1_val = data_row[self._op1.data_row_slot_idx]
+        op2_val = data_row[self._op2.data_row_slot_idx]
         # check types if we couldn't do that prior to execution
         if self._op1.col_type.is_json_type() and not isinstance(op1_val, int) and not isinstance(op1_val, float):
-            raise exc.Error(
+            raise Error(
                 f'{self.operator} requires numeric type, but {self._op1} has type {type(op1_val).__name__}')
         if self._op2.col_type.is_json_type() and not isinstance(op2_val, int) and not isinstance(op2_val, float):
-            raise exc.Error(
+            raise Error(
                 f'{self.operator} requires numeric type, but {self._op2} has type {type(op2_val).__name__}')
 
         if self.operator == ArithmeticOperator.ADD:
-            data_row[self.data_row_idx] = op1_val + op2_val
+            data_row[self.data_row_slot_idx] = op1_val + op2_val
         elif self.operator == ArithmeticOperator.SUB:
-            data_row[self.data_row_idx] = op1_val - op2_val
+            data_row[self.data_row_slot_idx] = op1_val - op2_val
         elif self.operator == ArithmeticOperator.MUL:
-            data_row[self.data_row_idx] = op1_val * op2_val
+            data_row[self.data_row_slot_idx] = op1_val * op2_val
         elif self.operator == ArithmeticOperator.DIV:
-            data_row[self.data_row_idx] = op1_val / op2_val
+            data_row[self.data_row_slot_idx] = op1_val / op2_val
         elif self.operator == ArithmeticOperator.MOD:
-            data_row[self.data_row_idx] = op1_val % op2_val
+            data_row[self.data_row_slot_idx] = op1_val % op2_val
 
     def _as_dict(self) -> Dict:
         return {'operator': self.operator.value, **super()._as_dict()}
@@ -1774,22 +1808,22 @@ class JsonMapper(Expr):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # this will be called, but the value has already been materialized elsewhere
-        src = data_row[self._src_expr.data_row_idx]
+        src = data_row[self._src_expr.data_row_slot_idx]
         if not isinstance(src, list):
             # invalid/non-list src path
-            data_row[self.data_row_idx] = None
+            data_row[self.data_row_slot_idx] = None
             return
 
         result = [None] * len(src)
         if len(self.target_expr_eval_ctx) == 0:
-            self.target_expr_eval_ctx = evaluator.get_eval_ctx([self._target_expr.data_row_idx])
+            self.target_expr_eval_ctx = evaluator.get_eval_ctx([self._target_expr])
         for i, val in enumerate(src):
-            data_row[self.scope_anchor.data_row_idx] = val
+            data_row[self.scope_anchor.data_row_slot_idx] = val
             # stored target_expr
             exc_tb = evaluator.eval(data_row, self.target_expr_eval_ctx)
             assert exc_tb is None
-            result[i] = data_row[self._target_expr.data_row_idx]
-        data_row[self.data_row_idx] = result
+            result[i] = data_row[self._target_expr.data_row_slot_idx]
+        data_row[self.data_row_slot_idx] = result
 
     def _as_dict(self) -> Dict:
         """
@@ -1805,16 +1839,30 @@ class JsonMapper(Expr):
 
 class DataRow:
     """
-    Encapsulates data and execution state needed by Evaluator and DataRowSet.
+    Encapsulates data and execution state needed by Evaluator and DataRowBatch.
     """
     def __init__(self, size: int):
         self.vals: List[Any] = [None] * size
         self.has_val = [False] * size
+        self.row_id: Optional[int] = None
+        self.v_min: Optional[int] = None
 
         # img_files:
         # - path of file for image in vals[i]
         # - None if vals[i] is not an image or if the image hasn't been written to a file yet
         self.img_files: Optional[str] = [None] * size
+
+    def clear(self) -> None:
+        size = len(self.vals)
+        self.vals = [None] * size
+        self.has_val = [False] * size
+        self.row_id = None
+        self.v_min = None
+        self.img_files = [None] * size
+
+    def set_pk(self, row_id: int, v_min: int) -> None:
+        self.row_id = row_id
+        self.v_min = v_min
 
     def __getitem__(self, index: object) -> Any:
         assert self.has_val[index]
@@ -1868,41 +1916,61 @@ class DataRow:
         return result
 
 
+class ExecProfile:
+    def __init__(self, evaluator: Evaluator):
+        self.eval_time = [0.0] * evaluator.num_materialized
+        self.eval_count = [0] * evaluator.num_materialized
+        self.evaluator = evaluator
+
+    def print(self, num_rows: int) -> str:
+        for i in range(self.evaluator.num_materialized):
+            if self.eval_count[i] == 0:
+                continue
+            per_call_time = self.eval_time[i] / self.eval_count[i]
+            calls_per_row = self.eval_count[i] / num_rows
+            multiple_str = f'({calls_per_row}x)' if calls_per_row > 1 else ''
+            print(f'{self.evaluator.unique_exprs[i]}: {print_perf_counter_delta(per_call_time)} {multiple_str}')
+
+
 class Evaluator:
     """
     Evaluates a list of Exprs against a data row.
     """
 
-    def __init__(self, expr_list: List[Expr], with_sql: bool = True):
+    def __init__(self, output_exprs: List[Expr], input_exprs: List[Expr] = []):
         """
         Set up Evaluator to evaluate any Expr in expr_list.
         If with_sql == True, assumes that exprs that have a SQL equivalent (to_sql() != None) will be materialized
         via SQL, and that none of its dependencies will need to be materialized.
+
+        Args:
+            output_exprs: list of Exprs to be evaluated
+            input_exprs: list of Exprs that are assigned a slot_idx but aren't evaluated (expected to be input)
         """
-        self.sql_exprs: List[Expr] = []  # contains Exprs with sql_row_idx != -1
-
-        # all following list are indexed with data_row_idx
+        # all following list are indexed with data_row_slot_idx
         self.unique_exprs = UniqueExprList()  # dependencies precede their dependents
-        self.next_data_row_idx = 0
-        # select list providing the input to the SQL scan stage
-        self.sql_select_list: List[sql.sql.expression.ClauseElement] = []
+        self.next_data_row_slot_idx = 0
 
-        for e in expr_list:
-            self._assign_idxs(e, with_sql)
+        # we start by assigning slot_idxs to input exprs
+        for e in input_exprs:
+            self._assign_idxs(e, recursive=False)
+        self.input_expr_slot_idxs = [e.data_row_slot_idx for e in input_exprs]
+        for e in output_exprs:
+            self._assign_idxs(e, recursive=True)
 
         for i in range(len(self.unique_exprs)):
-            assert self.unique_exprs[i].data_row_idx == i
+            assert self.unique_exprs[i].data_row_slot_idx == i
 
         # record transitive dependencies
         self.dependencies = [set() for _ in range(self.num_materialized)]
         for i in range(self.num_materialized):
             expr = self.unique_exprs[i]
-            if expr.sql_row_idx != -1:
-                # it is materialized directly by SQL and therefore doesn't depend on other exprs
+            if expr.data_row_slot_idx in self.input_expr_slot_idxs:
+                # this is input and therefore doesn't depend on other exprs
                 continue
             for d in self.unique_exprs[i].dependencies():
-                self.dependencies[i].add(d.data_row_idx)
-                self.dependencies[i].update(self.dependencies[d.data_row_idx])
+                self.dependencies[i].add(d.data_row_slot_idx)
+                self.dependencies[i].update(self.dependencies[d.data_row_slot_idx])
 
         # derive transitive dependents
         self.dependents = [set() for _ in range(self.num_materialized)]
@@ -1913,205 +1981,125 @@ class Evaluator:
         # records the Exprs in parameter 'expr_list' that a subexpr belongs to
         # (a subexpr can be shared across multiple output exprs)
         self.output_expr_ids = [set() for _ in range(self.num_materialized)]
-        for e in expr_list:
-            self._record_output_expr_id(e, e.data_row_idx)
+        for e in output_exprs:
+            self._record_output_expr_id(e, e.data_row_slot_idx)
 
+    def _compute_dependencies(self, target_slot_idxs: List[int], excluded_slot_idxs: List[int]) -> List[int]:
+        """Compute exprs needed to materialize the given target slots, but excluding 'excluded_slot_idxs'"""
+        dependencies = [set() for _ in range(self.num_materialized)]
+        # doing this front-to-back ensures that we capture transitive dependencies
+        for i in range(max(target_slot_idxs) + 1):
+            expr = self.unique_exprs[i]
+            if expr.data_row_slot_idx in excluded_slot_idxs:
+                continue
+            if expr.data_row_slot_idx in self.input_expr_slot_idxs:
+                # this is input and therefore doesn't depend on other exprs
+                continue
+            for d in expr.dependencies():
+                if d.data_row_slot_idx in excluded_slot_idxs:
+                    continue
+                dependencies[i].add(d.data_row_slot_idx)
+                dependencies[i].update(dependencies[d.data_row_slot_idx])
+        # merge dependencies and convert to list
+        return sorted(set().union(*[dependencies[i] for i in target_slot_idxs]))
 
-    def _assign_idxs(self, expr: Expr, with_sql: bool) -> None:
+    def _assign_idxs(self, expr: Expr, recursive: bool) -> None:
         if expr in self.unique_exprs:
-            # expr is a duplicate: we copy sql_/data_row_idx for itself and its components
+            # expr is a duplicate: we copy data_row_slot_idx for itself and its components
             original = self.unique_exprs[expr]
-            expr.data_row_idx = original.data_row_idx
-            expr.sql_row_idx = original.sql_row_idx
-            if expr.sql_row_idx == -1:
+            expr.data_row_slot_idx = original.data_row_slot_idx
+            if recursive and expr.data_row_slot_idx not in self.input_expr_slot_idxs:
                 for c in expr.components:
-                    self._assign_idxs(c, with_sql)
+                    self._assign_idxs(c, True)
             # nothing left to do
             return
 
-        if with_sql:
-            sql_expr = expr.sql_expr()
-            # if this can be materialized via SQL we don't need to look at its components;
-            # we special-case Literals because we don't want to have to materialize them via SQL
-            if sql_expr is not None and not isinstance(expr, Literal):
-                assert expr.data_row_idx < 0
-                expr.data_row_idx = self.next_data_row_idx
-                self.next_data_row_idx += 1
-                expr.sql_row_idx = len(self.sql_select_list)
-                self.sql_select_list.append(sql_expr)
-                self.sql_exprs.append(expr)
-                self.unique_exprs.append(expr)
-                return
-
         # expr value needs to be computed via Expr.eval()
-        for c in expr.components:
-            self._assign_idxs(c, with_sql)
-        assert expr.data_row_idx < 0
-        expr.data_row_idx = self.next_data_row_idx
-        self.next_data_row_idx += 1
+        if recursive:
+            for c in expr.components:
+                self._assign_idxs(c, True)
+        assert expr.data_row_slot_idx < 0
+        expr.data_row_slot_idx = self.next_data_row_slot_idx
+        self.next_data_row_slot_idx += 1
         self.unique_exprs.append(expr)
 
     def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
-        self.output_expr_ids[e.data_row_idx].add(output_expr_id)
+        self.output_expr_ids[e.data_row_slot_idx].add(output_expr_id)
         for d in e.dependencies():
             self._record_output_expr_id(d, output_expr_id)
 
     @property
     def num_materialized(self) -> int:
-        return self.next_data_row_idx
+        return self.next_data_row_slot_idx
 
-    def prepare(self, sql_row: List[Any], with_pk: bool = False) -> DataRow:
+    def prepare(self) -> DataRow:
         """
-        Prepare for evaluation by initializing data_row from given sql_row.
-        with_pk == True: sql_row's last element is PK tuple, which we append to the data_row.
+        Prepare for evaluation by initializing data_row.
         object is reused across multiple executions of the same query.
         Returns data row.
         """
-        data_row = DataRow(self.num_materialized + with_pk)
-        # sql_row might have the PK added to the end
-        assert len(sql_row) >= len(self.sql_exprs)
-        if with_pk:
-            data_row[-1] = (sql_row[-2], sql_row[-1])
+        return DataRow(self.num_materialized)
 
-        for i in range(len(self.sql_exprs)):
-            data_row[self.sql_exprs[i].data_row_idx] = sql_row[i]
-            expr = self.sql_exprs[i]
-            if expr.col_type.is_image_type():
-                # column value is a file path that we need to open
-                file_path = sql_row[i]
-                try:
-                    img = PIL.Image.open(file_path)
-                    data_row[expr.data_row_idx] = img
-                except Exception:
-                    raise exc.Error(f'Error reading image file: {file_path}')
-            elif expr.col_type.is_array_type():
-                # column value is a saved numpy array
-                array_data = sql_row[i]
-                data_row[expr.data_row_idx] = np.load(io.BytesIO(array_data))
-            else:
-                data_row[expr.data_row_idx] = sql_row[i]
-        return data_row
-
-    def get_eval_ctx(self, targets: List[int]) -> List[Expr]:
+    def get_eval_ctx(self, targets: List[Expr], exclude: List[Expr] = []) -> List[Expr]:
         """
-        Return list of dependencies needed to evaluate the given target exprs. This excludes exprs that
-        are materialized in SQL (sql_row_idx != -1)
+        Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
+        The exprs given in 'exclude' are also excluded.
         """
-        all_dependencies: Set[int] = set()
-        for id in targets:
-            assert id < self.num_materialized
-            all_dependencies.update(self.dependencies[id])
-        all_dependencies.update(targets)
+        if len(targets) == 0:
+            return []
+        target_slot_idxs = [e.data_row_slot_idx for e in targets]
+        excluded_slot_idxs = [e.data_row_slot_idx for e in exclude]
+        all_dependencies = set(self._compute_dependencies(target_slot_idxs, excluded_slot_idxs))
+        all_dependencies.update(target_slot_idxs)
         result_ids = list(all_dependencies)
-        result_ids = [id for id in result_ids if self.unique_exprs[id].sql_row_idx == -1]
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
     def eval(
-            self, data_row: DataRow, ctx: List[Expr], profile: Optional[List[float]] = None) -> Optional[TracebackType]:
+            self, data_row: DataRow, ctx: List[Expr], profile: Optional[ExecProfile] = None, ignore_errors: bool = False
+    ) -> None:
         """
         Populates the slots in data_row given in ctx.
         If an expr.eval() raises an exception, records the exception in the corresponding slot of data_row
         and omits any of that expr's dependents's eval().
-        profile: if present, populated with execution time of each expr.eval() call; indexed by expr.data_row_idx
-        Returns exception traceback for the first exception that was recorded
+        profile: if present, populated with execution time of each expr.eval() call; indexed by expr.data_row_slot_idx
+        ignore_errors: if False, raises ExprEvalError if any expr.eval() raises an exception
         """
-        exc_tb: Optional[TracebackType] = None
+        had_exc = False
         skip_exprs: Set[int] = set()  # skip dependents of exprs that had exception
         for expr in ctx:
-            if expr.data_row_idx in skip_exprs or data_row.has_val[expr.data_row_idx]:
+            if expr.data_row_slot_idx in skip_exprs or data_row.has_val[expr.data_row_slot_idx]:
                 continue
 
             try:
                 start_time = time.perf_counter()
                 expr.eval(data_row, self)
                 if profile is not None:
-                    profile[expr.data_row_idx] += time.perf_counter() - start_time
+                    profile.eval_time[expr.data_row_slot_idx] += time.perf_counter() - start_time
+                    profile.eval_count[expr.data_row_slot_idx] += 1
+                    pass
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
-                data_row[expr.data_row_idx] = exc
-                skip_exprs.update(self.dependents[expr.data_row_idx])
+                data_row[expr.data_row_slot_idx] = exc
+                skip_exprs.update(self.dependents[expr.data_row_slot_idx])
+                if ignore_errors:
+                    had_exc = True
+                else:
+                    input_vals = [data_row[d.data_row_slot_idx] for d in expr.dependencies()]
+                    raise ExprEvalError(
+                        expr, f'expression {expr}', data_row[expr.data_row_slot_idx], exc_tb, input_vals, 0)
 
-        if exc_tb is not None:
+        if had_exc:
             # propagate exceptions in data_row to their respective output_expr slots
             for i, exc_val in [(i, val) for i, val in enumerate(data_row.vals) if isinstance(val, Exception)]:
                 for j in self.output_expr_ids[i]:
                     data_row[j] = exc_val
-        return exc_tb
-
-
-class DataRowSet:
-    """
-    Set of DataRows, indexed by rowid. Keeps track of image memory consumption and can flush images.
-    """
-    def __init__(
-            self, len: int, evaluator: Evaluator, stored_img_cols: List[catalog.Column],
-            stored_img_row_idxs: List[int], table_id: int, table_version: int):
-        self.rows = [evaluator.prepare([], False) for _ in range(len)]
-        self.evaluator = evaluator
-        self.stored_img_row_idxs = stored_img_row_idxs
-        self.stored_img_cols = stored_img_cols
-        img_row_idxs = [expr.data_row_idx for expr in evaluator.unique_exprs if expr.col_type.is_image_type()]
-        self.unstored_img_row_idxs = set(img_row_idxs) - set(stored_img_row_idxs)
-        self.table_id = table_id
-        self.table_version = table_version
-
-    def set_row_ids(self, row_ids: List[int]) -> None:
-        self.row_ids = row_ids
-
-    def __len__(self) -> int:
-        return len(self.rows)
-
-    def __getitem__(self, index: object) -> DataRow:
-        return self.rows[index]
-
-    def __setitem__(self, index: object, val: Any) -> None:
-        row_idx, col_idx = index
-        if col_idx in self.stored_img_row_idxs and isinstance(val, str):
-            # this is a filepath to an image
-            row = self.rows[row_idx]
-            assert row.img_files[col_idx] is None
-            row.img_files[col_idx] = val
-            row.has_val[col_idx] = True
-        else:
-            self.rows[row_idx][col_idx] = val
-
-    def flush_imgs(self, idx_range: slice) -> None:
-        """
-        Flushes images in the given range of rows.
-        """
-        for rowid, row in zip(self.row_ids[idx_range], self.rows[idx_range]):
-            for col, row_idx in zip(self.stored_img_cols, self.stored_img_row_idxs):
-                filepath = str(ImageStore.get_path(self.table_id, col.id, self.table_version, rowid, 'jpg')) \
-                    if col.is_computed else None
-                row.flush_img(row_idx, filepath)
-            for row_idx in self.unstored_img_row_idxs:
-                row.flush_img(row_idx)
-
-    def __iter__(self) -> Iterator[DataRow]:
-        return DataRowSetIterator(self)
-
-
-class DataRowSetIterator:
-    """
-    Iterator over a DataRowSet.
-    """
-    def __init__(self, data_row_set: DataRowSet):
-        self.data_row_set = data_row_set
-        self.index = 0
-
-    def __next__(self) -> DataRow:
-        if self.index >= len(self.data_row_set.rows):
-            raise StopIteration
-        row = self.data_row_set.rows[self.index]
-        self.index += 1
-        return row
 
 
 class ExprDict:
     """
-    Implements semantics of dict from Expr.data_row_idx (= id) to unique exprs. Exprs that test True for Expr.equals()
-    are updated to share the same data_row_idx.
+    Implements semantics of dict from Expr.data_row_slot_idx (= id) to unique exprs. Exprs that test True for Expr.equals()
+    are updated to share the same data_row_slot_idx.
     """
     def __init__(self):
         self.unique_exprs: List[Expr] = []
@@ -2119,13 +2107,12 @@ class ExprDict:
 
     def add(self, expr: Expr) -> bool:
         """
-        If expr is not unique, sets expr.data/sql_row_idx to that of the already-recorded duplicate and returns
+        If expr is not unique, sets expr.data_row_slot_idx to that of the already-recorded duplicate and returns
         False, otherwise returns True.
         """
         try:
             existing = next(e for e in self.unique_exprs if e.equals(expr))
-            expr.data_row_idx = existing.data_row_idx
-            expr.sql_row_idx = existing.sql_row_idx
+            expr.data_row_slot_idx = existing.data_row_slot_idx
             return False
         except StopIteration:
             self.unique_exprs.append(expr)
@@ -2133,10 +2120,10 @@ class ExprDict:
 
     def get(self, id: int) -> Expr:
         """
-        Return expr with given id (= data_row_idx)
+        Return expr with given id (= data_row_slot_idx)
         """
         if len(self.expr_dict) == 0:
-            self.expr_dict = {e.data_row_idx: e for e in self.unique_exprs}
+            self.expr_dict = {e.data_row_slot_idx: e for e in self.unique_exprs}
             assert -1 not in self.expr_dict
         return self.expr_dict[id]
 
@@ -2161,10 +2148,21 @@ class UniqueExprList:
         except StopIteration:
             self.unique_exprs.append(expr)
 
+    def extend(self, elements: Iterable[Expr]) -> None:
+        for e in elements:
+            self.append(e)
+
     def __contains__(self, item: Expr) -> bool:
         assert isinstance(item, Expr)
         try:
             _ = next(e for e in self.unique_exprs if e.equals(item))
+            return True
+        except StopIteration:
+            return False
+
+    def contains(self, cls: Type[Expr]) -> bool:
+        try:
+            _ = next(e for e in self.unique_exprs if isinstance(e, cls))
             return True
         except StopIteration:
             return False

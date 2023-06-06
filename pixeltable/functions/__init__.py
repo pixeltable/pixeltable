@@ -13,7 +13,6 @@ from pixeltable import catalog
 from pixeltable import exprs
 import pixeltable.exceptions as exc
 # import all standard function modules here so they get registered with the FunctionRegistry
-import pixeltable.functions.clip
 import pixeltable.functions.pil
 import pixeltable.functions.pil.image
 from pixeltable.utils.video import convert_to_h264

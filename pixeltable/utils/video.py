@@ -79,9 +79,7 @@ class FrameIterator:
                 return result
 
     def seek(self, frame_idx: int) -> None:
-        """Fast-forward to frame idx
-        """
-        assert frame_idx >= self.next_frame_idx  # can't seek backwards
+        """Seek to frame idx"""
         if frame_idx == self.next_frame_idx:
             return
         _logger.debug(f'seeking to frame {frame_idx}')

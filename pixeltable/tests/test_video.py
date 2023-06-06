@@ -14,7 +14,7 @@ class TestVideo:
     def create_and_insert(self, db: catalog.Db, stored: Optional[bool], paths: List[str]) -> catalog.Table:
         cols = [
             catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False, indexed=True),
+            catalog.Column('frame', ImageType(), nullable=False),
             catalog.Column('frame_idx', IntType(), nullable=False),
         ]
         # extract frames at fps=1

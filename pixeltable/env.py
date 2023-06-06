@@ -11,8 +11,9 @@ import docker
 import logging
 import sys
 import platform
+import psutil
 
-#from nos.client import InferenceClient
+import nos
 
 class Env:
     """
@@ -39,7 +40,7 @@ class Env:
         self._db_name: Optional[str] = None
         self._db_port: Optional[int] = None
         self._store_container: Optional[docker.models.containers.Container] = None
-        #self._nos_client: Optional[InferenceClient] = None
+        self._nos_client: Optional[nos.client.InferenceClient] = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -144,18 +145,17 @@ class Env:
 
         if init_home_dir:
             self.tear_down()
-            if not database_exists(self.db_url()):
-                self._logger.info('creating database')
-                create_database(self.db_url())
+
+        if not database_exists(self.db_url()):
+            self._logger.info('creating database')
+            create_database(self.db_url())
             self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
             from pixeltable import store
             store.Base.metadata.create_all(self._sa_engine)
         else:
-            if not database_exists(self.db_url()):
-                raise RuntimeError(f'Database not found: {self.db_url(hide_passwd=True)}')
             self._logger.info(f'found database {self.db_url(hide_passwd=True)}')
-            if self._sa_engine is None:
-                self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
+        if self._sa_engine is None:
+            self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
 
         self.log_to_stdout(False)
 
@@ -187,27 +187,11 @@ class Env:
             )
             self._wait_for_postgres()
 
-        # try:
-        #     self._nos_container = cl.containers.get('nos-grpc-server')
-        #     self._logger.info('found NOS container')
-        # except docker.errors.NotFound:
-        #     self._logger.info('starting NOS container')
-        #     self._nos_container = cl.containers.run(
-        #         'autonomi/nos:latest-cpu',
-        #         command='nos-grpc-server',
-        #         detach=True,
-        #         name='nos-grpc-server',
-        #         ports={'50051/tcp': 50051},
-        #         environment={'NOS_HOME': '/app/.nos', 'NOS_LOGGING_LEVEL': 'DEBUG'},
-        #         volumes={Path.home() / '.nos': {'bind': '/app/.nos', 'mode': 'rw'}},
-        #         shm_size='4g',
-        #         remove=True,
-        #     )
-        #
-        # self._logger.info('connecting to NOS')
-        # self._nos_client = InferenceClient()
-        # self._logger.info('waiting for NOS')
-        # self._nos_client.WaitForServer()
+        self._logger.info('connecting to NOS')
+        nos.init()
+        self._nos_client = nos.client.InferenceClient()
+        self._logger.info('waiting for NOS')
+        self._nos_client.WaitForServer()
 
     def _postgres_is_up(self) -> bool:
         """
@@ -243,6 +227,9 @@ class Env:
         else:
             return 'postgres:15-alpine'
 
+    def _has_gpu(self) -> bool:
+        return shutil.which('nvidia-smi') is not None
+
     def ffmpeg_image(self) -> str:
        if self._is_apple_cpu():
            return 'linuxserver/ffmpeg:arm64v8-latest'
@@ -273,7 +260,7 @@ class Env:
         assert self._sa_engine is not None
         return self._sa_engine
 
-    #@property
-    # def nos_client(self) -> InferenceClient:
-    #     assert self._nos_client is not None
-    #     return self._nos_client
+    @property
+    def nos_client(self) -> nos.client.InferenceClient:
+        assert self._nos_client is not None
+        return self._nos_client

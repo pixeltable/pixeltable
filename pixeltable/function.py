@@ -245,7 +245,7 @@ class Function:
                 return self.eval_fn.__name__
             else:
                 return ''
-        ptf_prefix = 'pixeltable.functions'
+        ptf_prefix = 'pixeltable.functions.'
         if self.md.fqn.startswith(ptf_prefix):
             return self.md.fqn[len(ptf_prefix):]
         return self.md.fqn
@@ -314,36 +314,26 @@ class Function:
         print(self.md.src)
 
     def as_dict(self) -> Dict:
-        if self.id is not None:
-            # this is a stored function, we only need the id to reconstruct it
-            return {'id': self.id}
-
         if not self.is_library_function and self.id is None:
             # this is not a library function and the absence of an assigned id indicates that it's not in the store yet
             FunctionRegistry.get().create_function(self)
             assert self.id is not None
-        return {
-            'id': self.id,
-            'md': self.md.as_dict(),
-            'module_name': self.module_name,
-            'eval_symbol': self.eval_symbol,
-            'init_symbol': self.init_symbol,
-            'update_symbol': self.update_symbol,
-            'value_symbol': self.value_symbol,
-        }
+        if self.id is not None:
+            # this is a stored function, we only need the id to reconstruct it
+            return {'id': self.id, 'fqn': None}
+        else:
+            # this is a library function, the fqn serves as the id
+            return {'id': None, 'fqn': self.md.fqn}
 
     @classmethod
     def from_dict(cls, d: Dict) -> Function:
         assert 'id' in d
+        assert 'fqn' in d
         if d['id'] is not None:
-            return FunctionRegistry.get().get_function(d['id'])
+            return FunctionRegistry.get().get_function(id=d['id'])
         else:
-            assert 'module_name' in d
-            assert 'eval_symbol' in d and 'init_symbol' in d and 'update_symbol' in d and 'value_symbol' in d
-            md = cls.Metadata.from_dict(d['md'])
-            return cls(
-                md, module_name=d['module_name'], eval_symbol=d['eval_symbol'],
-                init_symbol=d['init_symbol'], update_symbol=d['update_symbol'], value_symbol=d['value_symbol'])
+            assert d['fqn'] is not None
+            return FunctionRegistry.get().get_function(fqn=d['fqn'])
 
 
 def function(*, return_type: ColumnType, param_types: List[ColumnType]) -> Callable:
@@ -357,6 +347,7 @@ def function(*, return_type: ColumnType, param_types: List[ColumnType]) -> Calla
     def decorator(fn: Callable) -> Function:
         return Function.make_function(return_type, param_types, fn)
     return decorator
+
 
 class FunctionRegistry:
     """
@@ -376,6 +367,7 @@ class FunctionRegistry:
         self.stored_fns_by_id: Dict[int, Function] = {}
         self.library_fns: Dict[str, Function] = {}  # fqn -> Function
         self.has_registered_nos_functions = False
+        self.nos_functions: Dict[str, nos.common.ModelSpec] = {}
 
     def clear_cache(self) -> None:
         """
@@ -388,61 +380,72 @@ class FunctionRegistry:
         self.library_fns[fqn] = fn
         fn.md.fqn = fqn
 
-    # def _convert_nos_signature(self, sig: nos.common.spec.FunctionSignature) -> Tuple[ColumnType, List[ColumnType]]:
-    #     if len(sig.get_outputs_spec()) > 1:
-    #         return_type = JsonType()
-    #     else:
-    #         return_type = ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
-    #     param_types: List[ColumnType] = []
-    #     for _, type_info in sig.get_inputs_spec().items():
-    #         # TODO: deal with multiple input shapes
-    #         if isinstance(type_info, list):
-    #             type_info = type_info[0]
-    #         param_types.append(ColumnType.from_nos(type_info))
-    #     return return_type, param_types
-    #
-    # def register_nos_functions(self) -> None:
-    #     """Register all models supported by the NOS backend as library functions"""
-    #     if self.has_registered_nos_functions:
-    #         return
-    #     self.has_registered_nos_functions = True
-    #     models = Env.get().nos_client.ListModels()
-    #     model_info = [Env.get().nos_client.GetModelInfo(model) for model in models]
-    #     model_info.sort(key=lambda info: info.task.value)
-    #
-    #     def create_nos_udf(task: str, model_name: str, param_names: List[str]) -> Callable:
-    #         def func(*args: Any) -> Any:
-    #             kwargs = {param_name: val for param_name, val in zip(param_names, args)}
-    #             result = Env.get().nos_client.Run(task=task, model_name=model_name, **kwargs)
-    #             if len(result) == 1:
-    #                 return list(result.values())[0]
-    #             else:
-    #                 return result
-    #
-    #         return func
-    #
-    #     prev_task = ''
-    #     pt_module: Optional[types.ModuleType] = None
-    #     for info in model_info:
-    #         if info.task.value != prev_task:
-    #             # we construct one submodule of pixeltable.functions per task
-    #             module_name = f'pixeltable.functions.{info.task.name.lower()}'
-    #             pt_module = types.ModuleType(module_name)
-    #             pt_module.__package__ = 'pixeltable.functions'
-    #             sys.modules[module_name] = pt_module
-    #             prev_task = info.task.value
-    #
-    #         # add a Function and its implementation for this model to the module
-    #         model_id = info.name.replace("/", "_").replace("-", "_")
-    #         eval_symbol = f'{model_id}_impl'
-    #         inputs = info.signature.get_inputs_spec()
-    #         # create the eval function
-    #         setattr(pt_module, eval_symbol, create_nos_udf(info.task, info.name, list(inputs.keys())))
-    #         return_type, param_types = self._convert_nos_signature(info.signature)
-    #         pt_func = Function.make_library_function(
-    #             return_type, param_types, module_name=module_name, eval_symbol=eval_symbol)
-    #         setattr(pt_module, model_id, pt_func)
-    #         self.register_function(module_name, model_id, pt_func)
+    def get_library_fn(self, fqn: str) -> Function:
+        return self.library_fns[fqn]
+
+    def _convert_nos_signature(self, sig: nos.common.spec.FunctionSignature) -> Tuple[ColumnType, List[ColumnType]]:
+        if len(sig.get_outputs_spec()) > 1:
+            return_type = JsonType()
+        else:
+            return_type = ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
+        param_types: List[ColumnType] = []
+        for _, type_info in sig.get_inputs_spec().items():
+            # if there are multiple input shapes we leave them out of the ColumnType and deal with them in FunctionCall
+            if isinstance(type_info, list):
+                param_types.append(ColumnType.from_nos(type_info[0], ignore_shape=True))
+            else:
+                param_types.append(ColumnType.from_nos(type_info, ignore_shape=False))
+        return return_type, param_types
+
+    def register_nos_functions(self) -> None:
+        """Register all models supported by the NOS backend as library functions"""
+        if self.has_registered_nos_functions:
+            return
+        self.has_registered_nos_functions = True
+        models = Env.get().nos_client.ListModels()
+        model_info = [Env.get().nos_client.GetModelInfo(model) for model in models]
+        model_info.sort(key=lambda info: info.task.value)
+
+        def create_nos_udf(task: str, model_name: str, param_names: List[str]) -> Callable:
+            def func(*args: Any) -> Any:
+                kwargs = {param_name: val for param_name, val in zip(param_names, args)}
+                # call NOS with an implied batch size of 1
+                result = Env.get().nos_client.Run(task=task, model_name=model_name, **kwargs)
+                # we get a batch-of-1 result back and need to remove the extra dimension
+                if len(result) == 1:
+                    return list(result.values())[0].squeeze(0)
+                else:
+                    result = {k: v.squeeze(0) for k, v in result.items()}
+                    return result
+
+            return func
+
+        prev_task = ''
+        pt_module: Optional[types.ModuleType] = None
+        for info in model_info:
+            if info.task.value != prev_task:
+                # we construct one submodule of pixeltable.functions per task
+                module_name = f'pixeltable.functions.{info.task.name.lower()}'
+                pt_module = types.ModuleType(module_name)
+                pt_module.__package__ = 'pixeltable.functions'
+                sys.modules[module_name] = pt_module
+                prev_task = info.task.value
+
+            # add a Function and its implementation for this model to the module
+            model_id = info.name.replace("/", "_").replace("-", "_")
+            eval_symbol = f'{model_id}_impl'
+            inputs = info.signature.get_inputs_spec()
+            # create the eval function
+            setattr(pt_module, eval_symbol, create_nos_udf(info.task, info.name, list(inputs.keys())))
+            return_type, param_types = self._convert_nos_signature(info.signature)
+            pt_func = Function.make_library_function(
+                return_type, param_types, module_name=module_name, eval_symbol=eval_symbol)
+            setattr(pt_module, model_id, pt_func)
+            self.register_function(module_name, model_id, pt_func)
+            self.nos_functions[pt_func.md.fqn] = info
+
+    def get_nos_info(self, fn: Function) -> Optional[nos.common.ModelSpec]:
+        return self.nos_functions.get(fn.md.fqn)
 
     def list_functions(self) -> List[Function.Metadata]:
         # retrieve Function.Metadata data for all existing stored functions from store directly
@@ -461,40 +464,46 @@ class FunctionRegistry:
                 stored_fn_md.append(md)
         return [fn.md for fn in self.library_fns.values()] + stored_fn_md
 
-    def get_function(self, id: int) -> Function:
-        if id not in self.stored_fns_by_id:
-            stmt = sql.select(
-                    store.Function.name, store.Function.md,
-                    store.Function.eval_obj, store.Function.init_obj, store.Function.update_obj,
-                    store.Function.value_obj) \
-                .where(store.Function.id == id)
-            with Env.get().engine.begin() as conn:
-                rows = conn.execute(stmt)
-                row = next(rows)
-                name = row[0]
-                md = Function.Metadata.from_dict(row[1])
-                # md.fqn is set by caller
-                eval_fn = cloudpickle.loads(row[2]) if row[2] is not None else None
-                # TODO: are these checks needed?
-                if row[2] is not None and eval_fn is None:
-                    raise exc.Error(f'Could not load eval_fn for function {name}')
-                init_fn = cloudpickle.loads(row[3]) if row[3] is not None else None
-                if row[3] is not None and init_fn is None:
-                    raise exc.Error(f'Could not load init_fn for aggregate function {name}')
-                update_fn = cloudpickle.loads(row[4]) if row[4] is not None else None
-                if row[4] is not None and update_fn is None:
-                    raise exc.Error(f'Could not load update_fn for aggregate function {name}')
-                value_fn = cloudpickle.loads(row[5]) if row[5] is not None else None
-                if row[5] is not None and value_fn is None:
-                    raise exc.Error(f'Could not load value_fn for aggregate function {name}')
+    def get_function(self, *, id: Optional[int] = None, fqn: Optional[str] = None) -> Function:
+        assert (id is not None) != (fqn is not None)
+        if id is not None:
+            if id not in self.stored_fns_by_id:
+                stmt = sql.select(
+                        store.Function.name, store.Function.md,
+                        store.Function.eval_obj, store.Function.init_obj, store.Function.update_obj,
+                        store.Function.value_obj) \
+                    .where(store.Function.id == id)
+                with Env.get().engine.begin() as conn:
+                    rows = conn.execute(stmt)
+                    row = next(rows)
+                    name = row[0]
+                    md = Function.Metadata.from_dict(row[1])
+                    # md.fqn is set by caller
+                    eval_fn = cloudpickle.loads(row[2]) if row[2] is not None else None
+                    # TODO: are these checks needed?
+                    if row[2] is not None and eval_fn is None:
+                        raise exc.Error(f'Could not load eval_fn for function {name}')
+                    init_fn = cloudpickle.loads(row[3]) if row[3] is not None else None
+                    if row[3] is not None and init_fn is None:
+                        raise exc.Error(f'Could not load init_fn for aggregate function {name}')
+                    update_fn = cloudpickle.loads(row[4]) if row[4] is not None else None
+                    if row[4] is not None and update_fn is None:
+                        raise exc.Error(f'Could not load update_fn for aggregate function {name}')
+                    value_fn = cloudpickle.loads(row[5]) if row[5] is not None else None
+                    if row[5] is not None and value_fn is None:
+                        raise exc.Error(f'Could not load value_fn for aggregate function {name}')
 
-                func = Function(
-                    md, id=id,
-                    eval_fn=eval_fn, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn)
-                _logger.info(f'Loaded function {name} from store')
-                self.stored_fns_by_id[id] = func
-        assert id in self.stored_fns_by_id
-        return self.stored_fns_by_id[id]
+                    func = Function(
+                        md, id=id,
+                        eval_fn=eval_fn, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn)
+                    _logger.info(f'Loaded function {name} from store')
+                    self.stored_fns_by_id[id] = func
+            assert id in self.stored_fns_by_id
+            return self.stored_fns_by_id[id]
+        else:
+            # this is an already-registered library function
+            assert fqn in self.library_fns
+            return self.library_fns[fqn]
 
     def create_function(
             self, fn: Function, db_id: Optional[int] = None, dir_id: Optional[int] = None,
@@ -559,28 +568,3 @@ class FunctionRegistry:
                 sql.delete(store.Function.__table__)
                     .where(store.Function.id == id))
             _logger.info(f'Deleted function with id {id} from store')
-
-
-# def create_module_list() -> None:
-#     """
-#     Generate file standard_modules.py, which contains a list of modules available after 'import pixeltable'.
-#     These are the modules we don't want to pickle.
-#     TODO: move this elsewhere?
-#     """
-#     with open('standard_modules.py', 'w') as f:
-#         f.write('module_names = set([\n    ')
-#         line_len = 0
-#         module_names = sys.modules.keys()
-#         for name in module_names:
-#             str = f"'{name}', "
-#             line_len += len(str)
-#             if line_len >= 80:
-#                 f.write('\n    ')
-#                 line_len = 4  # spaces
-#             f.write(str)
-#         f.write('\n])')
-
-
-# make create_module_list() callable from the commandline
-if __name__ == '__main__':
-    globals()[sys.argv[1]]()

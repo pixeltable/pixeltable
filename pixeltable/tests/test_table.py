@@ -326,6 +326,7 @@ class TestTable:
     def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
         data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         t.insert_pandas(data_df.loc[0:20, ['img']])
+        _ = t.count()
         _ = t.show()
         assert ImageStore.count(t.id) == t.count() * stores_img_col
 

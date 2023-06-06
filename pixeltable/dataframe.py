@@ -4,20 +4,18 @@ import os
 import sys
 from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 from pathlib import Path
-from dataclasses import dataclass, field
 import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
-import copy
 import traceback
 from types import TracebackType
-from time import time
 
 from pixeltable import catalog
 from pixeltable.env import Env
 from pixeltable.type_system import ColumnType
 from pixeltable import exprs
 from pixeltable import exceptions as exc
+from pixeltable.plan import Planner
 
 __all__ = [
     'DataFrame'
@@ -123,209 +121,6 @@ class DataFrame:
         self.group_by_clause: Optional[List[exprs.Expr]] = None
         self.analysis_info: Optional[AnalysisInfo] = None
 
-    def analyze(self) -> None:
-        """
-        Populates self.analysis_info.
-        """
-        info = self.analysis_info = AnalysisInfo(self.tbl)
-        if self.where_clause is not None:
-            info.sql_where_clause, info.filter = self.where_clause.extract_sql_predicate()
-            if info.filter is not None:
-                similarity_clauses, info.filter = info.filter.split_conjuncts(
-                    lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
-                if len(similarity_clauses) > 1:
-                    raise exc.Error(f'More than one nearest() or matches() not supported')
-                if len(similarity_clauses) == 1:
-                    info.similarity_clause = similarity_clauses[0]
-                    img_col = info.similarity_clause.img_col_ref.col
-                    if not img_col.is_indexed:
-                        raise exc.Error(
-                            f'nearest()/matches() not available for unindexed column {img_col.name}')
-
-        if self.tbl.frame_col is not None and not self.tbl.frame_col.is_stored:
-            # we need to replace ColumnRefs for the frame col with FrameColumnRefs
-            col_ref = exprs.ColumnRef(self.tbl.frame_col)
-            frame_col_ref = exprs.FrameColumnRef(self.tbl.frame_col)
-            exprs.Expr.list_substitute(self.select_list, col_ref, frame_col_ref)
-        self._substitute_unstored_cols()
-
-        # set up execution state
-        eval_exprs = self.select_list.copy()
-        if info.filter is not None:
-            eval_exprs.append(info.filter)
-        if len(self.group_by_clause) > 0:
-            eval_exprs.extend(self.group_by_clause)
-        info.evaluator = exprs.Evaluator(eval_exprs)
-        unique_exprs = info.evaluator.unique_exprs
-
-        # set up eval ctxs
-        filter_ids = [info.filter.data_row_idx] if info.filter is not None else []
-        info.filter_eval_ctx = info.evaluator.get_eval_ctx(filter_ids)
-        group_by_ids = [e.data_row_idx for e in self.group_by_clause] if len(self.group_by_clause) > 0 else []
-        info.group_by_eval_ctx = info.evaluator.get_eval_ctx(group_by_ids)
-        frame_col_ref_subexprs = [
-            e for e in exprs.Expr.list_subexprs(eval_exprs) if isinstance(e, exprs.FrameColumnRef)
-        ]
-        info.has_frame_col = len(frame_col_ref_subexprs) > 0
-        info.agg_fn_calls = [e for e in unique_exprs if isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call]
-
-        if len(self.group_by_clause) > 0:
-            for e in self.group_by_clause:
-                self._analyze_group_by(e, True)
-
-        grouping_expr_idxs = set([e.data_row_idx for e in self.group_by_clause])
-        item_is_agg = [self._analyze_select_list(e, grouping_expr_idxs)[0] for e in self.select_list]
-
-        if self.is_agg():
-            # this is an aggregation
-            if item_is_agg.count(False) > 0:
-                raise exc.Error(f'Invalid non-aggregate in select list: {self.select_list[item_is_agg.find(False)]}')
-
-            # the agg stage materializes select list items that haven't already been provided by SQL
-            info.agg_output_exprs = [e for e in self.select_list if e.sql_row_idx == -1]
-            info.agg_eval_ctx = info.evaluator.get_eval_ctx([e.data_row_idx for e in info.agg_output_exprs])
-
-            # our sql scan stage needs to materialize: grouping exprs, arguments of agg fn calls
-            sql_scan_expr_ids = set([e.data_row_idx for e in self.group_by_clause])
-            for fn_call in info.agg_fn_calls:
-                for c in fn_call.components:
-                    sql_scan_expr_ids.add(c.data_row_idx)
-            info.sql_scan_eval_ctx = info.evaluator.get_eval_ctx(list(sql_scan_expr_ids))
-            info.sql_scan_output_exprs = [info.evaluator.unique_exprs[id] for id in sql_scan_expr_ids]
-        else:
-            info.sql_scan_eval_ctx = info.evaluator.get_eval_ctx([e.data_row_idx for e in self.select_list])
-            # this assumes we don't need to call finalize() on the where clause
-            info.sql_scan_output_exprs = self.select_list
-
-    def _substitute_unstored_cols(self) -> None:
-        """
-        Replace references to unstored cols (stored set to False, not None) that aren't extracted frame cols
-        with their respective value_exprs.
-        """
-        # select list
-        while True:
-            subexprs = exprs.Expr.list_subexprs(self.select_list)
-            # don't use isinstance() here, it'll also pick up FrameColumnRefs
-            unstored_col_refs = [e for e in subexprs if type(e) == exprs.ColumnRef and e.col.stored == False]
-            if len(unstored_col_refs) == 0:
-                break
-            for col_ref in unstored_col_refs:
-                assert col_ref.col.value_expr is not None
-                exprs.Expr.list_substitute(self.select_list, col_ref, col_ref.col.value_expr)
-
-        # filter
-        if self.analysis_info.filter is not None:
-            while True:
-                subexprs = self.analysis_info.filter.subexprs()
-                unstored_col_refs = [
-                    e for e in subexprs if isinstance(e, exprs.ColumnRef) and e.col.stored == False
-                ]
-                if len(unstored_col_refs) == 0:
-                    break
-                for col_ref in unstored_col_refs:
-                    assert col_ref.col.value_expr is not None
-                    self.analysis_info.filter = self.analysis_info.filter.substitute(col_ref, col_ref.col.value_expr)
-
-    def is_agg(self) -> bool:
-        return len(self.group_by_clause) > 0 \
-            or (self.analysis_info is not None and len(self.analysis_info.agg_fn_calls) > 0)
-
-    def _is_agg_fn_call(self, e: exprs.Expr) -> bool:
-        return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call
-
-    def _analyze_group_by(self, e: exprs.Expr, check_sql: bool) -> None:
-        """
-        Make sure that group-by exprs don't contain aggregates.
-        """
-        if e.sql_row_idx == -1 and check_sql:
-            raise exc.Error(f'Invalid grouping expr, needs to be expressible in SQL: {e}')
-        if self._is_agg_fn_call(e):
-            raise exc.Error(f'Cannot group by aggregate function: {e}')
-        for c in e.components:
-            self._analyze_group_by(c, False)
-
-    def _analyze_select_list(self, e: exprs.Expr, grouping_exprs: Set[int]) -> Tuple[bool, bool]:
-        """
-        Analyzes select list item. Returns (list item is output of agg stage, item is output of scan stage).
-        Collects agg fn calls in self.analysis_info.
-        """
-        if e.data_row_idx in grouping_exprs:
-            return True, True
-        elif self._is_agg_fn_call(e):
-            for c in e.components:
-                _, is_scan_output = self._analyze_select_list(c, grouping_exprs)
-                if not is_scan_output:
-                    raise exc.Error(f'Invalid nested aggregates: {e}')
-            return True, False
-        elif isinstance(e, exprs.Literal):
-            return True, True
-        elif isinstance(e, exprs.ColumnRef):
-            # we already know that this isn't a grouping expr
-            return False, True
-        else:
-            # an expression such as <grouping expr 1> + <grouping expr 2> can be the output of both
-            # the agg stage and the scan stage
-            component_is_agg: List[bool] = []
-            component_is_scan: List[bool] = []
-            for c in e.components:
-                is_agg, is_scan = self._analyze_select_list(c, grouping_exprs)
-                component_is_agg.append(is_agg)
-                component_is_scan.append(is_scan)
-            is_agg = component_is_agg.count(True) == len(e.components)
-            is_scan = component_is_scan.count(True) == len(e.components)
-            if not is_agg and not is_scan:
-                raise exc.Error(f'Invalid expression, mixes aggregate with non-aggregate: {e}')
-            return is_agg, is_scan
-
-    def _reset_agg_state(self, row_num: int) -> None:
-        for fn_call in self.analysis_info.agg_fn_calls:
-            try:
-                fn_call.reset_agg()
-            except Exception as e:
-                _, _, exc_tb = sys.exc_info()
-                expr_msg = f'init() function of the aggregate {fn_call}'
-                raise exc.ExprEvalError(fn_call, expr_msg, e, exc_tb, [], row_num)
-
-    def _update_agg_state(self, data_row: exprs.DataRow, row_num: int) -> None:
-        for fn_call in self.analysis_info.agg_fn_calls:
-            try:
-                fn_call.update(data_row)
-            except Exception as e:
-                _, _, exc_tb = sys.exc_info()
-                expr_msg = f'update() function of the aggregate {fn_call}'
-                input_vals = [data_row[d.data_row_idx] for d in fn_call.dependencies()]
-                raise exc.ExprEvalError(fn_call, expr_msg, e, exc_tb, input_vals, row_num)
-
-    def _eval_agg_fns(self, data_row: exprs.DataRow, row_num: int) -> None:
-        info = self.analysis_info
-        exc_tb = info.evaluator.eval(data_row, info.agg_eval_ctx)
-        if exc_tb is not None:
-            # first expr with exception
-            exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
-            exc_expr = self.analysis_info.evaluator.unique_exprs[exc_idx]
-            expr_msg = f'value() function of the aggregate {exc_expr}'
-            raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, [], row_num)
-
-    def _eval_sql_scan(self, data_row: exprs.DataRow, row_num: int, ignore_errors: bool) -> bool:
-        info = self.analysis_info
-        exc_tb: Optional[TracebackType] = None
-        passes_filter = True
-        if info.filter is not None:
-            exc_tb = info.evaluator.eval(data_row, info.filter_eval_ctx)
-            if exc_tb is None:
-                passes_filter = data_row[info.filter.data_row_idx]
-        if exc_tb is None and passes_filter:
-            exc_tb = info.evaluator.eval(data_row, info.sql_scan_eval_ctx)
-
-        if exc_tb is not None and not ignore_errors:
-            # first expr with exception
-            exc_idx = next(idx for idx, val in enumerate(data_row) if isinstance(val, Exception))
-            exc_expr = self.analysis_info.evaluator.unique_exprs[exc_idx]
-            expr_msg = f'expression {exc_expr}'
-            input_vals = [data_row[d.data_row_idx] for d in exc_expr.dependencies()]
-            raise exc.ExprEvalError(exc_expr, expr_msg, data_row[exc_idx], exc_tb, input_vals, row_num)
-        return passes_filter
-
     def exec(
             self, n: int = 20, select_pk: bool = False, ignore_errors: bool = False
     ) -> Generator[exprs.DataRow, None, None]:
@@ -336,95 +131,26 @@ class DataFrame:
         ignore_errors == True: exception is returned in result row for each select list item that encountered an exc.
         """
         if self.select_list is None:
-            self.select_list = [exprs.ColumnRef(col) for col in self.tbl.columns]
+            self.select_list = [
+                exprs.FrameColumnRef(col) if self.tbl.is_frame_col(col) else exprs.ColumnRef(col)
+                for col in self.tbl.columns
+            ]
         if self.group_by_clause is None:
             self.group_by_clause = []
         for item in self.select_list:
             item.bind_rel_paths(None)
-        if self.analysis_info is None:
-            self.analyze()
-        info = self.analysis_info
-        if info.similarity_clause is not None and n > 100:
-            raise exc.Error(f'nearest()/matches() requires show(n <= 100): n={n}')
-
-        # determine order_by clause for window functions or grouping, if present
-        window_fn_calls = [
-            e for e in info.evaluator.unique_exprs if isinstance(e, exprs.FunctionCall) and e.is_window_fn_call
-        ]
-        if len(window_fn_calls) > 0 and self.is_agg():
-            raise exc.Error(f'Cannot combine window functions with non-windowed aggregation')
-        order_by_exprs: List[exprs.Expr] = []
-        # TODO: check compatibility of window clauses
-        if len(window_fn_calls) > 0:
-            order_by_exprs = window_fn_calls[0].get_window_sort_exprs()
-        elif info.has_frame_col:
-            # we're materializing extracted frames and need to order by the frame src and idx cols
-            order_by_exprs = [exprs.ColumnRef(self.tbl.frame_src_col()), exprs.ColumnRef(self.tbl.frame_idx_col())]
-        elif self.is_agg():
-            # TODO: collect aggs with order-by and analyze for compatibility
-            order_by_exprs = self.group_by_clause + info.agg_fn_calls[0].get_agg_order_by()
-        order_by_clause = [e.sql_expr() for e in order_by_exprs]
-        for i in range(len(order_by_exprs)):
-            if order_by_clause[i] is None:
-                raise exc.Error(f'order_by element cannot be expressed in SQL: {order_by_exprs[i]}')
-
-        idx_rowids: List[int] = []  # rowids returned by index lookup
-        if info.similarity_clause is not None:
-            # do index lookup
-            assert info.similarity_clause.img_col_ref.col.idx is not None
-            embed = info.similarity_clause.embedding()
-            idx = info.similarity_clause.img_col_ref.col.idx
-            idx_rowids = idx.search(embed, n, self.tbl.valid_rowids)
-
-        with Env.get().engine.connect() as conn:
-            # if we're retrieving an extracted frame column that is not stored, we also need the PK in order to
-            # access the file cache
-            stmt = self._create_select_stmt(
-                info.evaluator.sql_select_list, info.sql_where_clause, idx_rowids, select_pk, order_by_clause)
-            num_rows = 0  # number of output rows
-
-            current_group: Optional[List[Any]] = None  # for grouping agg, the values of the group-by exprs
-            sql_rows = conn.execute(stmt)  # this might raise an exception
-            data_row = exprs.DataRow(0)
-            for row_num, row in enumerate(sql_rows):
-                sql_row = row._data
-                last_data_row = data_row
-                data_row = info.evaluator.prepare(sql_row)
-                passes_filter = self._eval_sql_scan(data_row, row_num, ignore_errors)
-                if not passes_filter:
-                    continue
-
-                # copy select list results into contiguous array
-                result_row: Optional[List[Any]] = None
-                if self.is_agg():
-                    group = [data_row[e.data_row_idx] for e in self.group_by_clause]
-                    if current_group is None:
-                        current_group = group
-                        self._reset_agg_state(row_num)
-                    if group != current_group:
-                        # we're entering a new group, emit a row for the last one
-                        self._eval_agg_fns(last_data_row, row_num)
-                        result_row = [last_data_row[e.data_row_idx] for e in self.select_list]
-                        current_group = group
-                        self._reset_agg_state(row_num)
-                    self._update_agg_state(data_row, row_num)
-                else:
-                    result_row = [data_row[e.data_row_idx] for e in self.select_list]
-                    if select_pk:
-                        result_row.extend(sql_row[-2:])
-
-                if result_row is not None:
-                    yield result_row
-                    num_rows += 1
-                    if n > 0 and num_rows == n:
-                        break
-
-            if self.is_agg():
-                # we need to emit the output row for the current group
-                self._eval_agg_fns(data_row, row_num)
-                result_row = [data_row[e.data_row_idx] for e in self.select_list]
+        plan, self.select_list = Planner.create_query_plan(
+            self.tbl, self.select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause,
+            limit=n)
+        plan.open()
+        try:
+            result = next(plan)
+            for data_row in result:
+                result_row = [data_row[e.data_row_slot_idx] for e in self.select_list]
                 yield result_row
-            info.finalize_exec()
+        finally:
+            plan.close()
+        return
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         try:

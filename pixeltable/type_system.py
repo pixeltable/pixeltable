@@ -135,7 +135,7 @@ class ColumnType:
         return cls()
 
     @classmethod
-    def from_nos(cls, type_info: nos.common.spec.ObjectTypeInfo) -> ColumnType:
+    def from_nos(cls, type_info: nos.common.spec.ObjectTypeInfo, ignore_shape: bool = False) -> ColumnType:
         """Convert ObjectTypeInfo to ColumnType"""
         if type_info.base_spec() is None:
             if type_info.base_type() == str:
@@ -150,7 +150,7 @@ class ColumnType:
                 raise exc.Error(f'Cannot convert {type_info} to ColumnType')
         elif isinstance(type_info.base_spec(), nos.common.ImageSpec):
             size = None
-            if type_info.base_spec().shape is not None:
+            if not ignore_shape and type_info.base_spec().shape is not None:
                 size = (type_info.base_spec().shape[1], type_info.base_spec().shape[0])
             # TODO: set mode
             return ImageType(size=size)

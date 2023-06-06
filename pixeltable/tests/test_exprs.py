@@ -4,12 +4,11 @@ import pytest
 
 import pixeltable as pt
 from pixeltable import catalog
-from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType
+from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType, VideoType
 from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import udf_call, dict_map, cast, sum, count
 from pixeltable.functions.pil.image import blend
-from pixeltable.functions.clip import encode_image
 from pixeltable import exceptions as exc
 from pixeltable import exprs
 from pixeltable.function import FunctionRegistry
@@ -81,7 +80,7 @@ class TestExprs:
         assert sql_pred is None
         assert isinstance(other_pred, CompoundPredicate)
 
-    def test_basic_filter(self, test_tbl: catalog.Table) -> None:
+    def test_filters(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         _ = t[t.c1 == 'test string'].show()
         print(_)
@@ -287,6 +286,9 @@ class TestExprs:
 
     def test_img_members(self, img_tbl) -> None:
         t = img_tbl
+        # make sure the limit is applied in Python, not in the SELECT
+        result = t[t.img.height > 200][t.img].show(n=3)
+        assert len(result) == 3
         result = t[t.img.crop((10, 10, 60, 60))].show(n=100)
         result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100))].show(n=100)
         result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100)).convert('L')].show(n=100)
@@ -298,7 +300,8 @@ class TestExprs:
         t = img_tbl
         result = t[blend(t.img, t.img.rotate(90), 0.5)].show(100)
         print(result)
-        result = t[encode_image(t.img)].show(10)
+        from pixeltable.functions.image_embedding import openai_clip
+        result = t[openai_clip(t.img)].show(10)
         print(result)
         _ = result._repr_html_()
         _ = t.img.entropy() > 1
@@ -399,10 +402,32 @@ class TestExprs:
         db = test_db
         t = test_tbl
         _ = t[sum(t.c2, group_by=t.c4, order_by=t.c3)].show(100)
-        print(_)
+
+        # conflicting ordering requirements
+        with pytest.raises(exc.Error):
+            _ = t[sum(t.c2, group_by=t.c4, order_by=t.c3), sum(t.c2, group_by=t.c3, order_by=t.c4)].show(100)
+        with pytest.raises(exc.Error):
+            _ = t[sum(t.c2, group_by=t.c4, order_by=t.c3), sum(t.c2, group_by=t.c3, order_by=t.c4)].show(100)
+
         # backfill works
         t.add_column(catalog.Column('c9', computed_with=sum(t.c2, group_by=t.c4, order_by=t.c3)))
         _ = t.c9.col.has_window_fn_call()
+
+        # ordering conflict between frame extraction and window fn
+        cols = [
+            catalog.Column('video', VideoType(), nullable=False),
+            catalog.Column('frame', ImageType(), nullable=False),
+            catalog.Column('frame_idx', IntType(), nullable=False),
+            catalog.Column('c2', IntType(), nullable=False),
+        ]
+        vt = db.create_table(
+            'video_test', cols, extract_frames_from='video', extracted_frame_col='frame',
+            extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        # compatible ordering
+        _ = vt[vt.frame, sum(vt.c2, group_by=vt.video, order_by=vt.frame_idx)].show(100)
+        with pytest.raises(exc.Error):
+            # incompatible ordering
+            _ = vt[vt.frame, sum(vt.c2, group_by=vt.frame_idx, order_by=vt.video)].show(100)
 
         c2 = catalog.Column('c2', IntType(), nullable=False)
         c3 = catalog.Column('c3', FloatType(), nullable=False)
@@ -420,8 +445,17 @@ class TestExprs:
         _ = t[t.c2 % 2, sum(t.c2), count(t.c2), sum(t.c2) + count(t.c2), sum(t.c2) + (t.c2 % 2)]\
             .group_by(t.c2 % 2).show()
 
+        # check that aggregates don't show up in the wrong places
         with pytest.raises(exc.Error):
+            # aggregate in where clause
+            _ = t[sum(t.c2) > 0][sum(t.c2)].group_by(t.c2 % 2).show()
+        with pytest.raises(exc.Error):
+            # aggregate in group_by clause
+            _ = t[sum(t.c2)].group_by(sum(t.c2)).show()
+        with pytest.raises(exc.Error):
+            # mixing aggregates and non-aggregates
             _ = t[sum(t.c2) + t.c2].group_by(t.c2 % 2).show()
         with pytest.raises(exc.Error):
+            # nested aggregates
             _ = t[sum(count(t.c2))].group_by(t.c2 % 2).show()
-        print(_)
+        a = 10

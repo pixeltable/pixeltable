@@ -19,7 +19,6 @@ from pixeltable import store
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType, StringType
-from pixeltable.utils import clip, video
 from pixeltable.index import VectorIndex
 from pixeltable.function import Function, FunctionRegistry
 from pixeltable.utils.video import FrameIterator
@@ -518,7 +517,7 @@ class MutableTable(Table):
     def display_name(cls) -> str:
         return 'table'
 
-    def add_column(self, col: Column) -> UpdateStatus:
+    def add_column(self, col: Column, print_stats: bool = False) -> UpdateStatus:
         """Adds a column to the table.
 
         Args:
@@ -621,62 +620,65 @@ class MutableTable(Table):
             col.set_idx(VectorIndex.create(Table._vector_idx_name(self.id, col), 512))
 
         row_count = self.count()
-        if not col.is_computed or not col.is_stored or row_count == 0:
+        if row_count == 0:
+            return self.UpdateStatus(0, 0, 0)
+        if (not col.is_computed or not col.is_stored) and not col.is_indexed:
             return self.UpdateStatus(row_count, 0, 0)
         # compute values for the existing rows and compute embeddings, if this column is indexed;
         # for some reason, it's not possible to run the following updates in the same transaction as the one
         # that we just used to create the metadata (sqlalchemy hangs when exec() tries to run the query)
-        from pixeltable.dataframe import DataFrame
-        # use copy to avoid reusing existing execution state
-        select_list = [col.value_expr.copy()]
-        if col.is_indexed:
-            # we also need to compute the embeddings for this col
-            assert col.col_type.is_image_type()
-            from pixeltable.functions.clip import encode_image
-            select_list.append(encode_image(col.value_expr.copy()))
+        from pixeltable.plan import Planner
+        plan, value_expr_slot_idx, embedding_slot_idx = Planner.create_add_column_plan(self, col)
+        plan.ctx.num_rows = row_count
         embeddings: List[np.ndarray] = []
         rowids: List[int] = []
-        query = DataFrame(self, select_list)
 
+        plan.open()
         with Env.get().engine.begin() as conn:
-            with tqdm(total=row_count) as progress_bar:
-                try:
-                    num_excs = 0
-                    for result_row in query.exec(n=0, select_pk=True, ignore_errors=True):
-                        # we can simply update the row, instead of creating a copy for the current version, because the
-                        # added column will not be visible when querying prior versions
-                        column_val, rowid, v_min = result_row[0], result_row[-2], result_row[-1]
+            try:
+                num_excs = 0
+                num_rows = 0
+                for row_batch in plan:
+                    num_rows += len(row_batch)
+                    for result_row in row_batch:
+                        if col.is_computed:
+                            val = result_row.get_stored_val(value_expr_slot_idx)
+                            if isinstance(val, Exception):
+                                num_excs += 1
+                                value_exc = val
+                                # we store a NULL value and record the exception/exc type
+                                error_type = type(value_exc).__name__
+                                error_msg = str(value_exc)
+                                conn.execute(
+                                    sql.update(self.sa_tbl)
+                                        .values({
+                                            col.sa_col: None,
+                                            col.sa_errortype_col: error_type,
+                                            col.sa_errormsg_col: error_msg
+                                        })
+                                        .where(self.rowid_col == result_row.row_id)
+                                        .where(self.v_min_col == result_row.v_min))
+                            else:
+                                conn.execute(
+                                    sql.update(self.sa_tbl)
+                                        .values({col.sa_col: val})
+                                        .where(self.rowid_col == result_row.row_id)
+                                        .where(self.v_min_col == result_row.v_min))
+                        if col.is_indexed:
+                            embeddings.append(result_row[embedding_slot_idx])
+                            rowids.append(result_row.row_id)
 
-                        if isinstance(column_val, Exception):
-                            num_excs += 1
-                            value_exc = column_val
-                            # we store a NULL value and record the exception/exc type
-                            error_type = type(value_exc).__name__
-                            error_msg = str(value_exc)
-                            conn.execute(
-                                sql.update(self.sa_tbl)
-                                    .values(
-                                        {col.sa_col: None, col.sa_errortype_col: error_type, col.sa_errormsg_col: error_msg})
-                                    .where(self.rowid_col == rowid)
-                                    .where(self.v_min_col == v_min))
-                        else:
-                            column_val = self._convert_to_stored(col, column_val, rowid)
-                            conn.execute(
-                                sql.update(self.sa_tbl)
-                                    .values({col.sa_col: column_val})
-                                    .where(self.rowid_col == rowid)
-                                    .where(self.v_min_col == v_min))
-                            if col.is_indexed:
-                                embeddings.append(result_row[1])
-                                rowids.append(rowid)
-                        progress_bar.update(1)
-                    msg = f'added {row_count} column values with {num_excs} error{"" if num_excs == 1 else "s"}'
-                    print(msg)
-                    _logger.info(f'Column {col.name}: {msg}')
-                    return self.UpdateStatus(row_count, row_count, num_excs, [col.name] if num_excs > 0 else [])
-                except sql.exc.DBAPIError as e:
-                    self.drop_column(col.name)
-                    raise exc.Error(f'Error during SQL execution:\n{e}')
+                msg = f'added {row_count} column values with {num_excs} error{"" if num_excs == 1 else "s"}'
+                print(msg)
+                _logger.info(f'Column {col.name}: {msg}')
+                if print_stats:
+                    plan.ctx.profile.print(num_rows=num_rows)
+                return self.UpdateStatus(row_count, row_count, num_excs, [col.name] if num_excs > 0 else [])
+            except sql.exc.DBAPIError as e:
+                self.drop_column(col.name)
+                raise exc.Error(f'Error during SQL execution:\n{e}')
+            finally:
+                plan.close()
 
         if col.is_indexed:
             # update the index
@@ -832,13 +834,15 @@ class MutableTable(Table):
         else:
             return val
 
-    def insert_rows(self, rows: List[List[Any]], columns: List[str] = []) -> UpdateStatus:
+    def insert_rows(self, rows: List[List[Any]], columns: List[str] = [], print_stats: bool = False) -> UpdateStatus:
         """Insert rows into table.
 
         Args:
             rows: A list of rows to insert. Each row is a list of values, one for each column.
             columns: A list of column names that specify the columns present in ``rows``.
                 If ``columns`` is empty, all columns are present in ``rows``.
+            print_stats: If ``True``, print statistics about the cost of computed columns.
+
         Returns:
             execution status
 
@@ -881,7 +885,7 @@ class MutableTable(Table):
                 f'({len(columns)}')
 
         pd_df = pd.DataFrame.from_records(rows, columns=columns)
-        return self.insert_pandas(pd_df)
+        return self.insert_pandas(pd_df, print_stats=print_stats)
 
     def _check_data(self, data: pd.DataFrame):
         """
@@ -976,7 +980,7 @@ class MutableTable(Table):
                         raise exc.Error(
                             f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
-    def insert_pandas(self, data: pd.DataFrame) -> UpdateStatus:
+    def insert_pandas(self, data: pd.DataFrame, print_stats: bool = False) -> UpdateStatus:
         """Insert data from pandas DataFrame into this table.
 
         If self.parameters.frame_src_col_id != None:
@@ -990,91 +994,13 @@ class MutableTable(Table):
 
         # we're creating a new version
         self.version += 1
+        from pixeltable.plan import Planner
+        plan, db_col_info, idx_col_info, num_values_per_row = Planner.create_insert_plan(self, data)
+        plan.open()
+        rows = next(plan)
+        plan.close()
 
-        # prepare state for stored computed cols
-        from pixeltable import exprs
-        # stored_cols: all cols we need to store, incl computed cols (and indices)
-        stored_cols = [c for c in self.cols if c.is_stored and (c.name in data.columns or c.is_computed)]
-        if self.extracts_frames():
-            video_col = self.cols_by_id[self.parameters.frame_src_col_id]
-            frame_idx_col = self.cols_by_id[self.parameters.frame_idx_col_id]
-            stored_cols.append(frame_idx_col)
-        else:
-            video_col, frame_col, frame_idx_col = None, None, None
-        # db_stored_cols: all cols that are stored in the db (as opposed to NN indices)
-        db_stored_cols = stored_cols.copy()
-
-        # we include embeddings for indices by constructing computed cols; we need to do that for all indexed cols,
-        # not just the stored ones
-        indexed_cols = [c for c in self.cols if c.is_indexed]
-        from pixeltable.functions.clip import encode_image
-        indexed_col_refs = \
-            [exprs.FrameColumnRef(c) if self.is_frame_col(c) else exprs.ColumnRef(c) for c in indexed_cols]
-        index_cols = [Column('dummy', computed_with=encode_image(col_ref), stored=True) for col_ref in indexed_col_refs]
-        stored_cols.extend(index_cols)
-        index_cols_offset = len(stored_cols) - len(index_cols)
-
-        # create copies to avoid reusing past execution state; eval ctx and evaluator need to share these copies;
-        # also, we need to get rid of references to computed cols
-        stored_exprs = [
-            c.value_expr.copy().resolve_computed_cols() if c.is_computed else exprs.ColumnRef(c)
-            for c in stored_cols
-        ]
-        evaluator = exprs.Evaluator(stored_exprs, with_sql=False) if len(stored_exprs) > 0 else None
-
-        # create output rows and fill them with what's in 'data'
-        zipped = [(c, e.data_row_idx) for c, e in zip(stored_cols, stored_exprs) if c.col_type.is_image_type()]
-        stored_img_cols: List[Column] = []
-        stored_img_row_idxs: List[int] = []
-        if len(zipped) > 0:
-            stored_img_cols, stored_img_row_idxs = zip(*zipped)
-
-        if not self.extracts_frames():
-            rows = exprs.DataRowSet(len(data), evaluator, stored_img_cols, stored_img_row_idxs, self.id, self.version)
-            for col, expr in zip(stored_cols, stored_exprs):
-                if col.is_computed or col is frame_idx_col:
-                    continue
-                for idx, (_, val) in enumerate(data[col.name].iteritems()):
-                    rows[idx, expr.data_row_idx] = val
-        else:
-            # we're extracting frames: we replace each row with one row per frame, with the frame_idx col set
-            # first, we get the frame count per video
-            video_paths = list(data[video_col.name])
-            video_path_isnull = list(data[video_col.name].isna())
-            counts = [0] * len(data)
-            for i in range(len(data)):
-                if video_path_isnull[i]:
-                    counts[i] = 1
-                    continue
-                with FrameIterator(video_paths[i], fps=self.parameters.extraction_fps) as frame_iter:
-                    counts[i] = len(frame_iter)
-
-            rows = exprs.DataRowSet(sum(counts), evaluator, stored_img_cols, stored_img_row_idxs, self.id, self.version)
-            for col, expr in zip(stored_cols, stored_exprs):
-                if col.is_computed:
-                    continue
-                row_idx = 0
-                if col is frame_idx_col:
-                    for input_row_idx, count in enumerate(counts):
-                        for i in range(count):
-                            rows[row_idx, expr.data_row_idx] = i
-                            row_idx += 1
-                    continue
-
-                for input_row_idx, (_, val) in enumerate(data[col.name].iteritems()):
-                    for i in range(counts[input_row_idx]):
-                        rows[row_idx, expr.data_row_idx] = val
-                        row_idx += 1
-
-        # assign row ids
-        rows.set_row_ids([self.next_row_id + i for i in range(len(rows))])
-
-        # state needed for stored computed cols
-        computed_col_row_idxs = [e.data_row_idx for c, e in zip(stored_cols, stored_exprs) if c.is_computed]
-        computed_cols_ctx = evaluator.get_eval_ctx(computed_col_row_idxs)
-        profile = [0.0] * evaluator.num_materialized
-
-        # compute and insert rows into table in batches
+        # insert rows into table in batches
         start_row_id = self.next_row_id
         batch_size = 16
         progress_bar = tqdm(total=len(rows), desc='Inserting rows into table', unit='rows')
@@ -1086,17 +1012,11 @@ class MutableTable(Table):
                 table_rows: List[Dict[str, Any]] = []
                 for row_idx in range(batch_start_idx, min(batch_start_idx + batch_size, len(rows))):
                     row = rows[row_idx]
-                    evaluator.eval(row, computed_cols_ctx, profile)
-                    # make sure images for stored cols have been saved to files
-                    rows.flush_imgs(slice(row_idx, row_idx + 1))
-                    table_row = {
-                        c.storage_name(): row.get_stored_val(e.data_row_idx)
-                        for c, e in zip(db_stored_cols, stored_exprs[:len(db_stored_cols)])
-                    }
+                    table_row = {c.storage_name(): row.get_stored_val(slot_idx) for c, slot_idx in db_col_info}
                     table_row.update({'rowid': self.next_row_id, 'v_min': self.version})
 
                     # check for exceptions
-                    for col in [c for c in db_stored_cols if c.is_computed]:
+                    for col in [c for c, _ in db_col_info if c.is_computed]:
                         val = table_row[col.storage_name()]
                         if isinstance(val, Exception):
                             # exceptions get stored in the errortype/-msg columns
@@ -1120,13 +1040,14 @@ class MutableTable(Table):
                     .values({store.Table.current_version: self.version, store.Table.next_row_id: self.next_row_id})
                     .where(store.Table.id == self.id))
 
-        # update image indices
-        for i, c in enumerate(
-                tqdm(indexed_cols, desc='Updating image indices', unit='column', disable=len(indexed_cols) == 0)):
-            data_row_idx = stored_exprs[i + index_cols_offset].data_row_idx
-            embeddings = [row[data_row_idx] for row in rows]
-            c.idx.insert(np.asarray(embeddings), np.arange(start_row_id, self.next_row_id))
+        if len(idx_col_info) > 0:
+            # update image indices
+            for col, slot_idx in tqdm(idx_col_info, desc='Updating image indices', unit='column'):
+                embeddings = [row[slot_idx] for row in rows]
+                col.idx.insert(np.asarray(embeddings), np.arange(start_row_id, self.next_row_id))
 
+        if print_stats:
+            plan.ctx.profile.print(num_rows=len(rows))
         self.valid_rowids.update(range(start_row_id, self.next_row_id))
         if num_excs == 0:
             cols_with_excs_str = ''
@@ -1137,7 +1058,7 @@ class MutableTable(Table):
         print(msg)
         _logger.info(f'Table {self.name}: {msg}, new version {self.version}')
         status = self.UpdateStatus(
-            len(rows), len(stored_cols) * len(rows), num_excs, [self.cols_by_id[cid].name for cid in cols_with_excs])
+            len(rows), num_values_per_row * len(rows), num_excs, [self.cols_by_id[cid].name for cid in cols_with_excs])
         return status
 
     def revert(self) -> None:
@@ -1315,7 +1236,7 @@ class MutableTable(Table):
                 raise exc.Error(f'Column {col.name}: extracted frame column cannot be stored')
             if col.stored is False and not(col.is_computed and col.col_type.is_image_type()) \
                     and col.name != extracted_frame_col:
-                raise exc.Error(f'Column {name}: stored={col.stored} only applies to computed image columns')
+                raise exc.Error(f'Column {col.name}: stored={col.stored} only applies to computed image columns')
             if col.stored is None:
                 if col.is_computed and col.col_type.is_image_type():
                     col.stored = False
@@ -1905,7 +1826,7 @@ class Db:
                     .where(store.Function.id == named_fn.id))
         del self.paths[path]
         self.paths[new_path] = named_fn
-        func = FunctionRegistry.get().get_function(named_fn.id)
+        func = FunctionRegistry.get().get_function(id=named_fn.id)
         func.md.fqn = f'{self.name}.{new_path}'
         _logger.info(f'Renamed function {path_str} to {new_path_str}')
 
@@ -1924,7 +1845,7 @@ class Db:
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
-        f = FunctionRegistry.get().get_function(named_fn.id)
+        f = FunctionRegistry.get().get_function(id=named_fn.id)
         if f.md.signature != func.md.signature:
             raise exc.Error(
                 f'The function signature cannot be changed. The existing signature is {f.md.signature}')
@@ -1952,7 +1873,7 @@ class Db:
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
         assert isinstance(named_fn, NamedFunction)
-        func = FunctionRegistry.get().get_function(named_fn.id)
+        func = FunctionRegistry.get().get_function(id=named_fn.id)
         func.md.fqn = f'{self.name}.{path}'
         return func
 
