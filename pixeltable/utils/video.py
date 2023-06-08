@@ -7,12 +7,27 @@ import logging
 import cv2
 
 import PIL
+import docker
 
 from pixeltable.exceptions import Error
 from pixeltable.env import Env
 
 
 _logger = logging.getLogger('pixeltable')
+
+def convert_to_h264(input_path: Path, output_path: Path) -> None:
+    """Converts a video to H.264 format by running a docker image.
+    """
+    cl = docker.from_env()
+    command = ['-i', f'/input/{input_path.name}', '-vcodec', 'libx264', f'/output/{output_path.name}']
+    volumes = [f'{input_path.parent}:/input', f'{output_path.parent}:/output']
+    _ = cl.containers.run(
+        Env.get().ffmpeg_image(),
+        command,
+        detach=False,
+        stderr=True,
+        volumes=volumes,
+    )
 
 class FrameIterator:
     """
@@ -88,33 +103,3 @@ class FrameIterator:
         if self.video_reader is not None:
             self.video_reader.release()
             self.video_reader = None
-
-
-class FrameExtractor:
-    """
-    Implements the extract_frame window function.
-    """
-    def __init__(self, video_path_str: str, fps: int = 0):
-        self.frames = FrameIterator(video_path_str, fps=fps)
-        self.current_frame_path: Optional[str] = None
-
-    @classmethod
-    def make_aggregator(cls, video_path_str: str, fps: int = 0) -> FrameExtractor:
-        return cls(video_path_str, fps=fps)
-
-    def update(self, frame_idx: int) -> None:
-        self.frames.seek(frame_idx)
-        _, self.current_frame_path = next(self.frames)
-
-    def value(self) -> PIL.Image.Image:
-        return PIL.Image.open(self.current_frame_path)
-
-
-# extract_frame = Function.make_library_aggregate_function(
-#     ImageType(), [VideoType(), IntType()],  # params: video, frame idx
-#     module_name = 'pixeltable.utils.video',
-#     init_symbol = 'FrameExtractor.make_aggregator',
-#     update_symbol = 'FrameExtractor.update',
-#     value_symbol = 'FrameExtractor.value',
-#     requires_order_by=True, allows_std_agg=False, allows_window=True)
-# don't register this function, it's not meant for users

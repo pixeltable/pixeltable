@@ -16,6 +16,7 @@ import pixeltable.exceptions as exc
 import pixeltable.functions.clip
 import pixeltable.functions.pil
 import pixeltable.functions.pil.image
+from pixeltable.utils.video import convert_to_h264
 
 
 def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.Table]) -> exprs.FunctionCall:
@@ -114,7 +115,8 @@ class VideoAggregator:
             self.size = (frame.width, frame.height)
             self.out_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
             self.tmp_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
-            self.video_writer = cv2.VideoWriter(str(self.tmp_file), cv2.VideoWriter_fourcc(*'MP4V'), 25, self.size)
+            # our target codec is H.264, but it's tainted by GPL and cv2 doesn't include it, so we use MP4V instead
+            self.video_writer = cv2.VideoWriter(str(self.tmp_file), cv2.VideoWriter_fourcc(*'mp4v'), 25, self.size)
 
         frame_array = np.array(frame)
         frame_array = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
@@ -122,7 +124,7 @@ class VideoAggregator:
 
     def value(self) -> str:
         self.video_writer.release()
-        os.system(f'ffmpeg -i {self.tmp_file} -vcodec libx264 {self.out_file}')
+        convert_to_h264(self.tmp_file, self.out_file)
         os.remove(self.tmp_file)
         return self.out_file
 
