@@ -313,12 +313,13 @@ class TestTable:
         schema = [c2]
         t = db.create_table('test', schema)
 
-        status_str = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
+        status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
 
         data_df = test_tbl[test_tbl.c2].show(0).to_pandas()
-        status_str = t.insert_pandas(data_df)
-        assert '10 errors across 1 column' in status_str
-        assert 'add1' in status_str
+        status = t.insert_pandas(data_df)
+        _ = str(status)
+        assert status.num_excs == 10
+        assert 'add1' in status.cols_with_excs
         result_set = t[t.add1.errortype != None].show(0)
         assert len(result_set) == 10
 
@@ -464,8 +465,8 @@ class TestTable:
 
     def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        status_str = t.add_column(catalog.Column('add1', computed_with=t.c2 + 10, nullable=False))
-        assert '0 errors' in status_str
+        status = t.add_column(catalog.Column('add1', computed_with=t.c2 + 10, nullable=False))
+        assert status.num_excs == 0
         _ = t.show()
 
         # with exception in SQL
@@ -473,14 +474,14 @@ class TestTable:
             t.add_column(catalog.Column('add2', computed_with=(t.c2 - 10) / (t.c3 - 10), nullable=False))
 
         # with exception in Python for c6.f2 == 10
-        status_str = t.add_column(catalog.Column('add2', computed_with=(t.c6.f2 - 10) / (t.c6.f2 - 10), nullable=False))
-        assert '1 error' in status_str
+        status = t.add_column(catalog.Column('add2', computed_with=(t.c6.f2 - 10) / (t.c6.f2 - 10), nullable=False))
+        assert status.num_excs == 1
         result = t[t.add2.errortype != None][t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg].show()
         assert len(result) == 1
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
-        status_str = t.add_column(catalog.Column('add3', computed_with=self.f2(self.f1(t.c2))))
-        assert '10 errors' in status_str
+        status = t.add_column(catalog.Column('add3', computed_with=self.f2(self.f1(t.c2))))
+        assert status.num_excs == 10
         result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()
         assert len(result) == 10
 

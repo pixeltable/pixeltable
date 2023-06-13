@@ -487,6 +487,13 @@ class TableSnapshot(Table):
         return 'table snapshot'
 
 class MutableTable(Table):
+    @dataclasses.dataclass
+    class UpdateStatus:
+        num_rows: int
+        num_values: int
+        num_excs: int
+        cols_with_excs: List[str] = dataclasses.field(default_factory=list)
+
     """A :py:class:`Table` that can be modified.
     """
     def __init__(self, tbl_record: store.Table, schema_version: int, cols: List[Column]):
@@ -511,14 +518,14 @@ class MutableTable(Table):
     def display_name(cls) -> str:
         return 'table'
 
-    def add_column(self, col: Column) -> str:
+    def add_column(self, col: Column) -> UpdateStatus:
         """Adds a column to the table.
 
         Args:
             col: The column to add.
 
         Returns:
-            For computed columns, returns execution status.
+            execution status
 
         Raises:
             Error: If the column name is invalid or already exists.
@@ -615,7 +622,7 @@ class MutableTable(Table):
 
         row_count = self.count()
         if not col.is_computed or not col.is_stored or row_count == 0:
-            return ''
+            return self.UpdateStatus(row_count, 0, 0)
         # compute values for the existing rows and compute embeddings, if this column is indexed;
         # for some reason, it's not possible to run the following updates in the same transaction as the one
         # that we just used to create the metadata (sqlalchemy hangs when exec() tries to run the query)
@@ -664,8 +671,9 @@ class MutableTable(Table):
                                 rowids.append(rowid)
                         progress_bar.update(1)
                     msg = f'added {row_count} column values with {num_excs} error{"" if num_excs == 1 else "s"}'
+                    print(msg)
                     _logger.info(f'Column {col.name}: {msg}')
-                    return msg
+                    return self.UpdateStatus(row_count, row_count, num_excs, [col.name] if num_excs > 0 else [])
                 except sql.exc.DBAPIError as e:
                     self.drop_column(col.name)
                     raise exc.Error(f'Error during SQL execution:\n{e}')
@@ -824,13 +832,15 @@ class MutableTable(Table):
         else:
             return val
 
-    def insert_rows(self, rows: List[List[Any]], columns: List[str] = []) -> None:
+    def insert_rows(self, rows: List[List[Any]], columns: List[str] = []) -> UpdateStatus:
         """Insert rows into table.
 
         Args:
             rows: A list of rows to insert. Each row is a list of values, one for each column.
             columns: A list of column names that specify the columns present in ``rows``.
                 If ``columns`` is empty, all columns are present in ``rows``.
+        Returns:
+            execution status
 
         Raises:
             Error: If the number of columns in ``rows`` does not match the number of columns in the table or in ``columns``.
@@ -966,7 +976,7 @@ class MutableTable(Table):
                         raise exc.Error(
                             f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
-    def insert_pandas(self, data: pd.DataFrame) -> str:
+    def insert_pandas(self, data: pd.DataFrame) -> UpdateStatus:
         """Insert data from pandas DataFrame into this table.
 
         If self.parameters.frame_src_col_id != None:
@@ -987,10 +997,8 @@ class MutableTable(Table):
         stored_cols = [c for c in self.cols if c.is_stored and (c.name in data.columns or c.is_computed)]
         if self.extracts_frames():
             video_col = self.cols_by_id[self.parameters.frame_src_col_id]
-            frame_col = self.cols_by_id[self.parameters.frame_col_id]
             frame_idx_col = self.cols_by_id[self.parameters.frame_idx_col_id]
             stored_cols.append(frame_idx_col)
-            frame_idx_col_idx = len(stored_cols) - 1
         else:
             video_col, frame_col, frame_idx_col = None, None, None
         # db_stored_cols: all cols that are stored in the db (as opposed to NN indices)
@@ -1000,12 +1008,9 @@ class MutableTable(Table):
         # not just the stored ones
         indexed_cols = [c for c in self.cols if c.is_indexed]
         from pixeltable.functions.clip import encode_image
-        index_cols = [
-            Column(
-                'dummy',
-                computed_with=encode_image(exprs.FrameColumnRef(c) if self.is_frame_col(c) else exprs.ColumnRef(c)),
-                stored=True)
-            for c in indexed_cols]
+        indexed_col_refs = \
+            [exprs.FrameColumnRef(c) if self.is_frame_col(c) else exprs.ColumnRef(c) for c in indexed_cols]
+        index_cols = [Column('dummy', computed_with=encode_image(col_ref), stored=True) for col_ref in indexed_col_refs]
         stored_cols.extend(index_cols)
         index_cols_offset = len(stored_cols) - len(index_cols)
 
@@ -1129,8 +1134,11 @@ class MutableTable(Table):
             cols_with_excs_str = f'across {len(cols_with_excs)} column{"" if len(cols_with_excs) == 1 else "s"}'
             cols_with_excs_str += f' ({", ".join([self.cols_by_id[id].name for id in cols_with_excs])})'
         msg = f'inserted {len(rows)} rows with {num_excs} error{"" if num_excs == 1 else "s"} {cols_with_excs_str}'
+        print(msg)
         _logger.info(f'Table {self.name}: {msg}, new version {self.version}')
-        return msg
+        status = self.UpdateStatus(
+            len(rows), len(stored_cols) * len(rows), num_excs, [self.cols_by_id[cid].name for cid in cols_with_excs])
+        return status
 
     def revert(self) -> None:
         """Reverts the table to the previous version.

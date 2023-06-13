@@ -9,7 +9,7 @@ import cloudpickle
 import inspect
 import logging
 
-import nos
+#import nos
 
 from pixeltable.type_system import ColumnType, JsonType
 from pixeltable import store
@@ -241,7 +241,10 @@ class Function:
     @property
     def display_name(self) -> str:
         if self.md.fqn is None:
-            return ''
+            if self.eval_fn is not None:
+                return self.eval_fn.__name__
+            else:
+                return ''
         ptf_prefix = 'pixeltable.functions'
         if self.md.fqn.startswith(ptf_prefix):
             return self.md.fqn[len(ptf_prefix):]
@@ -385,61 +388,61 @@ class FunctionRegistry:
         self.library_fns[fqn] = fn
         fn.md.fqn = fqn
 
-    def _convert_nos_signature(self, sig: nos.common.spec.FunctionSignature) -> Tuple[ColumnType, List[ColumnType]]:
-        if len(sig.get_outputs_spec()) > 1:
-            return_type = JsonType()
-        else:
-            return_type = ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
-        param_types: List[ColumnType] = []
-        for _, type_info in sig.get_inputs_spec().items():
-            # TODO: deal with multiple input shapes
-            if isinstance(type_info, list):
-                type_info = type_info[0]
-            param_types.append(ColumnType.from_nos(type_info))
-        return return_type, param_types
-
-    def register_nos_functions(self) -> None:
-        """Register all models supported by the NOS backend as library functions"""
-        if self.has_registered_nos_functions:
-            return
-        self.has_registered_nos_functions = True
-        models = Env.get().nos_client.ListModels()
-        model_info = [Env.get().nos_client.GetModelInfo(model) for model in models]
-        model_info.sort(key=lambda info: info.task.value)
-
-        def create_nos_udf(task: str, model_name: str, param_names: List[str]) -> Callable:
-            def func(*args: Any) -> Any:
-                kwargs = {param_name: val for param_name, val in zip(param_names, args)}
-                result = Env.get().nos_client.Run(task=task, model_name=model_name, **kwargs)
-                if len(result) == 1:
-                    return list(result.values())[0]
-                else:
-                    return result
-
-            return func
-
-        prev_task = ''
-        pt_module: Optional[types.ModuleType] = None
-        for info in model_info:
-            if info.task.value != prev_task:
-                # we construct one submodule of pixeltable.functions per task
-                module_name = f'pixeltable.functions.{info.task.name.lower()}'
-                pt_module = types.ModuleType(module_name)
-                pt_module.__package__ = 'pixeltable.functions'
-                sys.modules[module_name] = pt_module
-                prev_task = info.task.value
-
-            # add a Function and its implementation for this model to the module
-            model_id = info.name.replace("/", "_").replace("-", "_")
-            eval_symbol = f'{model_id}_impl'
-            inputs = info.signature.get_inputs_spec()
-            # create the eval function
-            setattr(pt_module, eval_symbol, create_nos_udf(info.task, info.name, list(inputs.keys())))
-            return_type, param_types = self._convert_nos_signature(info.signature)
-            pt_func = Function.make_library_function(
-                return_type, param_types, module_name=module_name, eval_symbol=eval_symbol)
-            setattr(pt_module, model_id, pt_func)
-            self.register_function(module_name, model_id, pt_func)
+    # def _convert_nos_signature(self, sig: nos.common.spec.FunctionSignature) -> Tuple[ColumnType, List[ColumnType]]:
+    #     if len(sig.get_outputs_spec()) > 1:
+    #         return_type = JsonType()
+    #     else:
+    #         return_type = ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
+    #     param_types: List[ColumnType] = []
+    #     for _, type_info in sig.get_inputs_spec().items():
+    #         # TODO: deal with multiple input shapes
+    #         if isinstance(type_info, list):
+    #             type_info = type_info[0]
+    #         param_types.append(ColumnType.from_nos(type_info))
+    #     return return_type, param_types
+    #
+    # def register_nos_functions(self) -> None:
+    #     """Register all models supported by the NOS backend as library functions"""
+    #     if self.has_registered_nos_functions:
+    #         return
+    #     self.has_registered_nos_functions = True
+    #     models = Env.get().nos_client.ListModels()
+    #     model_info = [Env.get().nos_client.GetModelInfo(model) for model in models]
+    #     model_info.sort(key=lambda info: info.task.value)
+    #
+    #     def create_nos_udf(task: str, model_name: str, param_names: List[str]) -> Callable:
+    #         def func(*args: Any) -> Any:
+    #             kwargs = {param_name: val for param_name, val in zip(param_names, args)}
+    #             result = Env.get().nos_client.Run(task=task, model_name=model_name, **kwargs)
+    #             if len(result) == 1:
+    #                 return list(result.values())[0]
+    #             else:
+    #                 return result
+    #
+    #         return func
+    #
+    #     prev_task = ''
+    #     pt_module: Optional[types.ModuleType] = None
+    #     for info in model_info:
+    #         if info.task.value != prev_task:
+    #             # we construct one submodule of pixeltable.functions per task
+    #             module_name = f'pixeltable.functions.{info.task.name.lower()}'
+    #             pt_module = types.ModuleType(module_name)
+    #             pt_module.__package__ = 'pixeltable.functions'
+    #             sys.modules[module_name] = pt_module
+    #             prev_task = info.task.value
+    #
+    #         # add a Function and its implementation for this model to the module
+    #         model_id = info.name.replace("/", "_").replace("-", "_")
+    #         eval_symbol = f'{model_id}_impl'
+    #         inputs = info.signature.get_inputs_spec()
+    #         # create the eval function
+    #         setattr(pt_module, eval_symbol, create_nos_udf(info.task, info.name, list(inputs.keys())))
+    #         return_type, param_types = self._convert_nos_signature(info.signature)
+    #         pt_func = Function.make_library_function(
+    #             return_type, param_types, module_name=module_name, eval_symbol=eval_symbol)
+    #         setattr(pt_module, model_id, pt_func)
+    #         self.register_function(module_name, model_id, pt_func)
 
     def list_functions(self) -> List[Function.Metadata]:
         # retrieve Function.Metadata data for all existing stored functions from store directly

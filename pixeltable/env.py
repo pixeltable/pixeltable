@@ -12,7 +12,7 @@ import logging
 import sys
 import platform
 
-from nos.client import InferenceClient
+#from nos.client import InferenceClient
 
 class Env:
     """
@@ -39,7 +39,7 @@ class Env:
         self._db_name: Optional[str] = None
         self._db_port: Optional[int] = None
         self._store_container: Optional[docker.models.containers.Container] = None
-        self._nos_client: Optional[InferenceClient] = None
+        #self._nos_client: Optional[InferenceClient] = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -273,7 +273,7 @@ class Env:
         assert self._sa_engine is not None
         return self._sa_engine
 
-    @property
-    def nos_client(self) -> InferenceClient:
-        assert self._nos_client is not None
-        return self._nos_client
+    #@property
+    # def nos_client(self) -> InferenceClient:
+    #     assert self._nos_client is not None
+    #     return self._nos_client
