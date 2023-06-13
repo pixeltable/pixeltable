@@ -1290,6 +1290,8 @@ class MutableTable(Table):
         extract_frames_from: Optional[str], extracted_frame_col: Optional[str], extracted_frame_idx_col: Optional[str],
         extracted_fps: Optional[int],
     ) -> 'MutableTable':
+        # create a copy here so we can modify it
+        cols = [copy.copy(c) for c in cols]
         # make sure col names are unique (within the table) and assign ids
         cols_by_name: Dict[str, Column] = {}
         for pos, col in enumerate(cols):
@@ -1303,7 +1305,8 @@ class MutableTable(Table):
                 col.check_value_expr()
             if col.stored is True and col.name == extracted_frame_col:
                 raise exc.Error(f'Column {col.name}: extracted frame column cannot be stored')
-            if col.stored is False and not(col.is_computed and col.col_type.is_image_type()):
+            if col.stored is False and not(col.is_computed and col.col_type.is_image_type()) \
+                    and col.name != extracted_frame_col:
                 raise exc.Error(f'Column {name}: stored={col.stored} only applies to computed image columns')
             if col.stored is None:
                 if col.is_computed and col.col_type.is_image_type():

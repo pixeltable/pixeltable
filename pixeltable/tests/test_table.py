@@ -111,6 +111,8 @@ class TestTable:
         tbl = db.create_table(
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',
             extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        # create_table() didn't mess with our 'cols' variable
+        assert cols[1].stored == None
         tbl.add_column(catalog.Column('c1', computed_with=tbl.frame.rotate(30), stored=True))
         tbl.add_column(catalog.Column('c2', computed_with=tbl.c1.rotate(40), stored=False))
         tbl.add_column(catalog.Column('c3', computed_with=tbl.c2.rotate(50), stored=True))
