@@ -6,6 +6,7 @@ import logging
 import dataclasses
 import pathlib
 import copy
+from uuid import UUID
 
 import PIL, cv2
 import numpy as np
@@ -21,7 +22,6 @@ from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType, StringType
 from pixeltable.index import VectorIndex
 from pixeltable.function import Function, FunctionRegistry
-from pixeltable.utils.video import FrameIterator
 from pixeltable.utils.imgstore import ImageStore
 
 
@@ -262,10 +262,9 @@ class TableParameters:
 
 
 class Table(SchemaObject):
-    """Base class for tables.
-    """
+    """Base class for tables."""
     def __init__(
-            self, db_id: int, tbl_id: int, dir_id: int, name: str, version: int, params: Dict, cols: List[Column]):
+            self, db_id: UUID, tbl_id: UUID, dir_id: UUID, name: str, version: int, params: Dict, cols: List[Column]):
         super().__init__(tbl_id)
         self.db_id = db_id
         self.dir_id = dir_id
@@ -410,7 +409,7 @@ class Table(SchemaObject):
         return pd_df.hide(axis='index')
 
     def storage_name(self) -> str:
-        return f'tbl_{self.id}'
+        return f'tbl_{self.id.hex}'
 
     def _check_is_dropped(self) -> None:
         if self.is_dropped:
@@ -437,12 +436,12 @@ class Table(SchemaObject):
         self.sa_tbl = sql.Table(self.storage_name(), self.sa_md, *sa_cols)
 
     @classmethod
-    def _vector_idx_name(cls, tbl_id: int, col: Column) -> str:
-        return f'{tbl_id}_{col.id}'
+    def _vector_idx_name(cls, tbl_id: UUID, col: Column) -> str:
+        return f'{tbl_id.hex}_{col.id}'
 
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
-    def load_cols(cls, tbl_id: int, schema_version: int, session: orm.Session) -> List[Column]:
+    def load_cols(cls, tbl_id: UUID, schema_version: int, session: orm.Session) -> List[Column]:
         """
         Returns loaded cols.
         """
@@ -484,6 +483,7 @@ class TableSnapshot(Table):
     @classmethod
     def display_name(cls) -> str:
         return 'table snapshot'
+
 
 class MutableTable(Table):
     @dataclasses.dataclass
@@ -1214,7 +1214,7 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def create(
-        cls, db_id: int, dir_id: int, name: str, cols: List[Column],
+        cls, db_id: UUID, dir_id: UUID, name: str, cols: List[Column],
         num_retained_versions: int,
         extract_frames_from: Optional[str], extracted_frame_col: Optional[str], extracted_frame_idx_col: Optional[str],
         extracted_fps: Optional[int],
@@ -1444,7 +1444,7 @@ class Db:
 
     Use this handle to create and manage tables, functions, and directories in the database.
     """
-    def __init__(self, db_id: int, name: str):
+    def __init__(self, db_id: UUID, name: str):
         self.id = db_id
         self.name = name
         self.paths = PathDict()
@@ -1965,7 +1965,6 @@ class Db:
 
     @classmethod
     def create(cls, name: str) -> 'Db':
-        db_id: int = -1
         with orm.Session(Env.get().engine) as session:
             # check for duplicate name
             is_duplicate = session.query(sql.func.count(store.Db.id)).where(store.Db.name == name).scalar() > 0

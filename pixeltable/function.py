@@ -8,6 +8,7 @@ from sqlalchemy.sql.expression import func as sql_func
 import cloudpickle
 import inspect
 import logging
+from uuid import UUID
 
 #import nos
 
@@ -100,7 +101,7 @@ class Function:
 
 
     def __init__(
-            self, md: Function.Metadata, id: Optional[int] = None,
+            self, md: Function.Metadata, id: Optional[UUID] = None,
             module_name: Optional[str] = None, eval_symbol: Optional[str] = None, init_symbol: Optional[str] = None,
             update_symbol: Optional[str] = None, value_symbol: Optional[str] = None,
             eval_fn: Optional[Callable] = None, init_fn: Optional[Callable] = None,
@@ -320,7 +321,7 @@ class Function:
             assert self.id is not None
         if self.id is not None:
             # this is a stored function, we only need the id to reconstruct it
-            return {'id': self.id, 'fqn': None}
+            return {'id': self.id.hex, 'fqn': None}
         else:
             # this is a library function, the fqn serves as the id
             return {'id': None, 'fqn': self.md.fqn}
@@ -330,7 +331,7 @@ class Function:
         assert 'id' in d
         assert 'fqn' in d
         if d['id'] is not None:
-            return FunctionRegistry.get().get_function(id=d['id'])
+            return FunctionRegistry.get().get_function(id=UUID(hex=d['id']))
         else:
             assert d['fqn'] is not None
             return FunctionRegistry.get().get_function(fqn=d['fqn'])
@@ -364,7 +365,7 @@ class FunctionRegistry:
         return cls._instance
 
     def __init__(self):
-        self.stored_fns_by_id: Dict[int, Function] = {}
+        self.stored_fns_by_id: Dict[UUID, Function] = {}
         self.library_fns: Dict[str, Function] = {}  # fqn -> Function
         self.has_registered_nos_functions = False
         self.nos_functions: Dict[str, nos.common.ModelSpec] = {}
@@ -373,7 +374,7 @@ class FunctionRegistry:
         """
         Useful during testing
         """
-        self.stored_fns_by_id: Dict[int, Function] = {}
+        self.stored_fns_by_id: Dict[UUID, Function] = {}
 
     def register_function(self, module_name: str, fn_name: str, fn: Function) -> None:
         fqn = f'{module_name}.{fn_name}'  # fully-qualified name
@@ -464,7 +465,7 @@ class FunctionRegistry:
                 stored_fn_md.append(md)
         return [fn.md for fn in self.library_fns.values()] + stored_fn_md
 
-    def get_function(self, *, id: Optional[int] = None, fqn: Optional[str] = None) -> Function:
+    def get_function(self, *, id: Optional[UUID] = None, fqn: Optional[str] = None) -> Function:
         assert (id is not None) != (fqn is not None)
         if id is not None:
             if id not in self.stored_fns_by_id:
@@ -506,7 +507,7 @@ class FunctionRegistry:
             return self.library_fns[fqn]
 
     def create_function(
-            self, fn: Function, db_id: Optional[int] = None, dir_id: Optional[int] = None,
+            self, fn: Function, db_id: Optional[UUID] = None, dir_id: Optional[UUID] = None,
             name: Optional[str] = None
     ) -> None:
         with Env.get().engine.begin() as conn:
@@ -531,7 +532,7 @@ class FunctionRegistry:
             self.stored_fns_by_id[fn.id] = fn
             _logger.info(f'Created function {name} in store')
 
-    def update_function(self, id: int, new_fn: Function) -> None:
+    def update_function(self, id: UUID, new_fn: Function) -> None:
         """
         Updates the callables for the Function with the given id in the store and in the cache, if present.
         """
@@ -561,7 +562,7 @@ class FunctionRegistry:
             if new_fn.value_fn is not None:
                 self.stored_fns_by_id[id].value_fn = new_fn.value_fn
 
-    def delete_function(self, id: int) -> None:
+    def delete_function(self, id: UUID) -> None:
         assert id is not None
         with Env.get().engine.begin() as conn:
             conn.execute(

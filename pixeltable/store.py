@@ -1,8 +1,10 @@
 import enum
 import platform
+import uuid
 
 import sqlalchemy as sql
 from sqlalchemy import Integer, String, Enum, Boolean, TIMESTAMP, BigInteger, LargeBinary, JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import ForeignKey, UniqueConstraint, ForeignKeyConstraint
 from sqlalchemy.orm import declarative_base
 
@@ -14,15 +16,15 @@ Base = declarative_base()
 class Db(Base):
     __tablename__ = 'dbs'
 
-    id = sql.Column(Integer, primary_key=True, autoincrement=True, nullable=False)
+    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     name = sql.Column(String, nullable=False)
 
 
 class Dir(Base):
     __tablename__ = 'dirs'
 
-    id = sql.Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    db_id = sql.Column(Integer, ForeignKey('dbs.id'), nullable=False)
+    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    db_id = sql.Column(UUID(as_uuid=True), ForeignKey('dbs.id'), nullable=False)
     path = sql.Column(String, nullable=False)
     is_snapshot = sql.Column(Boolean, nullable=False)
 
@@ -32,9 +34,9 @@ class Table(Base):
 
     MAX_VERSION = 9223372036854775807  # 2^63 - 1
 
-    id = sql.Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    db_id = sql.Column(Integer, ForeignKey('dbs.id'), nullable=False)
-    dir_id = sql.Column(Integer, ForeignKey('dirs.id'), nullable=False)
+    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    db_id = sql.Column(UUID(as_uuid=True), ForeignKey('dbs.id'), nullable=False)
+    dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     name = sql.Column(String, nullable=False)
     parameters = sql.Column(JSON, nullable=False)
 
@@ -59,14 +61,14 @@ class Table(Base):
     )
 
     def storage_name(self) -> str:
-        return f'tbl_{self.db_id}_{self.id}'
+        return f'tbl_{self.id.replace("-", "_")}'
 
 
 # versioning: each table schema change results in a new record
 class TableSchemaVersion(Base):
     __tablename__ = 'tableschemaversions'
 
-    tbl_id = sql.Column(Integer, ForeignKey('tables.id'), primary_key=True, nullable=False)
+    tbl_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False)
     schema_version = sql.Column(BigInteger, primary_key=True, nullable=False)
     preceding_schema_version = sql.Column(BigInteger, nullable=False)
 
@@ -78,7 +80,7 @@ class TableSchemaVersion(Base):
 class ColumnHistory(Base):
     __tablename__ = 'columnhistory'
 
-    tbl_id = sql.Column(Integer, ForeignKey('tables.id'), primary_key=True, nullable=False)
+    tbl_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False)
     # immutable and monotonically increasing from 0 w/in Table
     col_id = sql.Column(Integer, primary_key=True, nullable=False)
     # table schema version when col was added
@@ -99,7 +101,7 @@ class ColumnHistory(Base):
 class SchemaColumn(Base):
     __tablename__ = 'schemacolumns'
 
-    tbl_id = sql.Column(Integer, ForeignKey('tables.id'), primary_key=True, nullable=False)
+    tbl_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False)
     schema_version = sql.Column(BigInteger, primary_key=True, nullable=False)
     # immutable and monotonically increasing from 0 w/in Table
     col_id = sql.Column(Integer, primary_key=True, nullable=False)
@@ -124,11 +126,11 @@ class SchemaColumn(Base):
 class TableSnapshot(Base):
     __tablename__ = 'tablesnapshots'
 
-    id = sql.Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    db_id = sql.Column(Integer, ForeignKey('dbs.id'), nullable=False)
-    dir_id = sql.Column(Integer, ForeignKey('dirs.id'), nullable=False)
+    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    db_id = sql.Column(UUID(as_uuid=True), ForeignKey('dbs.id'), nullable=False)
+    dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     name = sql.Column(String, nullable=False)
-    tbl_id = sql.Column(Integer, nullable=False)
+    tbl_id = sql.Column(UUID(as_uuid=True), nullable=False)
     tbl_version = sql.Column(BigInteger, nullable=False)
     tbl_schema_version = sql.Column(BigInteger, nullable=False)
 
@@ -150,9 +152,9 @@ class Function(Base):
     """
     __tablename__ = 'functions'
 
-    id = sql.Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    db_id = sql.Column(Integer, ForeignKey('dbs.id'), nullable=True)
-    dir_id = sql.Column(Integer, ForeignKey('dirs.id'), nullable=True)
+    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    db_id = sql.Column(UUID(as_uuid=True), ForeignKey('dbs.id'), nullable=True)
+    dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     name = sql.Column(String, nullable=True)
     md = sql.Column(JSON, nullable=False)  # Function.md
     eval_obj = sql.Column(LargeBinary, nullable=True)  # Function.eval_fn
@@ -161,31 +163,3 @@ class Function(Base):
     value_obj = sql.Column(LargeBinary, nullable=True)  # Function.value_fn
     python_version = sql.Column(
         String, nullable=False, default=platform.python_version, onupdate=platform.python_version)
-
-
-class OpCodes(enum.Enum):
-    CREATE_DB = 1
-    RENAME_DB = 1
-    DROP_DB = 1
-    CREATE_TABLE = 1
-    RENAME_TABLE = 1
-    DROP_TABLE = 1
-    ADD_COLUMN = 1
-    RENAME_COLUMN = 1
-    DROP_COLUMN = 1
-    CREATE_DIR = 1
-    DROP_DIR = 1
-    CREATE_SNAPSHOT = 1
-    DROP_SNAPSHOT = 1
-
-
-class Operation(Base):
-    __tablename__ = 'oplog'
-
-    id = sql.Column(Integer, primary_key=True, autoincrement=True, nullable=False)
-    ts = sql.Column(TIMESTAMP, nullable=False)
-    # encodes db_id, schema object type (table, view, table/view snapshot), table/view/... id
-    schema_object = sql.Column(BigInteger, nullable=False)
-    opcode = sql.Column(Enum(OpCodes), nullable=False)
-    # operation-specific details; json
-    details = sql.Column(String, nullable=False)

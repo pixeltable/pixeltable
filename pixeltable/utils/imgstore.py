@@ -5,6 +5,7 @@ import re
 from typing import Optional, List, Tuple, Dict
 from pathlib import Path
 from collections import defaultdict
+from uuid import UUID
 
 from pixeltable.env import Env
 
@@ -13,21 +14,21 @@ class ImageStore:
     """
     Utilities to manage images stored in Env.img_dir
     """
-    pattern = re.compile(r'(\d+)_(\d+)_(\d+)_\d+.\w+')  # tbl_id, col_id, version, rowid, suffix
+    pattern = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_\d+.\w+')  # tbl_id, col_id, version, rowid, suffix
 
     @classmethod
-    def get_path(cls, tbl_id: int, col_id: int, version: int, rowid: int, suffix: str) -> Path:
+    def get_path(cls, tbl_id: UUID, col_id: int, version: int, rowid: int, suffix: str) -> Path:
         """Return Path for the target cell.
         """
-        return Env.get().img_dir / f'{tbl_id}_{col_id}_{version}_{rowid}.{suffix}'
+        return Env.get().img_dir / f'{tbl_id.hex}_{col_id}_{version}_{rowid}.{suffix}'
 
     @classmethod
-    def delete(cls, tbl_id: int, v_min: Optional[int] = None) -> None:
+    def delete(cls, tbl_id: UUID, v_min: Optional[int] = None) -> None:
         """
         Delete all images belonging to tbl_id. If v_min is given, only deletes images with version >= v_min
         """
         assert tbl_id is not None
-        paths = glob.glob(str(Env.get().img_dir / f'{tbl_id}_*_*_*.*'))
+        paths = glob.glob(str(Env.get().img_dir / f'{tbl_id.hex}_*_*_*.*'))
         if v_min is not None:
             paths = [
                 Env.get().img_dir / matched[0]
@@ -37,21 +38,22 @@ class ImageStore:
             os.remove(p)
 
     @classmethod
-    def count(cls, tbl_id: int) -> int:
+    def count(cls, tbl_id: UUID) -> int:
         """
         Return number of images for given tbl_id.
         """
-        paths = glob.glob(str(Env.get().img_dir / f'{tbl_id}_*_*_*.*'))
+        paths = glob.glob(str(Env.get().img_dir / f'{tbl_id.hex}_*_*_*.*'))
         return len(paths)
 
     @classmethod
     def stats(cls) -> List[Tuple[int, int, int, int]]:
         paths = glob.glob(str(Env.get().img_dir / '*.*'))
-        d: Dict[Tuple[int, int], List[int]] = defaultdict(lambda: [0, 0])
+        # key: (tbl_id, col_id), value: (num_files, size)
+        d: Dict[Tuple[UUID, int], List[int]] = defaultdict(lambda: [0, 0])
         for p in paths:
             matched = re.match(cls.pattern, Path(p).name)
             assert matched is not None
-            tbl_id, col_id = int(matched[1]), int(matched[2])
+            tbl_id, col_id = UUID(hex=matched[1]), int(matched[2])
             file_info = os.stat(p)
             t = d[(tbl_id, col_id)]
             t[0] += 1
