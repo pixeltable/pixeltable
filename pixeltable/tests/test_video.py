@@ -66,8 +66,8 @@ class TestVideo:
             tbl.insert_rows([[1, 2]], columns=['video'])
 
         # create snapshot to make sure we can still retrieve frames
-        db.create_snapshot('snap', ['test'])
-        snap = db.get_table('snap.test')
+        db.create_snapshot('snap', 'test')
+        snap = db.get_table('snap')
         _ = snap[snap.frame].show(10)
 
     def test_computed_cols(self, test_db: catalog.Db) -> None:

@@ -13,7 +13,7 @@ from uuid import UUID
 #import nos
 
 from pixeltable.type_system import ColumnType, JsonType
-from pixeltable import store
+from pixeltable.metadata import schema
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
 import pixeltable
@@ -452,10 +452,10 @@ class FunctionRegistry:
         # retrieve Function.Metadata data for all existing stored functions from store directly
         # (self.stored_fns_by_id isn't guaranteed to contain all functions)
         stmt = sql.select(
-                store.Function.name, store.Function.md,
-                store.Db.name, store.Dir.path, sql_func.length(store.Function.init_obj))\
-            .where(store.Function.db_id == store.Db.id)\
-            .where(store.Function.dir_id == store.Dir.id)
+                schema.Function.name, schema.Function.md,
+                schema.Db.name, schema.Dir.path, sql_func.length(schema.Function.init_obj))\
+            .where(schema.Function.db_id == schema.Db.id)\
+            .where(schema.Function.dir_id == schema.Dir.id)
         stored_fn_md: List[Function.Metadata] = []
         with Env.get().engine.begin() as conn:
             rows = conn.execute(stmt)
@@ -470,10 +470,10 @@ class FunctionRegistry:
         if id is not None:
             if id not in self.stored_fns_by_id:
                 stmt = sql.select(
-                        store.Function.name, store.Function.md,
-                        store.Function.eval_obj, store.Function.init_obj, store.Function.update_obj,
-                        store.Function.value_obj) \
-                    .where(store.Function.id == id)
+                        schema.Function.name, schema.Function.md,
+                        schema.Function.eval_obj, schema.Function.init_obj, schema.Function.update_obj,
+                        schema.Function.value_obj) \
+                    .where(schema.Function.id == id)
                 with Env.get().engine.begin() as conn:
                     rows = conn.execute(stmt)
                     row = next(rows)
@@ -524,7 +524,7 @@ class FunctionRegistry:
             _logger.debug(f'Pickled function {name} ({total_size} bytes)')
 
             res = conn.execute(
-                sql.insert(store.Function.__table__)
+                sql.insert(schema.Function.__table__)
                     .values(
                         db_id=db_id, dir_id=dir_id, name=name, md=fn.md.as_dict(),
                         eval_obj=eval_fn_str, init_obj=init_fn_str, update_obj=update_fn_str, value_obj=value_fn_str))
@@ -540,17 +540,17 @@ class FunctionRegistry:
         with Env.get().engine.begin() as conn:
             updates = {}
             if new_fn.eval_fn is not None:
-                updates[store.Function.eval_obj] = cloudpickle.dumps(new_fn.eval_fn)
+                updates[schema.Function.eval_obj] = cloudpickle.dumps(new_fn.eval_fn)
             if new_fn.init_fn is not None:
-                updates[store.Function.init_obj] = cloudpickle.dumps(new_fn.init_fn)
+                updates[schema.Function.init_obj] = cloudpickle.dumps(new_fn.init_fn)
             if new_fn.update_fn is not None:
-                updates[store.Function.update_obj] = cloudpickle.dumps(new_fn.update_fn)
+                updates[schema.Function.update_obj] = cloudpickle.dumps(new_fn.update_fn)
             if new_fn.value_fn is not None:
-                updates[store.Function.value_obj] = cloudpickle.dumps(new_fn.value_fn)
+                updates[schema.Function.value_obj] = cloudpickle.dumps(new_fn.value_fn)
             conn.execute(
-                sql.update(store.Function.__table__)
+                sql.update(schema.Function.__table__)
                     .values(updates)
-                    .where(store.Function.id == id))
+                    .where(schema.Function.id == id))
             _logger.info(f'Updated function {new_fn.md.fqn} (id={id}) in store')
         if id in self.stored_fns_by_id:
             if new_fn.eval_fn is not None:
@@ -566,6 +566,6 @@ class FunctionRegistry:
         assert id is not None
         with Env.get().engine.begin() as conn:
             conn.execute(
-                sql.delete(store.Function.__table__)
-                    .where(store.Function.id == id))
+                sql.delete(schema.Function.__table__)
+                    .where(schema.Function.id == id))
             _logger.info(f'Deleted function with id {id} from store')

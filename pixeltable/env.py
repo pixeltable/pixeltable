@@ -150,8 +150,8 @@ class Env:
             self._logger.info('creating database')
             create_database(self.db_url())
             self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
-            from pixeltable import store
-            store.Base.metadata.create_all(self._sa_engine)
+            from pixeltable.metadata import schema
+            schema.Base.metadata.create_all(self._sa_engine)
         else:
             self._logger.info(f'found database {self.db_url(hide_passwd=True)}')
         if self._sa_engine is None:

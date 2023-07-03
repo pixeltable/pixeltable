@@ -4,11 +4,11 @@ import logging
 
 import sqlalchemy.orm as orm
 
-from pixeltable import catalog, store
+from pixeltable import catalog
+from pixeltable.metadata import schema
 from pixeltable.env import Env
 from pixeltable.function import FunctionRegistry
 from pixeltable import exceptions as exc
-from pixeltable.utils import store_utils
 
 __all__ = [
     'Client',
@@ -151,5 +151,5 @@ class Client:
         Returns:
             List of the names of all databases.
         """
-        with orm.Session(Env.get().engine) as session:
-            return [r[0] for r in session.query(store.Db.name)]
+        with orm.Session(Env.get().engine, future=True) as session:
+            return [r[0] for r in session.query(schema.Db.name)]

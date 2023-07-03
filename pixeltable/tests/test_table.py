@@ -405,7 +405,8 @@ class TestTable:
         tbl.insert_pandas(data1)
         assert tbl.count() == len(data1)
 
-        db.create_snapshot('snap', ['main.test1'])
+        db.create_dir('snap')
+        db.create_snapshot('snap.test1', 'main.test1')
         snap = db.get_table('snap.test1')
         assert snap.count() == len(data1)
 

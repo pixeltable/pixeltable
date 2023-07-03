@@ -16,7 +16,7 @@ from tqdm.autonotebook import tqdm
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-from pixeltable import store
+from pixeltable.metadata import schema
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
 from pixeltable.type_system import ColumnType, StringType
@@ -217,25 +217,13 @@ class SchemaObject:
         return ''
 
 
-class DirBase(SchemaObject):
+class Dir(SchemaObject):
     def __init__(self, dir_id: int):
         super().__init__(dir_id)
 
     @classmethod
     def display_name(cls) -> str:
         return 'directory'
-
-
-# contains only MutableTables
-class Dir(DirBase):
-    def __init__(self, dir_id: int):
-        super().__init__(dir_id)
-
-
-# contains only TableSnapshots
-class SnapshotDir(DirBase):
-    def __init__(self, dir_id: int):
-        super().__init__(dir_id)
 
 
 class NamedFunction(SchemaObject):
@@ -419,7 +407,7 @@ class Table(SchemaObject):
         self.rowid_col = sql.Column('rowid', sql.BigInteger, nullable=False)
         self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
         self.v_max_col = \
-            sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(store.Table.MAX_VERSION))
+            sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION))
 
         sa_cols = [self.rowid_col, self.v_min_col, self.v_max_col]
         for col in [c for c in self.cols if c.is_stored]:
@@ -445,10 +433,10 @@ class Table(SchemaObject):
         """
         Returns loaded cols.
         """
-        col_records = session.query(store.SchemaColumn) \
-            .where(store.SchemaColumn.tbl_id == tbl_id) \
-            .where(store.SchemaColumn.schema_version == schema_version) \
-            .order_by(store.SchemaColumn.pos.asc()).all()
+        col_records = session.query(schema.SchemaColumn) \
+            .where(schema.SchemaColumn.tbl_id == tbl_id) \
+            .where(schema.SchemaColumn.schema_version == schema_version) \
+            .order_by(schema.SchemaColumn.pos.asc()).all()
         cols = [
             Column(
                 r.name, ColumnType.deserialize(r.col_type), primary_key=r.is_pk, nullable=r.is_nullable,
@@ -462,7 +450,7 @@ class Table(SchemaObject):
 
 
 class TableSnapshot(Table):
-    def __init__(self, snapshot_record: store.TableSnapshot, params: Dict, cols: List[Column]):
+    def __init__(self, snapshot_record: schema.TableSnapshot, params: Dict, cols: List[Column]):
         assert snapshot_record.db_id is not None
         assert snapshot_record.id is not None
         assert snapshot_record.dir_id is not None
@@ -495,7 +483,7 @@ class MutableTable(Table):
 
     """A :py:class:`Table` that can be modified.
     """
-    def __init__(self, tbl_record: store.Table, schema_version: int, cols: List[Column]):
+    def __init__(self, tbl_record: schema.Table, schema_version: int, cols: List[Column]):
         assert tbl_record.db_id is not None
         assert tbl_record.id is not None
         assert tbl_record.dir_id is not None
@@ -582,20 +570,20 @@ class MutableTable(Table):
 
         with Env.get().engine.begin() as conn:
             conn.execute(
-                sql.update(store.Table.__table__)
+                sql.update(schema.Table.__table__)
                     .values({
-                        store.Table.current_version: self.version,
-                        store.Table.current_schema_version: self.schema_version,
-                        store.Table.next_col_id: self.next_col_id
+                        schema.Table.current_version: self.version,
+                        schema.Table.current_schema_version: self.schema_version,
+                        schema.Table.next_col_id: self.next_col_id
                     })
-                    .where(store.Table.id == self.id))
+                    .where(schema.Table.id == self.id))
             conn.execute(
-                sql.insert(store.TableSchemaVersion.__table__)
+                sql.insert(schema.TableSchemaVersion.__table__)
                     .values(
                         tbl_id=self.id, schema_version=self.schema_version,
                         preceding_schema_version=preceding_schema_version))
             conn.execute(
-                sql.insert(store.ColumnHistory.__table__)
+                sql.insert(schema.ColumnHistory.__table__)
                     .values(tbl_id=self.id, col_id=col.id, schema_version_add=self.schema_version))
             self._create_col_md(conn)
             _logger.info(f'Added column {col.name} to table {self.name}, new version: {self.version}')
@@ -737,23 +725,23 @@ class MutableTable(Table):
 
         with Env.get().engine.begin() as conn:
             conn.execute(
-                sql.update(store.Table.__table__)
+                sql.update(schema.Table.__table__)
                     .values({
-                        store.Table.parameters: dataclasses.asdict(self.parameters),
-                        store.Table.current_version: self.version,
-                        store.Table.current_schema_version: self.schema_version
+                        schema.Table.parameters: dataclasses.asdict(self.parameters),
+                        schema.Table.current_version: self.version,
+                        schema.Table.current_schema_version: self.schema_version
                     })
-                    .where(store.Table.id == self.id))
+                    .where(schema.Table.id == self.id))
             conn.execute(
-                sql.insert(store.TableSchemaVersion.__table__)
+                sql.insert(schema.TableSchemaVersion.__table__)
                     .values(
                         tbl_id=self.id, schema_version=self.schema_version,
                         preceding_schema_version=preceding_schema_version))
             conn.execute(
-                sql.update(store.ColumnHistory.__table__)
-                    .values({store.ColumnHistory.schema_version_drop: self.schema_version})
-                    .where(store.ColumnHistory.tbl_id == self.id)
-                    .where(store.ColumnHistory.col_id == col.id))
+                sql.update(schema.ColumnHistory.__table__)
+                    .values({schema.ColumnHistory.schema_version_drop: self.schema_version})
+                    .where(schema.ColumnHistory.tbl_id == self.id)
+                    .where(schema.ColumnHistory.col_id == col.id))
             self._create_col_md(conn)
         self._create_sa_tbl()
         _logger.info(f'Dropped column {name} from table {self.name}, new version: {self.version}')
@@ -790,14 +778,14 @@ class MutableTable(Table):
 
         with Env.get().engine.begin() as conn:
             conn.execute(
-                sql.update(store.Table.__table__)
+                sql.update(schema.Table.__table__)
                     .values({
-                        store.Table.current_version: self.version,
-                        store.Table.current_schema_version: self.schema_version
+                        schema.Table.current_version: self.version,
+                        schema.Table.current_schema_version: self.schema_version
                     })
-                    .where(store.Table.id == self.id))
+                    .where(schema.Table.id == self.id))
             conn.execute(
-                sql.insert(store.TableSchemaVersion.__table__)
+                sql.insert(schema.TableSchemaVersion.__table__)
                     .values(tbl_id=self.id, schema_version=self.schema_version,
                             preceding_schema_version=preceding_schema_version))
             self._create_col_md(conn)
@@ -807,7 +795,7 @@ class MutableTable(Table):
         for pos, c in enumerate(self.cols):
             value_expr_str = c.value_expr.serialize() if c.value_expr is not None else None
             conn.execute(
-                sql.insert(store.SchemaColumn.__table__)
+                sql.insert(schema.SchemaColumn.__table__)
                 .values(
                     tbl_id=self.id, schema_version=self.version, col_id=c.id, pos=pos, name=c.name,
                     col_type=c.col_type.serialize(), is_nullable=c.nullable, is_pk=c.primary_key,
@@ -1036,9 +1024,9 @@ class MutableTable(Table):
 
             progress_bar.close()
             conn.execute(
-                sql.update(store.Table.__table__)
-                    .values({store.Table.current_version: self.version, store.Table.next_row_id: self.next_row_id})
-                    .where(store.Table.id == self.id))
+                sql.update(schema.Table.__table__)
+                    .values({schema.Table.current_version: self.version, schema.Table.next_row_id: self.next_row_id})
+                    .where(schema.Table.id == self.id))
 
         if len(idx_col_info) > 0:
             # update image indices
@@ -1071,12 +1059,12 @@ class MutableTable(Table):
         if self.version == 0:
             raise exc.Error('Cannot revert version 0')
         # check if the current version is referenced by a snapshot
-        with orm.Session(Env.get().engine) as session:
+        with orm.Session(Env.get().engine, future=True) as session:
             # make sure we don't have a snapshot referencing this version
-            num_references = session.query(sql.func.count(store.TableSnapshot.id)) \
-                .where(store.TableSnapshot.db_id == self.db_id) \
-                .where(store.TableSnapshot.tbl_id == self.id) \
-                .where(store.TableSnapshot.tbl_version == self.version) \
+            num_references = session.query(sql.func.count(schema.TableSnapshot.id)) \
+                .where(schema.TableSnapshot.db_id == self.db_id) \
+                .where(schema.TableSnapshot.tbl_id == self.id) \
+                .where(schema.TableSnapshot.tbl_version == self.version) \
                 .scalar()
             if num_references > 0:
                 raise exc.Error(
@@ -1088,15 +1076,15 @@ class MutableTable(Table):
             conn.execute(sql.delete(self.sa_tbl).where(self.sa_tbl.c.v_min == self.version))
             # revert new deletions
             conn.execute(
-                sql.update(self.sa_tbl).values({self.sa_tbl.c.v_max: store.Table.MAX_VERSION})
+                sql.update(self.sa_tbl).values({self.sa_tbl.c.v_max: schema.Table.MAX_VERSION})
                     .where(self.sa_tbl.c.v_max == self.version))
 
             if self.version == self.schema_version:
                 # the current version involved a schema change:
                 # if the schema change was to add a column, we now need to drop it
-                added_col_id = session.query(store.ColumnHistory.col_id)\
-                    .where(store.ColumnHistory.tbl_id == self.id)\
-                    .where(store.ColumnHistory.schema_version_add == self.schema_version)\
+                added_col_id = session.query(schema.ColumnHistory.col_id)\
+                    .where(schema.ColumnHistory.tbl_id == self.id)\
+                    .where(schema.ColumnHistory.schema_version_add == self.schema_version)\
                     .scalar()
                 if added_col_id is not None:
                     # drop this newly-added column and its ColumnHistory record
@@ -1104,27 +1092,27 @@ class MutableTable(Table):
                     stmt = f'ALTER TABLE {self.storage_name()} DROP COLUMN {c.storage_name()}'
                     conn.execute(sql.text(stmt))
                     conn.execute(
-                        sql.delete(store.ColumnHistory.__table__)
-                            .where(store.ColumnHistory.tbl_id == self.id)
-                            .where(store.ColumnHistory.col_id == added_col_id))
+                        sql.delete(schema.ColumnHistory.__table__)
+                            .where(schema.ColumnHistory.tbl_id == self.id)
+                            .where(schema.ColumnHistory.col_id == added_col_id))
 
                 # if the schema change was to drop a column, we now need to undo that
-                dropped_col_id = session.query(store.ColumnHistory.col_id) \
-                    .where(store.ColumnHistory.tbl_id == self.id) \
-                    .where(store.ColumnHistory.schema_version_drop == self.schema_version) \
+                dropped_col_id = session.query(schema.ColumnHistory.col_id) \
+                    .where(schema.ColumnHistory.tbl_id == self.id) \
+                    .where(schema.ColumnHistory.schema_version_drop == self.schema_version) \
                     .scalar()
                 if dropped_col_id is not None:
                     # fix up the ColumnHistory record
                     conn.execute(
-                        sql.update(store.ColumnHistory.__table__)
-                            .values({store.ColumnHistory.schema_version_drop: None})
-                            .where(store.ColumnHistory.tbl_id == self.id)
-                            .where(store.ColumnHistory.col_id == dropped_col_id))
+                        sql.update(schema.ColumnHistory.__table__)
+                            .values({schema.ColumnHistory.schema_version_drop: None})
+                            .where(schema.ColumnHistory.tbl_id == self.id)
+                            .where(schema.ColumnHistory.col_id == dropped_col_id))
 
                 # we need to determine the preceding schema version and reload the schema
-                preceding_schema_version = session.query(store.TableSchemaVersion.preceding_schema_version) \
-                    .where(store.TableSchemaVersion.tbl_id == self.id) \
-                    .where(store.TableSchemaVersion.schema_version == self.schema_version) \
+                preceding_schema_version = session.query(schema.TableSchemaVersion.preceding_schema_version) \
+                    .where(schema.TableSchemaVersion.tbl_id == self.id) \
+                    .where(schema.TableSchemaVersion.schema_version == self.schema_version) \
                     .scalar()
                 self.cols = self.load_cols(self.id, preceding_schema_version, session)
                 for c in self.cols:
@@ -1133,23 +1121,23 @@ class MutableTable(Table):
                 # drop all SchemaColumn records for this schema version prior to deleting from TableSchemaVersion
                 # (to avoid FK violations)
                 conn.execute(
-                    sql.delete(store.SchemaColumn.__table__)
-                        .where(store.SchemaColumn.tbl_id == self.id)
-                        .where(store.SchemaColumn.schema_version == self.schema_version))
+                    sql.delete(schema.SchemaColumn.__table__)
+                        .where(schema.SchemaColumn.tbl_id == self.id)
+                        .where(schema.SchemaColumn.schema_version == self.schema_version))
                 conn.execute(
-                    sql.delete(store.TableSchemaVersion.__table__)
-                        .where(store.TableSchemaVersion.tbl_id == self.id)
-                        .where(store.TableSchemaVersion.schema_version == self.schema_version))
+                    sql.delete(schema.TableSchemaVersion.__table__)
+                        .where(schema.TableSchemaVersion.tbl_id == self.id)
+                        .where(schema.TableSchemaVersion.schema_version == self.schema_version))
                 self.schema_version = preceding_schema_version
 
             self.version -= 1
             conn.execute(
-                sql.update(store.Table.__table__)
+                sql.update(schema.Table.__table__)
                     .values({
-                        store.Table.current_version: self.version,
-                        store.Table.current_schema_version: self.schema_version
+                        schema.Table.current_version: self.version,
+                        schema.Table.current_schema_version: self.schema_version
                     })
-                    .where(store.Table.id == self.id))
+                    .where(schema.Table.id == self.id))
 
             session.commit()
             _logger.info(f'Table {self.name}: reverted to version {self.version}')
@@ -1159,37 +1147,37 @@ class MutableTable(Table):
         self._check_is_dropped()
         with Env.get().engine.begin() as conn:
             conn.execute(
-                sql.update(store.Table.__table__).values({store.Table.name: new_name})
-                    .where(store.Table.id == self.id))
+                sql.update(schema.Table.__table__).values({schema.Table.name: new_name})
+                    .where(schema.Table.id == self.id))
 
     # MODULE-LOCAL, NOT PUBLIC
     def drop(self) -> None:
         self._check_is_dropped()
         self.is_dropped = True
 
-        with orm.Session(Env.get().engine) as session:
+        with orm.Session(Env.get().engine, future=True) as session:
             # check if we have snapshots
-            num_references = session.query(sql.func.count(store.TableSnapshot.id)) \
-                .where(store.TableSnapshot.db_id == self.db_id) \
-                .where(store.TableSnapshot.tbl_id == self.id) \
+            num_references = session.query(sql.func.count(schema.TableSnapshot.id)) \
+                .where(schema.TableSnapshot.db_id == self.db_id) \
+                .where(schema.TableSnapshot.tbl_id == self.id) \
                 .scalar()
             if num_references == 0:
                 # we can delete this table altogether
                 ImageStore.delete(self.id)
                 conn = session.connection()
-                conn.execute(sql.delete(store.SchemaColumn.__table__).where(store.SchemaColumn.tbl_id == self.id))
-                conn.execute(sql.delete(store.ColumnHistory.__table__).where(store.ColumnHistory.tbl_id == self.id))
+                conn.execute(sql.delete(schema.SchemaColumn.__table__).where(schema.SchemaColumn.tbl_id == self.id))
+                conn.execute(sql.delete(schema.ColumnHistory.__table__).where(schema.ColumnHistory.tbl_id == self.id))
                 conn.execute(
-                    sql.delete(store.TableSchemaVersion.__table__).where(store.TableSchemaVersion.tbl_id == self.id))
-                conn.execute(sql.delete(store.Table.__table__).where(store.Table.id == self.id))
+                    sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == self.id))
+                conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == self.id))
                 self.sa_md.drop_all(bind=conn)
                 session.commit()
                 return
 
         with Env.get().engine.begin() as conn:
             conn.execute(
-                sql.update(store.Table.__table__).values({store.Table.is_mutable: False})
-                    .where(store.Table.id == self.id))
+                sql.update(schema.Table.__table__).values({schema.Table.is_mutable: False})
+                    .where(schema.Table.id == self.id))
 
     @classmethod
     def _create_value_expr(cls, col: Column, existing_cols: Dict[str, Column]) -> None:
@@ -1286,26 +1274,26 @@ class MutableTable(Table):
             cols_by_name[extracted_frame_idx_col].id if extracted_frame_idx_col is not None else -1,
             extracted_fps)
 
-        with orm.Session(Env.get().engine) as session:
-            tbl_record = store.Table(
+        with orm.Session(Env.get().engine, future=True) as session:
+            tbl_record = schema.Table(
                 db_id=db_id, dir_id=dir_id, name=name, parameters=dataclasses.asdict(params), current_version=0,
                 current_schema_version=0, is_mutable=True, next_col_id=len(cols), next_row_id=0)
             session.add(tbl_record)
             session.flush()  # sets tbl_record.id
 
-            tbl_version_record = store.TableSchemaVersion(
+            tbl_version_record = schema.TableSchemaVersion(
                 tbl_id=tbl_record.id, schema_version=0, preceding_schema_version=0)
             session.add(tbl_version_record)
             session.flush()  # avoid FK violations in Postgres
 
             cols_by_name: Dict[str, Column] = {}  # records the cols we have seen so far
             for pos, col in enumerate(cols):
-                session.add(store.ColumnHistory(tbl_id=tbl_record.id, col_id=col.id, schema_version_add=0))
+                session.add(schema.ColumnHistory(tbl_id=tbl_record.id, col_id=col.id, schema_version_add=0))
                 session.flush()  # avoid FK violations in Postgres
                 # Column.dependent_cols for existing cols is wrong at this point, but Table.init() will set it correctly
                 value_expr_str = col.value_expr.serialize() if col.value_expr is not None else None
                 session.add(
-                    store.SchemaColumn(
+                    schema.SchemaColumn(
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
                         col_type=col.col_type.serialize(), is_nullable=col.nullable, is_pk=col.primary_key,
                         value_expr=value_expr_str, stored=col.stored, is_indexed=col.is_indexed)
@@ -1396,15 +1384,12 @@ class PathDict:
 
     # checks that the parent of path exists and is a Dir
     # and that the object of path has 'expected' type
-    def check_is_valid(
-            self, path: Path, expected: Optional[Type[SchemaObject]],
-            expected_parent_type: Type[DirBase] = DirBase) -> None:
+    def check_is_valid(self, path: Path, expected: Optional[Type[SchemaObject]]) -> None:
         """Check that path is valid and that the object at path has the expected type.
 
         Args:
             path: path to check
             expected: expected type of object at path or None if object should not exist
-            expected_parent_type: expected type of parent of object at path
 
         Raises:
             Error if path is invalid or object at path has wrong type
@@ -1424,8 +1409,8 @@ class PathDict:
         if str(parent_path) not in self.paths:
             raise exc.Error(f'Directory {str(parent_path)} does not exist')
         parent = self.paths[str(parent_path)]
-        if not isinstance(parent, expected_parent_type):
-            raise exc.Error(f'{str(parent_path)} needs to be a {expected_parent_type.display_name()}')
+        if not isinstance(parent, Dir):
+            raise exc.Error(f'{str(parent_path)} is a {type(parent).display_name()}, not a directory')
 
     def get(self, path_type: Type[SchemaObject]) -> List[SchemaObject]:
         return [obj for obj in self.paths.values() if isinstance(obj, path_type)]
@@ -1489,7 +1474,7 @@ class Db:
             ... extracted_fps=1)
         """
         path = Path(path_str)
-        self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
+        self.paths.check_is_valid(path, expected=None)
         dir = self.paths[path.parent]
 
         # make sure frame extraction params are either fully present or absent
@@ -1557,7 +1542,7 @@ class Db:
         if re.fullmatch(_ID_RE, new_name) is None:
             raise exc.Error(f"Invalid table name: '{new_name}'")
         new_path = path.parent.append(new_name)
-        self.paths.check_is_valid(new_path, expected=None, expected_parent_type=Dir)
+        self.paths.check_is_valid(new_path, expected=None)
 
         tbl = self.paths[path]
         assert isinstance(tbl, MutableTable)
@@ -1607,7 +1592,7 @@ class Db:
         """
         assert dir_path is not None
         path = Path(dir_path, empty_is_valid=True)
-        self.paths.check_is_valid(path, expected=DirBase)
+        self.paths.check_is_valid(path, expected=Dir)
         return [str(p) for p in self.paths.get_children(path, child_type=Table, recursive=recursive)]
 
     def drop_table(self, path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
@@ -1638,44 +1623,34 @@ class Db:
         del self.paths[path]
         _logger.info(f'Dropped table {path_str}')
 
-    def create_snapshot(self, path_str: str, tbl_paths: List[str]) -> None:
-        """Create a snapshot of a set of tables.
+    def create_snapshot(self, snapshot_path: str, tbl_path: str) -> None:
+        """Create a snapshot of a table.
 
         Args:
-            path_str: Path to the snapshot directory.
-            tbl_paths: Paths to the tables to snapshot.
+            snapshot_path: Path to the snapshot.
+            tbl_path: Path to the table.
 
         Raises:
-            Error: If the path already exists or the parent does not exist.
+            Error: If snapshot_path already exists or the parent does not exist.
         """
-        snapshot_dir_path = Path(path_str)
-        self.paths.check_is_valid(snapshot_dir_path, expected=None, expected_parent_type=Dir)
-        tbls: List[MutableTable] = []
-        for tbl_path_str in tbl_paths:
-            tbl_path = Path(tbl_path_str)
-            self.paths.check_is_valid(tbl_path, expected=MutableTable)
-            tbl = self.paths[tbl_path]
-            assert isinstance(tbl, MutableTable)
-            tbls.append(tbl)
+        snapshot_path_obj = Path(snapshot_path)
+        self.paths.check_is_valid(snapshot_path_obj, expected=None)
+        tbl_path_obj = Path(tbl_path)
+        self.paths.check_is_valid(tbl_path_obj, expected=MutableTable)
+        tbl = self.paths[tbl_path_obj]
+        assert isinstance(tbl, MutableTable)
 
-        with orm.Session(Env.get().engine) as session:
-            dir_record = store.Dir(db_id=self.id, path=path_str, is_snapshot=True)
-            session.add(dir_record)
+        with orm.Session(Env.get().engine, future=True) as session:
+            dir = self.paths[snapshot_path_obj.parent]
+            snapshot_record = schema.TableSnapshot(
+                db_id=self.id, dir_id=dir.id, name=tbl.name, tbl_id=tbl.id, tbl_version=tbl.version,
+                tbl_schema_version=tbl.schema_version)
+            session.add(snapshot_record)
             session.flush()
-            assert dir_record.id is not None
-            self.paths[snapshot_dir_path] = Dir(dir_record.id)
-
-            for tbl in tbls:
-                snapshot_record = store.TableSnapshot(
-                    db_id=self.id, dir_id=dir_record.id, name=tbl.name, tbl_id=tbl.id, tbl_version=tbl.version,
-                    tbl_schema_version=tbl.schema_version)
-                session.add(snapshot_record)
-                session.flush()
-                assert snapshot_record.id is not None
-                cols = Table.load_cols(tbl.id, tbl.schema_version, session)
-                snapshot = TableSnapshot(snapshot_record, dataclasses.asdict(tbl.parameters), cols)
-                snapshot_path = snapshot_dir_path.append(tbl.name)
-                self.paths[snapshot_path] = snapshot
+            assert snapshot_record.id is not None
+            cols = Table.load_cols(tbl.id, tbl.schema_version, session)
+            snapshot = TableSnapshot(snapshot_record, dataclasses.asdict(tbl.parameters), cols)
+            self.paths[snapshot_path_obj] = snapshot
 
             session.commit()
 
@@ -1696,9 +1671,9 @@ class Db:
             >>> db.create_dir('my_dir.sub_dir')
         """
         path = Path(path_str)
-        self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
-        with orm.Session(Env.get().engine) as session:
-            dir_record = store.Dir(db_id=self.id, path=path_str, is_snapshot=False)
+        self.paths.check_is_valid(path, expected=None)
+        with orm.Session(Env.get().engine, future=True) as session:
+            dir_record = schema.Dir(db_id=self.id, path=path_str)
             session.add(dir_record)
             session.flush()
             assert dir_record.id is not None
@@ -1733,12 +1708,12 @@ class Db:
 #        for tbl_path in self.paths.get_children(path, child_type=Table, recursive=True):
 #            self.drop_table(str(tbl_path), force=True)
 #        # rm subdirs
-#        for dir_path in self.paths.get_children(path, child_type=DirBase, recursive=False):
+#        for dir_path in self.paths.get_children(path, child_type=Dir, recursive=False):
 #            self.rm_dir(str(dir_path), force=True)
 
         with Env.get().engine.begin() as conn:
             dir = self.paths[path]
-            conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.id == dir.id))
+            conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir.id))
         del self.paths[path]
         _logger.info(f'Removed directory {path_str}')
 
@@ -1760,8 +1735,8 @@ class Db:
             ['my_dir', 'my_dir.sub_dir1']
         """
         path = Path(path_str, empty_is_valid=True)
-        self.paths.check_is_valid(path, expected=DirBase)
-        return [str(p) for p in self.paths.get_children(path, child_type=DirBase, recursive=recursive)]
+        self.paths.check_is_valid(path, expected=Dir)
+        return [str(p) for p in self.paths.get_children(path, child_type=Dir, recursive=recursive)]
 
     def create_function(self, path_str: str, func: Function) -> None:
         """Create a stored function.
@@ -1783,7 +1758,7 @@ class Db:
         if func.is_library_function:
             raise exc.Error(f'Cannot create a named function for a library function')
         path = Path(path_str)
-        self.paths.check_is_valid(path, expected=None, expected_parent_type=Dir)
+        self.paths.check_is_valid(path, expected=None)
         dir = self.paths[path.parent]
 
         FunctionRegistry.get().create_function(func, self.id, dir.id, path.name)
@@ -1813,17 +1788,17 @@ class Db:
         path = Path(path_str)
         new_path = Path(new_path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
-        self.paths.check_is_valid(new_path, expected=None, expected_parent_type=Dir)
+        self.paths.check_is_valid(new_path, expected=None)
         named_fn = self.paths[path]
         new_dir = self.paths[new_path.parent]
         with Env.get().engine.begin() as conn:
             conn.execute(
-                sql.update(store.Function.__table__)
+                sql.update(schema.Function.__table__)
                     .values({
-                        store.Function.dir_id: new_dir.id,
-                        store.Function.name: new_path.name,
+                        schema.Function.dir_id: new_dir.id,
+                        schema.Function.name: new_path.name,
                     })
-                    .where(store.Function.id == named_fn.id))
+                    .where(schema.Function.id == named_fn.id))
         del self.paths[path]
         self.paths[new_path] = named_fn
         func = FunctionRegistry.get().get_function(id=named_fn.id)
@@ -1905,19 +1880,19 @@ class Db:
 
     def _load_dirs(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(Env.get().engine) as session:
-            for dir_record in session.query(store.Dir).where(store.Dir.db_id == self.id).all():
-                result[dir_record.path] = SnapshotDir(dir_record.id) if dir_record.is_snapshot else Dir(dir_record.id)
+        with orm.Session(Env.get().engine, future=True) as session:
+            for dir_record in session.query(schema.Dir).where(schema.Dir.db_id == self.id).all():
+                result[dir_record.path] = Dir(dir_record.id)
         return result
 
     def _load_tables(self) -> Dict[str, SchemaObject]:
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(Env.get().engine) as session:
+        with orm.Session(Env.get().engine, future=True) as session:
             # load all reachable (= mutable) tables
-            q = session.query(store.Table, store.Dir.path) \
-                .join(store.Dir)\
-                .where(store.Table.db_id == self.id) \
-                .where(store.Table.is_mutable == True)
+            q = session.query(schema.Table, schema.Dir.path) \
+                .join(schema.Dir)\
+                .where(schema.Table.db_id == self.id) \
+                .where(schema.Table.is_mutable == True)
             for tbl_record, dir_path in q.all():
                 cols = Table.load_cols(
                     tbl_record.id, tbl_record.current_schema_version, session)
@@ -1927,11 +1902,11 @@ class Db:
                 result[str(path)] = tbl
 
             # load all table snapshots
-            q = session.query(store.TableSnapshot, store.Dir.path, store.Table.parameters) \
-                .select_from(store.TableSnapshot) \
-                .join(store.Table) \
-                .join(store.Dir) \
-                .where(store.TableSnapshot.db_id == self.id)
+            q = session.query(schema.TableSnapshot, schema.Dir.path, schema.Table.parameters) \
+                .select_from(schema.TableSnapshot) \
+                .join(schema.Table) \
+                .join(schema.Dir) \
+                .where(schema.TableSnapshot.db_id == self.id)
             for snapshot_record, dir_path, params in q.all():
                 cols = Table.load_cols(snapshot_record.tbl_id, snapshot_record.tbl_schema_version, session)
                 snapshot = TableSnapshot(snapshot_record, params, cols)
@@ -1946,11 +1921,11 @@ class Db:
         FunctionRegistry.
         """
         result: Dict[str, SchemaObject] = {}
-        with orm.Session(Env.get().engine) as session:
+        with orm.Session(Env.get().engine, future=True) as session:
             # load all reachable (= mutable) tables
-            q = session.query(store.Function.id, store.Function.dir_id, store.Function.name, store.Dir.path) \
-                .join(store.Dir) \
-                .where(store.Function.db_id == self.id)
+            q = session.query(schema.Function.id, schema.Function.dir_id, schema.Function.name, schema.Dir.path) \
+                .join(schema.Dir) \
+                .where(schema.Function.db_id == self.id)
             for id, dir_id, name, dir_path in q.all():
                 named_fn = NamedFunction(id, dir_id, name)
                 path = Path(dir_path, empty_is_valid=True).append(name)
@@ -1965,19 +1940,19 @@ class Db:
 
     @classmethod
     def create(cls, name: str) -> 'Db':
-        with orm.Session(Env.get().engine) as session:
+        with orm.Session(Env.get().engine, future=True) as session:
             # check for duplicate name
-            is_duplicate = session.query(sql.func.count(store.Db.id)).where(store.Db.name == name).scalar() > 0
+            is_duplicate = session.query(sql.func.count(schema.Db.id)).where(schema.Db.name == name).scalar() > 0
             if is_duplicate:
                 raise exc.Error(f"Db '{name}' already exists")
 
-            db_record = store.Db(name=name)
+            db_record = schema.Db(name=name)
             session.add(db_record)
             session.flush()
             assert db_record.id is not None
             db_id = db_record.id
             # also create a top-level directory, so that every schema object has a directory
-            dir_record = store.Dir(db_id=db_id, path='', is_snapshot=False)
+            dir_record = schema.Dir(db_id=db_id, path='')
             session.add(dir_record)
             session.flush()
             session.commit()
@@ -1994,9 +1969,9 @@ class Db:
         """
         if re.fullmatch(_ID_RE, name) is None:
             raise exc.Error(f"Invalid db name: '{name}'")
-        with orm.Session(Env.get().engine) as session:
+        with orm.Session(Env.get().engine, future=True) as session:
             try:
-                db_record = session.query(store.Db).where(store.Db.name == name).one()
+                db_record = session.query(schema.Db).where(schema.Db.name == name).one()
                 return Db(db_record.id, db_record.name)
             except sql.exc.NoResultFound:
                 raise exc.Error(f'Db {name} does not exist')
@@ -2007,16 +1982,16 @@ class Db:
         :meta private:
         """
         with Env.get().engine.begin() as conn:
-            conn.execute(sql.delete(store.TableSnapshot.__table__).where(store.TableSnapshot.db_id == self.id))
-            tbls_stmt = sql.select(store.Table.id).where(store.Table.db_id == self.id)
-            conn.execute(sql.delete(store.SchemaColumn.__table__).where(store.SchemaColumn.tbl_id.in_(tbls_stmt)))
-            conn.execute(sql.delete(store.ColumnHistory.__table__).where(store.ColumnHistory.tbl_id.in_(tbls_stmt)))
+            conn.execute(sql.delete(schema.TableSnapshot.__table__).where(schema.TableSnapshot.db_id == self.id))
+            tbls_stmt = sql.select(schema.Table.id).where(schema.Table.db_id == self.id)
+            conn.execute(sql.delete(schema.SchemaColumn.__table__).where(schema.SchemaColumn.tbl_id.in_(tbls_stmt)))
+            conn.execute(sql.delete(schema.ColumnHistory.__table__).where(schema.ColumnHistory.tbl_id.in_(tbls_stmt)))
             conn.execute(
-                sql.delete(store.TableSchemaVersion.__table__).where(store.TableSchemaVersion.tbl_id.in_(tbls_stmt)))
-            conn.execute(sql.delete(store.Table.__table__).where(store.Table.db_id == self.id))
-            conn.execute(sql.delete(store.Function.__table__).where(store.Function.db_id == self.id))
-            conn.execute(sql.delete(store.Dir.__table__).where(store.Dir.db_id == self.id))
-            conn.execute(sql.delete(store.Db.__table__).where(store.Db.id == self.id))
+                sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id.in_(tbls_stmt)))
+            conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.db_id == self.id))
+            conn.execute(sql.delete(schema.Function.__table__).where(schema.Function.db_id == self.id))
+            conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.db_id == self.id))
+            conn.execute(sql.delete(schema.Db.__table__).where(schema.Db.id == self.id))
             # delete all data tables
             # TODO: also deleted generated images
             for tbl in self.paths.get(MutableTable):
