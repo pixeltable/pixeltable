@@ -1,14 +1,11 @@
-import enum
 import platform
 import uuid
 
 import sqlalchemy as sql
-from sqlalchemy import Integer, String, Enum, Boolean, TIMESTAMP, BigInteger, LargeBinary, JSON
+from sqlalchemy import Integer, String, Boolean, BigInteger, LargeBinary, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import ForeignKey, UniqueConstraint, ForeignKeyConstraint
 from sqlalchemy.orm import declarative_base
-
-from pixeltable import type_system as pt_types
 
 Base = declarative_base()
 

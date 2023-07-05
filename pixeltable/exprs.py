@@ -614,15 +614,17 @@ class FunctionCall(Expr):
         self.components = [arg for arg in args if isinstance(arg, Expr)]
         self.args = [arg if not isinstance(arg, Expr) else None for arg in args]
 
-        # window function state
-        self.group_by_idx = -1  # self.components[self.group_by_index:] contains group_by exprs
+        # window function state:
+        # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
+        self.group_by_start_idx, self.group_by_stop_idx = 0, 0
         if len(group_by_exprs) > 0:
             # record grouping exprs in self.components, we need to evaluate them to get partition vals
-            self.group_by_idx = len(self.components)
+            self.group_by_start_idx = len(self.components)
+            self.group_by_stop_idx = len(self.components) + len(group_by_exprs)
             self.components.extend(group_by_exprs)
         # we want to make sure that order_by_exprs get assigned slot_idxs, even though we won't need to evaluate them
         # (that's done in SQL)
-        self.order_by = order_by_exprs
+        self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_exprs)
 
         nos_info = FunctionRegistry.get().get_nos_info(self.fn)
@@ -652,9 +654,11 @@ class FunctionCall(Expr):
         for i in range(len(self.args)):
             if self.args[i] != other.args[i]:
                 return False
-        if self.group_by_idx != other.group_by_idx:
+        if self.group_by_start_idx != other.group_by_start_idx:
             return False
-        if not self.list_equals(self.order_by, other.order_by):
+        if self.group_by_stop_idx != other.group_by_stop_idx:
+            return False
+        if self.order_by_start_idx != other.order_by_start_idx:
             return False
         return True
 
@@ -684,17 +688,22 @@ class FunctionCall(Expr):
         separator = ', ' if inline else ',\n    '
         return separator.join(arg_strs)
 
+    def has_group_by(self) -> List[Expr]:
+        return self.group_by_stop_idx != 0
+
     @property
     def group_by(self) -> List[Expr]:
-        if self.group_by_idx == -1:
-            return []
-        return self.components[self.group_by_idx:]
+        return self.components[self.group_by_start_idx:self.group_by_stop_idx]
+
+    @property
+    def order_by(self) -> List[Expr]:
+        return self.components[self.order_by_start_idx:]
 
     @property
     def is_window_fn_call(self) -> bool:
         return self.fn.is_aggregate and self.fn.allows_window and \
             (not self.fn.allows_std_agg \
-             or self.group_by_idx != -1 \
+             or self.has_group_by() \
              or (len(self.order_by) > 0 and not self.fn.requires_order_by))
 
     def get_window_sort_exprs(self) -> List[Expr]:
@@ -742,7 +751,7 @@ class FunctionCall(Expr):
         if not self.fn.is_aggregate:
             data_row[self.data_row_slot_idx] = self.fn.eval_fn(*args)
         elif self.is_window_fn_call:
-            if self.group_by_idx != -1:
+            if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
                 partition_vals = [data_row[e.data_row_slot_idx] for e in self.group_by]
@@ -759,9 +768,12 @@ class FunctionCall(Expr):
             data_row[self.data_row_slot_idx] = self.fn.value_fn(self.aggregator)
 
     def _as_dict(self) -> Dict:
-        result = {'fn': self.fn.as_dict(), 'args': self.args, **super()._as_dict()}
-        if self.fn.is_aggregate:
-            result.update({'group_by_idx': self.group_by_idx, 'order_by': Expr.as_dict_list(self.order_by)})
+        result = {
+            'fn': self.fn.as_dict(), 'args': self.args,
+            'group_by_start_idx': self.group_by_start_idx, 'group_by_stop_idx': self.group_by_stop_idx,
+            'order_by_start_idx': self.order_by_start_idx,
+            **super()._as_dict()
+        }
         return result
 
     @classmethod
@@ -770,11 +782,9 @@ class FunctionCall(Expr):
         assert 'args' in d
         # reassemble args
         args = [arg if arg is not None else components[i] for i, arg in enumerate(d['args'])]
-        fn_call = cls(Function.from_dict(d['fn']), args)
-        if fn_call.fn.is_aggregate:
-            fn_call.group_by_idx = d['group_by_idx']
-            fn_call.components.extend(components[fn_call.group_by_idx:])
-            fn_call.order_by = Expr.from_dict_list(d['order_by'], t)
+        group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
+        order_by_exprs = components[d['order_by_start_idx']:]
+        fn_call = cls(Function.from_dict(d['fn']), args, group_by_exprs=group_by_exprs, order_by_exprs=order_by_exprs)
         return fn_call
 
 
