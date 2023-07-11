@@ -92,6 +92,7 @@ class Planner:
             self.filter: Optional[exprs.Predicate] = None
             self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
             self.agg_fn_calls: List[exprs.FunctionCall] = []
+            self.agg_order_by: List[exprs.Expr] = []
 
     @classmethod
     def _is_agg_fn_call(cls, e: exprs.Expr) -> bool:
@@ -196,6 +197,26 @@ class Planner:
             if e.contains(filter=lambda e: cls._is_agg_fn_call(e)):
                 raise exc.Error(f'Grouping expression contains aggregate function: {e}')
 
+        # check that agg fn calls don't have contradicting ordering requirements
+        order_by: List[exprs.Exprs] = []
+        order_by_origin: Optional[exprs.Expr] = None  # the expr that determines the ordering
+        for agg_fn_call in info.agg_fn_calls:
+            fn_call_order_by = agg_fn_call.get_agg_order_by()
+            if len(fn_call_order_by) == 0:
+                continue
+            if len(order_by) == 0:
+                order_by = fn_call_order_by
+                order_by_origin = agg_fn_call
+            else:
+                containing = cls._get_containing(order_by, fn_call_order_by)
+                if len(containing) == 0:
+                    raise exc.Error((
+                        f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
+                        f"'{agg_fn_call}':\n"
+                        f"{exprs.Expr.print_list(order_by)} vs {exprs.Expr.print_list(fn_call_order_by)}"
+                    ))
+        info.agg_order_by = order_by
+
     @classmethod
     def _get_containing(cls, l1: List[exprs.Expr], l2: List[exprs.Expr]) -> List[exprs.Expr]:
         """Returns the list that contains the other, or the empty list if neither contains the other"""
@@ -247,18 +268,19 @@ class Planner:
                     order_by_exprs = containing
 
         if len(info.group_by_clause) > 0:
+            agg_ordering = info.group_by_clause + info.agg_order_by
             if len(order_by_exprs) > 0:
                 # check for compatibility
-                containing = cls._get_containing(order_by_exprs, info.group_by_clause)
+                containing = cls._get_containing(order_by_exprs, agg_ordering)
                 if len(containing) == 0:
                     raise exc.Error((
                         f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
                         f"grouping expressions:\n"
-                        f"{exprs.Expr.print_list(order_by_exprs)} vs {exprs.Expr.print_list(info.group_by_clause)}"
+                        f"{exprs.Expr.print_list(order_by_exprs)} vs {exprs.Expr.print_list(agg_ordering)}"
                     ))
                 order_by_exprs = containing
             else:
-                order_by_exprs = info.group_by_clause
+                order_by_exprs = agg_ordering
 
         order_by_clauses = [e.sql_expr() for e in order_by_exprs]
         for i in range(len(order_by_exprs)):

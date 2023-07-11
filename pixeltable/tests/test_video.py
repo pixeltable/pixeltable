@@ -104,8 +104,11 @@ class TestVideo:
             'test', cols, extract_frames_from = 'video', extracted_frame_col = 'frame',
             extracted_frame_idx_col = 'frame_idx', extracted_fps = 1)
         t.insert_rows([[p] for p in video_filepaths], columns=['video'])
+        # reference to the frame col requires ordering by video, frame_idx
         _ = t[pt.make_video(t.frame_idx, t.frame)].group_by(t.video).show()
-        print(_)
+        # the same without frame col
+        t.add_column(catalog.Column('transformed', computed_with=t.frame.rotate(30), stored=True))
+        _ = t[pt.make_video(t.frame_idx, t.transformed)].group_by(t.video).show()
 
         with pytest.raises(exc.Error):
             # make_video() doesn't allow windows
@@ -113,6 +116,9 @@ class TestVideo:
         with pytest.raises(exc.Error):
             # make_video() doesn't allow windows
             _ = t[pt.make_video(t.frame, order_by=t.frame_idx)].show()
+        with pytest.raises(exc.Error):
+            # incompatible ordering requirements
+            _ = t[pt.make_video(t.frame_idx, t.frame), pt.make_video(t.frame_idx - 1, t.transformed)].show()
 
         class WindowAgg:
             def __init__(self):
