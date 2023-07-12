@@ -3,6 +3,8 @@ import pytest
 import math
 import numpy as np
 
+import PIL
+
 import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable import catalog
@@ -320,7 +322,7 @@ class TestTable:
         _ = str(status)
         assert status.num_excs == 10
         assert 'add1' in status.cols_with_excs
-        result_set = t[t.add1.errortype != None].show(0)
+        result_set = t[t.add1.errortype != None][t.add1.errortype, t.add1.errormsg].show(0)
         assert len(result_set) == 10
 
     def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
@@ -364,6 +366,17 @@ class TestTable:
         # c3 is now stored
         t.add_column(catalog.Column('c3', computed_with=t.img.rotate(90), stored=True))
         self._test_computed_img_cols(t, stores_img_col=True)
+        _ = t[t.c3.errortype].show(0)
+
+        # computed img col with exceptions
+        t = db.create_table('test3', schema)
+        @pt.function(return_type=ImageType(), param_types=[ImageType()])
+        def f(img: PIL.Image.Image) -> PIL.Image.Image:
+            raise RuntimeError
+        t.add_column(catalog.Column('c3', computed_with=f(t.img), stored=True))
+        data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        t.insert_pandas(data_df.loc[0:20, ['img']])
+        _ = t[t.c3.errortype].show(0)
 
     def test_computed_window_fn(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
         db = test_db

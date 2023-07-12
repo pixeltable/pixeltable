@@ -10,7 +10,7 @@ import inspect
 import logging
 from uuid import UUID
 
-#import nos
+import nos
 
 from pixeltable.type_system import ColumnType, JsonType
 from pixeltable.metadata import schema

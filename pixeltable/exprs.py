@@ -468,23 +468,24 @@ class ColumnRef(Expr):
         ERRORTYPE = 1
         ERRORMSG = 2
 
-    def __init__(self, col: catalog.Column):
-        super().__init__(col.col_type)
+    def __init__(self, col: catalog.Column, prop: Property = Property.VALUE):
         self.col = col
-        # a plain reference of a column accesses its value
-        self.prop = self.Property.VALUE
+        self.prop = prop
+        if prop == self.Property.VALUE:
+            col_type = col.col_type
+        else:
+            col_type = StringType()
+        super().__init__(col_type)
 
     def __getattr__(self, name: str) -> Expr:
         if name == self.Property.ERRORTYPE.name.lower():
             if not self.col.is_computed:
                 raise Error(f'{name} not valid for a non-computed column: {self}')
-            self.prop = self.Property.ERRORTYPE
-            return self
+            return ColumnRef(self.col, self.Property.ERRORTYPE)
         if name == self.Property.ERRORMSG.name.lower():
             if not self.col.is_computed:
                 raise Error(f'{name} not valid for a non-computed column: {self}')
-            self.prop = self.Property.ERRORMSG
-            return self
+            return ColumnRef(self.col, self.Property.ERRORMSG)
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
         return super().__getattr__(name)
@@ -1852,7 +1853,7 @@ class DataRow:
     Encapsulates data and execution state needed by Evaluator and DataRowBatch.
     """
     def __init__(self, size: int):
-        self.vals: List[Any] = [None] * size
+        self.vals: List[Any] = [None] * size  # either cell values or exceptions
         self.has_val = [False] * size
         self.row_id: Optional[int] = None
         self.v_min: Optional[int] = None
@@ -1900,7 +1901,7 @@ class DataRow:
     def flush_img(self, index: object, filepath: Optional[str] = None) -> None:
         if not self.has_val[index]:
             return
-        if self.vals[index] is None:
+        if self.vals[index] is None or isinstance(self.vals[index], Exception):
             # nothing to do
             return
         if self.img_files[index] is None:
@@ -2087,7 +2088,6 @@ class Evaluator:
                 if profile is not None:
                     profile.eval_time[expr.data_row_slot_idx] += time.perf_counter() - start_time
                     profile.eval_count[expr.data_row_slot_idx] += 1
-                    pass
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 data_row[expr.data_row_slot_idx] = exc
