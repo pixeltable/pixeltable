@@ -29,10 +29,10 @@ class TestTable:
     def test_create(self, test_db: catalog.Db) -> None:
         db = test_db
         db.create_dir('dir1')
-        c1 = catalog.Column('c1', StringType(), nullable=False)
-        c2 = catalog.Column('c2', IntType(), nullable=False)
-        c3 = catalog.Column('c3', FloatType(), nullable=False)
-        c4 = catalog.Column('c4', TimestampType(), nullable=False)
+        c1 = catalog.Column('c1', StringType(nullable=False))
+        c2 = catalog.Column('c2', IntType(nullable=False))
+        c3 = catalog.Column('c3', FloatType(nullable=False))
+        c4 = catalog.Column('c4', TimestampType(nullable=False))
         schema = [c1, c2, c3, c4]
         tbl = db.create_table('test', schema)
         _ = db.create_table('dir1.test', schema)
@@ -91,9 +91,9 @@ class TestTable:
     def test_create_images(self, test_db: catalog.Db) -> None:
         db = test_db
         cols = [
-            catalog.Column('img', ImageType(), nullable=False),
-            catalog.Column('category', StringType(), nullable=False),
-            catalog.Column('split', StringType(), nullable=False),
+            catalog.Column('img', ImageType(nullable=False)),
+            catalog.Column('category', StringType(nullable=False)),
+            catalog.Column('split', StringType(nullable=False)),
         ]
         tbl = db.create_table('test', cols)
         df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
@@ -106,9 +106,9 @@ class TestTable:
     def test_create_video_table(self, test_db: catalog.Db) -> None:
         db = test_db
         cols = [
-            catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False),
-            catalog.Column('frame_idx', IntType(), nullable=False),
+            catalog.Column('video', VideoType(nullable=False)),
+            catalog.Column('frame', ImageType(nullable=False)),
+            catalog.Column('frame_idx', IntType(nullable=False)),
         ]
         tbl = db.create_table(
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',
@@ -143,9 +143,9 @@ class TestTable:
 
         # cannot store frame col
         cols = [
-            catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False, stored=True),
-            catalog.Column('frame_idx', IntType(), nullable=False),
+            catalog.Column('video', VideoType(nullable=False)),
+            catalog.Column('frame', ImageType(nullable=False), stored=True),
+            catalog.Column('frame_idx', IntType(nullable=False)),
         ]
         with pytest.raises(exc.Error):
             _ = db.create_table(
@@ -246,9 +246,9 @@ class TestTable:
 
     def test_computed_cols(self, test_db: catalog.Db) -> None:
         db = test_db
-        c1 = catalog.Column('c1', IntType(), nullable=False)
-        c2 = catalog.Column('c2', FloatType(), nullable=False)
-        c3 = catalog.Column('c3', JsonType(), nullable=False)
+        c1 = catalog.Column('c1', IntType(nullable=False))
+        c2 = catalog.Column('c2', FloatType(nullable=False))
+        c3 = catalog.Column('c3', JsonType(nullable=False))
         schema = [c1, c2, c3]
         t = db.create_table('test', schema)
         t.add_column(catalog.Column('c4', computed_with=t.c1 + 1))
@@ -283,9 +283,9 @@ class TestTable:
 
         # computed col references non-existent col
         with pytest.raises(exc.Error):
-            c1 = catalog.Column('c1', IntType(), nullable=False)
-            c2 = catalog.Column('c2', FloatType(), nullable=False)
-            c3 = catalog.Column('c3', FloatType(), nullable=False, computed_with=lambda c2: math.sqrt(c2))
+            c1 = catalog.Column('c1', IntType(nullable=False))
+            c2 = catalog.Column('c2', FloatType(nullable=False))
+            c3 = catalog.Column('c3', FloatType(nullable=False), computed_with=lambda c2: math.sqrt(c2))
             _ = db.create_table('test2', [c1, c3, c2])
 
         # test loading from store
@@ -311,7 +311,7 @@ class TestTable:
 
     def test_computed_col_exceptions(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
         db = test_db
-        c2 = catalog.Column('c2', IntType(), nullable=False)
+        c2 = catalog.Column('c2', IntType(nullable=False))
         schema = [c2]
         t = db.create_table('test', schema)
 
@@ -354,7 +354,7 @@ class TestTable:
 
     def test_computed_img_cols(self, test_db: catalog.Db) -> None:
         db = test_db
-        c1 = catalog.Column('img', ImageType(), nullable=False, indexed=True)
+        c1 = catalog.Column('img', ImageType(nullable=False), indexed=True)
         schema = [c1]
         t = db.create_table('test', schema)
         t.add_column(catalog.Column('c2', computed_with=t.img.width))
@@ -384,9 +384,9 @@ class TestTable:
         # backfill
         t.add_column(catalog.Column('c9', computed_with=sum(t.c2, group_by=t.c4, order_by=t.c3)))
 
-        c2 = catalog.Column('c2', IntType(), nullable=False)
-        c3 = catalog.Column('c3', FloatType(), nullable=False)
-        c4 = catalog.Column('c4', BoolType(), nullable=False)
+        c2 = catalog.Column('c2', IntType(nullable=False))
+        c3 = catalog.Column('c3', FloatType(nullable=False))
+        c4 = catalog.Column('c4', BoolType(nullable=False))
         new_t = db.create_table('insert_test', [c2, c3, c4])
         new_t.add_column(catalog.Column('c5', IntType(), computed_with=lambda c2: c2 * c2))
         new_t.add_column(catalog.Column(
@@ -437,7 +437,7 @@ class TestTable:
     def test_add_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns)
-        t.add_column(catalog.Column('add1', pt.IntType(), nullable=False))
+        t.add_column(catalog.Column('add1', pt.IntType(nullable=False)))
         assert len(t.columns) == num_orig_cols + 1
 
         # make sure this is still true after reloading the metadata
@@ -480,16 +480,16 @@ class TestTable:
 
     def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        status = t.add_column(catalog.Column('add1', computed_with=t.c2 + 10, nullable=False))
+        status = t.add_column(catalog.Column('add1', computed_with=t.c2 + 10))
         assert status.num_excs == 0
         _ = t.show()
 
         # with exception in SQL
         with pytest.raises(exc.Error):
-            t.add_column(catalog.Column('add2', computed_with=(t.c2 - 10) / (t.c3 - 10), nullable=False))
+            t.add_column(catalog.Column('add2', computed_with=(t.c2 - 10) / (t.c3 - 10)))
 
         # with exception in Python for c6.f2 == 10
-        status = t.add_column(catalog.Column('add2', computed_with=(t.c6.f2 - 10) / (t.c6.f2 - 10), nullable=False))
+        status = t.add_column(catalog.Column('add2', computed_with=(t.c6.f2 - 10) / (t.c6.f2 - 10)))
         assert status.num_excs == 1
         result = t[t.add2.errortype != None][t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg].show()
         assert len(result) == 1

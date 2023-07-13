@@ -415,10 +415,10 @@ class TestExprs:
 
         # ordering conflict between frame extraction and window fn
         cols = [
-            catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False),
-            catalog.Column('frame_idx', IntType(), nullable=False),
-            catalog.Column('c2', IntType(), nullable=False),
+            catalog.Column('video', VideoType(nullable=False)),
+            catalog.Column('frame', ImageType(nullable=False)),
+            catalog.Column('frame_idx', IntType(nullable=False)),
+            catalog.Column('c2', IntType(nullable=False)),
         ]
         vt = db.create_table(
             'video_test', cols, extract_frames_from='video', extracted_frame_col='frame',
@@ -429,9 +429,9 @@ class TestExprs:
             # incompatible ordering
             _ = vt[vt.frame, sum(vt.c2, group_by=vt.frame_idx, order_by=vt.video)].show(100)
 
-        c2 = catalog.Column('c2', IntType(), nullable=False)
-        c3 = catalog.Column('c3', FloatType(), nullable=False)
-        c4 = catalog.Column('c4', BoolType(), nullable=False)
+        c2 = catalog.Column('c2', IntType(nullable=False))
+        c3 = catalog.Column('c3', FloatType(nullable=False))
+        c4 = catalog.Column('c4', BoolType(nullable=False))
         new_t = db.create_table('insert_test', [c2, c3, c4])
         new_t.add_column(catalog.Column(
             'c2_sum', computed_with=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3)))

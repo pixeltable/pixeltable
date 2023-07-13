@@ -43,14 +43,14 @@ def test_db(init_env) -> catalog.Db:
 @pytest.fixture(scope='function')
 def test_tbl(test_db: catalog.Db) -> catalog.Table:
     cols = [
-        catalog.Column('c1', StringType(), nullable=False),
-        catalog.Column('c1n', StringType(), nullable=True),
-        catalog.Column('c2', IntType(), nullable=False),
-        catalog.Column('c3', FloatType(), nullable=False),
-        catalog.Column('c4', BoolType(), nullable=False),
-        catalog.Column('c5', TimestampType(), nullable=False),
-        catalog.Column('c6', JsonType(), nullable=False),
-        catalog.Column('c7', JsonType(), nullable=False),
+        catalog.Column('c1', StringType(nullable=False)),
+        catalog.Column('c1n', StringType(nullable=True)),
+        catalog.Column('c2', IntType(nullable=False)),
+        catalog.Column('c3', FloatType(nullable=False)),
+        catalog.Column('c4', BoolType(nullable=False)),
+        catalog.Column('c5', TimestampType(nullable=False)),
+        catalog.Column('c6', JsonType(nullable=False)),
+        catalog.Column('c7', JsonType(nullable=False)),
     ]
     t = test_db.create_table('test_tbl', cols)
     t.add_column(catalog.Column('c8', computed_with=[[1, 2, 3], [4, 5, 6]]))
@@ -134,9 +134,9 @@ def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List
 @pytest.fixture(scope='function')
 def img_tbl(test_db: catalog.Db) -> catalog.Table:
     cols = [
-        catalog.Column('img', ImageType(), nullable=False, indexed=False),
-        catalog.Column('category', StringType(), nullable=False),
-        catalog.Column('split', StringType(), nullable=False),
+        catalog.Column('img', ImageType(nullable=False), indexed=False),
+        catalog.Column('category', StringType(nullable=False)),
+        catalog.Column('split', StringType(nullable=False)),
     ]
     # this table is not indexed in order to avoid the cost of computing embeddings
     tbl = test_db.create_table('test_img_tbl', cols)
@@ -164,9 +164,9 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
 def indexed_img_tbl(test_db: catalog.Db) -> catalog.Table:
     db = test_db
     cols = [
-        catalog.Column('img', ImageType(), nullable=False, indexed=True),
-        catalog.Column('category', StringType(), nullable=False),
-        catalog.Column('split', StringType(), nullable=False),
+        catalog.Column('img', ImageType(nullable=False), indexed=True),
+        catalog.Column('category', StringType(nullable=False)),
+        catalog.Column('split', StringType(nullable=False)),
     ]
     tbl = db.create_table('test_indexed_img_tbl', cols)
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])

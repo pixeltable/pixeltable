@@ -88,8 +88,9 @@ class ColumnType:
         (Type.INT, Type.FLOAT): Type.FLOAT,
     }
 
-    def __init__(self, t: Type):
+    def __init__(self, t: Type, nullable: bool = False):
         self._type = t
+        self.nullable = nullable
 
     @property
     def type_enum(self) -> Type:
@@ -109,7 +110,7 @@ class ColumnType:
         }
 
     def _as_dict(self) -> Dict:
-        return {}
+        return {'nullable': self.nullable}
 
     @classmethod
     def deserialize(cls, type_str: str) -> ColumnType:
@@ -130,9 +131,10 @@ class ColumnType:
     @classmethod
     def _from_dict(cls, d: Dict) -> ColumnType:
         """
-        Default implementation: simply invoke c'tor without arguments
+        Default implementation: simply invoke c'tor
         """
-        return cls()
+        assert 'nullable' in d
+        return cls(nullable=d['nullable'])
 
     @classmethod
     def from_nos(cls, type_info: nos.common.spec.ObjectTypeInfo, ignore_shape: bool = False) -> ColumnType:
@@ -330,8 +332,8 @@ class ColumnType:
 
 
 class InvalidType(ColumnType):
-    def __init__(self):
-        super().__init__(self.Type.INVALID)
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.INVALID, nullable=nullable)
 
     def to_sql(self) -> str:
         assert False
@@ -346,8 +348,8 @@ class InvalidType(ColumnType):
         assert False
 
 class StringType(ColumnType):
-    def __init__(self):
-        super().__init__(self.Type.STRING)
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.STRING, nullable=nullable)
 
     def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
         if not target.is_timestamp_type():
@@ -375,8 +377,8 @@ class StringType(ColumnType):
 
 
 class IntType(ColumnType):
-    def __init__(self):
-        super().__init__(self.Type.INT)
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.INT, nullable=nullable)
 
     def to_sql(self) -> str:
         return 'INTEGER'
@@ -391,8 +393,8 @@ class IntType(ColumnType):
 
 
 class FloatType(ColumnType):
-    def __init__(self):
-        super().__init__(self.Type.FLOAT)
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.FLOAT, nullable=nullable)
 
     def to_sql(self) -> str:
         return 'FLOAT'
@@ -407,8 +409,8 @@ class FloatType(ColumnType):
 
 
 class BoolType(ColumnType):
-    def __init__(self):
-        super().__init__(self.Type.BOOL)
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.BOOL, nullable=nullable)
 
     def to_sql(self) -> str:
         return 'BOOLEAN'
@@ -423,8 +425,8 @@ class BoolType(ColumnType):
 
 
 class TimestampType(ColumnType):
-    def __init__(self):
-        super().__init__(self.Type.TIMESTAMP)
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
     def to_sql(self) -> str:
         return 'INTEGER'
@@ -438,8 +440,8 @@ class TimestampType(ColumnType):
 
 class JsonType(ColumnType):
     # TODO: type_spec also needs to be able to express lists
-    def __init__(self, type_spec: Optional[Dict[str, ColumnType]] = None):
-        super().__init__(self.Type.JSON)
+    def __init__(self, type_spec: Optional[Dict[str, ColumnType]] = None, nullable: bool = False):
+        super().__init__(self.Type.JSON, nullable=nullable)
         self.type_spec = type_spec
 
     def _as_dict(self) -> Dict:
@@ -456,7 +458,7 @@ class JsonType(ColumnType):
             type_spec = {
                 field_name: cls.deserialize(field_type_dict) for field_name, field_type_dict in d['type_spec'].items()
             }
-        return cls(type_spec)
+        return cls(type_spec, nullable=d['nullable'])
 
     def to_sql(self) -> str:
         return 'JSONB'
@@ -477,8 +479,8 @@ class JsonType(ColumnType):
 
 class ArrayType(ColumnType):
     def __init__(
-            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType):
-        super().__init__(self.Type.ARRAY)
+            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
+        super().__init__(self.Type.ARRAY, nullable=nullable)
         self.shape = shape
         self.dtype = dtype._type
 
@@ -505,7 +507,7 @@ class ArrayType(ColumnType):
         assert 'dtype' in d
         shape = tuple(d['shape'])
         dtype = cls.make_type(cls.Type(d['dtype']))
-        return cls(shape, dtype)
+        return cls(shape, dtype, nullable=d['nullable'])
 
     def to_sql(self) -> str:
         return 'BYTEA'
@@ -539,12 +541,12 @@ class ImageType(ColumnType):
 
     def __init__(
             self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[Tuple[int, int]] = None,
-            mode: Optional[Mode] = None
+            mode: Optional[Mode] = None, nullable: bool = False
     ):
         """
         TODO: does it make sense to specify only width or height?
         """
-        super().__init__(self.Type.IMAGE)
+        super().__init__(self.Type.IMAGE, nullable=nullable)
         assert not(width is not None and size is not None)
         assert not(height is not None and size is not None)
         if size is not None:
@@ -588,7 +590,9 @@ class ImageType(ColumnType):
         assert 'height' in d
         assert 'mode' in d
         mode_val = d['mode']
-        return cls(width=d['width'], height=d['height'], mode=cls.Mode(mode_val) if mode_val is not None else None)
+        return cls(
+            width=d['width'], height=d['height'], mode=cls.Mode(mode_val) if mode_val is not None else None,
+            nullable=d['nullable'])
 
     def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
         if not target.is_image_type():
@@ -622,16 +626,8 @@ class ImageType(ColumnType):
 
 
 class VideoType(ColumnType):
-    def __init__(self):
-        super().__init__(self.Type.VIDEO)
-
-    def _as_dict(self) -> Dict:
-        result = super()._as_dict()
-        return result
-
-    @classmethod
-    def _from_dict(cls, d: Dict) -> ColumnType:
-        return cls()
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.VIDEO, nullable=nullable)
 
     def to_sql(self) -> str:
         # stored as a file path

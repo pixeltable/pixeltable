@@ -10,9 +10,9 @@ class TestNOS:
     def test_basic(self, test_db: catalog.Db) -> None:
         db = test_db
         cols = [
-            catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False),
-            catalog.Column('frame_idx', IntType(), nullable=False),
+            catalog.Column('video', VideoType()),
+            catalog.Column('frame', ImageType()),
+            catalog.Column('frame_idx', IntType()),
         ]
         tbl = db.create_table(
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',

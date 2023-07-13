@@ -474,7 +474,7 @@ class ColumnRef(Expr):
         if prop == self.Property.VALUE:
             col_type = col.col_type
         else:
-            col_type = StringType()
+            col_type = StringType(nullable=True)
         super().__init__(col_type)
 
     def __getattr__(self, name: str) -> Expr:
@@ -535,8 +535,7 @@ class ColumnRef(Expr):
 
 class FrameColumnRef(ColumnRef):
     """
-    Reference to an unstored extracted frame column.
-    Frames are extracted from videos if they're not in the cache.
+    Reference to an extracted frame column.
     TODO: create window function that can do frame extraction and remove this class.
     """
     def __init__(self, col: catalog.Column):

@@ -13,9 +13,9 @@ from pixeltable.utils.imgstore import ImageStore
 class TestVideo:
     def create_and_insert(self, db: catalog.Db, stored: Optional[bool], paths: List[str]) -> catalog.Table:
         cols = [
-            catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False),
-            catalog.Column('frame_idx', IntType(), nullable=False),
+            catalog.Column('video', VideoType()),
+            catalog.Column('frame', ImageType()),
+            catalog.Column('frame_idx', IntType()),
         ]
         # extract frames at fps=1
         db.drop_table('test', ignore_errors=True)
@@ -75,9 +75,9 @@ class TestVideo:
         db = test_db
         # all image cols are stored=None by default
         cols = [
-            catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False),
-            catalog.Column('frame_idx', IntType(), nullable=False),
+            catalog.Column('video', VideoType()),
+            catalog.Column('frame', ImageType()),
+            catalog.Column('frame_idx', IntType()),
         ]
         t = db.create_table(
             'test', cols, extract_frames_from = 'video', extracted_frame_col = 'frame',
@@ -96,9 +96,9 @@ class TestVideo:
         video_filepaths = get_video_files()
         db = test_db
         cols = [
-            catalog.Column('video', VideoType(), nullable=False),
-            catalog.Column('frame', ImageType(), nullable=False),
-            catalog.Column('frame_idx', IntType(), nullable=False),
+            catalog.Column('video', VideoType()),
+            catalog.Column('frame', ImageType()),
+            catalog.Column('frame_idx', IntType()),
         ]
         t = db.create_table(
             'test', cols, extract_frames_from = 'video', extracted_frame_col = 'frame',

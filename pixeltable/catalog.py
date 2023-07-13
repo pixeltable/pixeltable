@@ -38,7 +38,7 @@ class Column:
     def __init__(
             self, name: str, col_type: Optional[ColumnType] = None,
             computed_with: Optional[Union['Expr', Callable]] = None,
-            primary_key: bool = False, nullable: bool = True, stored: Optional[bool] = None,
+            primary_key: bool = False, stored: Optional[bool] = None,
             indexed: bool = False,
             # these parameters aren't set by users
             col_id: Optional[int] = None,
@@ -50,7 +50,6 @@ class Column:
             col_type: column type; can be None if the type can be derived from ``computed_with``
             computed_with: a callable or an Expr object that computes the column value
             primary_key: if True, this column is part of the primary key
-            nullable: if True, this column can be NULL/None
             stored: determines whether a computed column is present in the stored table or recomputed on demand
             indexed: if True, this column has a nearest neighbor index (only valid for image columns)
             col_id: column ID (only used internally)
@@ -113,8 +112,6 @@ class Column:
         self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us
         self.id = col_id
         self.primary_key = primary_key
-        # computed cols are always nullable
-        self.nullable = nullable or computed_with is not None or value_expr_str is not None
 
         # column in the stored table for the values of this Column
         self.sa_col: Optional[sql.schema.Column] = None
@@ -172,7 +169,7 @@ class Column:
         """
         assert self.is_stored
         # computed cols store a NULL value when the computation has an error
-        nullable = True if self.is_computed else self.nullable
+        nullable = True if self.is_computed else self.col_type.nullable
         self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=nullable)
         if self.is_computed:
             self.sa_errormsg_col = sql.Column(self.errormsg_storage_name(), StringType().to_sa_type(), nullable=True)
@@ -439,8 +436,8 @@ class Table(SchemaObject):
             .order_by(schema.SchemaColumn.pos.asc()).all()
         cols = [
             Column(
-                r.name, ColumnType.deserialize(r.col_type), primary_key=r.is_pk, nullable=r.is_nullable,
-                stored=r.stored, col_id=r.col_id, value_expr_str=r.value_expr, indexed=r.is_indexed)
+                r.name, ColumnType.deserialize(r.col_type), primary_key=r.is_pk, stored=r.stored, col_id=r.col_id,
+                value_expr_str=r.value_expr, indexed=r.is_indexed)
             for r in col_records
         ]
         for col in [col for col in cols if col.col_type.is_image_type()]:
@@ -798,8 +795,8 @@ class MutableTable(Table):
                 sql.insert(schema.SchemaColumn.__table__)
                 .values(
                     tbl_id=self.id, schema_version=self.version, col_id=c.id, pos=pos, name=c.name,
-                    col_type=c.col_type.serialize(), is_nullable=c.nullable, is_pk=c.primary_key,
-                    value_expr=value_expr_str, stored=c.stored, is_indexed=c.is_indexed))
+                    col_type=c.col_type.serialize(), is_pk=c.primary_key, value_expr=value_expr_str, stored=c.stored,
+                    is_indexed=c.is_indexed))
 
     def _convert_to_stored(self, col: Column, val: Any, rowid: int) -> Any:
         """
@@ -881,7 +878,7 @@ class MutableTable(Table):
         """
         assert len(data) > 0
         all_col_names = {col.name for col in self.cols}
-        reqd_col_names = {col.name for col in self.cols if not col.nullable and col.value_expr is None}
+        reqd_col_names = {col.name for col in self.cols if not col.col_type.nullable and col.value_expr is None}
         if self.extracts_frames():
             reqd_col_names.discard(self.cols_by_id[self.parameters.frame_col_id].name)
             reqd_col_names.discard(self.cols_by_id[self.parameters.frame_idx_col_id].name)
@@ -927,7 +924,7 @@ class MutableTable(Table):
         # check data
         data_cols = [self.cols_by_name[name] for name in data.columns]
         for col in data_cols:
-            if not col.nullable:
+            if not col.col_type.nullable:
                 # check for nulls
                 nulls = data[col.name].isna()
                 max_val_idx = nulls.idxmax()
@@ -1239,7 +1236,7 @@ class MutableTable(Table):
             if extract_frames_from is not None and extract_frames_from not in cols_by_name:
                 raise exc.Error(f'Unknown column in extract_frames_from: {extract_frames_from}')
             col_type = cols_by_name[extract_frames_from].col_type
-            is_nullable = cols_by_name[extract_frames_from].nullable
+            is_nullable = cols_by_name[extract_frames_from].col_type.nullable
             if not col_type.is_video_type():
                 raise exc.Error(
                     f'extract_frames_from requires the name of a column of type video, but {extract_frames_from} has '
@@ -1253,7 +1250,7 @@ class MutableTable(Table):
                     f'extracted_frame_col requires the name of a column of type image, but {extracted_frame_col} has '
                     f'type {col_type}')
             # the src column determines whether the frame column is nullable
-            cols_by_name[extracted_frame_col].nullable = is_nullable
+            cols_by_name[extracted_frame_col].col_type.nullable = is_nullable
             # extracted frames are never stored
             cols_by_name[extracted_frame_col].stored = False
 
@@ -1265,7 +1262,7 @@ class MutableTable(Table):
                     f'extracted_frame_idx_col requires the name of a column of type int, but {extracted_frame_idx_col} '
                     f'has type {col_type}')
             # the src column determines whether the frame idx column is nullable
-            cols_by_name[extracted_frame_idx_col].nullable = is_nullable
+            cols_by_name[extracted_frame_idx_col].col_type.nullable = is_nullable
 
         params = TableParameters(
             num_retained_versions,
@@ -1295,8 +1292,8 @@ class MutableTable(Table):
                 session.add(
                     schema.SchemaColumn(
                         tbl_id=tbl_record.id, schema_version=0, col_id=col.id, pos=pos, name=col.name,
-                        col_type=col.col_type.serialize(), is_nullable=col.nullable, is_pk=col.primary_key,
-                        value_expr=value_expr_str, stored=col.stored, is_indexed=col.is_indexed)
+                        col_type=col.col_type.serialize(), is_pk=col.primary_key, value_expr=value_expr_str,
+                        stored=col.stored, is_indexed=col.is_indexed)
                 )
                 session.flush()  # avoid FK violations in Postgres
 

@@ -104,7 +104,6 @@ class SchemaColumn(Base):
     pos = sql.Column(Integer, nullable=False)  # position in table, starting at 0
     name = sql.Column(String, nullable=False)
     col_type = sql.Column(String, nullable=False)  # json
-    is_nullable = sql.Column(Boolean, nullable=False)
     is_pk = sql.Column(Boolean, nullable=False)
     value_expr = sql.Column(String, nullable=True)  # json
     stored = sql.Column(Boolean, nullable=True)
