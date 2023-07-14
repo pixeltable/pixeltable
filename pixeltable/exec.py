@@ -88,8 +88,8 @@ class DataRowBatch:
                 row.flush_img(slot_idx, filepath)
             for slot_idx in flushed_slot_idxs:
                 row.flush_img(slot_idx)
-        _logger.debug(
-            f'flushed images in range {idx_range}: slot_idxs={flushed_slot_idxs} stored_img_info={stored_img_info}')
+        #_logger.debug(
+            #f'flushed images in range {idx_range}: slot_idxs={flushed_slot_idxs} stored_img_info={stored_img_info}')
 
     def __iter__(self) -> Iterator[exprs.DataRow]:
         return DataRowBatchIterator(self)
@@ -380,7 +380,7 @@ class ExprEvalNode(ExecNode):
         # for multi-resolution image models
         img_batch_params: List[nos.common.ObjectTypeInfo] = field(default_factory=list)
         # for single-resolution image models
-        batch_size: Optional[int] = 4
+        batch_size: int = 4
         img_size: Optional[Tuple[int, int]] = None  # W, H
 
         def __post_init__(self):
@@ -393,7 +393,9 @@ class ExprEvalNode(ExecNode):
                     if isinstance(type_info[0].base_spec(), nos.common.ImageSpec):
                         # this is a multi-resolution image model
                         self.img_batch_params = type_info
-                        self.batch_size = None
+                        # we need to determine the batch size based on the effective image resolution: we run
+                        # a batch of size 1 and then choose the best batch size based on the observed image resolution
+                        self.batch_size = 1
                         self.img_param_pos = pos
                         return
                     else:
@@ -433,6 +435,7 @@ class ExprEvalNode(ExecNode):
         self.pbar: Optional[tqdm] = None
         self.cohorts: List[List[ExprEvalNode.Cohort]] = []
         self._create_cohorts()
+
 
     def __next__(self) -> DataRowBatch:
         input_batch = next(self.input)
@@ -521,13 +524,10 @@ class ExprEvalNode(ExecNode):
             self.cohorts.append(cohort_info)
 
     def _exec_cohort(self, cohort: Cohort, rows: DataRowBatch) -> None:
-        # batch size: if we need to determine the batch size based on the effective image resolution, we run
-        # a batch of size 1 and then choose the best batch size based on the observed image resolution
-        batch_size = cohort.batch_size if cohort.batch_size is not None else 1
-
         batch_start_idx = 0
+        current_img_size = (0, 0)
         while batch_start_idx < len(rows):
-            num_batch_rows = min(batch_size, len(rows) - batch_start_idx)
+            num_batch_rows = min(cohort.batch_size, len(rows) - batch_start_idx)
             for segment in cohort.segments:
                 if self._is_nos_call(segment[0]):
                     fn_call = segment[0]
@@ -544,9 +544,11 @@ class ExprEvalNode(ExecNode):
                     if len(cohort.img_batch_params) > 0:
                         # we need to choose a batch size based on the image size
                         sample_img = arg_batches[cohort.img_param_pos][0]
-                        nos_batch_size, target_res = cohort.get_batch_params(sample_img.size)
+                        if sample_img.size != current_img_size:
+                            current_img_size = sample_img.size
+                            nos_batch_size, target_res = cohort.get_batch_params(sample_img.size)
                     else:
-                        nos_batch_size, target_res = batch_size, cohort.img_size
+                        nos_batch_size, target_res = cohort.batch_size, cohort.img_size
 
                     # if we need to rescale image args, and we're doing object detection, we need to rescale the
                     # bounding boxes as well
@@ -566,6 +568,9 @@ class ExprEvalNode(ExecNode):
 
                     kwargs = {param_name: args for param_name, args in zip(cohort.nos_param_names, arg_batches)}
                     start_ts = time.perf_counter()
+                    _logger.debug(
+                        f'Running NOS task {cohort.model_info.task}: '
+                        f'batch_size={num_batch_rows} target_res={target_res}')
                     result = Env.get().nos_client.Run(
                         task=cohort.model_info.task, model_name=cohort.model_info.name, **kwargs)
                     self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
@@ -597,11 +602,12 @@ class ExprEvalNode(ExecNode):
                         row = rows[batch_start_idx + result_idx]
                         row[fn_call.slot_idx] = row_results[result_idx]
                     # switch to the NOS-recommended batch size
-                    batch_size = nos_batch_size
+                    cohort.batch_size = nos_batch_size
+                    cohort.img_size = target_res
 
                 else:
                     # compute batch row-wise
-                    for row_idx in range(batch_start_idx, min(batch_start_idx + batch_size, len(rows))):
+                    for row_idx in range(batch_start_idx, min(batch_start_idx + cohort.batch_size, len(rows))):
                         self.evaluator.eval(rows[row_idx], segment, self.ctx.profile, ignore_errors=self.ignore_errors)
 
             # make sure images for stored cols have been saved to files before moving on to the next batch

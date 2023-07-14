@@ -4,11 +4,11 @@ import types
 from typing import Optional, Callable, Dict, List, Any, Tuple
 import importlib
 import sqlalchemy as sql
-from sqlalchemy.sql.expression import func as sql_func
 import cloudpickle
 import inspect
 import logging
 from uuid import UUID
+import dataclasses
 
 import nos
 
@@ -471,28 +471,28 @@ class FunctionRegistry:
         if id is not None:
             if id not in self.stored_fns_by_id:
                 stmt = sql.select(
-                        schema.Function.name, schema.Function.md,
-                        schema.Function.eval_obj, schema.Function.init_obj, schema.Function.update_obj,
-                        schema.Function.value_obj) \
+                        schema.Function.md, schema.Function.eval_obj, schema.Function.init_obj,
+                        schema.Function.update_obj, schema.Function.value_obj) \
                     .where(schema.Function.id == id)
                 with Env.get().engine.begin() as conn:
                     rows = conn.execute(stmt)
                     row = next(rows)
-                    name = row[0]
-                    md = Function.Metadata.from_dict(row[1])
+                    schema_md = schema.md_from_dict(schema.FunctionMd, row[0])
+                    name = schema_md.name
+                    md = Function.Metadata.from_dict(schema_md.md)
                     # md.fqn is set by caller
-                    eval_fn = cloudpickle.loads(row[2]) if row[2] is not None else None
+                    eval_fn = cloudpickle.loads(row[1]) if row[1] is not None else None
                     # TODO: are these checks needed?
-                    if row[2] is not None and eval_fn is None:
+                    if row[1] is not None and eval_fn is None:
                         raise exc.Error(f'Could not load eval_fn for function {name}')
-                    init_fn = cloudpickle.loads(row[3]) if row[3] is not None else None
-                    if row[3] is not None and init_fn is None:
+                    init_fn = cloudpickle.loads(row[2]) if row[2] is not None else None
+                    if row[2] is not None and init_fn is None:
                         raise exc.Error(f'Could not load init_fn for aggregate function {name}')
-                    update_fn = cloudpickle.loads(row[4]) if row[4] is not None else None
-                    if row[4] is not None and update_fn is None:
+                    update_fn = cloudpickle.loads(row[3]) if row[3] is not None else None
+                    if row[3] is not None and update_fn is None:
                         raise exc.Error(f'Could not load update_fn for aggregate function {name}')
-                    value_fn = cloudpickle.loads(row[5]) if row[5] is not None else None
-                    if row[5] is not None and value_fn is None:
+                    value_fn = cloudpickle.loads(row[4]) if row[4] is not None else None
+                    if row[4] is not None and value_fn is None:
                         raise exc.Error(f'Could not load value_fn for aggregate function {name}')
 
                     func = Function(
@@ -504,7 +504,7 @@ class FunctionRegistry:
             return self.stored_fns_by_id[id]
         else:
             # this is an already-registered library function
-            assert fqn in self.library_fns
+            assert fqn in self.library_fns, f'{fqn} not found'
             return self.library_fns[fqn]
 
     def create_function(self, fn: Function, dir_id: Optional[UUID] = None, name: Optional[str] = None) -> None:
@@ -521,10 +521,11 @@ class FunctionRegistry:
                 (len(value_fn_str) if value_fn_str is not None else 0)
             _logger.debug(f'Pickled function {name} ({total_size} bytes)')
 
+            schema_md = schema.FunctionMd(name=name, md=fn.md.as_dict())
             res = conn.execute(
                 sql.insert(schema.Function.__table__)
                     .values(
-                        dir_id=dir_id, name=name, md=fn.md.as_dict(),
+                        dir_id=dir_id, md=dataclasses.asdict(schema_md),
                         eval_obj=eval_fn_str, init_obj=init_fn_str, update_obj=update_fn_str, value_obj=value_fn_str))
             fn.id = res.inserted_primary_key[0]
             self.stored_fns_by_id[fn.id] = fn

@@ -112,7 +112,7 @@ class Client:
             a video column, an image column to store the extracted frames, and an int column to store the frame
             indices.
 
-            >>> table = db.create_table('my_table',
+            >>> table = cl.create_table('my_table',
             ... schema=[Column('video', VideoType()), Column('frame', ImageType()), Column('frame_idx', IntType())],
             ... extract_frames_from='video', extracted_frame_col='frame', extracted_frame_idx_col='frame_idx',
             ... extracted_fps=1)
@@ -152,15 +152,15 @@ class Client:
         Example:
             Get handle for a table in the top-level directory:
 
-            >>> table = db.get_table('my_table')
+            >>> table = cl.get_table('my_table')
 
             For a table in a subdirectory:
 
-            >>> table = db.get_table('subdir.my_table')
+            >>> table = cl.get_table('subdir.my_table')
 
             For a snapshot in the top-level directory:
 
-            >>> table = db.get_table('my_snapshot')
+            >>> table = cl.get_table('my_snapshot')
         """
         p = Path(path)
         self.paths.check_is_valid(p, expected=Table)
@@ -180,11 +180,11 @@ class Client:
         Examples:
             Move a table to a different directory:
 
-            >>>> db.move('dir1.my_table', 'dir2.my_table')
+            >>>> cl.move('dir1.my_table', 'dir2.my_table')
 
             Rename a table:
 
-            >>>> db.move('dir1.my_table', 'dir1.new_name')
+            >>>> cl.move('dir1.my_table', 'dir1.new_name')
         """
         p = Path(path)
         self.paths.check_is_valid(p, expected=SchemaObject)
@@ -211,12 +211,12 @@ class Client:
         Examples:
             List tables in top-level directory:
 
-            >>> db.list_tables()
+            >>> cl.list_tables()
             ['my_table', ...]
 
             List tables in 'dir1':
 
-            >>> db.list_tables('dir1')
+            >>> cl.list_tables('dir1')
             [...]
         """
         assert dir_path is not None
@@ -236,7 +236,7 @@ class Client:
             Error: If the path does not exist or does not designate a table and ignore_errors is False.
 
         Example:
-            >>> db.drop_table('my_table')
+            >>> cl.drop_table('my_table')
         """
         path = Path(path_str)
         try:
@@ -271,14 +271,17 @@ class Client:
 
         with orm.Session(Env.get().engine, future=True) as session:
             dir = self.paths[snapshot_path_obj.parent]
-            snapshot_record = schema.TableSnapshot(
-                dir_id=dir.id, name=tbl.name, tbl_id=tbl.id, tbl_version=tbl.version,
-                tbl_schema_version=tbl.schema_version)
+            snapshot_md = schema.TableMd(
+                name=snapshot_path_obj.name, current_version=tbl.version, current_schema_version=tbl.schema_version,
+                next_col_id=-1, next_row_id=-1, column_history={}, parameters=tbl.tbl_md.parameters)
+            snapshot_record = schema.TableSnapshot(dir_id=dir.id, tbl_id=tbl.id, md=dataclasses.asdict(snapshot_md))
             session.add(snapshot_record)
             session.flush()
             assert snapshot_record.id is not None
-            cols = Table.load_cols(tbl.id, tbl.schema_version, session)
-            snapshot = TableSnapshot(snapshot_record, dataclasses.asdict(tbl.parameters), cols)
+            schema_version_record = session.query(schema.TableSchemaVersion)\
+                .where(schema.TableSchemaVersion.tbl_id == tbl.id) \
+                .where(schema.TableSchemaVersion.schema_version == tbl.schema_version).one()
+            snapshot = TableSnapshot(snapshot_record, schema_version_record)
             self.paths[snapshot_path_obj] = snapshot
             session.commit()
             _logger.info(f'Created snapshot {snapshot_path}')
@@ -294,11 +297,11 @@ class Client:
             Error: If the path already exists or the parent is not a directory.
 
         Examples:
-            >>> db.create_dir('my_dir')
+            >>> cl.create_dir('my_dir')
 
             Create a subdirectory:
 
-            >>> db.create_dir('my_dir.sub_dir')
+            >>> cl.create_dir('my_dir.sub_dir')
         """
         try:
             path = Path(path_str)
@@ -306,7 +309,8 @@ class Client:
             parent = self.paths[path.parent]
             assert parent is not None
             with orm.Session(Env.get().engine, future=True) as session:
-                dir_record = schema.Dir(name=path.name, parent_id=parent.id)
+                dir_md = schema.DirMd(name=path.name)
+                dir_record = schema.Dir(parent_id=parent.id, md=dataclasses.asdict(dir_md))
                 session.add(dir_record)
                 session.flush()
                 assert dir_record.id is not None
@@ -329,11 +333,11 @@ class Client:
             Error: If the path does not exist or does not designate a directory or if the directory is not empty.
 
         Examples:
-            >>> db.rm_dir('my_dir')
+            >>> cl.rm_dir('my_dir')
 
             Remove a subdirectory:
 
-            >>> db.rm_dir('my_dir.sub_dir')
+            >>> cl.rm_dir('my_dir.sub_dir')
         """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=Dir)
@@ -369,7 +373,7 @@ class Client:
             Error: If the path does not exist or does not designate a directory.
 
         Example:
-            >>> db.list_dirs('my_dir', recursive=True)
+            >>> cl.list_dirs('my_dir', recursive=True)
             ['my_dir', 'my_dir.sub_dir1']
         """
         path = Path(path_str, empty_is_valid=True)
@@ -391,7 +395,7 @@ class Client:
             >>> pt.function(param_types=[ImageType()], return_type=JsonType())
             ... def detect(img):
             ... ...
-            >>> db.create_function('my_dir.detect', detect)
+            >>> cl.create_function('my_dir.detect', detect)
         """
         if func.is_library_function:
             raise exc.Error(f'Cannot create a named function for a library function')
@@ -441,7 +445,7 @@ class Client:
             Error: if the path does not exist or is not a function
 
         Example:
-            >>> detect = db.get_function('my_dir.detect')
+            >>> detect = cl.get_function('my_dir.detect')
         """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
@@ -462,7 +466,7 @@ class Client:
             Error: if the path does not exist or is not a function
 
         Example:
-            >>> db.drop_function('my_dir.detect')
+            >>> cl.drop_function('my_dir.detect')
         """
         path = Path(path_str)
         try:
@@ -484,8 +488,6 @@ class Client:
         """
         with Env.get().engine.begin() as conn:
             conn.execute(sql.delete(schema.TableSnapshot.__table__))
-            conn.execute(sql.delete(schema.SchemaColumn.__table__))
-            conn.execute(sql.delete(schema.ColumnHistory.__table__))
             conn.execute(sql.delete(schema.TableSchemaVersion.__table__))
             conn.execute(sql.delete(schema.Table.__table__))
             conn.execute(sql.delete(schema.Function.__table__))

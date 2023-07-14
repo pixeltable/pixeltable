@@ -15,6 +15,8 @@ import psutil
 
 import nos
 
+from pixeltable import metadata
+
 class Env:
     """
     Store for runtime globals.
@@ -77,7 +79,9 @@ class Env:
         print(f'logging to {self._logfilename}')
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
         print(f'default log level: {logging.getLevelName(self._default_log_level)}')
-        print(f'module log levels: {",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}')
+        print(
+            f'module log levels: '
+            f'{",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}')
 
     def log_to_stdout(self, enable: bool = True) -> None:
         self._log_to_stdout = enable
@@ -152,10 +156,12 @@ class Env:
             self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
             from pixeltable.metadata import schema
             schema.Base.metadata.create_all(self._sa_engine)
+            metadata.create_system_info(self._sa_engine)
         else:
             self._logger.info(f'found database {self.db_url(hide_passwd=True)}')
-        if self._sa_engine is None:
-            self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
+            if self._sa_engine is None:
+                self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
+            metadata.upgrade_md(self._sa_engine)
 
         self.log_to_stdout(False)
 
