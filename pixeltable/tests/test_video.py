@@ -53,10 +53,6 @@ class TestVideo:
         tbl.revert()
         assert ImageStore.count(tbl.id) == tbl.count()
 
-        # missing 'columns' arg
-        with pytest.raises(exc.Error):
-            tbl.insert_rows([[p] for p in video_filepaths])
-
         # column values mismatch in rows
         with pytest.raises(exc.Error):
             tbl.insert_rows([[1, 2], [3]], columns=['video'])

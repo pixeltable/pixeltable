@@ -186,10 +186,16 @@ class ColumnType:
         return self._type.name.lower()
 
     def __eq__(self, other: object) -> bool:
+        return self.matches(other) and self.nullable == other.nullable
+
+    def matches(self, other: object) -> bool:
+        """Two types match if they're equal, aside from nullability"""
         assert isinstance(other, ColumnType)
-        if False and type(self) != type(other):
+        if type(self) != type(other):
             return False
         for member_var in vars(self).keys():
+            if member_var == 'nullable':
+                continue
             if getattr(self, member_var) != getattr(other, member_var):
                 return False
         return True

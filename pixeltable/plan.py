@@ -48,13 +48,13 @@ class Planner:
         evaluator = exprs.Evaluator(stored_exprs)
         num_db_cols = len(stored_cols) - len(index_cols)
         db_col_range = range(num_db_cols)
-        db_col_info = [ColumnInfo(stored_cols[i], stored_exprs[i].data_row_slot_idx) for i in db_col_range]
+        db_col_info = [ColumnInfo(stored_cols[i], stored_exprs[i].slot_idx) for i in db_col_range]
         idx_col_range = range(len(stored_cols) - len(index_cols), len(stored_cols))
         idx_col_info = \
-            [ColumnInfo(indexed_cols[i - num_db_cols], stored_exprs[i].data_row_slot_idx) for i in idx_col_range]
+            [ColumnInfo(indexed_cols[i - num_db_cols], stored_exprs[i].slot_idx) for i in idx_col_range]
 
         # create InsertDataNode that captures 'data'
-        stored_col_info = [ColumnInfo(c, e.data_row_slot_idx) for c, e in zip(stored_cols, stored_exprs)]
+        stored_col_info = [ColumnInfo(c, e.slot_idx) for c, e in zip(stored_cols, stored_exprs)]
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         frame_idx_col, frame_idx_slot_idx = tbl.frame_idx_col(), None
         if frame_idx_col is not None:
@@ -104,7 +104,7 @@ class Planner:
         Returns:
             (<is output>, <is input>)
         """
-        if e.data_row_slot_idx in grouping_expr_idxs:
+        if e.slot_idx in grouping_expr_idxs:
             return True, True
         elif cls._is_agg_fn_call(e):
             for c in e.components:
@@ -177,7 +177,7 @@ class Planner:
             return
 
         # check that select list only contains aggregate output
-        grouping_expr_idxs = [e.data_row_slot_idx for e in info.group_by_clause]
+        grouping_expr_idxs = [e.slot_idx for e in info.group_by_clause]
         is_agg_output = [cls._determine_agg_status(e, grouping_expr_idxs)[0] for e in info.select_list]
         if is_agg_output.count(False) > 0:
             raise exc.Error(
@@ -222,7 +222,7 @@ class Planner:
         """Returns the list that contains the other, or the empty list if neither contains the other"""
         common_prefix_len = 0
         for e1, e2 in zip(l1, l2):
-            if e1.data_row_slot_idx != e2.data_row_slot_idx:
+            if e1.slot_idx != e2.slot_idx:
                 break
             common_prefix_len += 1
         if common_prefix_len == len(l1):
@@ -291,7 +291,7 @@ class Planner:
     @classmethod
     def _is_contained_in(cls, l1: List[exprs.Expr], l2: List[exprs.Expr]) -> bool:
         """Returns True if l1 is contained in l2"""
-        s1, s2 = set([e.data_row_slot_idx for e in l1]), set([e.data_row_slot_idx for e in l2])
+        s1, s2 = set([e.slot_idx for e in l1]), set([e.slot_idx for e in l2])
         return s1 <= s2
 
     @classmethod
@@ -381,11 +381,11 @@ class Planner:
         plan.ctx.show_pbar = True
 
         # we want to flush images
-        col_slot_idx = select_list[value_expr_pos].data_row_slot_idx if value_expr_pos is not None else None
+        col_slot_idx = select_list[value_expr_pos].slot_idx if value_expr_pos is not None else None
         stored_col_info: List[ColumnInfo] = []
         if col.is_computed and col.is_stored and col.col_type.is_image_type():
             stored_col_info = [ColumnInfo(col, col_slot_idx)]
         plan.set_stored_img_cols(stored_col_info)
         return plan, \
-            select_list[value_expr_pos].data_row_slot_idx if value_expr_pos is not None else None, \
-            select_list[embedding_pos].data_row_slot_idx if embedding_pos is not None else None
+            select_list[value_expr_pos].slot_idx if value_expr_pos is not None else None, \
+            select_list[embedding_pos].slot_idx if embedding_pos is not None else None

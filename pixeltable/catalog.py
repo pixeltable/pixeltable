@@ -825,14 +825,15 @@ class MutableTable(Table):
         Args:
             rows: A list of rows to insert. Each row is a list of values, one for each column.
             columns: A list of column names that specify the columns present in ``rows``.
-                If ``columns`` is empty, all columns are present in ``rows``.
+                If ``columns`` is empty, all non-computed columns are present in ``rows``.
             print_stats: If ``True``, print statistics about the cost of computed columns.
 
         Returns:
             execution status
 
         Raises:
-            Error: If the number of columns in ``rows`` does not match the number of columns in the table or in ``columns``.
+            Error: If the number of columns in ``rows`` does not match the number of columns in the table or in
+            ``columns``.
 
         Examples:
             Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Note that the ``columns``
@@ -849,10 +850,12 @@ class MutableTable(Table):
 
         """
         assert len(rows) > 0
-        if len(rows[0]) != len(self.cols) and len(columns) == 0:
+        insertable_col_names = self._get_insertable_col_names()
+        if len(columns) == 0 and len(rows[0]) != len(insertable_col_names):
             raise exc.Error(
-                f'Table {self.name} has {len(self.cols)} columns, but the data only contains {len(rows[0])} columns. '
-                f"In this case, you need to specify the column names with the 'columns' parameter.")
+                f'Table {self.name} has {len(insertable_col_names)} user-supplied columns, but the data only contains '
+                f"{len(rows[0])} columns. In this case, you need to specify the column names with the 'columns' "
+                f'parameter.')
 
         # make sure that each row contains the same number of values
         num_col_vals = len(rows[0])
@@ -863,14 +866,22 @@ class MutableTable(Table):
                     f'row {i} has {len(rows[i])}')
 
         if len(columns) == 0:
-            columns = [c.name for c in self.cols]
+            columns = insertable_col_names
         if len(rows[0]) != len(columns):
             raise exc.Error(
                 f'The number of column values in rows ({len(rows[0])}) does not match the given number of column names '
-                f'({len(columns)}')
+                f'({", ".join(columns)})')
 
         pd_df = pd.DataFrame.from_records(rows, columns=columns)
         return self.insert_pandas(pd_df, print_stats=print_stats)
+
+    def _get_insertable_col_names(self, required_only: bool = False) -> List[str]:
+        """Return the names of all columns for which values can be specified."""
+        names = [c.name for c in self.cols if not c.is_computed and (not required_only or not c.col_type.nullable)]
+        if self.extracts_frames():
+            names.remove(self.cols_by_id[self.parameters.frame_col_id].name)
+            names.remove(self.cols_by_id[self.parameters.frame_idx_col_id].name)
+        return names
 
     def _check_data(self, data: pd.DataFrame):
         """
@@ -878,10 +889,7 @@ class MutableTable(Table):
         """
         assert len(data) > 0
         all_col_names = {col.name for col in self.cols}
-        reqd_col_names = {col.name for col in self.cols if not col.col_type.nullable and col.value_expr is None}
-        if self.extracts_frames():
-            reqd_col_names.discard(self.cols_by_id[self.parameters.frame_col_id].name)
-            reqd_col_names.discard(self.cols_by_id[self.parameters.frame_idx_col_id].name)
+        reqd_col_names = set(self._get_insertable_col_names(required_only=True))
         given_col_names = set(data.columns)
         if not(reqd_col_names <= given_col_names):
             raise exc.Error(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')

@@ -115,16 +115,16 @@ _GLOBAL_SCOPE = ExprScope(None)
 class Expr(abc.ABC):
     """
     Rules for using state in subclasses:
-    - all state except for components and data_row_slot_idx is shared between copies of an Expr
-    - data_row_slot_idx is set during analysis (DataFrame.show())
+    - all state except for components and slot_idx is shared between copies of an Expr
+    - slot_idx is set during analysis (DataFrame.show())
     - during eval(), components can only be accessed via self.components; any Exprs outside of that won't
-      have data_row_slot_idx set
+      have slot_idx set
     """
     def __init__(self, col_type: ColumnType):
         self.col_type = col_type
         # index of the expr's value in the data row; set for all materialized exprs; -1: invalid
         # not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
-        self.data_row_slot_idx = -1
+        self.slot_idx = -1
         self.components: List[Expr] = []  # the subexprs that are needed to construct this expr
 
     def dependencies(self) -> List[Expr]:
@@ -181,13 +181,13 @@ class Expr(abc.ABC):
 
     def copy(self) -> Expr:
         """
-        Creates a copy that can be evaluated separately: it doesn't share any eval context (data_row_slot_idx)
+        Creates a copy that can be evaluated separately: it doesn't share any eval context (slot_idx)
         but shares everything else (catalog objects, etc.)
         """
         cls = self.__class__
         result = cls.__new__(cls)
         result.__dict__.update(self.__dict__)
-        result.data_row_slot_idx = -1
+        result.slot_idx = -1
         result.components = [c.copy() for c in self.components]
         return result
 
@@ -319,7 +319,7 @@ class Expr(abc.ABC):
     @abc.abstractmethod
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         """
-        Compute the expr value for data_row and store the result in data_row[data_row_slot_idx].
+        Compute the expr value for data_row and store the result in data_row[slot_idx].
         Not called if sql_expr() != None (exception: Literal).
         """
         pass
@@ -564,16 +564,16 @@ class FrameColumnRef(ColumnRef):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # extract frame
-        video_path = data_row[self._video_ref.data_row_slot_idx]
+        video_path = data_row[self._video_ref.slot_idx]
         if self.frames is None or self.current_video != video_path:
             self.current_video = video_path
             if self.frames is not None:
                 self.frames.close()
             self.frames = FrameIterator(self.current_video, fps=self.tbl.parameters.extraction_fps)
-        frame_idx = data_row[self._frame_idx_ref.data_row_slot_idx]
+        frame_idx = data_row[self._frame_idx_ref.slot_idx]
         self.frames.seek(frame_idx)
         _, frame = next(self.frames, None)
-        data_row[self.data_row_slot_idx] = frame
+        data_row[self.slot_idx] = frame
 
     def release(self) -> None:
         if self.frames is not None:
@@ -599,7 +599,7 @@ class FunctionCall(Expr):
                     # TODO: check non-Expr args
                     continue
                 param_type = signature.parameters[i][1]
-                if args[i].col_type == param_type:
+                if args[i].col_type.matches(param_type):
                     # nothing to do
                     continue
                 converter = args[i].col_type.conversion_fn(param_type)
@@ -742,19 +742,19 @@ class FunctionCall(Expr):
         i = 0
         for j in range(len(args)):
             if args[j] is None:
-                args[j] = data_row[self.components[i].data_row_slot_idx]
+                args[j] = data_row[self.components[i].slot_idx]
                 i += 1
         return args
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         args = self._make_args(data_row)
         if not self.fn.is_aggregate:
-            data_row[self.data_row_slot_idx] = self.fn.eval_fn(*args)
+            data_row[self.slot_idx] = self.fn.eval_fn(*args)
         elif self.is_window_fn_call:
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
-                partition_vals = [data_row[e.data_row_slot_idx] for e in self.group_by]
+                partition_vals = [data_row[e.slot_idx] for e in self.group_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
                     self.aggregator = self.fn.init_fn()
@@ -762,10 +762,10 @@ class FunctionCall(Expr):
             elif self.aggregator is None:
                 self.aggregator = self.fn.init_fn()
             self.fn.update_fn(self.aggregator, *args)
-            data_row[self.data_row_slot_idx] = self.fn.value_fn(self.aggregator)
+            data_row[self.slot_idx] = self.fn.value_fn(self.aggregator)
         else:
             assert self.is_agg_fn_call
-            data_row[self.data_row_slot_idx] = self.fn.value_fn(self.aggregator)
+            data_row[self.slot_idx] = self.fn.value_fn(self.aggregator)
 
     def _as_dict(self) -> Dict:
         result = {
@@ -935,11 +935,11 @@ class ImageMemberAccess(Expr):
         return None
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        caller_val = data_row[self._caller.data_row_slot_idx]
+        caller_val = data_row[self._caller.slot_idx]
         try:
-            data_row[self.data_row_slot_idx] = getattr(caller_val, self.member_name)
+            data_row[self.slot_idx] = getattr(caller_val, self.member_name)
         except AttributeError:
-            data_row[self.data_row_slot_idx] = None
+            data_row[self.slot_idx] = None
 
 
 class ImageMethodCall(FunctionCall):
@@ -1092,10 +1092,10 @@ class JsonPath(Expr):
         return ''.join(result)
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        val = data_row[self._anchor.data_row_slot_idx]
+        val = data_row[self._anchor.slot_idx]
         if self.compiled_path is not None:
             val = self.compiled_path.search(val)
-        data_row[self.data_row_slot_idx] = val
+        data_row[self.slot_idx] = val
 
 
 RELATIVE_PATH_ROOT = JsonPath(None)
@@ -1133,7 +1133,7 @@ class Literal(Expr):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # this will be called, even though sql_expr() does not return None
-        data_row[self.data_row_slot_idx] = self.val
+        data_row[self.slot_idx] = self.val
 
     def _as_dict(self) -> Dict:
         return {'val': self.val, **super()._as_dict()}
@@ -1197,10 +1197,10 @@ class InlineDict(Expr):
         for key, idx, val in self.dict_items:
             assert isinstance(key, str)
             if idx >= 0:
-                result[key] = data_row[self.components[idx].data_row_slot_idx]
+                result[key] = data_row[self.components[idx].slot_idx]
             else:
                 result[key] = copy.deepcopy(val)
-        data_row[self.data_row_slot_idx] = result
+        data_row[self.slot_idx] = result
 
     def _as_dict(self) -> Dict:
         return {'dict_items': self.dict_items, **super()._as_dict()}
@@ -1274,10 +1274,10 @@ class InlineArray(Expr):
         result = [None] * len(self.elements)
         for i, (child_idx, val) in enumerate(self.elements):
             if child_idx >= 0:
-                result[i] = data_row[self.components[child_idx].data_row_slot_idx]
+                result[i] = data_row[self.components[child_idx].slot_idx]
             else:
                 result[i] = copy.deepcopy(val)
-        data_row[self.data_row_slot_idx] = np.array(result)
+        data_row[self.slot_idx] = np.array(result)
 
     def _as_dict(self) -> Dict:
         return {'elements': self.elements, **super()._as_dict()}
@@ -1325,8 +1325,8 @@ class ArraySlice(Expr):
         return None
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        val = data_row[self._array.data_row_slot_idx]
-        data_row[self.data_row_slot_idx] = val[self.index]
+        val = data_row[self._array.slot_idx]
+        data_row[self.slot_idx] = val[self.index]
 
     def _as_dict(self) -> Dict:
         index = []
@@ -1479,13 +1479,13 @@ class CompoundPredicate(Predicate):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         if self.operator == LogicalOperator.NOT:
-            data_row[self.data_row_slot_idx] = not data_row[self.components[0].data_row_slot_idx]
+            data_row[self.slot_idx] = not data_row[self.components[0].slot_idx]
         else:
             val = True if self.operator == LogicalOperator.AND else False
             op_function = operator.and_ if self.operator == LogicalOperator.AND else operator.or_
             for op in self.components:
-                val = op_function(val, data_row[op.data_row_slot_idx])
-            data_row[self.data_row_slot_idx] = val
+                val = op_function(val, data_row[op.slot_idx])
+            data_row[self.slot_idx] = val
 
     def _as_dict(self) -> Dict:
         return {'operator': self.operator.value, **super()._as_dict()}
@@ -1536,17 +1536,17 @@ class Comparison(Predicate):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         if self.operator == ComparisonOperator.LT:
-            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] < data_row[self._op2.data_row_slot_idx]
+            data_row[self.slot_idx] = data_row[self._op1.slot_idx] < data_row[self._op2.slot_idx]
         elif self.operator == ComparisonOperator.LE:
-            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] <= data_row[self._op2.data_row_slot_idx]
+            data_row[self.slot_idx] = data_row[self._op1.slot_idx] <= data_row[self._op2.slot_idx]
         elif self.operator == ComparisonOperator.EQ:
-            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] == data_row[self._op2.data_row_slot_idx]
+            data_row[self.slot_idx] = data_row[self._op1.slot_idx] == data_row[self._op2.slot_idx]
         elif self.operator == ComparisonOperator.NE:
-            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] != data_row[self._op2.data_row_slot_idx]
+            data_row[self.slot_idx] = data_row[self._op1.slot_idx] != data_row[self._op2.slot_idx]
         elif self.operator == ComparisonOperator.GT:
-            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] > data_row[self._op2.data_row_slot_idx]
+            data_row[self.slot_idx] = data_row[self._op1.slot_idx] > data_row[self._op2.slot_idx]
         elif self.operator == ComparisonOperator.GE:
-            data_row[self.data_row_slot_idx] = data_row[self._op1.data_row_slot_idx] >= data_row[self._op2.data_row_slot_idx]
+            data_row[self.slot_idx] = data_row[self._op1.slot_idx] >= data_row[self._op2.slot_idx]
 
     def _as_dict(self) -> Dict:
         return {'operator': self.operator.value, **super()._as_dict()}
@@ -1618,7 +1618,7 @@ class IsNull(Predicate):
         return e == None
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        data_row[self.data_row_slot_idx] = data_row[self.components[0].data_row_slot_idx] is None
+        data_row[self.slot_idx] = data_row[self.components[0].slot_idx] is None
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
@@ -1680,8 +1680,8 @@ class ArithmeticExpr(Expr):
             return left % right
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        op1_val = data_row[self._op1.data_row_slot_idx]
-        op2_val = data_row[self._op2.data_row_slot_idx]
+        op1_val = data_row[self._op1.slot_idx]
+        op2_val = data_row[self._op2.slot_idx]
         # check types if we couldn't do that prior to execution
         if self._op1.col_type.is_json_type() and not isinstance(op1_val, int) and not isinstance(op1_val, float):
             raise Error(
@@ -1691,15 +1691,15 @@ class ArithmeticExpr(Expr):
                 f'{self.operator} requires numeric type, but {self._op2} has type {type(op2_val).__name__}')
 
         if self.operator == ArithmeticOperator.ADD:
-            data_row[self.data_row_slot_idx] = op1_val + op2_val
+            data_row[self.slot_idx] = op1_val + op2_val
         elif self.operator == ArithmeticOperator.SUB:
-            data_row[self.data_row_slot_idx] = op1_val - op2_val
+            data_row[self.slot_idx] = op1_val - op2_val
         elif self.operator == ArithmeticOperator.MUL:
-            data_row[self.data_row_slot_idx] = op1_val * op2_val
+            data_row[self.slot_idx] = op1_val * op2_val
         elif self.operator == ArithmeticOperator.DIV:
-            data_row[self.data_row_slot_idx] = op1_val / op2_val
+            data_row[self.slot_idx] = op1_val / op2_val
         elif self.operator == ArithmeticOperator.MOD:
-            data_row[self.data_row_slot_idx] = op1_val % op2_val
+            data_row[self.slot_idx] = op1_val % op2_val
 
     def _as_dict(self) -> Dict:
         return {'operator': self.operator.value, **super()._as_dict()}
@@ -1818,22 +1818,22 @@ class JsonMapper(Expr):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # this will be called, but the value has already been materialized elsewhere
-        src = data_row[self._src_expr.data_row_slot_idx]
+        src = data_row[self._src_expr.slot_idx]
         if not isinstance(src, list):
             # invalid/non-list src path
-            data_row[self.data_row_slot_idx] = None
+            data_row[self.slot_idx] = None
             return
 
         result = [None] * len(src)
         if len(self.target_expr_eval_ctx) == 0:
             self.target_expr_eval_ctx = evaluator.get_eval_ctx([self._target_expr])
         for i, val in enumerate(src):
-            data_row[self.scope_anchor.data_row_slot_idx] = val
+            data_row[self.scope_anchor.slot_idx] = val
             # stored target_expr
             exc_tb = evaluator.eval(data_row, self.target_expr_eval_ctx)
             assert exc_tb is None
-            result[i] = data_row[self._target_expr.data_row_slot_idx]
-        data_row[self.data_row_slot_idx] = result
+            result[i] = data_row[self._target_expr.slot_idx]
+        data_row[self.slot_idx] = result
 
     def _as_dict(self) -> Dict:
         """
@@ -1957,30 +1957,30 @@ class Evaluator:
             output_exprs: list of Exprs to be evaluated
             input_exprs: list of Exprs that are assigned a slot_idx but aren't evaluated (expected to be input)
         """
-        # all following list are indexed with data_row_slot_idx
+        # all following list are indexed with slot_idx
         self.unique_exprs = UniqueExprList()  # dependencies precede their dependents
-        self.next_data_row_slot_idx = 0
+        self.next_slot_idx = 0
 
         # we start by assigning slot_idxs to input exprs
         for e in input_exprs:
             self._assign_idxs(e, recursive=False)
-        self.input_expr_slot_idxs = [e.data_row_slot_idx for e in input_exprs]
+        self.input_expr_slot_idxs = [e.slot_idx for e in input_exprs]
         for e in output_exprs:
             self._assign_idxs(e, recursive=True)
 
         for i in range(len(self.unique_exprs)):
-            assert self.unique_exprs[i].data_row_slot_idx == i
+            assert self.unique_exprs[i].slot_idx == i
 
         # record transitive dependencies
         self.dependencies = [set() for _ in range(self.num_materialized)]
         for i in range(self.num_materialized):
             expr = self.unique_exprs[i]
-            if expr.data_row_slot_idx in self.input_expr_slot_idxs:
+            if expr.slot_idx in self.input_expr_slot_idxs:
                 # this is input and therefore doesn't depend on other exprs
                 continue
             for d in self.unique_exprs[i].dependencies():
-                self.dependencies[i].add(d.data_row_slot_idx)
-                self.dependencies[i].update(self.dependencies[d.data_row_slot_idx])
+                self.dependencies[i].add(d.slot_idx)
+                self.dependencies[i].update(self.dependencies[d.slot_idx])
 
         # derive transitive dependents
         self.dependents = [set() for _ in range(self.num_materialized)]
@@ -1992,7 +1992,7 @@ class Evaluator:
         # (a subexpr can be shared across multiple output exprs)
         self.output_expr_ids = [set() for _ in range(self.num_materialized)]
         for e in output_exprs:
-            self._record_output_expr_id(e, e.data_row_slot_idx)
+            self._record_output_expr_id(e, e.slot_idx)
 
     def _compute_dependencies(self, target_slot_idxs: List[int], excluded_slot_idxs: List[int]) -> List[int]:
         """Compute exprs needed to materialize the given target slots, but excluding 'excluded_slot_idxs'"""
@@ -2000,25 +2000,25 @@ class Evaluator:
         # doing this front-to-back ensures that we capture transitive dependencies
         for i in range(max(target_slot_idxs) + 1):
             expr = self.unique_exprs[i]
-            if expr.data_row_slot_idx in excluded_slot_idxs:
+            if expr.slot_idx in excluded_slot_idxs:
                 continue
-            if expr.data_row_slot_idx in self.input_expr_slot_idxs:
+            if expr.slot_idx in self.input_expr_slot_idxs:
                 # this is input and therefore doesn't depend on other exprs
                 continue
             for d in expr.dependencies():
-                if d.data_row_slot_idx in excluded_slot_idxs:
+                if d.slot_idx in excluded_slot_idxs:
                     continue
-                dependencies[i].add(d.data_row_slot_idx)
-                dependencies[i].update(dependencies[d.data_row_slot_idx])
+                dependencies[i].add(d.slot_idx)
+                dependencies[i].update(dependencies[d.slot_idx])
         # merge dependencies and convert to list
         return sorted(set().union(*[dependencies[i] for i in target_slot_idxs]))
 
     def _assign_idxs(self, expr: Expr, recursive: bool) -> None:
         if expr in self.unique_exprs:
-            # expr is a duplicate: we copy data_row_slot_idx for itself and its components
+            # expr is a duplicate: we copy slot_idx for itself and its components
             original = self.unique_exprs[expr]
-            expr.data_row_slot_idx = original.data_row_slot_idx
-            if recursive and expr.data_row_slot_idx not in self.input_expr_slot_idxs:
+            expr.slot_idx = original.slot_idx
+            if recursive and expr.slot_idx not in self.input_expr_slot_idxs:
                 for c in expr.components:
                     self._assign_idxs(c, True)
             # nothing left to do
@@ -2028,19 +2028,19 @@ class Evaluator:
         if recursive:
             for c in expr.components:
                 self._assign_idxs(c, True)
-        assert expr.data_row_slot_idx < 0
-        expr.data_row_slot_idx = self.next_data_row_slot_idx
-        self.next_data_row_slot_idx += 1
+        assert expr.slot_idx < 0
+        expr.slot_idx = self.next_slot_idx
+        self.next_slot_idx += 1
         self.unique_exprs.append(expr)
 
     def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
-        self.output_expr_ids[e.data_row_slot_idx].add(output_expr_id)
+        self.output_expr_ids[e.slot_idx].add(output_expr_id)
         for d in e.dependencies():
             self._record_output_expr_id(d, output_expr_id)
 
     @property
     def num_materialized(self) -> int:
-        return self.next_data_row_slot_idx
+        return self.next_slot_idx
 
     def prepare(self) -> DataRow:
         """
@@ -2057,8 +2057,8 @@ class Evaluator:
         """
         if len(targets) == 0:
             return []
-        target_slot_idxs = [e.data_row_slot_idx for e in targets]
-        excluded_slot_idxs = [e.data_row_slot_idx for e in exclude]
+        target_slot_idxs = [e.slot_idx for e in targets]
+        excluded_slot_idxs = [e.slot_idx for e in exclude]
         all_dependencies = set(self._compute_dependencies(target_slot_idxs, excluded_slot_idxs))
         all_dependencies.update(target_slot_idxs)
         result_ids = list(all_dependencies)
@@ -2072,31 +2072,31 @@ class Evaluator:
         Populates the slots in data_row given in ctx.
         If an expr.eval() raises an exception, records the exception in the corresponding slot of data_row
         and omits any of that expr's dependents's eval().
-        profile: if present, populated with execution time of each expr.eval() call; indexed by expr.data_row_slot_idx
+        profile: if present, populated with execution time of each expr.eval() call; indexed by expr.slot_idx
         ignore_errors: if False, raises ExprEvalError if any expr.eval() raises an exception
         """
         had_exc = False
         skip_exprs: Set[int] = set()  # skip dependents of exprs that had exception
         for expr in ctx:
-            if expr.data_row_slot_idx in skip_exprs or data_row.has_val[expr.data_row_slot_idx]:
+            if expr.slot_idx in skip_exprs or data_row.has_val[expr.slot_idx]:
                 continue
 
             try:
                 start_time = time.perf_counter()
                 expr.eval(data_row, self)
                 if profile is not None:
-                    profile.eval_time[expr.data_row_slot_idx] += time.perf_counter() - start_time
-                    profile.eval_count[expr.data_row_slot_idx] += 1
+                    profile.eval_time[expr.slot_idx] += time.perf_counter() - start_time
+                    profile.eval_count[expr.slot_idx] += 1
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
-                data_row[expr.data_row_slot_idx] = exc
-                skip_exprs.update(self.dependents[expr.data_row_slot_idx])
+                data_row[expr.slot_idx] = exc
+                skip_exprs.update(self.dependents[expr.slot_idx])
                 if ignore_errors:
                     had_exc = True
                 else:
-                    input_vals = [data_row[d.data_row_slot_idx] for d in expr.dependencies()]
+                    input_vals = [data_row[d.slot_idx] for d in expr.dependencies()]
                     raise ExprEvalError(
-                        expr, f'expression {expr}', data_row[expr.data_row_slot_idx], exc_tb, input_vals, 0)
+                        expr, f'expression {expr}', data_row[expr.slot_idx], exc_tb, input_vals, 0)
 
         if had_exc:
             # propagate exceptions in data_row to their respective output_expr slots
@@ -2107,8 +2107,8 @@ class Evaluator:
 
 class ExprDict:
     """
-    Implements semantics of dict from Expr.data_row_slot_idx (= id) to unique exprs. Exprs that test True for Expr.equals()
-    are updated to share the same data_row_slot_idx.
+    Implements semantics of dict from Expr.slot_idx (= id) to unique exprs. Exprs that test True for Expr.equals()
+    are updated to share the same slot_idx.
     """
     def __init__(self):
         self.unique_exprs: List[Expr] = []
@@ -2116,12 +2116,12 @@ class ExprDict:
 
     def add(self, expr: Expr) -> bool:
         """
-        If expr is not unique, sets expr.data_row_slot_idx to that of the already-recorded duplicate and returns
+        If expr is not unique, sets expr.slot_idx to that of the already-recorded duplicate and returns
         False, otherwise returns True.
         """
         try:
             existing = next(e for e in self.unique_exprs if e.equals(expr))
-            expr.data_row_slot_idx = existing.data_row_slot_idx
+            expr.slot_idx = existing.slot_idx
             return False
         except StopIteration:
             self.unique_exprs.append(expr)
@@ -2129,10 +2129,10 @@ class ExprDict:
 
     def get(self, id: int) -> Expr:
         """
-        Return expr with given id (= data_row_slot_idx)
+        Return expr with given id (= slot_idx)
         """
         if len(self.expr_dict) == 0:
-            self.expr_dict = {e.data_row_slot_idx: e for e in self.unique_exprs}
+            self.expr_dict = {e.slot_idx: e for e in self.unique_exprs}
             assert -1 not in self.expr_dict
         return self.expr_dict[id]
 

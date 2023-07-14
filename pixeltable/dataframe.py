@@ -146,7 +146,7 @@ class DataFrame:
         try:
             result = next(plan)
             for data_row in result:
-                result_row = [data_row[e.data_row_slot_idx] for e in self.select_list]
+                result_row = [data_row[e.slot_idx] for e in self.select_list]
                 yield result_row
         finally:
             plan.close()

@@ -35,7 +35,7 @@ def init_env(tmp_path_factory) -> None:
 def test_db(init_env) -> catalog.Db:
     cl = pt.Client()
     cl.logging(level=logging.DEBUG)
-    db = cl.create_db(f'test')
+    db = cl.create_db('test')
     yield db
     cl.drop_db(db.name, force=True)
 

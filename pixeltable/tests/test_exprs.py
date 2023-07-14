@@ -164,6 +164,38 @@ class TestExprs:
         with pytest.raises(exc.Error):
             _ = t[t.c1.errormsg].show()
 
+    @pytest.mark.skip(reason='not implemented')
+    def test_nullable(self, test_db: catalog.Db) -> None:
+        # create table with two int columns
+        cols = [
+            pt.Column('c1', IntType(nullable=True)),
+            pt.Column('c2', IntType(nullable=True))
+        ]
+        t = test_db.create_table('test', cols)
+
+        # computed column that doesn't allow nulls
+        t.add_column(pt.Column('c3', IntType(), computed_with=lambda c1, c2: c1 + c2))
+        # function that does allow nulls
+        @pt.function(return_type=IntType(), param_types=[IntType(), IntType(nullable=True)])
+        def f(a: int, b: int) -> int:
+            if b is None:
+                return a
+            return a + b
+        t.add_column(pt.Column('c4', IntType(), computed_with=f(t.c1, t.c2)))
+
+        # data that tests all combinations of nulls
+        data = [(1, 1), (1, None), (None, 1), (None, None)]
+        t.insert_rows(data)
+        result = t[t.c3, t.c4].show(0)
+        assert result[0, 0] == 2
+        assert result[0, 1] == 2
+        assert result[1, 0] == None
+        assert result[1, 1] == 1
+        assert result[2, 0] == None
+        assert result[2, 1] == None
+        assert result[3, 0] == None
+        assert result[3, 1] == None
+
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 

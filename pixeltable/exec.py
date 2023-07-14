@@ -38,8 +38,8 @@ class DataRowBatch:
         self.table_version = table.version
         self.evaluator = evaluator
         self.rows = [evaluator.prepare() for _ in range(len)]
-        self.img_slot_idxs = [e.data_row_slot_idx for e in evaluator.unique_exprs if e.col_type.is_image_type()]
-        self.array_slot_idxs = [e.data_row_slot_idx for e in evaluator.unique_exprs if e.col_type.is_array_type()]
+        self.img_slot_idxs = [e.slot_idx for e in evaluator.unique_exprs if e.col_type.is_image_type()]
+        self.array_slot_idxs = [e.slot_idx for e in evaluator.unique_exprs if e.col_type.is_array_type()]
 
     def add_row(self, row: Optional[exprs.DataRow] = None) -> exprs.DataRow:
         row = self.evaluator.prepare() if row is None else row
@@ -129,11 +129,11 @@ class ExecNode(abc.ABC):
         self.evaluator = evaluator
         self.input = input
         # we flush all image slots that aren't part of our output but are needed to create our output
-        output_slot_idxs = {e.data_row_slot_idx for e in output_exprs}
+        output_slot_idxs = {e.slot_idx for e in output_exprs}
         dependencies = evaluator.get_eval_ctx(output_exprs, exclude=input_exprs)
         self.flushed_img_slots = [
-            e.data_row_slot_idx for e in dependencies
-            if e.col_type.is_image_type() and e.data_row_slot_idx not in output_slot_idxs
+            e.slot_idx for e in dependencies
+            if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
         self.stored_img_cols: List[ColumnInfo] = []
         self.ctx: Optional[ExecContext] = None  # all nodes of a tree share the same context
@@ -205,7 +205,7 @@ class AggregationNode(ExecNode):
             except Exception as e:
                 _, _, exc_tb = sys.exc_info()
                 expr_msg = f'update() function of the aggregate {fn_call}'
-                input_vals = [row[d.data_row_slot_idx] for d in fn_call.dependencies()]
+                input_vals = [row[d.slot_idx] for d in fn_call.dependencies()]
                 raise exc.ExprEvalError(fn_call, expr_msg, e, exc_tb, input_vals, row_num)
 
     def __next__(self) -> DataRowBatch:
@@ -218,7 +218,7 @@ class AggregationNode(ExecNode):
         for row_batch in self.input:
             num_input_rows += len(row_batch)
             for row in row_batch:
-                group = [row[e.data_row_slot_idx] for e in self.group_by]
+                group = [row[e.slot_idx] for e in self.group_by]
                 if current_group is None:
                     current_group = group
                     self._reset_agg_state(0)
@@ -321,12 +321,12 @@ class SqlScanNode(ExecNode):
                 row.set_pk(sql_row[-2], sql_row[-1])
             # copy the output of the SQL query into the output row
             for i, e in enumerate(self.sql_exprs):
-                slot_idx = e.data_row_slot_idx
+                slot_idx = e.slot_idx
                 output_batch[-1, slot_idx] = sql_row[i]
             if self.filter is not None:
                 row = output_batch[-1]
                 self.evaluator.eval(row, self.filter_eval_ctx, profile=self.ctx.profile)
-                if row[self.filter.data_row_slot_idx]:
+                if row[self.filter.slot_idx]:
                     needs_row = True
                     if self.limit is not None and len(output_batch) >= self.limit:
                         self.has_more_rows = False
@@ -426,9 +426,9 @@ class ExprEvalNode(ExecNode):
     ):
         super().__init__(evaluator, output_exprs, input_exprs, input)
         self.input_exprs = input_exprs
-        input_slot_idxs = {e.data_row_slot_idx for e in input_exprs}
+        input_slot_idxs = {e.slot_idx for e in input_exprs}
         # we're only materializing exprs that are not already in the input
-        self.target_exprs = [e for e in output_exprs if e.data_row_slot_idx not in input_slot_idxs]
+        self.target_exprs = [e for e in output_exprs if e.slot_idx not in input_slot_idxs]
         self.ignore_errors = ignore_errors  # if False, raise exc.ExprEvalError on error in _exec_cohort()
         self.pbar: Optional[tqdm] = None
         self.cohorts: List[List[ExprEvalNode.Cohort]] = []
@@ -477,17 +477,17 @@ class ExprEvalNode(ExecNode):
             cohorts[-1].append(e)
         # expand the cohorts to include all exprs that are in the same evaluation context as the NOS calls;
         # cohorts are evaluated in order, so we can exclude the target slots from preceding cohorts and input slots
-        exclude = set([e.data_row_slot_idx for e in self.input_exprs])
-        all_target_slot_idxs = set([e.data_row_slot_idx for e in self.target_exprs])
+        exclude = set([e.slot_idx for e in self.input_exprs])
+        all_target_slot_idxs = set([e.slot_idx for e in self.target_exprs])
         target_slot_idxs: List[List[int]] = []  # the ones materialized by each cohort
         for i in range(len(cohorts)):
             cohorts[i] = self.evaluator.get_eval_ctx(
                 cohorts[i], exclude = [self.evaluator.unique_exprs[slot_idx] for slot_idx in exclude])
             target_slot_idxs.append(
-                [e.data_row_slot_idx for e in cohorts[i] if e.data_row_slot_idx in all_target_slot_idxs])
+                [e.slot_idx for e in cohorts[i] if e.slot_idx in all_target_slot_idxs])
             exclude.update(target_slot_idxs[-1])
 
-        all_cohort_slot_idxs = set([e.data_row_slot_idx for cohort in cohorts for e in cohort])
+        all_cohort_slot_idxs = set([e.slot_idx for cohort in cohorts for e in cohort])
         remaining_slot_idxs = set(all_target_slot_idxs) - all_cohort_slot_idxs
         if len(remaining_slot_idxs) > 0:
             cohorts.append(self.evaluator.get_eval_ctx(
@@ -568,8 +568,8 @@ class ExprEvalNode(ExecNode):
                     start_ts = time.perf_counter()
                     result = Env.get().nos_client.Run(
                         task=cohort.model_info.task, model_name=cohort.model_info.name, **kwargs)
-                    self.ctx.profile.eval_time[fn_call.data_row_slot_idx] += time.perf_counter() - start_ts
-                    self.ctx.profile.eval_count[fn_call.data_row_slot_idx] += num_batch_rows
+                    self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
+                    self.ctx.profile.eval_count[fn_call.slot_idx] += num_batch_rows
 
                     if cohort.model_info.task == nos.common.TaskType.OBJECT_DETECTION_2D and target_res is not None:
                         # we need to rescale the bounding boxes
@@ -595,7 +595,7 @@ class ExprEvalNode(ExecNode):
                     # move the result into the row batch
                     for result_idx in range(len(row_results)):
                         row = rows[batch_start_idx + result_idx]
-                        row[fn_call.data_row_slot_idx] = row_results[result_idx]
+                        row[fn_call.slot_idx] = row_results[result_idx]
                     # switch to the NOS-recommended batch size
                     batch_size = nos_batch_size
 
