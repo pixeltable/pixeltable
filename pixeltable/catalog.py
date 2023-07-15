@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Optional, List, Set, Dict, Any, Type, Union, Callable, Generator
 import re
 import inspect
@@ -200,10 +201,15 @@ class Column:
         return self.tbl.id == other.tbl.id and self.id == other.id
 
 
-# base class of all addressable objects within a Db
 class SchemaObject:
-    def __init__(self, obj_id: int):
+    """
+    Base class of all addressable objects within a Db.
+    Each object has an id, a name and a parent directory.
+    """
+    def __init__(self, obj_id: UUID, name: str, dir_id: Optional[UUID]):
         self.id = obj_id
+        self.name = name
+        self.dir_id = dir_id
 
     @classmethod
     def display_name(cls) -> str:
@@ -213,14 +219,27 @@ class SchemaObject:
         assert False
         return ''
 
+    def move(self, new_name: str, new_dir_id: UUID) -> None:
+        """Subclasses need to override this to make the change persistent"""
+        self.name = new_name
+        self.dir_id = new_dir_id
+
 
 class Dir(SchemaObject):
-    def __init__(self, dir_id: int):
-        super().__init__(dir_id)
+    def __init__(self, id: UUID, parent_id: UUID, name: str):
+        super().__init__(id, name, parent_id)
 
     @classmethod
     def display_name(cls) -> str:
         return 'directory'
+
+    def move(self, new_name: str, new_dir_id: UUID) -> None:
+        super().move(new_name, new_dir_id)
+        with Env.get().engine.begin() as conn:
+            conn.execute(
+                sql.update(schema.Dir.__table__)
+                .values({schema.Dir.parent_id: self.dir_id, schema.Dir.name: self.name})
+                .where(schema.Dir.id == self.id))
 
 
 class NamedFunction(SchemaObject):
@@ -228,10 +247,16 @@ class NamedFunction(SchemaObject):
     Contains references to functions that are named and have a path within a db.
     The Function itself is stored in the FunctionRegistry.
     """
-    def __init__(self, id: int, dir_id: int, name: str):
-        super().__init__(id)
-        self.dir_id = dir_id
-        self.name = name
+    def __init__(self, id: UUID, dir_id: UUID, name: str):
+        super().__init__(id, name, dir_id)
+
+    def move(self, new_name: str, new_dir_id: UUID) -> None:
+        super().move(new_name, new_dir_id)
+        with Env.get().engine.begin() as conn:
+            conn.execute(
+                sql.update(schema.Function.__table__)
+                .values({schema.Function.dir_id: self.dir_id, schema.Function.name: self.name})
+                .where(schema.Function.id == self.id))
 
 
 @dataclasses.dataclass
@@ -250,11 +275,8 @@ class Table(SchemaObject):
     """Base class for tables."""
     def __init__(
             self, db_id: UUID, tbl_id: UUID, dir_id: UUID, name: str, version: int, params: Dict, cols: List[Column]):
-        super().__init__(tbl_id)
+        super().__init__(tbl_id, name, dir_id)
         self.db_id = db_id
-        self.dir_id = dir_id
-        # TODO: this will be out-of-date after a rename()
-        self.name = name
         # we create copies here because the Column objects might be owned by the caller
         self.cols = [copy.copy(col) for col in cols]
         for pos, col in enumerate(self.cols):
@@ -288,6 +310,14 @@ class Table(SchemaObject):
             col.tbl = self
             if col.value_expr is not None:
                 self._record_value_expr(col)
+
+    def move(self, new_name: str, new_dir_id: UUID) -> None:
+        super().move(new_name, new_dir_id)
+        with Env.get().engine.begin() as conn:
+            conn.execute(
+                sql.update(schema.Table.__table__)
+                .values({schema.Table.dir_id: self.dir_id, schema.Table.name: self.name})
+                .where(schema.Table.id == self.id))
 
     def extracts_frames(self) -> bool:
         return self.parameters.frame_col_id != -1
@@ -1321,7 +1351,7 @@ class MutableTable(Table):
 
 
 class Path:
-    def __init__(self, path: str, empty_is_valid: bool=False):
+    def __init__(self, path: str, empty_is_valid: bool = False):
         if path == '' and not empty_is_valid or path != '' and re.fullmatch(_PATH_RE, path) is None:
             raise exc.Error(f"Invalid path format: '{path}'")
         self.components = path.split('.')
@@ -1340,7 +1370,7 @@ class Path:
         return self.components[0] == ''
 
     @property
-    def parent(self) -> 'Path':
+    def parent(self) -> Path:
         if len(self.components) == 1:
             if self.is_root:
                 return self
@@ -1349,13 +1379,13 @@ class Path:
         else:
             return Path('.'.join(self.components[:-1]))
 
-    def append(self, name: str) -> 'Path':
+    def append(self, name: str) -> Path:
         if self.is_root:
             return Path(name)
         else:
             return Path(f'{str(self)}.{name}')
 
-    def is_ancestor(self, other: 'Path', is_parent: bool = False) -> bool:
+    def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
         True if self as an ancestor path of other.
         """
@@ -1371,24 +1401,122 @@ class Path:
 
 
 class PathDict:
-    def __init__(self) -> None:
-        # *not* Dict[Path, SchemaObject]
-        self.paths: Dict[str, SchemaObject] = {}  # all paths
+    """Keep track of all paths in a Db instance"""
+    def __init__(self, db_id: UUID):
+        self.dir_contents: Dict[UUID, Dict[str, SchemaObject]] = {}
+        self.schema_objs: Dict[UUID, SchemaObject] = {}
+
+        # load dirs
+        with orm.Session(Env.get().engine, future=True) as session:
+            self.schema_objs = {
+                dir_record.id: Dir(dir_record.id, dir_record.parent_id, dir_record.name)
+                for dir_record in session.query(schema.Dir).where(schema.Dir.db_id == db_id).all()
+            }
+
+        # identify root dir
+        root_dirs = [dir for dir in self.schema_objs.values() if dir.dir_id is None]
+        assert len(root_dirs) == 1
+        self.root_dir = root_dirs[0]
+
+        # build dir_contents
+        def record_dir(dir: Dir) -> None:
+            self.dir_contents[dir.id] = {}
+            if dir.dir_id is not None:
+                if dir.dir_id not in self.dir_contents:
+                    record_dir(self.schema_objs[dir.dir_id])
+                self.dir_contents[dir.dir_id][dir.name] = dir
+        for dir in self.schema_objs.values():
+            record_dir(dir)
+
+        # load tables
+        with orm.Session(Env.get().engine, future=True) as session:
+            # load all reachable (= mutable) tables
+            q = session.query(schema.Table, schema.Dir.id) \
+                .join(schema.Dir) \
+                .where(schema.Table.db_id == db_id) \
+                .where(schema.Table.is_mutable == True)
+            for tbl_record, dir_id in q.all():
+                cols = Table.load_cols(
+                    tbl_record.id, tbl_record.current_schema_version, session)
+                tbl = MutableTable(tbl_record, tbl_record.current_schema_version, cols)
+                tbl._load_valid_rowids()  # TODO: move this someplace more appropriate
+                self.schema_objs[tbl.id] = tbl
+                assert dir_id is not None
+                dir = self.schema_objs[dir_id]
+                self.dir_contents[dir.id][tbl.name] = tbl
+
+        # load table snapshots
+        with orm.Session(Env.get().engine, future=True) as session:
+            q = session.query(schema.TableSnapshot, schema.Dir.id, schema.Table.parameters) \
+                .select_from(schema.TableSnapshot) \
+                .join(schema.Table) \
+                .join(schema.Dir) \
+                .where(schema.TableSnapshot.db_id == db_id)
+            for snapshot_record, dir_id, params in q.all():
+                cols = Table.load_cols(snapshot_record.tbl_id, snapshot_record.tbl_schema_version, session)
+                snapshot = TableSnapshot(snapshot_record, params, cols)
+                self.schema_objs[snapshot.id] = snapshot
+                assert dir_id is not None
+                dir = self.schema_objs[dir_id]
+                self.dir_contents[dir.id][snapshot.name] = snapshot
+
+        # load Function metadata; doesn't load the actual callable, which can be large and is only done on-demand by the
+        # FunctionRegistry
+        with orm.Session(Env.get().engine, future=True) as session:
+            # load all reachable (= mutable) tables
+            q = session.query(schema.Function.id, schema.Function.dir_id, schema.Function.name) \
+                .where(schema.Function.db_id == db_id)
+            for id, dir_id, name in q.all():
+                named_fn = NamedFunction(id, dir_id, name)
+                self.schema_objs[id] = named_fn
+                assert dir_id is not None
+                dir = self.schema_objs[dir_id]
+                self.dir_contents[dir.id][name] = named_fn
+
+    def _resolve_path(self, path: Path) -> SchemaObject:
+        if path.is_root:
+            return self.root_dir
+        dir = self.root_dir
+        for i, component in enumerate(path.components):
+            if component not in self.dir_contents[dir.id]:
+                raise exc.Error(f'No such path: {".".join(path.components[:i+1])}')
+            schema_obj = self.dir_contents[dir.id][component]
+            if i < len(path.components) - 1:
+                if not isinstance(schema_obj, Dir):
+                    raise exc.Error(f'Not a directory: {".".join(path.components[:i+1])}')
+                dir = schema_obj
+        return schema_obj
 
     def __getitem__(self, path: Path) -> SchemaObject:
-        return self.paths[str(path)]
+        return self._resolve_path(path)
 
     def __setitem__(self, path: Path, val: SchemaObject) -> None:
-        self.paths[str(path)] = val
+        parent_dir = self._resolve_path(path.parent)
+        assert path.name not in self.dir_contents[parent_dir.id]
+        self.schema_objs[val.id] = val
+        self.dir_contents[parent_dir.id][path.name] = val
+        if isinstance(val, Dir):
+            self.dir_contents[val.id] = {}
 
     def __delitem__(self, path: Path) -> None:
-        del self.paths[str(path)]
+        parent_dir = self._resolve_path(path.parent)
+        assert path.name in self.dir_contents[parent_dir.id]
+        obj = self.dir_contents[parent_dir.id][path.name]
+        del self.dir_contents[parent_dir.id][path.name]
+        if isinstance(obj, Dir):
+            del self.dir_contents[obj.id]
+        del self.schema_objs[obj.id]
 
-    def update(self, paths: Dict[str, SchemaObject]) -> None:
-        self.paths.update(paths)
+    def move(self, from_path: Path, to_path: Path) -> None:
+        from_dir = self._resolve_path(from_path.parent)
+        assert isinstance(from_dir, Dir)
+        assert from_path.name in self.dir_contents[from_dir.id]
+        obj = self.dir_contents[from_dir.id][from_path.name]
+        del self.dir_contents[from_dir.id][from_path.name]
+        to_dir = self._resolve_path(to_path.parent)
+        assert to_path.name not in self.dir_contents[to_dir.id]
+        self.dir_contents[to_dir.id][to_path.name] = obj
 
-    # checks that the parent of path exists and is a Dir
-    # and that the object of path has 'expected' type
     def check_is_valid(self, path: Path, expected: Optional[Type[SchemaObject]]) -> None:
         """Check that path is valid and that the object at path has the expected type.
 
@@ -1399,33 +1527,29 @@ class PathDict:
         Raises:
             Error if path is invalid or object at path has wrong type
         """
-        path_str = str(path)
         # check for existence
         if expected is not None:
-            if path_str not in self.paths:
-                raise exc.Error(f'{path_str} does not exist')
-            obj = self.paths[path_str]
-            if not isinstance(obj, expected):
-                raise exc.Error(f'{path_str} needs to be a {expected.display_name()}')
-        if expected is None and path_str in self.paths:
-            raise exc.Error(f"'{path_str}' already exists")
-        # check for containing directory
-        parent_path = path.parent
-        if str(parent_path) not in self.paths:
-            raise exc.Error(f'Directory {str(parent_path)} does not exist')
-        parent = self.paths[str(parent_path)]
-        if not isinstance(parent, Dir):
-            raise exc.Error(f'{str(parent_path)} is a {type(parent).display_name()}, not a directory')
-
-    def get(self, path_type: Type[SchemaObject]) -> List[SchemaObject]:
-        return [obj for obj in self.paths.values() if isinstance(obj, path_type)]
+            schema_obj = self._resolve_path(path)
+            if not isinstance(schema_obj, expected):
+                raise exc.Error(f'{str(path)} needs to be a {expected.display_name()}')
+        if expected is None:
+            parent_obj = self._resolve_path(path.parent)
+            if not isinstance(parent_obj, Dir):
+                raise exc.Error(f'{str(path.parent)} is a {type(parent_obj).display_name()}, not a directory')
+            if path.name in self.dir_contents[parent_obj.id]:
+                raise exc.Error(f"'{str(path)}' already exists")
 
     def get_children(self, parent: Path, child_type: Optional[Type[SchemaObject]], recursive: bool) -> List[Path]:
-        candidates = [
-            Path(path, empty_is_valid=True)
-            for path, obj in self.paths.items() if child_type is None or isinstance(obj, child_type)
+        dir = self._resolve_path(parent)
+        if not isinstance(dir, Dir):
+            raise exc.Error(f'{str(parent)} is a {type(dir).display_name()}, not a directory')
+        matches = [
+            obj for obj in self.dir_contents[dir.id].values() if child_type is None or isinstance(obj, child_type)
         ]
-        result = [path for path in candidates if parent.is_ancestor(path, is_parent=(not recursive))]
+        result = [copy.copy(parent).append(obj.name) for obj in matches]
+        if recursive:
+            for dir in [obj for obj in self.dir_contents[dir.id].values() if isinstance(obj, Dir)]:
+                result.extend(self.get_children(copy.copy(parent).append(dir.name), child_type, recursive))
         return result
 
 
@@ -1437,10 +1561,7 @@ class Db:
     def __init__(self, db_id: UUID, name: str):
         self.id = db_id
         self.name = name
-        self.paths = PathDict()
-        self.paths.update(self._load_dirs())
-        self.paths.update(self._load_tables())
-        self.paths.update(self._load_function_md())
+        self.paths = PathDict(db_id)
 
     def create_table(
             self, path_str: str, schema: List[Column], num_retained_versions: int = 10,
@@ -1529,47 +1650,32 @@ class Db:
         assert isinstance(obj, Table)
         return obj
 
-    def rename_table(self, path_str: str, new_name: str) -> None:
-        """Rename a table in the database.
+    def move(self, path: str, new_path: str) -> None:
+        """Move a schema object to a new directory and/or rename a schema object.
 
         Args:
-            path_str: Path to the table.
-            new_name: New name for the table.
+            path: absolute path to the existing schema object.
+            new_path: absolute new path for the schema object.
 
         Raises:
-            Error: If the path does not exist or does not designate a table.
+            Error: If path does not exist or new_path already exists.
+        Examples:
+            Move a table to a different directory:
 
-        Example:
-            >>> db.rename_table('my_table', 'new_name_for_same_table')
+            >>>> db.move('dir1.my_table', 'dir2.my_table')
+
+            Rename a table:
+
+            >>>> db.move('dir1.my_table', 'dir1.new_name')
         """
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=MutableTable)
-        if re.fullmatch(_ID_RE, new_name) is None:
-            raise exc.Error(f"Invalid table name: '{new_name}'")
-        new_path = path.parent.append(new_name)
-        self.paths.check_is_valid(new_path, expected=None)
-
-        tbl = self.paths[path]
-        assert isinstance(tbl, MutableTable)
-        del self.paths[path]
-        self.paths[new_path] = tbl
-        tbl.rename(new_name)
-        _logger.info(f'Renamed table {path_str} to {str(new_path)}')
-
-    def move_table(self, tbl_path: str, dir_path: str) -> None:
-        """Move a table to a new directory.
-
-        .. warning::
-            Not implemented yet.
-
-        Args:
-            tbl_path: Path to the table.
-            dir_path: Path to the new directory.
-
-        Raises:
-            UnknownEntityError: If the path does not exist or does not designate a table.
-        """
-        pass
+        p = Path(path)
+        self.paths.check_is_valid(p, expected=SchemaObject)
+        new_p = Path(new_path)
+        self.paths.check_is_valid(new_p, expected=None)
+        obj = self.paths[p]
+        self.paths.move(p, new_p)
+        new_dir = self.paths[new_p.parent]
+        obj.move(new_p.name, new_dir.id)
 
     def list_tables(self, dir_path: str = '', recursive: bool = True) -> List[str]:
         """List the tables in a directory.
@@ -1677,12 +1783,14 @@ class Db:
         """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None)
+        parent = self.paths[path.parent]
+        assert parent is not None
         with orm.Session(Env.get().engine, future=True) as session:
-            dir_record = schema.Dir(db_id=self.id, path=path_str)
+            dir_record = schema.Dir(db_id=self.id, name=path.name, parent_id=parent.id)
             session.add(dir_record)
             session.flush()
             assert dir_record.id is not None
-            self.paths[path] = Dir(dir_record.id)
+            self.paths[path] = Dir(dir_record.id, parent.id, path.name)
             session.commit()
             _logger.info(f'Created directory {path_str}')
 
@@ -1771,45 +1879,6 @@ class Db:
         func.md.fqn = f'{self.name}.{path}'
         _logger.info(f'Created function {path_str}')
 
-    def rename_function(self, path_str: str, new_path_str: str) -> None:
-        """Assign a new name and/or move the function to a different directory.
-
-        Args:
-            path_str: path to the function to be renamed
-            new_path_str: new path for the function
-
-        Raises:
-            Error: if the path does not exist or new_path already exists
-
-        Examples:
-            Rename the stored function ``my_dir.detect()`` to ``detect2()``:
-
-            >>> db.rename_function('my_dir.detect', 'my_dir.detect2')
-
-            Move the stored function ``my_dir.detect()`` to the top-level directory:
-
-            >>> db.rename_function('my_dir.detect', 'detect')
-        """
-        path = Path(path_str)
-        new_path = Path(new_path_str)
-        self.paths.check_is_valid(path, expected=NamedFunction)
-        self.paths.check_is_valid(new_path, expected=None)
-        named_fn = self.paths[path]
-        new_dir = self.paths[new_path.parent]
-        with Env.get().engine.begin() as conn:
-            conn.execute(
-                sql.update(schema.Function.__table__)
-                    .values({
-                        schema.Function.dir_id: new_dir.id,
-                        schema.Function.name: new_path.name,
-                    })
-                    .where(schema.Function.id == named_fn.id))
-        del self.paths[path]
-        self.paths[new_path] = named_fn
-        func = FunctionRegistry.get().get_function(id=named_fn.id)
-        func.md.fqn = f'{self.name}.{new_path}'
-        _logger.info(f'Renamed function {path_str} to {new_path_str}')
-
     def update_function(self, path_str: str, func: Function) -> None:
         """Update the implementation of a stored function.
 
@@ -1883,60 +1952,6 @@ class Db:
         del self.paths[path]
         _logger.info(f'Dropped function {path_str}')
 
-    def _load_dirs(self) -> Dict[str, SchemaObject]:
-        result: Dict[str, SchemaObject] = {}
-        with orm.Session(Env.get().engine, future=True) as session:
-            for dir_record in session.query(schema.Dir).where(schema.Dir.db_id == self.id).all():
-                result[dir_record.path] = Dir(dir_record.id)
-        return result
-
-    def _load_tables(self) -> Dict[str, SchemaObject]:
-        result: Dict[str, SchemaObject] = {}
-        with orm.Session(Env.get().engine, future=True) as session:
-            # load all reachable (= mutable) tables
-            q = session.query(schema.Table, schema.Dir.path) \
-                .join(schema.Dir)\
-                .where(schema.Table.db_id == self.id) \
-                .where(schema.Table.is_mutable == True)
-            for tbl_record, dir_path in q.all():
-                cols = Table.load_cols(
-                    tbl_record.id, tbl_record.current_schema_version, session)
-                tbl = MutableTable(tbl_record, tbl_record.current_schema_version, cols)
-                tbl._load_valid_rowids()  # TODO: move this someplace more appropriate
-                path = Path(dir_path, empty_is_valid=True).append(tbl_record.name)
-                result[str(path)] = tbl
-
-            # load all table snapshots
-            q = session.query(schema.TableSnapshot, schema.Dir.path, schema.Table.parameters) \
-                .select_from(schema.TableSnapshot) \
-                .join(schema.Table) \
-                .join(schema.Dir) \
-                .where(schema.TableSnapshot.db_id == self.id)
-            for snapshot_record, dir_path, params in q.all():
-                cols = Table.load_cols(snapshot_record.tbl_id, snapshot_record.tbl_schema_version, session)
-                snapshot = TableSnapshot(snapshot_record, params, cols)
-                path = Path(dir_path, empty_is_valid=True).append(snapshot_record.name)
-                result[str(path)] = snapshot
-
-        return result
-
-    def _load_function_md(self) -> Dict[str, SchemaObject]:
-        """
-        Loads Function metadata. Doesn't load the actual callable, which can be large and is only done on-demand by the
-        FunctionRegistry.
-        """
-        result: Dict[str, SchemaObject] = {}
-        with orm.Session(Env.get().engine, future=True) as session:
-            # load all reachable (= mutable) tables
-            q = session.query(schema.Function.id, schema.Function.dir_id, schema.Function.name, schema.Dir.path) \
-                .join(schema.Dir) \
-                .where(schema.Function.db_id == self.id)
-            for id, dir_id, name, dir_path in q.all():
-                named_fn = NamedFunction(id, dir_id, name)
-                path = Path(dir_path, empty_is_valid=True).append(name)
-                result[str(path)] = named_fn
-        return result
-
     def __str__(self) -> str:
         return self.name
 
@@ -1957,7 +1972,7 @@ class Db:
             assert db_record.id is not None
             db_id = db_record.id
             # also create a top-level directory, so that every schema object has a directory
-            dir_record = schema.Dir(db_id=db_id, path='')
+            dir_record = schema.Dir(db_id=db_id, parent_id=None, name='')
             session.add(dir_record)
             session.flush()
             session.commit()
@@ -1999,5 +2014,9 @@ class Db:
             conn.execute(sql.delete(schema.Db.__table__).where(schema.Db.id == self.id))
             # delete all data tables
             # TODO: also deleted generated images
-            for tbl in self.paths.get(MutableTable):
+            tbl_paths = [
+                p for p in self.paths.get_children(Path('', empty_is_valid=True), MutableTable, recursive=True)
+            ]
+            for tbl_path in tbl_paths:
+                tbl = self.paths[tbl_path]
                 tbl.sa_md.drop_all(bind=conn)

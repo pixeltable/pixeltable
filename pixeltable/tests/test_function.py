@@ -88,7 +88,7 @@ class TestFunction:
         with pytest.raises(exc.Error):
             db.update_function('test_fn', self.agg)
 
-    def test_rename(self, test_db: catalog.Db) -> None:
+    def test_move(self, test_db: catalog.Db) -> None:
         db = test_db
         db.create_function('test_fn', self.func)
 
@@ -96,8 +96,8 @@ class TestFunction:
         cl = pt.Client()
         db2 = cl.get_db('test')
         with pytest.raises(exc.Error):
-            db2.rename_function('test_fn2', 'test_fn')
-        db2.rename_function('test_fn', 'test_fn2')
+            db2.move('test_fn2', 'test_fn')
+        db2.move('test_fn', 'test_fn2')
         func = db2.get_function('test_fn2')
         assert func.eval_fn(1) == 2
         assert func.md.fqn == 'test.test_fn2'
@@ -110,8 +110,8 @@ class TestFunction:
         db2.create_dir('functions2')
         db2.create_function('functions.func1', self.func)
         with pytest.raises(exc.Error):
-            db2.rename_function('functions2.func1', 'functions.func1')
-        db2.rename_function('functions.func1', 'functions2.func1')
+            db2.move('functions2.func1', 'functions.func1')
+        db2.move('functions.func1', 'functions2.func1')
         func = db2.get_function('functions2.func1')
         assert func.md.fqn == 'test.functions2.func1'
 

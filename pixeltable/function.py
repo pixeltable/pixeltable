@@ -451,19 +451,20 @@ class FunctionRegistry:
     def list_functions(self) -> List[Function.Metadata]:
         # retrieve Function.Metadata data for all existing stored functions from store directly
         # (self.stored_fns_by_id isn't guaranteed to contain all functions)
-        stmt = sql.select(
-                schema.Function.name, schema.Function.md,
-                schema.Db.name, schema.Dir.path, sql_func.length(schema.Function.init_obj))\
-            .where(schema.Function.db_id == schema.Db.id)\
-            .where(schema.Function.dir_id == schema.Dir.id)
-        stored_fn_md: List[Function.Metadata] = []
-        with Env.get().engine.begin() as conn:
-            rows = conn.execute(stmt)
-            for name, md_dict, db_name, dir_path, init_obj_len in rows:
-                md = Function.Metadata.from_dict(md_dict)
-                md.fqn = f'{db_name}{"." + dir_path if dir_path != "" else ""}.{name}'
-                stored_fn_md.append(md)
-        return [fn.md for fn in self.library_fns.values()] + stored_fn_md
+        # TODO: have the client do this, once the client takes over the Db functionality
+        # stmt = sql.select(
+        #         schema.Function.name, schema.Function.md,
+        #         schema.Db.name, schema.Dir.path, sql_func.length(schema.Function.init_obj))\
+        #     .where(schema.Function.db_id == schema.Db.id)\
+        #     .where(schema.Function.dir_id == schema.Dir.id)
+        # stored_fn_md: List[Function.Metadata] = []
+        # with Env.get().engine.begin() as conn:
+        #     rows = conn.execute(stmt)
+        #     for name, md_dict, db_name, dir_path, init_obj_len in rows:
+        #         md = Function.Metadata.from_dict(md_dict)
+        #         md.fqn = f'{db_name}{"." + dir_path if dir_path != "" else ""}.{name}'
+        #         stored_fn_md.append(md)
+        return [fn.md for fn in self.library_fns.values()]
 
     def get_function(self, *, id: Optional[UUID] = None, fqn: Optional[str] = None) -> Function:
         assert (id is not None) != (fqn is not None)

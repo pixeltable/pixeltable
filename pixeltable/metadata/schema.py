@@ -22,7 +22,8 @@ class Dir(Base):
 
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     db_id = sql.Column(UUID(as_uuid=True), ForeignKey('dbs.id'), nullable=False)
-    path = sql.Column(String, nullable=False)
+    parent_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
+    name = sql.Column(String, nullable=False)
 
 
 class Table(Base):

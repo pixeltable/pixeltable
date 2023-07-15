@@ -82,10 +82,18 @@ class TestDirs:
         with pytest.raises(exc.Error):
             db.rm_dir('dir1')
 
-    def test_rename_tbl(self, test_db: catalog.Db) -> None:
+    def test_move(self, test_db: catalog.Db) -> None:
         db = test_db
         db.create_dir('dir1')
         make_tbl(db, 'dir1.t1')
         assert db.list_tables('dir1') == ['dir1.t1']
-        db.rename_table('dir1.t1', 't2')
+        db.move('dir1.t1', 'dir1.t2')
         assert db.list_tables('dir1') == ['dir1.t2']
+        db.create_dir('dir2')
+        db.move('dir1', 'dir2.dir1')
+        assert db.list_tables('dir2') == ['dir2.dir1.t2']
+
+        # new client: force loading from store
+        cl2 = pt.Client()
+        db = cl2.get_db('test')
+        assert db.list_tables('dir2') == ['dir2.dir1.t2']

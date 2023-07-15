@@ -76,7 +76,7 @@ class TestTable:
         tbl.drop_column('c1')
         tbl.rename_column('c2', 'c17')
 
-        db.rename_table('test', 'test2')
+        db.move('test', 'test2')
 
         db.drop_table('test2')
         db.drop_table('dir1.test')
