@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
 
+import pixeltable as pt
 from pixeltable import catalog
 from pixeltable.type_system import ColumnType, StringType, IntType, FloatType, BoolType, TimestampType
 
@@ -24,11 +25,11 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
         return TimestampType()
     assert False
 
-def make_tbl(db: catalog.Db, name: str = 'test', col_names: List[str] = ['c1']) -> catalog.MutableTable:
+def make_tbl(cl: pt.Client, name: str = 'test', col_names: List[str] = ['c1']) -> catalog.MutableTable:
     schema: List[catalog.Column] = []
     for i, col_name in enumerate(col_names):
         schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type(i % 5))))
-    return db.create_table(name, schema)
+    return cl.create_table(name, schema)
 
 def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int = 10) -> pd.DataFrame:
     data: Dict[str, Any] = {}

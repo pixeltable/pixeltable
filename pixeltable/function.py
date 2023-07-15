@@ -507,10 +507,7 @@ class FunctionRegistry:
             assert fqn in self.library_fns
             return self.library_fns[fqn]
 
-    def create_function(
-            self, fn: Function, db_id: Optional[UUID] = None, dir_id: Optional[UUID] = None,
-            name: Optional[str] = None
-    ) -> None:
+    def create_function(self, fn: Function, dir_id: Optional[UUID] = None, name: Optional[str] = None) -> None:
         with Env.get().engine.begin() as conn:
             _logger.debug(f'Pickling function {name}')
             eval_fn_str = cloudpickle.dumps(fn.eval_fn) if fn.eval_fn is not None else None
@@ -527,7 +524,7 @@ class FunctionRegistry:
             res = conn.execute(
                 sql.insert(schema.Function.__table__)
                     .values(
-                        db_id=db_id, dir_id=dir_id, name=name, md=fn.md.as_dict(),
+                        dir_id=dir_id, name=name, md=fn.md.as_dict(),
                         eval_obj=eval_fn_str, init_obj=init_fn_str, update_obj=update_fn_str, value_obj=value_fn_str))
             fn.id = res.inserted_primary_key[0]
             self.stored_fns_by_id[fn.id] = fn

@@ -250,6 +250,10 @@ class NamedFunction(SchemaObject):
     def __init__(self, id: UUID, dir_id: UUID, name: str):
         super().__init__(id, name, dir_id)
 
+    @classmethod
+    def display_name(cls) -> str:
+        return 'function'
+
     def move(self, new_name: str, new_dir_id: UUID) -> None:
         super().move(new_name, new_dir_id)
         with Env.get().engine.begin() as conn:
@@ -274,9 +278,8 @@ class TableParameters:
 class Table(SchemaObject):
     """Base class for tables."""
     def __init__(
-            self, db_id: UUID, tbl_id: UUID, dir_id: UUID, name: str, version: int, params: Dict, cols: List[Column]):
+            self, tbl_id: UUID, dir_id: UUID, name: str, version: int, params: Dict, cols: List[Column]):
         super().__init__(tbl_id, name, dir_id)
-        self.db_id = db_id
         # we create copies here because the Column objects might be owned by the caller
         self.cols = [copy.copy(col) for col in cols]
         for pos, col in enumerate(self.cols):
@@ -478,7 +481,6 @@ class Table(SchemaObject):
 
 class TableSnapshot(Table):
     def __init__(self, snapshot_record: schema.TableSnapshot, params: Dict, cols: List[Column]):
-        assert snapshot_record.db_id is not None
         assert snapshot_record.id is not None
         assert snapshot_record.dir_id is not None
         assert snapshot_record.name is not None
@@ -486,7 +488,7 @@ class TableSnapshot(Table):
         # the id of this SchemaObject is TableSnapshot.tbl_id, not TableSnapshot.id: we use tbl_id to construct
         # the name of the data table
         super().__init__(
-            snapshot_record.db_id, snapshot_record.tbl_id, snapshot_record.dir_id, snapshot_record.name,
+            snapshot_record.tbl_id, snapshot_record.dir_id, snapshot_record.name,
             snapshot_record.tbl_version, params, cols)
         self.snapshot_tbl_id = snapshot_record.id
         # it's safe to call _load_valid_rowids() here because the storage table already exists
@@ -511,13 +513,12 @@ class MutableTable(Table):
     """A :py:class:`Table` that can be modified.
     """
     def __init__(self, tbl_record: schema.Table, schema_version: int, cols: List[Column]):
-        assert tbl_record.db_id is not None
         assert tbl_record.id is not None
         assert tbl_record.dir_id is not None
         assert tbl_record.name is not None
         assert tbl_record.current_version is not None
         super().__init__(
-            tbl_record.db_id, tbl_record.id, tbl_record.dir_id, tbl_record.name, tbl_record.current_version,
+            tbl_record.id, tbl_record.dir_id, tbl_record.name, tbl_record.current_version,
             tbl_record.parameters, cols)
         assert tbl_record.next_col_id is not None
         self.next_col_id = tbl_record.next_col_id
@@ -1097,7 +1098,6 @@ class MutableTable(Table):
         with orm.Session(Env.get().engine, future=True) as session:
             # make sure we don't have a snapshot referencing this version
             num_references = session.query(sql.func.count(schema.TableSnapshot.id)) \
-                .where(schema.TableSnapshot.db_id == self.db_id) \
                 .where(schema.TableSnapshot.tbl_id == self.id) \
                 .where(schema.TableSnapshot.tbl_version == self.version) \
                 .scalar()
@@ -1193,7 +1193,6 @@ class MutableTable(Table):
         with orm.Session(Env.get().engine, future=True) as session:
             # check if we have snapshots
             num_references = session.query(sql.func.count(schema.TableSnapshot.id)) \
-                .where(schema.TableSnapshot.db_id == self.db_id) \
                 .where(schema.TableSnapshot.tbl_id == self.id) \
                 .scalar()
             if num_references == 0:
@@ -1237,7 +1236,7 @@ class MutableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def create(
-        cls, db_id: UUID, dir_id: UUID, name: str, cols: List[Column],
+        cls, dir_id: UUID, name: str, cols: List[Column],
         num_retained_versions: int,
         extract_frames_from: Optional[str], extracted_frame_col: Optional[str], extracted_frame_idx_col: Optional[str],
         extracted_fps: Optional[int],
@@ -1311,7 +1310,7 @@ class MutableTable(Table):
 
         with orm.Session(Env.get().engine, future=True) as session:
             tbl_record = schema.Table(
-                db_id=db_id, dir_id=dir_id, name=name, parameters=dataclasses.asdict(params), current_version=0,
+                dir_id=dir_id, name=name, parameters=dataclasses.asdict(params), current_version=0,
                 current_schema_version=0, is_mutable=True, next_col_id=len(cols), next_row_id=0)
             session.add(tbl_record)
             session.flush()  # sets tbl_record.id
@@ -1402,7 +1401,7 @@ class Path:
 
 class PathDict:
     """Keep track of all paths in a Db instance"""
-    def __init__(self, db_id: UUID):
+    def __init__(self):
         self.dir_contents: Dict[UUID, Dict[str, SchemaObject]] = {}
         self.schema_objs: Dict[UUID, SchemaObject] = {}
 
@@ -1410,7 +1409,7 @@ class PathDict:
         with orm.Session(Env.get().engine, future=True) as session:
             self.schema_objs = {
                 dir_record.id: Dir(dir_record.id, dir_record.parent_id, dir_record.name)
-                for dir_record in session.query(schema.Dir).where(schema.Dir.db_id == db_id).all()
+                for dir_record in session.query(schema.Dir).all()
             }
 
         # identify root dir
@@ -1433,7 +1432,6 @@ class PathDict:
             # load all reachable (= mutable) tables
             q = session.query(schema.Table, schema.Dir.id) \
                 .join(schema.Dir) \
-                .where(schema.Table.db_id == db_id) \
                 .where(schema.Table.is_mutable == True)
             for tbl_record, dir_id in q.all():
                 cols = Table.load_cols(
@@ -1450,8 +1448,7 @@ class PathDict:
             q = session.query(schema.TableSnapshot, schema.Dir.id, schema.Table.parameters) \
                 .select_from(schema.TableSnapshot) \
                 .join(schema.Table) \
-                .join(schema.Dir) \
-                .where(schema.TableSnapshot.db_id == db_id)
+                .join(schema.Dir)
             for snapshot_record, dir_id, params in q.all():
                 cols = Table.load_cols(snapshot_record.tbl_id, snapshot_record.tbl_schema_version, session)
                 snapshot = TableSnapshot(snapshot_record, params, cols)
@@ -1463,9 +1460,8 @@ class PathDict:
         # load Function metadata; doesn't load the actual callable, which can be large and is only done on-demand by the
         # FunctionRegistry
         with orm.Session(Env.get().engine, future=True) as session:
-            # load all reachable (= mutable) tables
             q = session.query(schema.Function.id, schema.Function.dir_id, schema.Function.name) \
-                .where(schema.Function.db_id == db_id)
+                .where(schema.Function.name != None)
             for id, dir_id, name in q.all():
                 named_fn = NamedFunction(id, dir_id, name)
                 self.schema_objs[id] = named_fn
@@ -1531,13 +1527,16 @@ class PathDict:
         if expected is not None:
             schema_obj = self._resolve_path(path)
             if not isinstance(schema_obj, expected):
-                raise exc.Error(f'{str(path)} needs to be a {expected.display_name()}')
+                raise exc.Error(
+                    f'{str(path)} needs to be a {expected.display_name()} but is a {type(schema_obj).display_name()}')
         if expected is None:
             parent_obj = self._resolve_path(path.parent)
             if not isinstance(parent_obj, Dir):
-                raise exc.Error(f'{str(path.parent)} is a {type(parent_obj).display_name()}, not a directory')
+                raise exc.Error(
+                    f'{str(path.parent)} is a {type(parent_obj).display_name()}, not a {Dir.display_name()}')
             if path.name in self.dir_contents[parent_obj.id]:
-                raise exc.Error(f"'{str(path)}' already exists")
+                obj = self.dir_contents[parent_obj.id][path.name]
+                raise exc.Error(f"{type(obj).display_name()} '{str(path)}' already exists")
 
     def get_children(self, parent: Path, child_type: Optional[Type[SchemaObject]], recursive: bool) -> List[Path]:
         dir = self._resolve_path(parent)
@@ -1552,471 +1551,14 @@ class PathDict:
                 result.extend(self.get_children(copy.copy(parent).append(dir.name), child_type, recursive))
         return result
 
-
-class Db:
-    """Handle to a database.
-
-    Use this handle to create and manage tables, functions, and directories in the database.
-    """
-    def __init__(self, db_id: UUID, name: str):
-        self.id = db_id
-        self.name = name
-        self.paths = PathDict(db_id)
-
-    def create_table(
-            self, path_str: str, schema: List[Column], num_retained_versions: int = 10,
-            extract_frames_from: Optional[str] = None, extracted_frame_col: Optional[str] = None,
-            extracted_frame_idx_col: Optional[str] = None, extracted_fps: Optional[int] = None,
-    ) -> MutableTable:
-        """Create a new table in the database.
-
-        Args:
-            path_str: Path to the table.
-            schema: List of Columns in the table.
-            num_retained_versions: Number of versions of the table to retain.
-            extract_frames_from: Name of the video column from which to extract frames.
-            extracted_frame_col: Name of the image column in which to store the extracted frames.
-            extracted_frame_idx_col: Name of the int column in which to store the frame indices.
-            extracted_fps: Frame rate at which to extract frames. 0: extract all frames.
-
-        Returns:
-            The newly created table.
-
-        Raises:
-            Error: if the path already exists or is invalid.
-
-        Examples:
-            Create a table with an int and a string column:
-
-            >>> table = db.create_table('my_table', schema=[Column('col1', IntType()), Column('col2', StringType())])
-
-            Create a table to store videos with automatic frame extraction. This requires a minimum of 3 columns:
-            a video column, an image column to store the extracted frames, and an int column to store the frame
-            indices.
-
-            >>> table = db.create_table('my_table',
-            ... schema=[Column('video', VideoType()), Column('frame', ImageType()), Column('frame_idx', IntType())],
-            ... extract_frames_from='video', extracted_frame_col='frame', extracted_frame_idx_col='frame_idx',
-            ... extracted_fps=1)
-        """
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=None)
-        dir = self.paths[path.parent]
-
-        # make sure frame extraction params are either fully present or absent
-        frame_extraction_param_count = int(extract_frames_from is not None) + int(extracted_frame_col is not None)\
-            + int(extracted_frame_idx_col is not None) + int(extracted_fps is not None)
-        if frame_extraction_param_count != 0 and frame_extraction_param_count != 4:
-            raise exc.Error(
-                'Frame extraction requires that all parameters (extract_frames_from, extracted_frame_col, '
-                'extracted_frame_idx_col, extracted_fps) be specified')
-        if extracted_fps is not None and extracted_fps < 0:
-            raise exc.Error('extracted_fps must be >= 0')
-        tbl = MutableTable.create(
-            self.id, dir.id, path.name, schema, num_retained_versions, extract_frames_from, extracted_frame_col,
-            extracted_frame_idx_col, extracted_fps)
-        self.paths[path] = tbl
-        _logger.info(f'Created table {path_str}')
-        return tbl
-
-    def get_table(self, path: str) -> Table:
-        """Get a handle to a table (regular or snapshot) from the database.
-
-        Args:
-            path: Path to the table.
-
-        Returns:
-            A :py:class:`MutableTable` or :py:class:`TableSnapshot` object.
-
-        Raises:
-            Error: If the path does not exist or does not designate a table.
-
-        Example:
-            Get handle for a table in the top-level directory:
-
-            >>> table = db.get_table('my_table')
-
-            For a table in a subdirectory:
-
-            >>> table = db.get_table('subdir.my_table')
-
-            For a snapshot in the top-level directory:
-
-            >>> table = db.get_table('my_snapshot')
-        """
-        p = Path(path)
-        self.paths.check_is_valid(p, expected=Table)
-        obj = self.paths[p]
-        assert isinstance(obj, Table)
-        return obj
-
-    def move(self, path: str, new_path: str) -> None:
-        """Move a schema object to a new directory and/or rename a schema object.
-
-        Args:
-            path: absolute path to the existing schema object.
-            new_path: absolute new path for the schema object.
-
-        Raises:
-            Error: If path does not exist or new_path already exists.
-        Examples:
-            Move a table to a different directory:
-
-            >>>> db.move('dir1.my_table', 'dir2.my_table')
-
-            Rename a table:
-
-            >>>> db.move('dir1.my_table', 'dir1.new_name')
-        """
-        p = Path(path)
-        self.paths.check_is_valid(p, expected=SchemaObject)
-        new_p = Path(new_path)
-        self.paths.check_is_valid(new_p, expected=None)
-        obj = self.paths[p]
-        self.paths.move(p, new_p)
-        new_dir = self.paths[new_p.parent]
-        obj.move(new_p.name, new_dir.id)
-
-    def list_tables(self, dir_path: str = '', recursive: bool = True) -> List[str]:
-        """List the tables in a directory.
-
-        Args:
-            dir_path: Path to the directory. Defaults to the root directory.
-            recursive: Whether to list tables in subdirectories as well.
-
-        Returns:
-            A list of table paths.
-
-        Raises:
-            Error: If the path does not exist or does not designate a directory.
-
-        Examples:
-            List tables in top-level directory:
-
-            >>> db.list_tables()
-            ['my_table', ...]
-
-            List tables in 'dir1':
-
-            >>> db.list_tables('dir1')
-            [...]
-        """
-        assert dir_path is not None
-        path = Path(dir_path, empty_is_valid=True)
-        self.paths.check_is_valid(path, expected=Dir)
-        return [str(p) for p in self.paths.get_children(path, child_type=Table, recursive=recursive)]
-
-    def drop_table(self, path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
-        """Drop a table from the database.
-
-        Args:
-            path_str: Path to the table.
-            force: Whether to drop the table even if it has unsaved changes.
-            ignore_errors: Whether to ignore errors if the table does not exist.
-
-        Raises:
-            Error: If the path does not exist or does not designate a table and ignore_errors is False.
-
-        Example:
-            >>> db.drop_table('my_table')
-        """
-        path = Path(path_str)
-        try:
-            self.paths.check_is_valid(path, expected=MutableTable)
-        except Exception as e:
-            if ignore_errors:
-                return
-            else:
-                raise e
-        tbl = self.paths[path]
-        assert isinstance(tbl, MutableTable)
-        tbl.drop()
-        del self.paths[path]
-        _logger.info(f'Dropped table {path_str}')
-
-    def create_snapshot(self, snapshot_path: str, tbl_path: str) -> None:
-        """Create a snapshot of a table.
-
-        Args:
-            snapshot_path: Path to the snapshot.
-            tbl_path: Path to the table.
-
-        Raises:
-            Error: If snapshot_path already exists or the parent does not exist.
-        """
-        snapshot_path_obj = Path(snapshot_path)
-        self.paths.check_is_valid(snapshot_path_obj, expected=None)
-        tbl_path_obj = Path(tbl_path)
-        self.paths.check_is_valid(tbl_path_obj, expected=MutableTable)
-        tbl = self.paths[tbl_path_obj]
-        assert isinstance(tbl, MutableTable)
-
-        with orm.Session(Env.get().engine, future=True) as session:
-            dir = self.paths[snapshot_path_obj.parent]
-            snapshot_record = schema.TableSnapshot(
-                db_id=self.id, dir_id=dir.id, name=tbl.name, tbl_id=tbl.id, tbl_version=tbl.version,
-                tbl_schema_version=tbl.schema_version)
-            session.add(snapshot_record)
-            session.flush()
-            assert snapshot_record.id is not None
-            cols = Table.load_cols(tbl.id, tbl.schema_version, session)
-            snapshot = TableSnapshot(snapshot_record, dataclasses.asdict(tbl.parameters), cols)
-            self.paths[snapshot_path_obj] = snapshot
-
-            session.commit()
-
-    def create_dir(self, path_str: str) -> None:
-        """Create a directory.
-
-        Args:
-            path_str: Path to the directory.
-
-        Raises:
-            Error: If the path already exists or the parent is not a directory.
-
-        Examples:
-            >>> db.create_dir('my_dir')
-
-            Create a subdirectory:
-
-            >>> db.create_dir('my_dir.sub_dir')
-        """
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=None)
-        parent = self.paths[path.parent]
-        assert parent is not None
-        with orm.Session(Env.get().engine, future=True) as session:
-            dir_record = schema.Dir(db_id=self.id, name=path.name, parent_id=parent.id)
-            session.add(dir_record)
-            session.flush()
-            assert dir_record.id is not None
-            self.paths[path] = Dir(dir_record.id, parent.id, path.name)
-            session.commit()
-            _logger.info(f'Created directory {path_str}')
-
-    def rm_dir(self, path_str: str) -> None:
-        """Remove a directory.
-
-        Args:
-            path_str: Path to the directory.
-
-        Raises:
-            Error: If the path does not exist or does not designate a directory or if the directory is not empty.
-
-        Examples:
-            >>> db.rm_dir('my_dir')
-
-            Remove a subdirectory:
-
-            >>> db.rm_dir('my_dir.sub_dir')
-        """
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=Dir)
-
-        # make sure it's empty
-        if len(self.paths.get_children(path, child_type=None, recursive=True)) > 0:
-            raise exc.Error(f'Directory {path_str} is not empty')
-        # TODO: figure out how to make force=True work in the presence of snapshots
-#        # delete tables
-#        for tbl_path in self.paths.get_children(path, child_type=Table, recursive=True):
-#            self.drop_table(str(tbl_path), force=True)
-#        # rm subdirs
-#        for dir_path in self.paths.get_children(path, child_type=Dir, recursive=False):
-#            self.rm_dir(str(dir_path), force=True)
-
-        with Env.get().engine.begin() as conn:
-            dir = self.paths[path]
-            conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir.id))
-        del self.paths[path]
-        _logger.info(f'Removed directory {path_str}')
-
-    def list_dirs(self, path_str: str = '', recursive: bool = True) -> List[str]:
-        """List the directories in a directory.
-
-        Args:
-            path_str: Path to the directory.
-            recursive: Whether to list subdirectories recursively.
-
-        Returns:
-            List of directory paths.
-
-        Raises:
-            Error: If the path does not exist or does not designate a directory.
-
-        Example:
-            >>> db.list_dirs('my_dir', recursive=True)
-            ['my_dir', 'my_dir.sub_dir1']
-        """
-        path = Path(path_str, empty_is_valid=True)
-        self.paths.check_is_valid(path, expected=Dir)
-        return [str(p) for p in self.paths.get_children(path, child_type=Dir, recursive=recursive)]
-
-    def create_function(self, path_str: str, func: Function) -> None:
-        """Create a stored function.
-
-        Args:
-            path_str: path where the function gets stored
-            func: previously created Function object
-
-        Raises:
-            Error: if the path already exists or the parent is not a directory
-        Examples:
-            Create a function ``detect()`` that takes an image and returns a JSON object, and store it in ``my_dir``:
-
-            >>> pt.function(param_types=[ImageType()], return_type=JsonType())
-            ... def detect(img):
-            ... ...
-            >>> db.create_function('my_dir.detect', detect)
-        """
-        if func.is_library_function:
-            raise exc.Error(f'Cannot create a named function for a library function')
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=None)
-        dir = self.paths[path.parent]
-
-        FunctionRegistry.get().create_function(func, self.id, dir.id, path.name)
-        self.paths[path] = NamedFunction(func.id, dir.id, path.name)
-        func.md.fqn = f'{self.name}.{path}'
-        _logger.info(f'Created function {path_str}')
-
-    def update_function(self, path_str: str, func: Function) -> None:
-        """Update the implementation of a stored function.
-
-        Args:
-            path_str: path to the function to be updated
-            func: new function implementation
-
-        Raises:
-            Error: if the path does not exist or ``func`` has a different signature than the stored function.
-        """
-        if func.is_library_function:
-            raise exc.Error(f'Cannot update a named function to a library function')
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=NamedFunction)
-        named_fn = self.paths[path]
-        f = FunctionRegistry.get().get_function(id=named_fn.id)
-        if f.md.signature != func.md.signature:
-            raise exc.Error(
-                f'The function signature cannot be changed. The existing signature is {f.md.signature}')
-        if f.is_aggregate != func.is_aggregate:
-            raise exc.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
-        FunctionRegistry.get().update_function(named_fn.id, func)
-        _logger.info(f'Updated function {path_str}')
-
-    def get_function(self, path_str: str) -> Function:
-        """Get a handle to a stored function.
-
-        Args:
-            path_str: path to the function
-
-        Returns:
-            Function object
-
-        Raises:
-            Error: if the path does not exist or is not a function
-
-        Example:
-            >>> detect = db.get_function('my_dir.detect')
-        """
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=NamedFunction)
-        named_fn = self.paths[path]
-        assert isinstance(named_fn, NamedFunction)
-        func = FunctionRegistry.get().get_function(id=named_fn.id)
-        func.md.fqn = f'{self.name}.{path}'
-        return func
-
-    def drop_function(self, path_str: str, ignore_errors: bool = False) -> None:
-        """Deletes stored function.
-
-        Args:
-            path_str: path to the function
-            ignore_errors: if True, does not raise if the function does not exist
-
-        Raises:
-            Error: if the path does not exist or is not a function
-
-        Example:
-            >>> db.drop_function('my_dir.detect')
-        """
-        path = Path(path_str)
-        try:
-            self.paths.check_is_valid(path, expected=NamedFunction)
-        except exc.Error as e:
-            if ignore_errors:
-                return
-            else:
-                raise e
-        named_fn = self.paths[path]
-        FunctionRegistry.get().delete_function(named_fn.id)
-        del self.paths[path]
-        _logger.info(f'Dropped function {path_str}')
-
-    def __str__(self) -> str:
-        return self.name
-
-    def __repr__(self) -> str:
-        return f'Db(name={self.name})'
-
-    @classmethod
-    def create(cls, name: str) -> 'Db':
-        with orm.Session(Env.get().engine, future=True) as session:
-            # check for duplicate name
-            is_duplicate = session.query(sql.func.count(schema.Db.id)).where(schema.Db.name == name).scalar() > 0
-            if is_duplicate:
-                raise exc.Error(f"Db '{name}' already exists")
-
-            db_record = schema.Db(name=name)
-            session.add(db_record)
-            session.flush()
-            assert db_record.id is not None
-            db_id = db_record.id
-            # also create a top-level directory, so that every schema object has a directory
-            dir_record = schema.Dir(db_id=db_id, parent_id=None, name='')
-            session.add(dir_record)
-            session.flush()
-            session.commit()
-            _logger.info(f'Created db {name}')
-        assert db_id is not None
-        return Db(db_id, name)
-
-    @classmethod
-    def load(cls, name: str) -> 'Db':
-        """Load db by name.
-
-        Raises:
-            Error: if db does not exist or the name is invalid
-        """
-        if re.fullmatch(_ID_RE, name) is None:
-            raise exc.Error(f"Invalid db name: '{name}'")
-        with orm.Session(Env.get().engine, future=True) as session:
-            try:
-                db_record = session.query(schema.Db).where(schema.Db.name == name).one()
-                return Db(db_record.id, db_record.name)
-            except sql.exc.NoResultFound:
-                raise exc.Error(f'Db {name} does not exist')
-
-    def delete(self) -> None:
-        """Delete db and all associated data.
-
-        :meta private:
-        """
-        with Env.get().engine.begin() as conn:
-            conn.execute(sql.delete(schema.TableSnapshot.__table__).where(schema.TableSnapshot.db_id == self.id))
-            tbls_stmt = sql.select(schema.Table.id).where(schema.Table.db_id == self.id)
-            conn.execute(sql.delete(schema.SchemaColumn.__table__).where(schema.SchemaColumn.tbl_id.in_(tbls_stmt)))
-            conn.execute(sql.delete(schema.ColumnHistory.__table__).where(schema.ColumnHistory.tbl_id.in_(tbls_stmt)))
-            conn.execute(
-                sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id.in_(tbls_stmt)))
-            conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.db_id == self.id))
-            conn.execute(sql.delete(schema.Function.__table__).where(schema.Function.db_id == self.id))
-            conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.db_id == self.id))
-            conn.execute(sql.delete(schema.Db.__table__).where(schema.Db.id == self.id))
-            # delete all data tables
-            # TODO: also deleted generated images
-            tbl_paths = [
-                p for p in self.paths.get_children(Path('', empty_is_valid=True), MutableTable, recursive=True)
-            ]
-            for tbl_path in tbl_paths:
-                tbl = self.paths[tbl_path]
-                tbl.sa_md.drop_all(bind=conn)
+def init_catalog() -> None:
+    """One-time initialization of the catalog. Idempotent."""
+    with orm.Session(Env.get().engine, future=True) as session:
+        if session.query(sql.func.count(schema.Dir.id)).scalar() > 0:
+            return
+        # create a top-level directory, so that every schema object has a directory
+        dir_record = schema.Dir(parent_id=None, name='')
+        session.add(dir_record)
+        session.flush()
+        session.commit()
+        _logger.info(f'Initialized catalog')

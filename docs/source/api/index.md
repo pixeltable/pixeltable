@@ -4,7 +4,6 @@
 :maxdepth: 1
 client
 column
-db
 function
 mutable_table
 table

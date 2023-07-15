@@ -165,13 +165,13 @@ class TestExprs:
             _ = t[t.c1.errormsg].show()
 
     @pytest.mark.skip(reason='not implemented')
-    def test_nullable(self, test_db: catalog.Db) -> None:
+    def test_nullable(self, test_client: pt.Client) -> None:
         # create table with two int columns
         cols = [
             pt.Column('c1', IntType(nullable=True)),
             pt.Column('c2', IntType(nullable=True))
         ]
-        t = test_db.create_table('test', cols)
+        t = test_client.create_table('test', cols)
 
         # computed column that doesn't allow nulls
         t.add_column(pt.Column('c3', IntType(), computed_with=lambda c1, c2: c1 + c2))
@@ -430,8 +430,8 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, test_db: catalog.Db, test_tbl: catalog.Table) -> None:
-        db = test_db
+    def test_window_fns(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
+        cl = test_client
         t = test_tbl
         _ = t[sum(t.c2, group_by=t.c4, order_by=t.c3)].show(100)
 
@@ -452,7 +452,7 @@ class TestExprs:
             catalog.Column('frame_idx', IntType(nullable=False)),
             catalog.Column('c2', IntType(nullable=False)),
         ]
-        vt = db.create_table(
+        vt = cl.create_table(
             'video_test', cols, extract_frames_from='video', extracted_frame_col='frame',
             extracted_frame_idx_col='frame_idx', extracted_fps=0)
         # compatible ordering
@@ -464,7 +464,7 @@ class TestExprs:
         c2 = catalog.Column('c2', IntType(nullable=False))
         c3 = catalog.Column('c3', FloatType(nullable=False))
         c4 = catalog.Column('c4', BoolType(nullable=False))
-        new_t = db.create_table('insert_test', [c2, c3, c4])
+        new_t = cl.create_table('insert_test', [c2, c3, c4])
         new_t.add_column(catalog.Column(
             'c2_sum', computed_with=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3)))
         data_df = t[t.c2, t.c4, t.c3].show(0).to_pandas()

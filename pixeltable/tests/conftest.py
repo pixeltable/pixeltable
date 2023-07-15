@@ -32,16 +32,15 @@ def init_env(tmp_path_factory) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_db(init_env) -> catalog.Db:
+def test_client(init_env) -> pt.Client:
     cl = pt.Client()
     cl.logging(level=logging.DEBUG)
-    db = cl.create_db('test')
-    yield db
-    cl.drop_db(db.name, force=True)
+    yield cl
+    cl.reset_catalog()
 
 
 @pytest.fixture(scope='function')
-def test_tbl(test_db: catalog.Db) -> catalog.Table:
+def test_tbl(test_client: pt.Client) -> catalog.Table:
     cols = [
         catalog.Column('c1', StringType(nullable=False)),
         catalog.Column('c1n', StringType(nullable=True)),
@@ -52,7 +51,7 @@ def test_tbl(test_db: catalog.Db) -> catalog.Table:
         catalog.Column('c6', JsonType(nullable=False)),
         catalog.Column('c7', JsonType(nullable=False)),
     ]
-    t = test_db.create_table('test_tbl', cols)
+    t = test_client.create_table('test_tbl', cols)
     t.add_column(catalog.Column('c8', computed_with=[[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100
@@ -98,11 +97,11 @@ def test_tbl(test_db: catalog.Db) -> catalog.Table:
     return t
 
 @pytest.fixture(scope='function')
-def test_stored_fn(test_db: catalog.Db) -> pt.Function:
+def test_stored_fn(test_client: pt.Client) -> pt.Function:
     @pt.function(return_type=pt.IntType(), param_types=[pt.IntType()])
     def test_fn(x):
         return x + 1
-    test_db.create_function('test_fn', test_fn)
+    test_client.create_function('test_fn', test_fn)
     return test_fn
 
 @pytest.fixture(scope='function')
@@ -132,14 +131,14 @@ def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List
     ]
 
 @pytest.fixture(scope='function')
-def img_tbl(test_db: catalog.Db) -> catalog.Table:
+def img_tbl(test_client: pt.Client) -> catalog.Table:
     cols = [
         catalog.Column('img', ImageType(nullable=False), indexed=False),
         catalog.Column('category', StringType(nullable=False)),
         catalog.Column('split', StringType(nullable=False)),
     ]
     # this table is not indexed in order to avoid the cost of computing embeddings
-    tbl = test_db.create_table('test_img_tbl', cols)
+    tbl = test_client.create_table('test_img_tbl', cols)
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     tbl.insert_pandas(df)
     return tbl
@@ -161,14 +160,14 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
 #    cl = pt.Client()
 #    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')
-def indexed_img_tbl(test_db: catalog.Db) -> catalog.Table:
-    db = test_db
+def indexed_img_tbl(test_client: pt.Client) -> catalog.Table:
+    cl = test_client
     cols = [
         catalog.Column('img', ImageType(nullable=False), indexed=True),
         catalog.Column('category', StringType(nullable=False)),
         catalog.Column('split', StringType(nullable=False)),
     ]
-    tbl = db.create_table('test_indexed_img_tbl', cols)
+    tbl = cl.create_table('test_indexed_img_tbl', cols)
     df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     # select rows randomly in the hope of getting a good sample of the available categories
     rng = np.random.default_rng(17)

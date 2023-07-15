@@ -7,14 +7,14 @@ import pixeltable as pt
 
 
 class TestNOS:
-    def test_basic(self, test_db: catalog.Db) -> None:
-        db = test_db
+    def test_basic(self, test_client: pt.Client) -> None:
+        cl = test_client
         cols = [
             catalog.Column('video', VideoType()),
             catalog.Column('frame', ImageType()),
             catalog.Column('frame_idx', IntType()),
         ]
-        tbl = db.create_table(
+        tbl = cl.create_table(
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',
             extracted_frame_idx_col='frame_idx', extracted_fps=1)
         tbl.add_column(catalog.Column('transform1', computed_with=tbl.frame.rotate(30), stored=False))

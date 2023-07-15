@@ -10,18 +10,10 @@ from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 
 
-class Db(Base):
-    __tablename__ = 'dbs'
-
-    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
-    name = sql.Column(String, nullable=False)
-
-
 class Dir(Base):
     __tablename__ = 'dirs'
 
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
-    db_id = sql.Column(UUID(as_uuid=True), ForeignKey('dbs.id'), nullable=False)
     parent_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     name = sql.Column(String, nullable=False)
 
@@ -32,7 +24,6 @@ class Table(Base):
     MAX_VERSION = 9223372036854775807  # 2^63 - 1
 
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
-    db_id = sql.Column(UUID(as_uuid=True), ForeignKey('dbs.id'), nullable=False)
     dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     name = sql.Column(String, nullable=False)
     parameters = sql.Column(JSON, nullable=False)
@@ -123,7 +114,6 @@ class TableSnapshot(Base):
     __tablename__ = 'tablesnapshots'
 
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
-    db_id = sql.Column(UUID(as_uuid=True), ForeignKey('dbs.id'), nullable=False)
     dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     name = sql.Column(String, nullable=False)
     tbl_id = sql.Column(UUID(as_uuid=True), nullable=False)
@@ -149,7 +139,6 @@ class Function(Base):
     __tablename__ = 'functions'
 
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
-    db_id = sql.Column(UUID(as_uuid=True), ForeignKey('dbs.id'), nullable=True)
     dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     name = sql.Column(String, nullable=True)
     md = sql.Column(JSON, nullable=False)  # Function.md

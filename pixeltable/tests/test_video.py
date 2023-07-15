@@ -11,15 +11,15 @@ from pixeltable.utils.imgstore import ImageStore
 
 
 class TestVideo:
-    def create_and_insert(self, db: catalog.Db, stored: Optional[bool], paths: List[str]) -> catalog.Table:
+    def create_and_insert(self, cl: pt.Client, stored: Optional[bool], paths: List[str]) -> catalog.Table:
         cols = [
             catalog.Column('video', VideoType()),
             catalog.Column('frame', ImageType()),
             catalog.Column('frame_idx', IntType()),
         ]
         # extract frames at fps=1
-        db.drop_table('test', ignore_errors=True)
-        tbl = db.create_table(
+        cl.drop_table('test', ignore_errors=True)
+        tbl = cl.create_table(
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',
             extracted_frame_idx_col='frame_idx', extracted_fps=1)
         tbl.add_column(catalog.Column('transform', computed_with=tbl.frame.rotate(90), stored=stored))
@@ -33,20 +33,20 @@ class TestVideo:
         assert len(result) == total_num_rows
         return tbl
 
-    def test_basic(self, test_db: catalog.Db) -> None:
+    def test_basic(self, test_client: pt.Client) -> None:
         video_filepaths = get_video_files()
-        db = test_db
+        cl = test_client
 
         # default case: extracted frames are not stored
-        tbl = self.create_and_insert(db, None, video_filepaths)
+        tbl = self.create_and_insert(cl, None, video_filepaths)
         assert ImageStore.count(tbl.id) == 0
 
         # extracted frames are explicitly not stored
-        tbl = self.create_and_insert(db, False, video_filepaths)
+        tbl = self.create_and_insert(cl, False, video_filepaths)
         assert ImageStore.count(tbl.id) == 0
 
         # extracted frames are stored
-        tbl = self.create_and_insert(db, True, video_filepaths)
+        tbl = self.create_and_insert(cl, True, video_filepaths)
         assert ImageStore.count(tbl.id) == tbl.count()
         # revert() also removes extracted frames
         tbl.insert_rows([[p] for p in video_filepaths], columns=['video'])
@@ -62,20 +62,20 @@ class TestVideo:
             tbl.insert_rows([[1, 2]], columns=['video'])
 
         # create snapshot to make sure we can still retrieve frames
-        db.create_snapshot('snap', 'test')
-        snap = db.get_table('snap')
+        cl.create_snapshot('snap', 'test')
+        snap = cl.get_table('snap')
         _ = snap[snap.frame].show(10)
 
-    def test_computed_cols(self, test_db: catalog.Db) -> None:
+    def test_computed_cols(self, test_client: pt.client) -> None:
         video_filepaths = get_video_files()
-        db = test_db
+        cl = test_client
         # all image cols are stored=None by default
         cols = [
             catalog.Column('video', VideoType()),
             catalog.Column('frame', ImageType()),
             catalog.Column('frame_idx', IntType()),
         ]
-        t = db.create_table(
+        t = cl.create_table(
             'test', cols, extract_frames_from = 'video', extracted_frame_col = 'frame',
             extracted_frame_idx_col = 'frame_idx', extracted_fps = 1)
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
@@ -88,15 +88,15 @@ class TestVideo:
         t.insert_rows([[p] for p in video_filepaths], columns=['video'])
         _ = t[t.c1, t.c2, t.c3, t.c4].show(0)
 
-    def test_make_video(self, test_db: catalog.Db) -> None:
+    def test_make_video(self, test_client: pt.Client) -> None:
         video_filepaths = get_video_files()
-        db = test_db
+        cl = test_client
         cols = [
             catalog.Column('video', VideoType()),
             catalog.Column('frame', ImageType()),
             catalog.Column('frame_idx', IntType()),
         ]
-        t = db.create_table(
+        t = cl.create_table(
             'test', cols, extract_frames_from = 'video', extracted_frame_col = 'frame',
             extracted_frame_idx_col = 'frame_idx', extracted_fps = 1)
         t.insert_rows([[p] for p in video_filepaths], columns=['video'])
@@ -135,7 +135,7 @@ class TestVideo:
             requires_order_by=True, allows_std_agg=False, allows_window=True)
         # make sure it works
         _ = t[agg_fn(t.frame_idx, t.frame, group_by=t.video)].show()
-        db.create_function('agg_fn', agg_fn)
+        cl.create_function('agg_fn', agg_fn)
         t.add_column(catalog.Column('agg', computed_with=agg_fn(t.frame_idx, t.frame, group_by=t.video)))
         assert t.cols_by_name['agg'].is_stored
         _ = t[pt.make_video(t.frame_idx, t.agg)].group_by(t.video).show()
@@ -148,8 +148,7 @@ class TestVideo:
 
         # reload from store
         cl = pt.Client()
-        db = cl.get_db('test')
-        agg_fn = db.get_function('agg_fn')
-        t = db.get_table('test')
+        agg_fn = cl.get_function('agg_fn')
+        t = cl.get_table('test')
         _ = t[agg_fn(t.frame_idx, t.frame, group_by=t.video)].show()
         print(_)

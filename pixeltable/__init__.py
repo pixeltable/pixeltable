@@ -1,6 +1,6 @@
 from .client import Client
 from .dataframe import DataFrame
-from .catalog import Column, Db, MutableTable, TableSnapshot, Table
+from .catalog import Column, MutableTable, TableSnapshot, Table
 from .exceptions import Error, Error
 from .type_system import \
     ColumnType, StringType, IntType, FloatType, BoolType,  TimestampType, JsonType, ArrayType, ImageType, VideoType
@@ -16,7 +16,6 @@ make_library_aggregate_function = Function.make_library_aggregate_function
 __all__ = [
     'Client',
     'DataFrame',
-    'Db',
     'Column',
     'MutableTable',
     'Table',
