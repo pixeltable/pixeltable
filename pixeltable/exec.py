@@ -380,7 +380,7 @@ class ExprEvalNode(ExecNode):
         # for multi-resolution image models
         img_batch_params: List[nos.common.ObjectTypeInfo] = field(default_factory=list)
         # for single-resolution image models
-        batch_size: int = 4
+        batch_size: int = 8
         img_size: Optional[Tuple[int, int]] = None  # W, H
 
         def __post_init__(self):
@@ -393,9 +393,6 @@ class ExprEvalNode(ExecNode):
                     if isinstance(type_info[0].base_spec(), nos.common.ImageSpec):
                         # this is a multi-resolution image model
                         self.img_batch_params = type_info
-                        # we need to determine the batch size based on the effective image resolution: we run
-                        # a batch of size 1 and then choose the best batch size based on the observed image resolution
-                        self.batch_size = 1
                         self.img_param_pos = pos
                         return
                     else:
@@ -409,6 +406,9 @@ class ExprEvalNode(ExecNode):
                     self.img_param_pos = pos
                     self.img_batch_params = []
                     return
+
+        def is_multi_res_model(self) -> bool:
+            return self.img_param_pos is not None and len(self.img_batch_params) > 0
 
         def get_batch_params(self, img_size: Tuple[int, int]) -> Tuple[int, Tuple[int, int]]:
             """Returns batch_size and img_size appropriate for the given image size"""
@@ -524,12 +524,18 @@ class ExprEvalNode(ExecNode):
             self.cohorts.append(cohort_info)
 
     def _exec_cohort(self, cohort: Cohort, rows: DataRowBatch) -> None:
-        batch_start_idx = 0
-        current_img_size = (0, 0)
+        """Compute the cohort for the entire input batch by dividing it up into sub-batches"""
+        batch_start_idx = 0  # start row of the current sub-batch
+        # for multi-resolution models, we re-assess the correct NOS batch size for each input batch
+        verify_nos_batch_size = cohort.is_multi_res_model()
         while batch_start_idx < len(rows):
             num_batch_rows = min(cohort.batch_size, len(rows) - batch_start_idx)
             for segment in cohort.segments:
-                if self._is_nos_call(segment[0]):
+                if not self._is_nos_call(segment[0]):
+                    # compute batch row-wise
+                    for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
+                        self.evaluator.eval(rows[row_idx], segment, self.ctx.profile, ignore_errors=self.ignore_errors)
+                else:
                     fn_call = segment[0]
                     # make a batched NOS call
                     arg_batches = [[] for _ in range(len(fn_call.args))]
@@ -541,12 +547,11 @@ class ExprEvalNode(ExecNode):
                         for i in range(len(args)):
                             arg_batches[i].append(args[i])
 
-                    if len(cohort.img_batch_params) > 0:
+                    if verify_nos_batch_size:
                         # we need to choose a batch size based on the image size
                         sample_img = arg_batches[cohort.img_param_pos][0]
-                        if sample_img.size != current_img_size:
-                            current_img_size = sample_img.size
-                            nos_batch_size, target_res = cohort.get_batch_params(sample_img.size)
+                        nos_batch_size, target_res = cohort.get_batch_params(sample_img.size)
+                        verify_nos_batch_size = False
                     else:
                         nos_batch_size, target_res = cohort.batch_size, cohort.img_size
 
@@ -566,49 +571,57 @@ class ExprEvalNode(ExecNode):
                             for img in arg_batches[cohort.img_param_pos]
                         ]
 
-                    kwargs = {param_name: args for param_name, args in zip(cohort.nos_param_names, arg_batches)}
-                    start_ts = time.perf_counter()
-                    _logger.debug(
-                        f'Running NOS task {cohort.model_info.task}: '
-                        f'batch_size={num_batch_rows} target_res={target_res}')
-                    result = Env.get().nos_client.Run(
-                        task=cohort.model_info.task, model_name=cohort.model_info.name, **kwargs)
-                    self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
-                    self.ctx.profile.eval_count[fn_call.slot_idx] += num_batch_rows
+                    num_remaining_batch_rows = num_batch_rows
+                    while num_remaining_batch_rows > 0:
+                        # we make NOS calls in batches of size nos_batch_size
+                        nos_batch_start_idx = batch_start_idx + num_batch_rows - num_remaining_batch_rows
+                        num_nos_batch_rows = min(nos_batch_size, num_remaining_batch_rows)
+                        nos_batch_offset = nos_batch_start_idx - batch_start_idx  # offset within sub-batch
+                        kwargs = {
+                            param_name: args[nos_batch_offset:nos_batch_offset + num_nos_batch_rows]
+                            for param_name, args in zip(cohort.nos_param_names, arg_batches)
+                        }
+                        start_ts = time.perf_counter()
+                        _logger.debug(
+                            f'Running NOS task {cohort.model_info.task}: '
+                            f'batch_size={num_nos_batch_rows} target_res={target_res}')
+                        result = Env.get().nos_client.Run(
+                            task=cohort.model_info.task, model_name=cohort.model_info.name, **kwargs)
+                        self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
+                        self.ctx.profile.eval_count[fn_call.slot_idx] += num_nos_batch_rows
 
-                    if cohort.model_info.task == nos.common.TaskType.OBJECT_DETECTION_2D and target_res is not None:
-                        # we need to rescale the bounding boxes
-                        result_bboxes = []  # workaround: result['bboxes'][*] is immutable
-                        for i, bboxes in enumerate(result['bboxes']):
-                            bboxes = np.copy(bboxes)
-                            bboxes[:, 0] *= scale_factors[i, 0]
-                            bboxes[:, 1] *= scale_factors[i, 1]
-                            bboxes[:, 2] *= scale_factors[i, 0]
-                            bboxes[:, 3] *= scale_factors[i, 1]
-                            result_bboxes.append(bboxes)
-                        result['bboxes'] = result_bboxes
+                        if cohort.model_info.task == nos.common.TaskType.OBJECT_DETECTION_2D and target_res is not None:
+                            # we need to rescale the bounding boxes
+                            result_bboxes = []  # workaround: result['bboxes'][*] is immutable
+                            for i, bboxes in enumerate(result['bboxes']):
+                                bboxes = np.copy(bboxes)
+                                nos_batch_row_idx = nos_batch_offset + i
+                                bboxes[:, 0] *= scale_factors[nos_batch_row_idx, 0]
+                                bboxes[:, 1] *= scale_factors[nos_batch_row_idx, 1]
+                                bboxes[:, 2] *= scale_factors[nos_batch_row_idx, 0]
+                                bboxes[:, 3] *= scale_factors[nos_batch_row_idx, 1]
+                                result_bboxes.append(bboxes)
+                            result['bboxes'] = result_bboxes
 
-                    if len(result) == 1:
-                        key = list(result.keys())[0]
-                        row_results = result[key]
-                    else:
-                        # we rearrange result into one dict per row
-                        row_results = [
-                            {k: v[i].tolist() for k, v in result.items()} for i in range(len(arg_batches[0]))
-                        ]
+                        if len(result) == 1:
+                            key = list(result.keys())[0]
+                            row_results = result[key]
+                        else:
+                            # we rearrange result into one dict per row
+                            row_results = [
+                                {k: v[i].tolist() for k, v in result.items()} for i in range(num_nos_batch_rows)
+                            ]
 
-                    # move the result into the row batch
-                    for result_idx in range(len(row_results)):
-                        row = rows[batch_start_idx + result_idx]
-                        row[fn_call.slot_idx] = row_results[result_idx]
+                        # move the result into the row batch
+                        for result_idx in range(len(row_results)):
+                            row = rows[nos_batch_start_idx + result_idx]
+                            row[fn_call.slot_idx] = row_results[result_idx]
+
+                        num_remaining_batch_rows -= num_nos_batch_rows
+
                     # switch to the NOS-recommended batch size
                     cohort.batch_size = nos_batch_size
                     cohort.img_size = target_res
-
-                else:
-                    # compute batch row-wise
-                    for row_idx in range(batch_start_idx, min(batch_start_idx + cohort.batch_size, len(rows))):
-                        self.evaluator.eval(rows[row_idx], segment, self.ctx.profile, ignore_errors=self.ignore_errors)
 
             # make sure images for stored cols have been saved to files before moving on to the next batch
             rows.flush_imgs(

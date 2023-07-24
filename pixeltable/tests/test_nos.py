@@ -28,18 +28,18 @@ class TestNOS:
 
         tbl.insert_rows([[get_video_files()[0]]], ['video'])
 
-    # def test_demo(self, test_client: pt.Client) -> None:
-    #     cl = test_client
-    #     cols = [
-    #         catalog.Column('video', VideoType()),
-    #         catalog.Column('frame', ImageType()),
-    #         catalog.Column('frame_idx', IntType()),
-    #     ]
-    #     tbl = cl.create_table(
-    #         'test', cols, extract_frames_from='video', extracted_frame_col='frame',
-    #         extracted_frame_idx_col='frame_idx', extracted_fps=0)
-    #     tbl.insert_rows([[get_video_files()[1]]], ['video'])
-    #     tbl.add_column(catalog.Column('frame_s', computed_with=tbl.frame.resize((640, 480))))
-    #     from pixeltable.functions.object_detection_2d import yolox_medium
-    #     tbl.add_column(catalog.Column('detections', computed_with=yolox_medium(tbl.frame_s)))
+    def test_demo(self, test_client: pt.Client) -> None:
+        cl = test_client
+        cols = [
+            catalog.Column('video', VideoType()),
+            catalog.Column('frame', ImageType()),
+            catalog.Column('frame_idx', IntType()),
+        ]
+        tbl = cl.create_table(
+            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
+            extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        tbl.insert_rows([[get_video_files()[0]]], ['video'])
+        tbl.add_column(catalog.Column('frame_s', computed_with=tbl.frame.resize((640, 480))))
+        from pixeltable.functions.object_detection_2d import yolox_medium
+        tbl.add_column(catalog.Column('detections', computed_with=yolox_medium(tbl.frame_s)))
 
