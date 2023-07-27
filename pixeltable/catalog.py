@@ -395,6 +395,20 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self)
 
+    def select(self, *items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
+        """Return a DataFrame for this table.
+        """
+        # local import: avoid circular imports
+        from pixeltable.dataframe import DataFrame
+        return DataFrame(self).select(*items)
+
+    def where(self, pred: 'exprs.Predicate') -> 'pixeltable.dataframe.DataFrame':
+        """Return a DataFrame for this table.
+        """
+        # local import: avoid circular imports
+        from pixeltable.dataframe import DataFrame
+        return DataFrame(self).where(pred)
+
     def show(self, *args, **kwargs) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
         """Return rows from this table.
         """

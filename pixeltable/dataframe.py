@@ -1,14 +1,14 @@
+from __future__ import annotations
 import base64
 import io
 import os
-import sys
 from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 from pathlib import Path
 import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
 import traceback
-from types import TracebackType
+import copy
 
 from pixeltable import catalog
 from pixeltable.env import Env
@@ -73,6 +73,11 @@ class DataFrameResultSet:
                 raise exc.Error(f'Bad index: {index}')
             return self.rows[index[0]][index[1]]
 
+    def __eq__(self, other):
+        if not isinstance(other, DataFrameResultSet):
+            return False
+        return self.rows == other.rows and self.col_names == other.col_names and self.col_types == other.col_types
+
 
 class AnalysisInfo:
     def __init__(self, tbl: catalog.Table):
@@ -109,27 +114,17 @@ class DataFrame:
     def __init__(
             self, tbl: catalog.Table,
             select_list: Optional[List[exprs.Expr]] = None,
-            where_clause: Optional[exprs.Predicate] = None):
+            where_clause: Optional[exprs.Predicate] = None,
+            group_by_clause: Optional[exprs.Expr] = None):
         self.tbl = tbl
-        # self.select_list and self.where_clause contain execution state and therefore cannot be shared
-        self.select_list: Optional[List[exprs.Expr]] = None  # None: implies all cols
-        if select_list is not None:
-            self.select_list = [e.copy() for e in select_list]
-        self.where_clause: Optional[exprs.Predicate] = None
-        if where_clause is not None:
-            self.where_clause = where_clause.copy()
-        self.group_by_clause: Optional[List[exprs.Expr]] = None
+        # exprs contain execution state and therefore cannot be shared
+        self.select_list = copy.deepcopy(select_list)  # None: implies all cols
+        self.where_clause = copy.deepcopy(where_clause)
+        self.group_by_clause = copy.deepcopy(group_by_clause)
         self.analysis_info: Optional[AnalysisInfo] = None
 
-    def exec(
-            self, n: int = 20, select_pk: bool = False, ignore_errors: bool = False
-    ) -> Generator[exprs.DataRow, None, None]:
-        """
-        Returned value: list of select list values.
-        If select_pk == True, also selects the primary key of the storage table (which is rowid and v_min).
-        ignore_errors == False: if any expr raises an exception, raises ExprEvalError.
-        ignore_errors == True: exception is returned in result row for each select list item that encountered an exc.
-        """
+    def exec(self, n: int = 20) -> Generator[exprs.DataRow, None, None]:
+        """Returned value: list of select list values"""
         if self.select_list is None:
             self.select_list = [
                 exprs.FrameColumnRef(col) if self.tbl.is_frame_col(col) else exprs.ColumnRef(col)
@@ -217,7 +212,41 @@ class DataFrame:
             result = {row._data[0]: i for i, row in enumerate(conn.execute(stmt))}
             return result
 
-    def __getitem__(self, index: object) -> 'DataFrame':
+    def select(self, *items: exprs.Expr) -> DataFrame:
+        if self.select_list is not None:
+            raise exc.Error(f'Select list already specified')
+
+        # analyze select list; wrap literals with the corresponding expressions and update it in place
+        select_list = list(items)
+        for i in range(len(select_list)):
+            expr = items[i]
+            if isinstance(expr, dict):
+                select_list[i] = expr = exprs.InlineDict(expr)
+            if isinstance(expr, list):
+                select_list[i] = expr = exprs.InlineArray(tuple(expr))
+            if not isinstance(expr, exprs.Expr):
+                raise exc.Error(f'Invalid expression in select list: {expr}')
+            if expr.col_type.is_invalid_type():
+                raise exc.Error(f'Invalid type: {expr}')
+            # TODO: check that ColumnRefs in expr refer to self.tbl
+        return DataFrame(
+            self.tbl, select_list=select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause)
+
+    def where(self, pred: exprs.Predicate) -> DataFrame:
+        return DataFrame(
+            self.tbl, select_list=self.select_list, where_clause=pred, group_by_clause=self.group_by_clause)
+
+    def group_by(self, *expr_list: exprs.Expr) -> DataFrame:
+        if self.group_by_clause is not None:
+            raise exc.Error(f'Group-by already specified')
+        for e in expr_list:
+            if not isinstance(e, exprs.Expr):
+                raise exc.Error(f'Invalid expression in group_by(): {e}')
+        self.group_by_clause = [e.copy() for e in expr_list]
+        return DataFrame(
+            self.tbl, select_list=self.select_list, where_clause=self.where_clause, group_by_clause=expr_list)
+
+    def __getitem__(self, index: object) -> DataFrame:
         """
         Allowed:
         - [<Predicate>]: filter operation
@@ -225,52 +254,11 @@ class DataFrame:
         - [Expr]: setting a single-col select list
         """
         if isinstance(index, exprs.Predicate):
-            return DataFrame(self.tbl, select_list=self.select_list, where_clause=index)
+            return self.where(index)
         if isinstance(index, tuple):
             index = list(index)
         if isinstance(index, exprs.Expr):
             index = [index]
         if isinstance(index, list):
-            if self.select_list is not None:
-                raise exc.Error(f'[] for column selection is only allowed once')
-            # analyze select list; wrap literals with the corresponding expressions and update it in place
-            for i in range(len(index)):
-                expr = index[i]
-                if isinstance(expr, dict):
-                    index[i] = expr = exprs.InlineDict(expr)
-                if isinstance(expr, list):
-                    index[i] = expr = exprs.InlineArray(tuple(expr))
-                if not isinstance(expr, exprs.Expr):
-                    raise exc.Error(f'Invalid expression in []: {expr}')
-                if expr.col_type.is_invalid_type():
-                    raise exc.Error(f'Invalid type: {expr}')
-                # TODO: check that ColumnRefs in expr refer to self.tbl
-            return DataFrame(self.tbl, select_list=index, where_clause=self.where_clause)
+            return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
-
-    def group_by(self, *expr_list: Tuple[exprs.Expr]) -> 'DataFrame':
-        for e in expr_list:
-            if not isinstance(e, exprs.Expr):
-                raise exc.Error(f'Invalid expr in group_by(): {e}')
-        self.group_by_clause = [e.copy() for e in expr_list]
-        return self
-
-    def _create_select_stmt(
-            self, select_list: List[sql.sql.expression.ClauseElement],
-            where_clause: Optional[sql.sql.expression.ClauseElement],
-            valid_rowids: List[int],
-            select_pk: bool,
-            order_by_exprs: List[sql.sql.expression.ClauseElement]
-    ) -> sql.sql.expression.Select:
-        pk_cols = [self.tbl.rowid_col, self.tbl.v_min_col] if select_pk else []
-        # we append pk_cols so that the already-computed sql row indices remain correct
-        stmt = sql.select(*select_list, *pk_cols) \
-            .where(self.tbl.v_min_col <= self.tbl.version) \
-            .where(self.tbl.v_max_col > self.tbl.version)
-        if where_clause is not None:
-            stmt = stmt.where(where_clause)
-        if len(valid_rowids) > 0:
-            stmt = stmt.where(self.tbl.rowid_col.in_(valid_rowids))
-        if len(order_by_exprs) > 0:
-            stmt = stmt.order_by(*order_by_exprs)
-        return stmt

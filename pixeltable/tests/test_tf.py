@@ -57,7 +57,6 @@ class TestTf:
         for row in ds:
             pass
 
-
     def test_model_fn(self, img_tbl: catalog.Table) -> None:
         model = tf.keras.applications.resnet50.ResNet50()
         preprocess = tf.keras.applications.resnet50.preprocess_input
