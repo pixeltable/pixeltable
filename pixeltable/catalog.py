@@ -1,31 +1,32 @@
 from __future__ import annotations
-from typing import Optional, List, Set, Dict, Any, Type, Union, Callable, Generator
-import re
-import inspect
-import io
-import logging
-import dataclasses
-import pathlib
-import copy
-from uuid import UUID
-import json
 
-import PIL, cv2
+import copy
+import dataclasses
+import inspect
+import json
+import logging
+import pathlib
+import re
+from typing import Optional, List, Set, Dict, Any, Type, Union, Callable, Tuple
+from uuid import UUID
+
+import PIL
+import cv2
 import numpy as np
 import pandas as pd
-from PIL import Image
-from tqdm.autonotebook import tqdm
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
+from PIL import Image
+from tqdm.autonotebook import tqdm
 
-from pixeltable.metadata import schema
-from pixeltable.env import Env
 from pixeltable import exceptions as exc
-from pixeltable.type_system import ColumnType, StringType
+from pixeltable.env import Env
+from pixeltable.exec import ColumnInfo
+from pixeltable.function import Function
 from pixeltable.index import VectorIndex
-from pixeltable.function import Function, FunctionRegistry
+from pixeltable.metadata import schema
+from pixeltable.type_system import ColumnType, StringType
 from pixeltable.utils.imgstore import ImageStore
-
 
 _ID_RE = r'[a-zA-Z]\w*'
 _PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
@@ -129,7 +130,6 @@ class Column:
 
         Leaves out value_expr, because that requires Table.cols to be complete.
         """
-        from pixeltable import exprs
         col = cls(
             md.name, col_type=ColumnType.from_dict(md.col_type), primary_key=md.is_pk,
             stored=md.stored, indexed=md.is_indexed, col_id=col_id)
@@ -138,7 +138,6 @@ class Column:
 
     def check_value_expr(self) -> None:
         assert self.value_expr is not None
-        from pixeltable import exprs
         if self.stored == False and self.is_computed and self.has_window_fn_call():
             raise exc.Error(
                 f'Column {self.name}: stored={self.stored} not supported for columns computed with window functions:'
@@ -505,9 +504,11 @@ class TableSnapshot(Table):
 class MutableTable(Table):
     @dataclasses.dataclass
     class UpdateStatus:
-        num_rows: int
-        num_values: int
-        num_excs: int
+        num_rows: int = 0
+        # TODO: disambiguate what this means: # of slots computed or # of columns computed?
+        num_computed_values: int = 0
+        num_excs: int = 0
+        updated_cols: List[str] = dataclasses.field(default_factory=list)
         cols_with_excs: List[str] = dataclasses.field(default_factory=list)
 
     """A :py:class:`Table` that can be modified.
@@ -623,9 +624,9 @@ class MutableTable(Table):
 
         row_count = self.count()
         if row_count == 0:
-            return self.UpdateStatus(0, 0, 0)
+            return self.UpdateStatus()
         if (not col.is_computed or not col.is_stored) and not col.is_indexed:
-            return self.UpdateStatus(row_count, 0, 0)
+            return self.UpdateStatus(num_rows=row_count)
         # compute values for the existing rows and compute embeddings, if this column is indexed;
         # for some reason, it's not possible to run the following updates in the same transaction as the one
         # that we just used to create the metadata (sqlalchemy hangs when exec() tries to run the query)
@@ -675,7 +676,9 @@ class MutableTable(Table):
                 _logger.info(f'Column {col.name}: {msg}')
                 if print_stats:
                     plan.ctx.profile.print(num_rows=num_rows)
-                return self.UpdateStatus(row_count, row_count, num_excs, [col.name] if num_excs > 0 else [])
+                return self.UpdateStatus(
+                    num_rows=row_count, num_computed_values=row_count, num_excs=num_excs,
+                    cols_with_excs=[col.name] if num_excs > 0 else [])
             except sql.exc.DBAPIError as e:
                 self.drop_column(col.name)
                 raise exc.Error(f'Error during SQL execution:\n{e}')
@@ -787,27 +790,6 @@ class MutableTable(Table):
             .values(
                 tbl_id=self.id, schema_version=self.tbl_md.current_schema_version,
                 md=dataclasses.asdict(schema_version_md)))
-
-    def _convert_to_stored(self, col: Column, val: Any, rowid: int) -> Any:
-        """
-        Convert column value 'val' into a store-compatible format, if needed:
-        - images are stored as files
-        - arrays are stored as serialized ndarrays
-        """
-        if col.col_type.is_image_type():
-            # replace PIL.Image.Image with file path
-            img = val
-            img_path = ImageStore.get_path(self.id, col.id, self.version, rowid, 'jpg')
-            img.save(img_path)
-            return str(img_path)
-        elif col.col_type.is_array_type():
-            # serialize numpy array
-            np_array = val
-            buffer = io.BytesIO()
-            np.save(buffer, np_array)
-            return buffer.getvalue()
-        else:
-            return val
 
     def insert_rows(self, rows: List[List[Any]], columns: List[str] = [], print_stats: bool = False) -> UpdateStatus:
         """Insert rows into table.
@@ -963,6 +945,38 @@ class MutableTable(Table):
                         raise exc.Error(
                             f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
 
+    class TableRowBuilder:
+        def __init__(self, output_spec: List[ColumnInfo]):
+            """
+            Args:
+                output_spec: list of (Column, slot_idx)
+            """
+            self.output_spec = output_spec
+
+        def create_row(
+                self, input_row: 'exprs.DataRow', rowid: int, version: int, exc_col_ids: Set[int]
+        ) -> Tuple[Dict[str, Any], int]:
+            """Return (a dict that represents a stored row (can be passed to sql.insert()), # of exceptions)"""
+            num_excs = 0
+            table_row: Dict[str, Any] = {}
+            for info in self.output_spec:
+                val = input_row.get_stored_val(info.slot_idx)
+                # check for exceptions
+                if isinstance(val, Exception):
+                    # exceptions get stored in the errortype/-msg columns
+                    num_excs += 1
+                    exc_col_ids.add(info.col.id)
+                    table_row[info.col.storage_name()] = None
+                    table_row[info.col.errortype_storage_name()] = type(val).__name__
+                    table_row[info.col.errormsg_storage_name()] = str(val)
+                else:
+                    table_row[info.col.storage_name()] = val
+                    # we unfortunately need to set these, even if there are no errors
+                    table_row[info.col.errortype_storage_name()] = None
+                    table_row[info.col.errormsg_storage_name()] = None
+            table_row.update({'rowid': rowid, 'v_min': version})
+            return table_row, num_excs
+
     def insert_pandas(self, data: pd.DataFrame, print_stats: bool = False) -> UpdateStatus:
         """Insert data from pandas DataFrame into this table.
 
@@ -987,6 +1001,7 @@ class MutableTable(Table):
         start_row_id = self.tbl_md.next_row_id
         batch_size = 16
         progress_bar = tqdm(total=len(rows), desc='Inserting rows into table', unit='rows')
+        row_builder = self.TableRowBuilder(db_col_info)
         with Env.get().engine.begin() as conn:
             num_excs = 0
             cols_with_excs: Set[int] = set()
@@ -995,23 +1010,9 @@ class MutableTable(Table):
                 table_rows: List[Dict[str, Any]] = []
                 for row_idx in range(batch_start_idx, min(batch_start_idx + batch_size, len(rows))):
                     row = rows[row_idx]
-                    table_row = {c.storage_name(): row.get_stored_val(slot_idx) for c, slot_idx in db_col_info}
-                    table_row.update({'rowid': self.next_row_id, 'v_min': self.version})
-
-                    # check for exceptions
-                    for col in [c for c, _ in db_col_info if c.is_computed]:
-                        val = table_row[col.storage_name()]
-                        if isinstance(val, Exception):
-                            # exceptions get stored in the errortype/-msg columns
-                            num_excs += 1
-                            cols_with_excs.add(col.id)
-                            table_row[col.storage_name()] = None
-                            table_row[col.errortype_storage_name()] = type(val).__name__
-                            table_row[col.errormsg_storage_name()] = str(val)
-                        else:
-                            table_row[col.errortype_storage_name()] = None
-                            table_row[col.errormsg_storage_name()] = None
-
+                    table_row, num_row_exc = row_builder.create_row(
+                        row, self.tbl_md.next_row_id, self.tbl_md.current_version, cols_with_excs)
+                    num_excs += num_row_exc
                     self.tbl_md.next_row_id += 1
                     table_rows.append(table_row)
                     progress_bar.update(1)
@@ -1025,9 +1026,9 @@ class MutableTable(Table):
 
         if len(idx_col_info) > 0:
             # update image indices
-            for col, slot_idx in tqdm(idx_col_info, desc='Updating image indices', unit='column'):
-                embeddings = [row[slot_idx] for row in rows]
-                col.idx.insert(np.asarray(embeddings), np.arange(start_row_id, self.tbl_md.next_row_id))
+            for info in tqdm(idx_col_info, desc='Updating image indices', unit='column'):
+                embeddings = [row[info.slot_idx] for row in rows]
+                info.col.idx.insert(np.asarray(embeddings), np.arange(start_row_id, self.tbl_md.next_row_id))
 
         if print_stats:
             plan.ctx.profile.print(num_rows=len(rows))
@@ -1041,7 +1042,111 @@ class MutableTable(Table):
         print(msg)
         _logger.info(f'Table {self.name}: {msg}, new version {self.version}')
         status = self.UpdateStatus(
-            len(rows), num_values_per_row * len(rows), num_excs, [self.cols_by_id[cid].name for cid in cols_with_excs])
+            num_rows=len(rows), num_computed_values=num_values_per_row * len(rows), num_excs=num_excs,
+            cols_with_excs=[self.cols_by_id[cid].name for cid in cols_with_excs])
+        return status
+
+    def update(
+            self, value_spec: Dict[str, Union['pixeltable.exprs.Expr', Any]],
+            where: Optional['pixeltable.exprs.Predicate'] = None
+    ) -> UpdateStatus:
+        """Update rows in this table.
+        Args:
+            value_spec: a dict mapping column names to literal values or Pixeltable expressions.
+            where: a Predicate to filter rows to update.
+        """
+        from  pixeltable import exprs
+        update_targets: List[Tuple[Column, exprs.Expr]] = []
+        for col_name, val in value_spec.items():
+            if col_name not in self.cols_by_name:
+                raise exc.Error(f'Column {col_name} unknown')
+            col = self.cols_by_name[col_name]
+            if col.is_computed:
+                raise exc.Error(f'Column {col_name} is computed and cannot be updated')
+            if col.primary_key:
+                raise exc.Error(f'Column {col_name} is a primary key column and cannot be updated')
+
+            # make sure that the value is compatible with the column type
+            if isinstance(val, exprs.Expr):
+                value_expr = val
+            else:
+                # try to convert value to Expr
+                value_expr = exprs.Expr.from_object(val)
+                if value_expr is None:
+                    raise exc.Error(f'Value {val!r} is not a valid literal for column {col_name}')
+            if not col.col_type.matches(value_expr.col_type):
+                raise exc.Error((
+                    f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
+                    f'{col_name} ({col.col_type})'
+                ))
+            update_targets.append((col, value_expr))
+
+        # local import: avoid circular imports
+        from pixeltable.exprs import Predicate
+        from pixeltable.plan import Planner
+        analysis_info: Optional[Planner.AnalysisInfo] = None
+        if where is not None:
+            if not isinstance(where, Predicate):
+                raise exc.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            analysis_info = Planner.get_info(self, where)
+            if analysis_info.similarity_clause is not None:
+                raise exc.Error('nearest()/matches() cannot be used with update()')
+            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+            if analysis_info.filter is not None:
+                raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+        # retrieve all stored cols and all target exprs
+        updated_cols = [col for col, _ in update_targets]
+        copied_cols = [col for col in self.cols if col.is_stored and not col in updated_cols]
+        select_list = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list.extend([expr for _, expr in update_targets])
+        plan, select_list = Planner.create_query_plan(
+            self, select_list, where_clause=where, with_pk=True, ignore_errors=True)
+
+        # we're creating a new version
+        self.tbl_md.current_version += 1
+        table_row_info = [ColumnInfo(col, select_list[i].slot_idx) for i, col in enumerate(copied_cols)]
+        table_row_info.extend(
+            [ColumnInfo(col, select_list[len(copied_cols) + i].slot_idx) for i, col in enumerate(updated_cols)])
+        row_builder = self.TableRowBuilder(table_row_info)
+        plan.open()
+        num_excs = 0
+        num_rows = 0
+        cols_with_excs: Set[int] = set()
+        try:
+            # insert new versions of updated rows
+            with Env.get().engine.begin() as conn:
+                for row_batch in plan:
+                    num_rows += len(row_batch)
+                    table_rows: List[Dict[str, Any]] = []
+                    for result_row in row_batch:
+                        table_row, num_row_exc = row_builder.create_row(
+                            result_row, result_row.row_id, self.version, cols_with_excs)
+                        num_excs += num_row_exc
+                        table_rows.append(table_row)
+                    conn.execute(sql.insert(self.sa_tbl), table_rows)
+
+                # mark old versions of updated rows as deleted
+                stmt = sql.update(self.sa_tbl) \
+                    .values({self.v_max_col: self.version}) \
+                    .where(self.v_min_col <= self.version)  \
+                    .where(self.v_max_col == schema.Table.MAX_VERSION)
+                if where is not None:
+                    assert analysis_info is not None
+                    stmt = stmt.where(analysis_info.sql_where_clause)
+                conn.execute(stmt)
+
+                # update table version
+                conn.execute(
+                    sql.update(schema.Table.__table__)
+                    .values({schema.Table.md: dataclasses.asdict(self.tbl_md)})
+                    .where(schema.Table.id == self.id))
+
+        finally:
+            plan.close()
+
+        status = self.UpdateStatus(
+            num_rows=num_rows, num_excs=num_excs, updated_cols=[c.name for c in updated_cols],
+            cols_with_excs=cols_with_excs)
         return status
 
     def revert(self) -> None:

@@ -25,8 +25,11 @@ from pixeltable import exceptions as exc
 
 _logger = logging.getLogger('pixeltable')
 
-# info for how to locate materialized column in DataRow
-ColumnInfo = namedtuple('ColumnInfo', ['col', 'slot_idx'])
+@dataclass
+class ColumnInfo:
+    """info for how to locate materialized column in DataRow"""
+    col: catalog.Column
+    slot_idx: int
 
 
 class DataRowBatch:
@@ -83,9 +86,9 @@ class DataRowBatch:
         if idx_range is None:
             idx_range = slice(0, len(self.rows))
         for row in self.rows[idx_range]:
-            for col, slot_idx in stored_img_info:
-                filepath = str(ImageStore.get_path(self.table_id, col.id, row.v_min, row.row_id, 'jpg'))
-                row.flush_img(slot_idx, filepath)
+            for info in stored_img_info:
+                filepath = str(ImageStore.get_path(self.table_id, info.col.id, row.v_min, row.row_id, 'jpg'))
+                row.flush_img(info.slot_idx, filepath)
             for slot_idx in flushed_slot_idxs:
                 row.flush_img(slot_idx)
         #_logger.debug(
@@ -651,9 +654,9 @@ class InsertDataNode(ExecNode):
         """Create row batch and populate with self.data"""
         if not self.tbl.extracts_frames():
             self.rows = DataRowBatch(self.tbl, self.evaluator, len(self.data))
-            for col, slot_idx in self.input_cols:
-                for idx, (_, val) in enumerate(self.data[col.name].items()):
-                    self.rows[idx, slot_idx] = val
+            for info in self.input_cols:
+                for idx, (_, val) in enumerate(self.data[info.col.name].items()):
+                    self.rows[idx, info.slot_idx] = val
         else:
             # we're extracting frames: we replace each row with one row per frame, which has the frame_idx col set
             video_col = self.tbl.frame_src_col()
@@ -677,11 +680,11 @@ class InsertDataNode(ExecNode):
                     self.rows[row_idx, self.frame_idx_slot_idx] = i
                     row_idx += 1
             # populate cols we get from the input df
-            for col, slot_idx in self.input_cols:
+            for info in self.input_cols:
                 row_idx = 0
-                for input_row_idx, (_, val) in enumerate(self.data[col.name].items()):
+                for input_row_idx, (_, val) in enumerate(self.data[info.col.name].items()):
                     for i in range(counts[input_row_idx]):
-                        self.rows[row_idx, slot_idx] = val
+                        self.rows[row_idx, info.slot_idx] = val
                         row_idx += 1
 
         # assign row ids

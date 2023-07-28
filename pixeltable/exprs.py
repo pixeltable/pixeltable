@@ -298,6 +298,8 @@ class Expr(abc.ABC):
             return InlineDict(o)
         elif isinstance(o, list):
             return InlineArray(tuple(o))
+        elif isinstance(o, typing.get_args(LiteralPythonTypes)):
+            return Literal(o)
         return None
 
     @abc.abstractmethod

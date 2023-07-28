@@ -240,6 +240,72 @@ class TestTable:
         t2 = cl.get_table('test')
         _  = t2.show(n=0)
 
+    def test_update(self, test_tbl: pt.Table, indexed_img_tbl: pt.Table) -> None:
+        t = test_tbl
+        t.add_column(catalog.Column('computed', computed_with=t.c2 + 1))
+
+        cnt = t.where(t.c3 < 10.0).count()
+        assert cnt == 10
+        cnt = t.where(t.c3 == 10.0).count()
+        assert cnt == 1
+        status = t.update({'c3': 10.0}, where=t.c3 < 10.0)
+        assert status.num_rows == 10
+        assert status.updated_cols == ['c3']
+        cnt = t.where(t.c3 < 10.0).count()
+        assert cnt == 0
+        cnt = t.where(t.c3 == 10.0).count()
+        assert cnt == 11
+
+        # revert, then verify that we're back where we started
+        cl = pt.Client()
+        t = cl.get_table(t.name)
+        t.revert()
+        cnt = t.where(t.c3 < 10.0).count()
+        assert cnt == 10
+        cnt = t.where(t.c3 == 10.0).count()
+        assert cnt == 1
+
+        # unknown column
+        with pytest.raises(exc.Error) as excinfo:
+            t.update({'unknown': 1})
+        assert 'unknown' in str(excinfo.value)
+
+        # incompatible type
+        with pytest.raises(exc.Error) as excinfo:
+            t.update({'c1': 1})
+        assert 'not compatible' in str(excinfo.value)
+
+        # can't update primary key
+        with pytest.raises(exc.Error) as excinfo:
+            t.update({'c2': 1})
+        assert 'primary key' in str(excinfo.value)
+
+        # can't update computed column
+        with pytest.raises(exc.Error) as excinfo:
+            t.update({'computed': 1})
+        assert 'computed' in str(excinfo.value)
+
+        # non-expr
+        with pytest.raises(exc.Error) as excinfo:
+            t.update({'c3': lambda c3: math.sqrt(c3)})
+        assert 'not a valid literal' in str(excinfo.value)
+
+        # non-Predicate filter
+        with pytest.raises(exc.Error) as excinfo:
+            t.update({'c3': 1.0}, where=lambda c2: c2 == 10)
+        assert 'Predicate' in str(excinfo.value)
+
+        img_t = indexed_img_tbl
+        # similarity search is not supported
+        with pytest.raises(exc.Error) as excinfo:
+            img_t.update({'split': 'train'}, where=img_t.img.matches('car'))
+        assert 'matches()' in str(excinfo.value)
+
+        # filter not expressible in SQL
+        with pytest.raises(exc.Error) as excinfo:
+            img_t.update({'split': 'train'}, where=img_t.img.width > 100)
+        assert 'not expressible' in str(excinfo.value)
+
     def test_computed_cols(self, test_client: pt.client) -> None:
         cl = test_client
         c1 = catalog.Column('c1', IntType(nullable=False))

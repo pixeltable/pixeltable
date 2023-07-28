@@ -44,7 +44,7 @@ def test_tbl(test_client: pt.Client) -> catalog.Table:
     cols = [
         catalog.Column('c1', StringType(nullable=False)),
         catalog.Column('c1n', StringType(nullable=True)),
-        catalog.Column('c2', IntType(nullable=False)),
+        catalog.Column('c2', IntType(nullable=False), primary_key=True),
         catalog.Column('c3', FloatType(nullable=False)),
         catalog.Column('c4', BoolType(nullable=False)),
         catalog.Column('c5', TimestampType(nullable=False)),
