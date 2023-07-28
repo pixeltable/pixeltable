@@ -181,9 +181,12 @@ class DataFrame:
             .where(self.tbl.v_min_col <= self.tbl.version) \
             .where(self.tbl.v_max_col > self.tbl.version)
         if self.where_clause is not None:
-            sql_where_clause = self.where_clause.sql_expr()
-            assert sql_where_clause is not None
-            stmt = stmt.where(sql_where_clause)
+            analysis_info = Planner.get_info(self.tbl, self.where_clause)
+            if analysis_info.similarity_clause is not None:
+                raise exc.Error('nearest()/matches() cannot be used with count()')
+            if analysis_info.filter is not None:
+                raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+            stmt = stmt.where(analysis_info.sql_where_clause)
         with Env.get().engine.connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)

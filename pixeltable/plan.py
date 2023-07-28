@@ -354,6 +354,10 @@ class Planner:
         return plan, info.select_list
 
     @classmethod
+    def get_info(cls, tbl: catalog.Table, where_clause: exprs.Predicate) -> AnalysisInfo:
+        return cls._analyze_query(tbl, [], where_clause, [])
+
+    @classmethod
     def create_add_column_plan(
             cls, tbl: catalog.Table, col: catalog.Column) -> Tuple[ExecNode, Optional[int], Optional[int]]:
         """Creates a plan for MutableTable.add_column()
