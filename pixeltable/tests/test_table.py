@@ -306,6 +306,45 @@ class TestTable:
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
+    def test_delete(self, test_tbl: pt.Table, indexed_img_tbl: pt.Table) -> None:
+        t = test_tbl
+
+        cnt = t.where(t.c3 < 10.0).count()
+        assert cnt == 10
+        cnt = t.where(t.c3 == 10.0).count()
+        assert cnt == 1
+        status = t.delete(where=t.c3 < 10.0)
+        assert status.num_rows == 10
+        cnt = t.where(t.c3 < 10.0).count()
+        assert cnt == 0
+        cnt = t.where(t.c3 == 10.0).count()
+        assert cnt == 1
+
+        # revert, then verify that we're back where we started
+        cl = pt.Client()
+        t = cl.get_table(t.name)
+        t.revert()
+        cnt = t.where(t.c3 < 10.0).count()
+        assert cnt == 10
+        cnt = t.where(t.c3 == 10.0).count()
+        assert cnt == 1
+
+        # non-Predicate filter
+        with pytest.raises(exc.Error) as excinfo:
+            t.delete(where=lambda c2: c2 == 10)
+        assert 'Predicate' in str(excinfo.value)
+
+        img_t = indexed_img_tbl
+        # similarity search is not supported
+        with pytest.raises(exc.Error) as excinfo:
+            img_t.delete(where=img_t.img.matches('car'))
+        assert 'matches()' in str(excinfo.value)
+
+        # filter not expressible in SQL
+        with pytest.raises(exc.Error) as excinfo:
+            img_t.delete(where=img_t.img.width > 100)
+        assert 'not expressible' in str(excinfo.value)
+
     def test_computed_cols(self, test_client: pt.client) -> None:
         cl = test_client
         c1 = catalog.Column('c1', IntType(nullable=False))

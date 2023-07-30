@@ -1149,6 +1149,48 @@ class MutableTable(Table):
             cols_with_excs=cols_with_excs)
         return status
 
+    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+        """Delete rows in this table.
+        Args:
+            where: a Predicate to filter rows to delete.
+        """
+        from pixeltable.exprs import Predicate
+        from pixeltable.plan import Planner
+        analysis_info: Optional[Planner.AnalysisInfo] = None
+        if where is not None:
+            if not isinstance(where, Predicate):
+                raise exc.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            analysis_info = Planner.get_info(self, where)
+            if analysis_info.similarity_clause is not None:
+                raise exc.Error('nearest()/matches() cannot be used with delete()')
+            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+            if analysis_info.filter is not None:
+                raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+
+        # we're creating a new version
+        self.tbl_md.current_version += 1
+        # insert new versions of updated rows
+        with Env.get().engine.begin() as conn:
+            # mark rows as deleted
+            stmt = sql.update(self.sa_tbl) \
+                .values({self.v_max_col: self.version}) \
+                .where(self.v_min_col <= self.version) \
+                .where(self.v_max_col == schema.Table.MAX_VERSION) \
+                .returning(1)
+            if where is not None:
+                assert analysis_info is not None
+                stmt = stmt.where(analysis_info.sql_where_clause)
+            num_rows = conn.execute(stmt).rowcount
+
+            # update table version
+            conn.execute(
+                sql.update(schema.Table.__table__)
+                .values({schema.Table.md: dataclasses.asdict(self.tbl_md)})
+                .where(schema.Table.id == self.id))
+
+        status = self.UpdateStatus(num_rows=num_rows)
+        return status
+
     def revert(self) -> None:
         """Reverts the table to the previous version.
 
