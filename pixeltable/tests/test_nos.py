@@ -2,7 +2,6 @@ from pixeltable import catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
 from pixeltable.tests.utils import get_video_files
-from pixeltable.function import FunctionRegistry
 import pixeltable as pt
 
 
@@ -42,4 +41,3 @@ class TestNOS:
         tbl.add_column(catalog.Column('frame_s', computed_with=tbl.frame.resize((640, 480))))
         from pixeltable.functions.object_detection_2d import yolox_medium
         tbl.add_column(catalog.Column('detections', computed_with=yolox_medium(tbl.frame_s)))
-

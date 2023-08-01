@@ -41,12 +41,7 @@ optional = true
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.2.1"
-
-#[[tool.poetry.source]]
-#name = "torchcpu"
-#url = "https://download.pytorch.org/whl/cpu"
-#default = false
-#secondary = true
+pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 
 [tool.poetry.group.docs]
 optional = true
