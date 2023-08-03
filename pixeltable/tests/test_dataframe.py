@@ -24,6 +24,11 @@ class TestDataFrame:
         res2 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).show(0)
         assert res1 == res2
 
+    def test_order_by(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).show(0)
+        a = 10
+
     def test_count(self, test_tbl: catalog.Table, indexed_img_tbl: catalog.Table) -> None:
         t = test_tbl
         cnt = t.count()

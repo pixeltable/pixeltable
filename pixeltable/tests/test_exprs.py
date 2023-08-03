@@ -426,7 +426,7 @@ class TestExprs:
         e = t.img.rotate(90).resize((224, 224))
         subexprs = [s for s in e.subexprs()]
         assert len(subexprs) == 3
-        subexprs = [s for s in e.subexprs() if isinstance(s, ColumnRef)]
+        subexprs = [s for s in e.subexprs(expr_class=ColumnRef)]
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 

@@ -6,13 +6,11 @@ import enum
 import sys
 import typing
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Iterator, Type
-from types import TracebackType
 import operator
 import json
 import io
 from collections.abc import Iterable
 import time
-from collections import namedtuple
 
 import PIL.Image
 import jmespath
@@ -203,7 +201,7 @@ class Expr(abc.ABC):
 
     def substitute(self, old: Expr, new: Expr) -> Expr:
         """
-        Replace 'old' with 'new recursively.
+        Replace 'old' with 'new' recursively.
         """
         if self.equals(old):
             return new.copy()
@@ -252,15 +250,19 @@ class Expr(abc.ABC):
         return f'({", ".join([str(e) for e in expr_list])})'
 
     def subexprs(
-            self, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+            self, expr_class: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None,
+            traverse_matches: bool = True
     ) -> Generator[Expr, None, None]:
         """
         Iterate over all subexprs, including self.
         """
+        assert expr_class is None or filter is None  # at most one of them
+        if expr_class is not None:
+            filter = lambda e: isinstance(e, expr_class)
         is_match = filter is None or filter(self)
         if not is_match or traverse_matches:
             for c in self.components:
-                yield from c.subexprs(filter, traverse_matches=traverse_matches)
+                yield from c.subexprs(filter=filter, traverse_matches=traverse_matches)
         if is_match:
             yield self
 
@@ -272,7 +274,7 @@ class Expr(abc.ABC):
         if cls is not None:
             filter = lambda e: isinstance(e, cls)
         try:
-            _ = next(self.subexprs(filter, traverse_matches=False))
+            _ = next(self.subexprs(filter=filter, traverse_matches=False))
             return True
         except StopIteration:
             return False
@@ -285,7 +287,7 @@ class Expr(abc.ABC):
         Produce subexprs for all exprs in list.
         """
         for e in expr_list:
-            yield from e.subexprs(filter, traverse_matches)
+            yield from e.subexprs(filter=filter, traverse_matches=traverse_matches)
 
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
@@ -708,8 +710,8 @@ class FunctionCall(Expr):
              or self.has_group_by() \
              or (len(self.order_by) > 0 and not self.fn.requires_order_by))
 
-    def get_window_sort_exprs(self) -> List[Expr]:
-        return [*self.group_by, *self.order_by]
+    def get_window_sort_exprs(self) -> Tuple[List[Expr], List[Expr]]:
+        return self.group_by, self.order_by
 
     @property
     def is_agg_fn_call(self) -> bool:

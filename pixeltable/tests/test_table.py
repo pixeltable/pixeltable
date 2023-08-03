@@ -1,6 +1,7 @@
 import pytest
 import math
 import numpy as np
+import pandas as pd
 
 import PIL
 
@@ -140,12 +141,12 @@ class TestTable:
         assert tbl.cols_by_name['c5'].is_stored
 
         # cannot store frame col
-        cols = [
-            catalog.Column('video', VideoType(nullable=False)),
-            catalog.Column('frame', ImageType(nullable=False), stored=True),
-            catalog.Column('frame_idx', IntType(nullable=False)),
-        ]
         with pytest.raises(exc.Error):
+            cols = [
+                catalog.Column('video', VideoType(nullable=False)),
+                catalog.Column('frame', ImageType(nullable=False), stored=True),
+                catalog.Column('frame_idx', IntType(nullable=False)),
+            ]
             _ = cl.create_table(
                 'test', cols, extract_frames_from='video', extracted_frame_col='frame',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
@@ -242,28 +243,43 @@ class TestTable:
 
     def test_update(self, test_tbl: pt.Table, indexed_img_tbl: pt.Table) -> None:
         t = test_tbl
-        t.add_column(catalog.Column('computed', computed_with=t.c2 + 1))
+        t.add_column(catalog.Column('computed1', computed_with=t.c3 + 1))
+        t.add_column(catalog.Column('computed2', computed_with=t.computed1 + 1))
+        t.add_column(catalog.Column('computed3', computed_with=t.c3 + 3))
 
-        cnt = t.where(t.c3 < 10.0).count()
-        assert cnt == 10
-        cnt = t.where(t.c3 == 10.0).count()
-        assert cnt == 1
-        status = t.update({'c3': 10.0}, where=t.c3 < 10.0)
+        # cascade=False
+        computed1 = t.order_by(t.computed1).show(0).to_pandas()['computed1']
+        computed2 = t.order_by(t.computed2).show(0).to_pandas()['computed2']
+        computed3 = t.order_by(t.computed3).show(0).to_pandas()['computed3']
+        assert t.where(t.c3 < 10.0).count() == 10
+        assert t.where(t.c3 == 10.0).count() == 1
+        status = t.update({'c3': 10.0}, where=t.c3 < 10.0, cascade=False)
         assert status.num_rows == 10
         assert status.updated_cols == ['c3']
-        cnt = t.where(t.c3 < 10.0).count()
-        assert cnt == 0
-        cnt = t.where(t.c3 == 10.0).count()
-        assert cnt == 11
+        assert t.where(t.c3 < 10.0).count() == 0
+        assert t.where(t.c3 == 10.0).count() == 11
+        assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'] == computed1)
+        assert np.all(t.order_by(t.computed2).show(0).to_pandas()['computed2'] == computed2)
+        assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'] == computed3)
 
-        # revert, then verify that we're back where we started
+        # revert, then verify that we're back to where we started
         cl = pt.Client()
         t = cl.get_table(t.name)
         t.revert()
-        cnt = t.where(t.c3 < 10.0).count()
-        assert cnt == 10
-        cnt = t.where(t.c3 == 10.0).count()
-        assert cnt == 1
+        assert t.where(t.c3 < 10.0).count() == 10
+        assert t.where(t.c3 == 10.0).count() == 1
+
+        # cascade=True
+        status = t.update({'c3': 10.0}, where=t.c3 < 10.0, cascade=True)
+        assert status.num_rows == 10
+        assert status.updated_cols == ['c3']
+        assert t.where(t.c3 < 10.0).count() == 0
+        assert t.where(t.c3 == 10.0).count() == 11
+        assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'][:10] == pd.Series([11.0] * 10))
+        assert np.all(t.order_by(t.computed2).show(0).to_pandas()['computed2'][:10] == pd.Series([12.0] * 10))
+        assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'][:10] == pd.Series([13.0] * 10))
+        assert t.where(t.c3 < 10.0).count() == 0
+        assert t.where(t.c3 == 10.0).count() == 11
 
         # unknown column
         with pytest.raises(exc.Error) as excinfo:

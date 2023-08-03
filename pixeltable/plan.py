@@ -81,6 +81,7 @@ class Planner:
             # we need to make copies of the select list and group-by clause to avoid reusing past execution state
             self.select_list: List[exprs.Expr] = []
             self.group_by_clause: List[exprs.Expr] = []
+            self.order_by_clause: List[Tuple[exprs.Expr, bool]] = []  # List[(expr, asc)]
 
             # all exprs that need to be evaluated
             self.all_exprs: List[exprs.Expr] = []
@@ -130,16 +131,17 @@ class Planner:
 
     @classmethod
     def _analyze_query(
-        cls, tbl: catalog.Table, select_list: List[exprs.Expr], where_clause: Optional[exprs.Predicate],
-        group_by_clause: List[exprs.Expr]
+            cls, tbl: catalog.Table, select_list: List[exprs.Expr], where_clause: Optional[exprs.Predicate] = None,
+            group_by_clause: List[exprs.Expr] = [], order_by_clause: List[Tuple[exprs.Expr, bool]] = []
     ) -> AnalysisInfo:
         """Performs semantic analysis of query and returns AnalysisInfo"""
         info = cls.AnalysisInfo(tbl)
         # create copies to avoid reusing past execution state and remove references to unstored computed cols
         info.select_list = [e.copy().resolve_computed_cols(unstored_only=True) for e in select_list]
-        info.group_by_clause = [e.copy().resolve_computed_cols(unstored_only=True) for e in group_by_clause]
         if where_clause is not None:
             where_clause = where_clause.copy().resolve_computed_cols(unstored_only=True)
+        info.group_by_clause = [e.copy().resolve_computed_cols(unstored_only=True) for e in group_by_clause]
+        info.order_by_clause = [(e.copy().resolve_computed_cols(unstored_only=True), asc) for e, asc in order_by_clause]
 
         if where_clause is not None:
             info.sql_where_clause, info.filter = where_clause.extract_sql_predicate()
@@ -158,6 +160,7 @@ class Planner:
 
         info.all_exprs = info.select_list.copy()
         info.all_exprs.extend(info.group_by_clause)
+        info.all_exprs.extend([e for e, _ in info.order_by_clause])
         if info.filter is not None:
             info.all_exprs.append(info.filter)
         info.sql_exprs.extend(
@@ -208,8 +211,9 @@ class Planner:
                 order_by = fn_call_order_by
                 order_by_origin = agg_fn_call
             else:
-                containing = cls._get_containing(order_by, fn_call_order_by)
-                if len(containing) == 0:
+                combined = cls._get_combined_ordering(
+                    [(e, True) for e in order_by], [(e, True) for e in fn_call_order_by])
+                if len(combined) == 0:
                     raise exc.Error((
                         f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
                         f"'{agg_fn_call}':\n"
@@ -218,32 +222,41 @@ class Planner:
         info.agg_order_by = order_by
 
     @classmethod
-    def _get_containing(cls, l1: List[exprs.Expr], l2: List[exprs.Expr]) -> List[exprs.Expr]:
-        """Returns the list that contains the other, or the empty list if neither contains the other"""
-        common_prefix_len = 0
-        for e1, e2 in zip(l1, l2):
+    def _get_combined_ordering(
+            cls, o1: List[Tuple[exprs.Expr, bool]], o2: List[Tuple[exprs.Expr, bool]]
+    ) -> List[Tuple[exprs.Expr, bool]]:
+        """Returns an ordering that's compatible with both o1 and o2, or an empty list if no such ordering exists"""
+        result: List[Tuple[exprs.Expr, bool]] = []
+        # determine combined ordering
+        for (e1, asc1), (e2, asc2) in zip(o1, o2):
             if e1.slot_idx != e2.slot_idx:
-                break
-            common_prefix_len += 1
-        if common_prefix_len == len(l1):
-            return l2
-        if common_prefix_len == len(l2):
-            return l1
-        return []
+                return []
+            if asc1 is not None and asc2 is not None and asc1 != asc2:
+                return []
+            asc = asc1 if asc1 is not None else asc2
+            result.append((e1, asc))
+
+        # add remaining ordering of the longer list
+        prefix_len = min(len(o1), len(o2))
+        if len(o1) > prefix_len:
+            result.extend(o1[prefix_len:])
+        elif len(o2) > prefix_len:
+            result.extend(o2[prefix_len:])
+        return result
 
     @classmethod
     def _determine_ordering(
-            cls, tbl: catalog.Table, evaluator: exprs.Evaluator, info: AnalysisInfo
+        cls, tbl: catalog.Table, evaluator: exprs.Evaluator, info: AnalysisInfo
     ) -> List[sql.sql.expression.ClauseElement]:
         """Returns the ORDER BY clause of the SqlScanNode"""
-        order_by_exprs: List[exprs.Expr] = []
+        order_by_items: List[Tuple[exprs.Expr, bool]] = []
         order_by_origin: Optional[exprs.Expr] = None  # the expr that determines the ordering
         if evaluator.unique_exprs.contains(exprs.FrameColumnRef):
             # we're materializing extracted frames and need to order by the frame src and idx cols;
             # make sure to get the exprs from the evaluator, which have slot_idx set
             frame_src_col_ref = evaluator.unique_exprs[exprs.ColumnRef(tbl.frame_src_col())]
             frame_idx_col_ref = evaluator.unique_exprs[exprs.ColumnRef(tbl.frame_idx_col())]
-            order_by_exprs = [frame_src_col_ref, frame_idx_col_ref]
+            order_by_items = [(frame_src_col_ref, None), (frame_idx_col_ref, True)]  # need frame idx to be ascending
             order_by_origin = [e for e in evaluator.unique_exprs if isinstance(e, exprs.FrameColumnRef)][0]
 
         # window functions require ordering by the group_by/order_by clauses
@@ -252,41 +265,61 @@ class Planner:
         ]
         if len(window_fn_calls) > 0:
             for fn_call in window_fn_calls:
-                if len(order_by_exprs) == 0:
-                    order_by_exprs = fn_call.get_window_sort_exprs()
+                gb, ob = fn_call.get_window_sort_exprs()
+                # for now, the ordering is implicitly ascending
+                fn_call_ordering = [(e, None) for e in gb] + [(e, True) for e in ob]
+                if len(order_by_items) == 0:
+                    order_by_items = fn_call_ordering
                     order_by_origin = fn_call
                 else:
                     # check for compatibility
-                    other_order_by_exprs = fn_call.get_window_sort_exprs()
-                    containing = cls._get_containing(order_by_exprs, other_order_by_exprs)
-                    if len(containing) == 0:
+                    other_order_by_clauses = fn_call_ordering
+                    combined = cls._get_combined_ordering(order_by_items, other_order_by_clauses)
+                    if len(combined) == 0:
                         raise exc.Error((
                             f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
                             f"'{fn_call}':\n"
-                            f"{exprs.Expr.print_list(order_by_exprs)} vs {exprs.Expr.print_list(other_order_by_exprs)}"
+                            f"{exprs.Expr.print_list(order_by_items)} vs {exprs.Expr.print_list(other_order_by_clauses)}"
                         ))
-                    order_by_exprs = containing
+                    order_by_items = combined
 
         if len(info.group_by_clause) > 0:
-            agg_ordering = info.group_by_clause + info.agg_order_by
-            if len(order_by_exprs) > 0:
+            agg_ordering = [(e, None) for e in info.group_by_clause] + [(e, True) for e in info.agg_order_by]
+            if len(order_by_items) > 0:
                 # check for compatibility
-                containing = cls._get_containing(order_by_exprs, agg_ordering)
-                if len(containing) == 0:
+                combined = cls._get_combined_ordering(order_by_items, agg_ordering)
+                if len(combined) == 0:
                     raise exc.Error((
                         f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
                         f"grouping expressions:\n"
-                        f"{exprs.Expr.print_list(order_by_exprs)} vs {exprs.Expr.print_list(agg_ordering)}"
+                        f"{exprs.Expr.print_list([e for e, _ in order_by_items])} vs "
+                        f"{exprs.Expr.print_list([e for e, _ in agg_ordering])}"
                     ))
-                order_by_exprs = containing
+                order_by_items = combined
             else:
-                order_by_exprs = agg_ordering
+                order_by_items = agg_ordering
 
-        order_by_clauses = [e.sql_expr() for e in order_by_exprs]
-        for i in range(len(order_by_exprs)):
-            if order_by_clauses[i] is None:
-                raise exc.Error(f'order_by element cannot be expressed in SQL: {order_by_exprs[i]}')
-        return order_by_clauses
+        if len(info.order_by_clause) > 0:
+            if len(order_by_items) > 0:
+                # check for compatibility
+                combined = cls._get_combined_ordering(order_by_items, info.order_by_clause)
+                if len(combined) == 0:
+                    raise exc.Error((
+                        f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
+                        f"order-by expressions:\n"
+                        f"{exprs.Expr.print_list([e for e, _ in order_by_items])} vs "
+                        f"{exprs.Expr.print_list([e for e, _ in info.order_by_clause])}"
+                    ))
+                order_by_items = combined
+            else:
+                order_by_items = info.order_by_clause
+
+        # we do ascending ordering by default, if not specified otherwise
+        order_by_clause = [e.sql_expr().desc() if asc == False else e.sql_expr() for e, asc in order_by_items]
+        for i in range(len(order_by_items)):
+            if order_by_clause[i] is None:
+                raise exc.Error(f'order_by element cannot be expressed in SQL: {order_by_items[i]}')
+        return order_by_clause
 
     @classmethod
     def _is_contained_in(cls, l1: List[exprs.Expr], l2: List[exprs.Expr]) -> bool:
@@ -297,10 +330,13 @@ class Planner:
     @classmethod
     def create_query_plan(
             cls, tbl: catalog.Table, select_list: List[exprs.Expr], where_clause: Optional[exprs.Predicate] = None,
-            group_by_clause: List[exprs.Expr] = [], limit: Optional[int] = None,
+            group_by_clause: List[exprs.Expr] = [], order_by_clause: List[Tuple[exprs.Expr, bool]] = [],
+            limit: Optional[int] = None,
             with_pk: bool = False, ignore_errors: bool = False
     ) -> Tuple[ExecNode, List[exprs.Expr]]:
-        info = cls._analyze_query(tbl, select_list, where_clause, group_by_clause)
+        info = cls._analyze_query(
+            tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
+            order_by_clause=order_by_clause)
         evaluator = exprs.Evaluator(info.all_exprs, info.sql_exprs)
         cls._analyze_agg(evaluator, info)
         is_agg_query = len(info.group_by_clause) > 0 or len(info.agg_fn_calls) > 0
@@ -314,11 +350,11 @@ class Planner:
             idx = info.similarity_clause.img_col_ref.col.idx
             idx_rowids = idx.search(embed, limit, tbl.valid_rowids)
 
-        order_by_clauses = cls._determine_ordering(tbl, evaluator, info)
+        order_by_clause = cls._determine_ordering(tbl, evaluator, info)
         sql_limit = 0 if is_agg_query else limit  # if we're aggregating, the limit applies to the agg output
         plan = SqlScanNode(
             tbl, evaluator, info.sql_exprs, where_clause=info.sql_where_clause, filter=info.filter, limit=sql_limit,
-            order_by_clauses=order_by_clauses, set_pk=with_pk, rowids=idx_rowids)
+            order_by_clause=order_by_clause, set_pk=with_pk, rowids=idx_rowids)
 
         if len(info.group_by_clause) > 0 or len(info.agg_fn_calls) > 0:
             # we're doing aggregation; the input of the AggregateNode are the grouping exprs plus the
@@ -355,7 +391,7 @@ class Planner:
 
     @classmethod
     def get_info(cls, tbl: catalog.Table, where_clause: exprs.Predicate) -> AnalysisInfo:
-        return cls._analyze_query(tbl, [], where_clause, [])
+        return cls._analyze_query(tbl, [], where_clause=where_clause)
 
     @classmethod
     def create_add_column_plan(

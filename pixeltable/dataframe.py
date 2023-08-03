@@ -2,7 +2,7 @@ from __future__ import annotations
 import base64
 import io
 import os
-from typing import List, Optional, Any, Dict, Generator
+from typing import List, Optional, Any, Dict, Generator, Tuple
 from pathlib import Path
 import pandas as pd
 import sqlalchemy as sql
@@ -115,12 +115,14 @@ class DataFrame:
             self, tbl: catalog.Table,
             select_list: Optional[List[exprs.Expr]] = None,
             where_clause: Optional[exprs.Predicate] = None,
-            group_by_clause: Optional[exprs.Expr] = None):
+            group_by_clause: Optional[List[exprs.Expr]] = None,
+            order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None):  # List[(expr, asc)]
         self.tbl = tbl
         # exprs contain execution state and therefore cannot be shared
         self.select_list = copy.deepcopy(select_list)  # None: implies all cols
         self.where_clause = copy.deepcopy(where_clause)
         self.group_by_clause = copy.deepcopy(group_by_clause)
+        self.order_by_clause = copy.deepcopy(order_by_clause)
         self.analysis_info: Optional[AnalysisInfo] = None
 
     def exec(self, n: int = 20) -> Generator[exprs.DataRow, None, None]:
@@ -132,11 +134,13 @@ class DataFrame:
             ]
         if self.group_by_clause is None:
             self.group_by_clause = []
+        if self.order_by_clause is None:
+            self.order_by_clause = []
         for item in self.select_list:
             item.bind_rel_paths(None)
         plan, self.select_list = Planner.create_query_plan(
             self.tbl, self.select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause,
-            limit=n)
+            order_by_clause=self.order_by_clause, limit=n)
         plan.open()
         try:
             result = next(plan)
@@ -233,11 +237,13 @@ class DataFrame:
                 raise exc.Error(f'Invalid type: {expr}')
             # TODO: check that ColumnRefs in expr refer to self.tbl
         return DataFrame(
-            self.tbl, select_list=select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause)
+            self.tbl, select_list=select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause,
+            order_by_clause=self.order_by_clause)
 
     def where(self, pred: exprs.Predicate) -> DataFrame:
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=pred, group_by_clause=self.group_by_clause)
+            self.tbl, select_list=self.select_list, where_clause=pred, group_by_clause=self.group_by_clause,
+            order_by_clause=self.order_by_clause)
 
     def group_by(self, *expr_list: exprs.Expr) -> DataFrame:
         if self.group_by_clause is not None:
@@ -247,7 +253,18 @@ class DataFrame:
                 raise exc.Error(f'Invalid expression in group_by(): {e}')
         self.group_by_clause = [e.copy() for e in expr_list]
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=self.where_clause, group_by_clause=expr_list)
+            self.tbl, select_list=self.select_list, where_clause=self.where_clause, group_by_clause=expr_list,
+            order_by_clause=self.order_by_clause)
+
+    def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
+        for e in expr_list:
+            if not isinstance(e, exprs.Expr):
+                raise exc.Error(f'Invalid expression in order_by(): {e}')
+        order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
+        order_by_clause.extend([(e.copy(), asc) for e in expr_list])
+        return DataFrame(
+            self.tbl, select_list=self.select_list, where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause, order_by_clause=order_by_clause)
 
     def __getitem__(self, index: object) -> DataFrame:
         """

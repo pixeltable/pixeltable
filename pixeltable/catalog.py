@@ -107,7 +107,7 @@ class Column:
         assert self.col_type is not None
 
         self.stored = stored
-        self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us
+        self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us; set by Table
         self.id = col_id
         self.primary_key = primary_key
 
@@ -347,12 +347,24 @@ class Table(SchemaObject):
     def _record_value_expr(self, col: Column) -> None:
         """Update Column.dependent_cols for all cols referenced in col.value_expr.
         """
+        assert col.value_expr is not None
         from pixeltable.exprs import ColumnRef
-
-        refd_col_ids = [e.col.id for e in col.value_expr.subexprs() if isinstance(e, ColumnRef)]
+        refd_col_ids = [e.col.id for e in col.value_expr.subexprs(expr_class=ColumnRef)]
         refd_cols = [self.cols_by_id[id] for id in refd_col_ids]
         for refd_col in refd_cols:
             refd_col.dependent_cols.append(col)
+
+    def _get_dependent_cols(self, cols: List[Column]) -> List[Column]:
+        """
+        Return the list of cols that transivitely depend on any of the given cols.
+        """
+        if len(cols) == 0:
+            return []
+        result: List[Column] = []
+        for col in cols:
+            result.extend(col.dependent_cols)
+        result = [self.cols_by_id[id] for id in set([c.id for c in result])]
+        return result + self._get_dependent_cols(result)
 
     def _load_valid_rowids(self) -> None:
         if not any(col.col_type.is_image_type() for col in self.cols):
@@ -407,6 +419,13 @@ class Table(SchemaObject):
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
         return DataFrame(self).where(pred)
+
+    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pixeltable.dataframe.DataFrame':
+        """Return a DataFrame for this table.
+        """
+        # local import: avoid circular imports
+        from pixeltable.dataframe import DataFrame
+        return DataFrame(self).order_by(*items, asc=asc)
 
     def show(self, *args, **kwargs) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
         """Return rows from this table.
@@ -1048,12 +1067,13 @@ class MutableTable(Table):
 
     def update(
             self, value_spec: Dict[str, Union['pixeltable.exprs.Expr', Any]],
-            where: Optional['pixeltable.exprs.Predicate'] = None
+            where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
         Args:
             value_spec: a dict mapping column names to literal values or Pixeltable expressions.
             where: a Predicate to filter rows to update.
+            cascade: if True, also update all computed columns that transitively depend on the updated columns.
         """
         from  pixeltable import exprs
         update_targets: List[Tuple[Column, exprs.Expr]] = []
@@ -1068,7 +1088,7 @@ class MutableTable(Table):
 
             # make sure that the value is compatible with the column type
             if isinstance(val, exprs.Expr):
-                value_expr = val
+                value_expr = val.copy()
             else:
                 # try to convert value to Expr
                 value_expr = exprs.Expr.from_object(val)
@@ -1081,7 +1101,6 @@ class MutableTable(Table):
                 ))
             update_targets.append((col, value_expr))
 
-        # local import: avoid circular imports
         from pixeltable.exprs import Predicate
         from pixeltable.plan import Planner
         analysis_info: Optional[Planner.AnalysisInfo] = None
@@ -1094,19 +1113,30 @@ class MutableTable(Table):
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
                 raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+
         # retrieve all stored cols and all target exprs
         updated_cols = [col for col, _ in update_targets]
-        copied_cols = [col for col in self.cols if col.is_stored and not col in updated_cols]
+        recomputed_cols = self._get_dependent_cols(updated_cols) if cascade else []
+        copied_cols = \
+            [col for col in self.cols if col.is_stored and not col in updated_cols and not col in recomputed_cols]
         select_list = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend([expr for _, expr in update_targets])
+
+        recomputed_exprs = [c.value_expr.copy().resolve_computed_cols(unstored_only=False) for c in recomputed_cols]
+        # recomputed cols reference the new values of the updated cols
+        for col, e in update_targets:
+            exprs.Expr.list_substitute(recomputed_exprs, exprs.ColumnRef(col), e)
+        select_list.extend(recomputed_exprs)
+
         plan, select_list = Planner.create_query_plan(
             self, select_list, where_clause=where, with_pk=True, ignore_errors=True)
 
         # we're creating a new version
         self.tbl_md.current_version += 1
-        table_row_info = [ColumnInfo(col, select_list[i].slot_idx) for i, col in enumerate(copied_cols)]
-        table_row_info.extend(
-            [ColumnInfo(col, select_list[len(copied_cols) + i].slot_idx) for i, col in enumerate(updated_cols)])
+        table_row_info = [
+            ColumnInfo(col, select_list[i].slot_idx)
+            for i, col in enumerate(copied_cols + updated_cols + recomputed_cols)  # same order as select_list
+        ]
         row_builder = self.TableRowBuilder(table_row_info)
         plan.open()
         num_excs = 0

@@ -250,7 +250,7 @@ class SqlScanNode(ExecNode):
     def __init__(
             self, tbl: catalog.Table, evaluator: exprs.Evaluator, sql_exprs: Iterable[exprs.Expr],
             where_clause: Optional[sql.sql.expression.ClauseElement] = None, filter: Optional[exprs.Predicate] = None,
-            order_by_clauses: List[sql.sql.expression.ClauseElement] = [],
+            order_by_clause: List[sql.sql.expression.ClauseElement] = [],
             limit: int = 0, set_pk: bool = False, rowids: List[int] = []
 
     ):
@@ -283,8 +283,8 @@ class SqlScanNode(ExecNode):
             self.stmt = self.stmt.where(where_clause)
         if len(rowids) > 0:
             self.stmt = self.stmt.where(self.tbl.rowid_col.in_(rowids))
-        if len(order_by_clauses) > 0:
-            self.stmt = self.stmt.order_by(*order_by_clauses)
+        if len(order_by_clause) > 0:
+            self.stmt = self.stmt.order_by(*order_by_clause)
         if limit != 0 and self.filter is None:
             # if we need to do post-SQL filtering, we can't use LIMIT
             self.stmt = self.stmt.limit(limit)
