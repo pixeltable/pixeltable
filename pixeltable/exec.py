@@ -561,18 +561,22 @@ class ExprEvalNode(ExecNode):
                     # if we need to rescale image args, and we're doing object detection, we need to rescale the
                     # bounding boxes as well
                     scale_factors = np.ndarray((num_batch_rows, 2), dtype=np.float32)
-                    if cohort.img_param_pos is not None and target_res is not None:
-                        # we need to record the scale factors and resize the images;
-                        # keep in mind that every image could have a different resolution
-                        scale_factors[:, 0] = \
-                            [img.size[0]/target_res[0] for img in arg_batches[cohort.img_param_pos]]
-                        scale_factors[:, 1] = \
-                            [img.size[1]/target_res[1] for img in arg_batches[cohort.img_param_pos]]
-                        arg_batches[cohort.img_param_pos] = [
-                            # only resize if necessary
-                            img.resize(target_res) if img.size != target_res else img
-                            for img in arg_batches[cohort.img_param_pos]
-                        ]
+                    if cohort.img_param_pos is not None:
+                        # for now, NOS will only receive RGB images
+                        arg_batches[cohort.img_param_pos] = \
+                            [img.convert('RGB') for img in arg_batches[cohort.img_param_pos]]
+                        if target_res is not None:
+                            # we need to record the scale factors and resize the images;
+                            # keep in mind that every image could have a different resolution
+                            scale_factors[:, 0] = \
+                                [img.size[0]/target_res[0] for img in arg_batches[cohort.img_param_pos]]
+                            scale_factors[:, 1] = \
+                                [img.size[1]/target_res[1] for img in arg_batches[cohort.img_param_pos]]
+                            arg_batches[cohort.img_param_pos] = [
+                                # only resize if necessary
+                                img.resize(target_res) if img.size != target_res else img
+                                for img in arg_batches[cohort.img_param_pos]
+                            ]
 
                     num_remaining_batch_rows = num_batch_rows
                     while num_remaining_batch_rows > 0:

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PoetryConfigService">
+    <option name="poetryVirtualenvPaths">
+      <set>
+        <option value="$PROJECT_DIR$/../.cache/pypoetry/virtualenvs/pixeltable-5l9NhbKr-py3.10/bin/python" />
+      </set>
+    </option>
+  </component>
+</project>

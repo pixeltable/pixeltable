@@ -194,7 +194,7 @@ class Env:
             self._wait_for_postgres()
 
         self._logger.info('connecting to NOS')
-        nos.init()
+        nos.init(logging_level=logging.DEBUG)
         self._nos_client = nos.client.InferenceClient()
         self._logger.info('waiting for NOS')
         self._nos_client.WaitForServer()
