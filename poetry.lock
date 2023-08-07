@@ -99,26 +99,26 @@ tests-no-zope = ["cloudpickle", "hypothesis", "mypy (>=1.1.1)", "pympler", "pyte
 
 [[package]]
 name = "autonomi-nos"
-version = "0.0.6"
+version = "0.0.8"
 description = "Nitrous oxide system (NOS) for computer-vision."
 optional = false
 python-versions = ">=3.7.10"
 files = [
-    {file = "autonomi_nos-0.0.6-py3-none-any.whl", hash = "sha256:fa5ffd59406d848d6da91dede81fde5a8f187cf585d8e10e3e9b60003938a118"},
+    {file = "autonomi_nos-0.0.8-py3-none-any.whl", hash = "sha256:ebcc45f8ffe61600a253745481b28141205a04b831fdc2a4e39d28157748dec4"},
 ]
 
 [package.dependencies]
 av = ">=10.0.0"
 cloudpickle = ">=2.2.1"
 docker = ">=6.0.0"
-grpcio-tools = ">=1.32.0,<=1.49.1"
+grpcio-tools = "<=1.49.1"
 loguru = ">=0.7.0"
 opencv-python-headless = ">=4.6.0.66"
 pandas = "*"
 Pillow = "*"
 psutil = ">=5.9.5"
 py-cpuinfo = ">=9.0.0"
-pydantic = "*"
+pydantic = ">=1.10.12,<2.0.0"
 rich = ">=12.5.1"
 tqdm = "*"
 typer = ">=0.7.0"
@@ -126,9 +126,9 @@ typing-extensions = ">=4.5.0"
 
 [package.extras]
 dev = ["black[jupyter] (==22.3.0)", "build (==0.10.0)", "pre-commit (==3.2.2)", "ruff (==0.0.262)"]
-docs = ["mkdocs", "mkdocs-exclude", "mkdocs-include-markdown-plugin", "mkdocs-material", "mkdocs-pymdownx-material-extras", "mkdocs-same-dir", "mkdocstrings", "mkdocstrings-python", "mkdocstrings[python]"]
+docs = ["mkdocs", "mkdocs-blog-plugin", "mkdocs-exclude", "mkdocs-include-markdown-plugin", "mkdocs-material", "mkdocs-material-extensions (>=1.1)", "mkdocs-pymdownx-material-extras", "mkdocs-same-dir", "mkdocstrings", "mkdocstrings-python", "mkdocstrings[python]"]
 extras = ["controlnet-aux (==0.0.6)", "matplotlib", "opencv-contrib-python-headless"]
-server = ["accelerate (>0.18.0)", "controlnet-aux (==0.0.6)", "diffusers (>=0.17.1)", "huggingface-hub", "matplotlib", "opencv-contrib-python-headless", "pyarrow (>=12.0.0)", "ray[serve] (==2.5.0)", "tabulate", "torch (>=1.12.1,<2.0.0)", "torchaudio (>=0.13.1)", "torchvision (>=0.13.0)", "transformers (>=4.29.2)"]
+server = ["accelerate (>0.18.0)", "controlnet-aux (==0.0.6)", "diffusers (>=0.17.1)", "huggingface-hub", "matplotlib", "memray", "opencv-contrib-python-headless", "pyarrow (>=12.0.0)", "ray (>=2.6.1)", "safetensors (>=0.3.0)", "tabulate", "timm (>=0.9.2)", "torch (>=1.12.1,<2.0.0)", "torchaudio (>=0.13.1)", "torchvision (>=0.13.0)", "transformers (>=4.29.2)"]
 test = ["pytest", "pytest-asyncio", "typeguard"]
 torch = ["torch (>=1.12.1,<2.0.0)", "torchaudio (>=0.13.1)", "torchvision (>=0.13.0)"]
 
@@ -2478,13 +2478,13 @@ rsa = ["oauthlib[signedtoken] (>=3.0.0)"]
 
 [[package]]
 name = "rich"
-version = "13.4.2"
+version = "13.5.2"
 description = "Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal"
 optional = false
 python-versions = ">=3.7.0"
 files = [
-    {file = "rich-13.4.2-py3-none-any.whl", hash = "sha256:8f87bc7ee54675732fa66a05ebfe489e27264caeeff3728c945d25971b6485ec"},
-    {file = "rich-13.4.2.tar.gz", hash = "sha256:d653d6bccede5844304c605d5aac802c7cf9621efd700b46c7ec2b51ea914898"},
+    {file = "rich-13.5.2-py3-none-any.whl", hash = "sha256:146a90b3b6b47cac4a73c12866a499e9817426423f57c5a66949c086191a8808"},
+    {file = "rich-13.5.2.tar.gz", hash = "sha256:fb9d6c0a0f643c99eed3875b5377a184132ba9be4d61516a55273d3554d75a39"},
 ]
 
 [package.dependencies]
@@ -3381,4 +3381,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "60bed689003f13cb8fefe198a07770a30d3f834c275c8140367bb12237a4e6ff"
+content-hash = "f8012b2070cbe035cebbb7f4210c723f4e7158ba9840f611a035e95d32ac0a9b"
