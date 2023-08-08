@@ -27,7 +27,7 @@ class TestFunctions:
         tbl.add_column(catalog.Column('detections_n', computed_with=yolox_nano(tbl.frame_s)))
         tbl.add_column(catalog.Column('detections_l', computed_with=yolox_large(tbl.frame_s)))
         tbl.add_column(catalog.Column('gt', computed_with=yolox_xlarge(tbl.frame_s)))
-        from pixeltable.functions.eval import eval_detections, detection_metric
+        from pixeltable.functions.eval import eval_detections, mean_ap
         res = tbl.select(
             eval_detections(
                 tbl.detections_n.bboxes, tbl.detections_n.labels, tbl.detections_n.scores, tbl.gt.bboxes, tbl.gt.labels
@@ -46,8 +46,8 @@ class TestFunctions:
                     tbl.detections_l.bboxes, tbl.detections_l.labels, tbl.detections_l.scores, tbl.gt.bboxes,
                     tbl.gt.labels)
             ))
-        ap_n = tbl.select(detection_metric(tbl.eval_n)).show()[0, 0]
-        ap_l = tbl.select(detection_metric(tbl.eval_l)).show()[0, 0]
+        ap_n = tbl.select(mean_ap(tbl.eval_n)).show()[0, 0]
+        ap_l = tbl.select(mean_ap(tbl.eval_l)).show()[0, 0]
         common_classes = set(ap_n.keys()) & set(ap_l.keys())
         for k in common_classes:
             assert ap_n[k] <= ap_l[k]

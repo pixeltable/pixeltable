@@ -30,7 +30,7 @@ docker = "^6.0.1"
 psutil = "^5.9.5"
 sqlalchemy = "^2.0.17"
 sqlalchemy-utils = "^0.41.1"
-autonomi-nos = "^0.0.8"
+autonomi-nos = "0.0.9a1"
 
 [tool.poetry.group.dev.dependencies]
 tensorflow-io-gcs-filesystem = { version = "^0.28.0", python = ">=3.9,<3.11" }

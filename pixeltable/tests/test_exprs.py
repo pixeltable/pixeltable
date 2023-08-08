@@ -165,23 +165,24 @@ class TestExprs:
             _ = t[t.c1.errormsg].show()
 
     @pytest.mark.skip(reason='not implemented')
-    def test_nullable(self, test_client: pt.Client) -> None:
+    def test_null_args(self, test_client: pt.Client) -> None:
         # create table with two int columns
         cols = [
-            pt.Column('c1', IntType(nullable=True)),
-            pt.Column('c2', IntType(nullable=True))
+            pt.Column('c1', FloatType(nullable=True)),
+            pt.Column('c2', FloatType(nullable=True))
         ]
         t = test_client.create_table('test', cols)
 
         # computed column that doesn't allow nulls
-        t.add_column(pt.Column('c3', IntType(), computed_with=lambda c1, c2: c1 + c2))
+        t.add_column(pt.Column('c3', FloatType(nullable=False), computed_with=lambda c1, c2: c1 + c2))
         # function that does allow nulls
-        @pt.function(return_type=IntType(), param_types=[IntType(), IntType(nullable=True)])
+        @pt.function(return_type=FloatType(nullable=True),
+                     param_types=[FloatType(nullable=False), FloatType(nullable=True)])
         def f(a: int, b: int) -> int:
             if b is None:
                 return a
             return a + b
-        t.add_column(pt.Column('c4', IntType(), computed_with=f(t.c1, t.c2)))
+        t.add_column(pt.Column('c4', FloatType(), computed_with=f(t.c1, t.c2)))
 
         # data that tests all combinations of nulls
         data = [(1, 1), (1, None), (None, 1), (None, None)]

@@ -752,6 +752,16 @@ class FunctionCall(Expr):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         args = self._make_args(data_row)
+        signature = self.fn.md.signature
+        if signature.parameters is not None:
+            # check for nulls
+            assert len(args) == len(signature.parameters)
+            for arg, (_, param_type) in zip(args, signature.parameters):
+                if arg is None and not param_type.nullable:
+                    # we can't evaluate this function
+                    data_row[self.slot_idx] = None
+                    return
+
         if not self.fn.is_aggregate:
             data_row[self.slot_idx] = self.fn.eval_fn(*args)
         elif self.is_window_fn_call:

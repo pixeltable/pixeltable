@@ -21,6 +21,14 @@ import pixeltable
 
 _logger = logging.getLogger('pixeltable')
 
+def _resolve_symbol(module_name: str, symbol: str) -> object:
+    module = importlib.import_module(module_name)
+    obj = module
+    for el in symbol.split('.'):
+        obj = getattr(obj, el)
+    return obj
+
+
 class Signature:
     def __init__(self, return_type: ColumnType, parameters: Optional[List[Tuple[str, ColumnType]]]):
         self.return_type = return_type
@@ -122,13 +130,13 @@ class Function:
         if module_name is not None:
             # resolve symbols
             if eval_symbol is not None:
-                self.eval_fn = self._resolve_symbol(module_name, eval_symbol)
+                self.eval_fn = _resolve_symbol(module_name, eval_symbol)
             if init_symbol is not None:
-                self.init_fn = self._resolve_symbol(module_name, init_symbol)
+                self.init_fn = _resolve_symbol(module_name, init_symbol)
             if update_symbol is not None:
-                self.update_fn = self._resolve_symbol(module_name, update_symbol)
+                self.update_fn = _resolve_symbol(module_name, update_symbol)
             if value_symbol is not None:
-                self.value_fn = self._resolve_symbol(module_name, value_symbol)
+                self.value_fn = _resolve_symbol(module_name, value_symbol)
 
     @property
     def requires_order_by(self) -> bool:
@@ -200,7 +208,7 @@ class Function:
             cls, return_type: ColumnType, param_types: List[ColumnType], module_name: str, eval_symbol: str
     ) -> Function:
         assert module_name is not None and eval_symbol is not None
-        eval_fn = cls._resolve_symbol(module_name, eval_symbol)
+        eval_fn = _resolve_symbol(module_name, eval_symbol)
         signature = cls._create_signature(eval_fn, False, param_types, return_type, check_params=False)
         md = cls.Metadata(signature, False, True)
         return Function(md, module_name=module_name, eval_symbol=eval_symbol)
@@ -213,7 +221,7 @@ class Function:
     ) -> Function:
         assert module_name is not None and init_symbol is not None and update_symbol is not None \
                and value_symbol is not None
-        update_fn = cls._resolve_symbol(module_name, update_symbol)
+        update_fn = _resolve_symbol(module_name, update_symbol)
         signature = cls._create_signature(update_fn, True, param_types, return_type)
         md = cls.Metadata(signature, True, True)
         md.requires_order_by = requires_order_by
@@ -222,14 +230,6 @@ class Function:
         return Function(
             md, module_name=module_name,
             init_symbol=init_symbol, update_symbol=update_symbol, value_symbol=value_symbol)
-
-    @classmethod
-    def _resolve_symbol(cls, module_name: str, symbol: str) -> object:
-        module = importlib.import_module(module_name)
-        obj = module
-        for el in symbol.split('.'):
-            obj = getattr(obj, el)
-        return obj
 
     @property
     def is_aggregate(self) -> bool:
@@ -334,6 +334,9 @@ class Function:
             return FunctionRegistry.get().get_function(id=UUID(hex=d['id']))
         else:
             assert d['fqn'] is not None
+            # this is a library function; make sure we have the module loaded
+            module_name = '.'.join(d['fqn'].split('.')[:-1])
+            _ = importlib.import_module(module_name)
             return FunctionRegistry.get().get_function(fqn=d['fqn'])
 
 

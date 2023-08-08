@@ -169,15 +169,18 @@ def _eval_detections(
     return result
 
 eval_detections = Function.make_library_function(
-    JsonType(), [JsonType(), JsonType(), JsonType(), JsonType(), JsonType()], __name__, '_eval_detections')
+    JsonType(nullable=False),
+    [JsonType(nullable=False), JsonType(nullable=False), JsonType(nullable=False), JsonType(nullable=False),
+     JsonType(nullable=False)],
+    __name__, '_eval_detections')
 FunctionRegistry.get().register_function(__name__, 'eval_detections', eval_detections)
 
-class DetectionEvalAggregator:
+class MeanAPAggregator:
     def __init__(self):
         self.class_tpfp: Dict[int, List[Dict]] = defaultdict(list)
 
     @classmethod
-    def make_aggregator(cls) -> DetectionEvalAggregator:
+    def make_aggregator(cls) -> MeanAPAggregator:
         return cls()
 
     def update(self, eval_dicts: List[Dict]) -> None:
@@ -210,12 +213,12 @@ class DetectionEvalAggregator:
         return result
 
 
-detection_metric = Function.make_library_aggregate_function(
+mean_ap = Function.make_library_aggregate_function(
     JsonType(), [JsonType()],  # params: output of eval_detections()
     module_name = __name__,
-    init_symbol = 'DetectionEvalAggregator.make_aggregator',
-    update_symbol = 'DetectionEvalAggregator.update',
-    value_symbol = 'DetectionEvalAggregator.value',
+    init_symbol = 'MeanAPAggregator.make_aggregator',
+    update_symbol = 'MeanAPAggregator.update',
+    value_symbol = 'MeanAPAggregator.value',
     allows_std_agg=True, allows_window=False)
-FunctionRegistry.get().register_function(__name__, 'detection_metric', detection_metric)
+FunctionRegistry.get().register_function(__name__, 'mean_ap', mean_ap)
 
