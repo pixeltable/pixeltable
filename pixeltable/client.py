@@ -81,6 +81,27 @@ class Client:
             .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])  # center-align headings
         return pd_df.hide(axis='index')
 
+    def get_path(self, schema_obj: SchemaObject) -> str:
+        """Returns the path to a SchemaObject.
+
+        Args:
+            schema_obj: SchemaObject to get the path for.
+
+        Returns:
+            Path to the SchemaObject.
+        """
+        path_elements: List[str] = []
+        dir_id = schema_obj.dir_id
+        while dir_id is not None:
+            dir = self.paths.get_schema_obj(dir_id)
+            if dir.dir_id is None:
+                # this is the root dir with name '', which we don't want to include in the path
+                break
+            path_elements.insert(0, dir.name)
+            dir_id = dir.dir_id
+        path_elements.append(schema_obj.name)
+        return '.'.join(path_elements)
+
     def create_table(
             self, path_str: str, schema: List[Column], num_retained_versions: int = 10,
             extract_frames_from: Optional[str] = None, extracted_frame_col: Optional[str] = None,

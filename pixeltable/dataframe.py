@@ -123,7 +123,6 @@ class DataFrame:
         self.where_clause = copy.deepcopy(where_clause)
         self.group_by_clause = copy.deepcopy(group_by_clause)
         self.order_by_clause = copy.deepcopy(order_by_clause)
-        self.analysis_info: Optional[AnalysisInfo] = None
 
     def exec(self, n: int = 20) -> Generator[exprs.DataRow, None, None]:
         """Returned value: list of select list values"""

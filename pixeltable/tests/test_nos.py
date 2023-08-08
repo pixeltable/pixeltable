@@ -1,7 +1,10 @@
+import pytest
+
 from pixeltable import catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
 from pixeltable.tests.utils import get_video_files
+from pixeltable.exprs import Literal
 import pixeltable as pt
 
 
@@ -27,7 +30,7 @@ class TestNOS:
 
         tbl.insert_rows([[get_video_files()[0]]], ['video'])
 
-    def test_demo(self, test_client: pt.Client) -> None:
+    def test_exceptions(self, test_client: pt.Client) -> None:
         cl = test_client
         cols = [
             catalog.Column('video', VideoType()),
@@ -36,8 +39,12 @@ class TestNOS:
         ]
         tbl = cl.create_table(
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',
-            extracted_frame_idx_col='frame_idx', extracted_fps=0)
+            extracted_frame_idx_col='frame_idx', extracted_fps=1)
         tbl.insert_rows([[get_video_files()[0]]], ['video'])
         tbl.add_column(catalog.Column('frame_s', computed_with=tbl.frame.resize((640, 480))))
+        # 'rotated' has exceptions
+        tbl.add_column(catalog.Column(
+            'rotated', ImageType(), computed_with=lambda frame_s, frame_idx: frame_s.rotate(int(360 / frame_idx))))
         from pixeltable.functions.object_detection_2d import yolox_medium
-        tbl.add_column(catalog.Column('detections', computed_with=yolox_medium(tbl.frame_s)))
+        tbl.add_column(catalog.Column('detections', computed_with=yolox_medium(tbl.rotated), stored=True))
+        assert tbl[tbl.detections.errortype != None].count() == 1

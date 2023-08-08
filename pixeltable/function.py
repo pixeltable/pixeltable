@@ -47,8 +47,8 @@ class Signature:
         if len(self.parameters) != len(other.parameters):
             return False
         for i in range(len(self.parameters)):
-            # TODO: ignore the parameter name?
-            if self.parameters[i] != other.parameters[i]:
+            # ignore the parameter name
+            if self.parameters[i][1] != other.parameters[i][1]:
                 return False
         return True
 

@@ -481,6 +481,7 @@ class ExprEvalNode(ExecNode):
                 cohorts.append([])
                 current_nos_function = e.fn
             cohorts[-1].append(e)
+
         # expand the cohorts to include all exprs that are in the same evaluation context as the NOS calls;
         # cohorts are evaluated in order, so we can exclude the target slots from preceding cohorts and input slots
         exclude = set([e.slot_idx for e in self.input_exprs])
@@ -544,11 +545,17 @@ class ExprEvalNode(ExecNode):
                     arg_batches = [[] for _ in range(len(fn_call.args))]
                     assert len(cohort.nos_param_names) == len(arg_batches)
 
+                    valid_batch_idxs: List[int] = []  # rows with exceptions are not valid
                     for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
                         row = rows[row_idx]
+                        if row.has_exc(fn_call.slot_idx):
+                            # one of our inputs had an exception, skip this row
+                            continue
+                        valid_batch_idxs.append(row_idx)
                         args = fn_call._make_args(row)
                         for i in range(len(args)):
                             arg_batches[i].append(args[i])
+                    num_valid_batch_rows = len(valid_batch_idxs)
 
                     if verify_nos_batch_size:
                         # we need to choose a batch size based on the image size
@@ -560,7 +567,7 @@ class ExprEvalNode(ExecNode):
 
                     # if we need to rescale image args, and we're doing object detection, we need to rescale the
                     # bounding boxes as well
-                    scale_factors = np.ndarray((num_batch_rows, 2), dtype=np.float32)
+                    scale_factors = np.ndarray((num_valid_batch_rows, 2), dtype=np.float32)
                     if cohort.img_param_pos is not None:
                         # for now, NOS will only receive RGB images
                         arg_batches[cohort.img_param_pos] = \
@@ -578,12 +585,11 @@ class ExprEvalNode(ExecNode):
                                 for img in arg_batches[cohort.img_param_pos]
                             ]
 
-                    num_remaining_batch_rows = num_batch_rows
+                    num_remaining_batch_rows = num_valid_batch_rows
                     while num_remaining_batch_rows > 0:
-                        # we make NOS calls in batches of size nos_batch_size
-                        nos_batch_start_idx = batch_start_idx + num_batch_rows - num_remaining_batch_rows
+                        # we make NOS calls in batches of nos_batch_size
                         num_nos_batch_rows = min(nos_batch_size, num_remaining_batch_rows)
-                        nos_batch_offset = nos_batch_start_idx - batch_start_idx  # offset within sub-batch
+                        nos_batch_offset = num_valid_batch_rows - num_remaining_batch_rows  # offset into args, not rows
                         kwargs = {
                             param_name: args[nos_batch_offset:nos_batch_offset + num_nos_batch_rows]
                             for param_name, args in zip(cohort.nos_param_names, arg_batches)
@@ -621,7 +627,8 @@ class ExprEvalNode(ExecNode):
 
                         # move the result into the row batch
                         for result_idx in range(len(row_results)):
-                            row = rows[nos_batch_start_idx + result_idx]
+                            row_idx = valid_batch_idxs[nos_batch_offset + result_idx]
+                            row = rows[row_idx]
                             row[fn_call.slot_idx] = row_results[result_idx]
 
                         num_remaining_batch_rows -= num_nos_batch_rows

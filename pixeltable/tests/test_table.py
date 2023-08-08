@@ -178,38 +178,43 @@ class TestTable:
         tbl.drop()
         assert ImageStore.count(tbl.id) == 0
 
+        # missing parameters
         with pytest.raises(exc.Error):
-            # missing parameters
             _ = cl.create_table(
                 'exc', cols, extract_frames_from='video',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        # invalid fps
         with pytest.raises(exc.Error):
-            # wrong column type
+            _ = cl.create_table(
+                'test', cols, extract_frames_from='video', extracted_frame_col='frame',
+                extracted_frame_idx_col='frame_idx', extracted_fps=-1)
+        # wrong column type
+        with pytest.raises(exc.Error):
             _ = cl.create_table(
                 'exc', cols, extract_frames_from='frame', extracted_frame_col='frame',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        # wrong column type
         with pytest.raises(exc.Error):
-            # wrong column type
             _ = cl.create_table(
                 'exc', cols, extract_frames_from='video', extracted_frame_col='frame_idx',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        # wrong column type
         with pytest.raises(exc.Error):
-            # wrong column type
             _ = cl.create_table(
                 'exc', cols, extract_frames_from='video', extracted_frame_col='frame',
                 extracted_frame_idx_col='frame', extracted_fps=0)
+        # unknown column
         with pytest.raises(exc.Error):
-            # unknown column
             _ = cl.create_table(
                 'exc', cols, extract_frames_from='breaks', extracted_frame_col='frame',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        # unknown column
         with pytest.raises(exc.Error):
-            # unknown column
             _ = cl.create_table(
                 'exc', cols, extract_frames_from='video', extracted_frame_col='breaks',
                 extracted_frame_idx_col='frame_idx', extracted_fps=0)
+        # unknown column
         with pytest.raises(exc.Error):
-            # unknown column
             _ = cl.create_table(
                 'exc', cols, extract_frames_from='video', extracted_frame_col='frame',
                 extracted_frame_idx_col='breaks', extracted_fps=0)
@@ -427,19 +432,27 @@ class TestTable:
 
     def test_computed_col_exceptions(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client
+
+        # exception during insert_rows()
         c2 = catalog.Column('c2', IntType(nullable=False))
         schema = [c2]
-        t = cl.create_table('test', schema)
-
-        status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
-
         data_df = test_tbl[test_tbl.c2].show(0).to_pandas()
+        t = cl.create_table('test_insert', schema)
+        _ = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
         status = t.insert_pandas(data_df)
-        _ = str(status)
         assert status.num_excs == 10
         assert 'add1' in status.cols_with_excs
-        result_set = t[t.add1.errortype != None][t.add1.errortype, t.add1.errormsg].show(0)
-        assert len(result_set) == 10
+        assert t[t.add1.errortype != None].count() == 10
+
+        # exception during add_column()
+        t = cl.create_table('test_add_column', schema)
+        status = t.insert_pandas(data_df)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
+        assert status.num_excs == 10
+        assert 'add1' in status.cols_with_excs
+        assert t[t.add1.errortype != None].count() == 10
 
     def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
         data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
@@ -536,6 +549,12 @@ class TestTable:
         cl.create_dir('snap')
         cl.create_snapshot('snap.test1', 'main.test1')
         snap = cl.get_table('snap.test1')
+        assert cl.get_path(snap) == 'snap.test1'
+        assert snap.count() == len(data1)
+
+        # reload md
+        cl = pt.Client()
+        snap = cl.get_table('snap.test1')
         assert snap.count() == len(data1)
 
         # adding data to a base table doesn't change the snapshot
@@ -554,6 +573,13 @@ class TestTable:
         num_orig_cols = len(t.columns)
         t.add_column(catalog.Column('add1', pt.IntType(nullable=False)))
         assert len(t.columns) == num_orig_cols + 1
+
+        # duplicate name
+        with pytest.raises(exc.Error):
+            t.add_column(catalog.Column('c1', pt.IntType()))
+        # bad name
+        with pytest.raises(exc.Error):
+            t.add_column(catalog.Column('bad name', pt.IntType()))
 
         # make sure this is still true after reloading the metadata
         cl = pt.Client()
@@ -575,6 +601,9 @@ class TestTable:
         t.drop_column('c1')
         assert len(t.columns) == num_orig_cols - 1
 
+        with pytest.raises(exc.Error):
+            t.drop_column('unknown')
+
         # make sure this is still true after reloading the metadata
         cl = pt.Client()
         t = cl.get_table(t.name)
@@ -588,6 +617,39 @@ class TestTable:
         cl = pt.Client()
         t = cl.get_table(t.name)
         assert len(t.columns) == num_orig_cols
+
+    def test_rename_column(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        num_orig_cols = len(t.columns)
+        t.rename_column('c1', 'c1_renamed')
+        assert len(t.columns) == num_orig_cols
+
+        # unknown column
+        with pytest.raises(exc.Error):
+            t.rename_column('unknown', 'unknown_renamed')
+        # bad name
+        with pytest.raises(exc.Error):
+            t.rename_column('c2', 'bad name')
+        # existing name
+        with pytest.raises(exc.Error):
+            t.rename_column('c2', 'c3')
+
+        # make sure this is still true after reloading the metadata
+        cl = pt.Client()
+        t = cl.get_table(t.name)
+        assert 'c1' not in t.cols_by_name
+        assert 'c1_renamed' in t.cols_by_name
+
+        # revert() works
+        t.revert()
+        assert 'c1' in t.cols_by_name
+        assert 'c1_renamed' not in t.cols_by_name
+
+        # make sure this is still true after reloading the metadata once more
+        cl = pt.Client()
+        t = cl.get_table(t.name)
+        assert 'c1' in t.cols_by_name
+        assert 'c1_renamed' not in t.cols_by_name
 
     def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

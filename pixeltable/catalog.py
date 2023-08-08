@@ -9,6 +9,7 @@ import pathlib
 import re
 from typing import Optional, List, Set, Dict, Any, Type, Union, Callable, Tuple
 from uuid import UUID
+from abc import abstractmethod
 
 import PIL
 import cv2
@@ -220,12 +221,16 @@ class SchemaObject:
         self.dir_id = dir_id
 
     @classmethod
+    @abstractmethod
     def display_name(cls) -> str:
         """
         Return name displayed in error messages.
         """
-        assert False
-        return ''
+        pass
+
+    @property
+    def fqn(self) -> str:
+        return f'{self.parent_dir().fqn}.{self.name}'
 
     def move(self, new_name: str, new_dir_id: UUID) -> None:
         """Subclasses need to override this to make the change persistent"""
@@ -664,10 +669,9 @@ class MutableTable(Table):
                     num_rows += len(row_batch)
                     for result_row in row_batch:
                         if col.is_computed:
-                            val = result_row.get_stored_val(value_expr_slot_idx)
-                            if isinstance(val, Exception):
+                            if result_row.has_exc(value_expr_slot_idx):
                                 num_excs += 1
-                                value_exc = val
+                                value_exc = result_row.get_exc(value_expr_slot_idx)
                                 # we store a NULL value and record the exception/exc type
                                 error_type = type(value_exc).__name__
                                 error_msg = str(value_exc)
@@ -681,6 +685,7 @@ class MutableTable(Table):
                                         .where(self.rowid_col == result_row.row_id)
                                         .where(self.v_min_col == result_row.v_min))
                             else:
+                                val = result_row.get_stored_val(value_expr_slot_idx)
                                 conn.execute(
                                     sql.update(self.sa_tbl)
                                         .values({col.sa_col: val})
@@ -979,16 +984,16 @@ class MutableTable(Table):
             num_excs = 0
             table_row: Dict[str, Any] = {}
             for info in self.output_spec:
-                val = input_row.get_stored_val(info.slot_idx)
-                # check for exceptions
-                if isinstance(val, Exception):
+                if input_row.has_exc(info.slot_idx):
                     # exceptions get stored in the errortype/-msg columns
+                    exc = input_row.get_exc(info.slot_idx)
                     num_excs += 1
                     exc_col_ids.add(info.col.id)
                     table_row[info.col.storage_name()] = None
-                    table_row[info.col.errortype_storage_name()] = type(val).__name__
-                    table_row[info.col.errormsg_storage_name()] = str(val)
+                    table_row[info.col.errortype_storage_name()] = type(exc).__name__
+                    table_row[info.col.errormsg_storage_name()] = str(exc)
                 else:
+                    val = input_row.get_stored_val(info.slot_idx)
                     table_row[info.col.storage_name()] = val
                     # we unfortunately need to set these, even if there are no errors
                     table_row[info.col.errortype_storage_name()] = None
@@ -1542,11 +1547,14 @@ class PathDict:
 
         # build dir_contents
         def record_dir(dir: Dir) -> None:
-            self.dir_contents[dir.id] = {}
+            if dir.id in self.dir_contents:
+                return
+            else:
+                self.dir_contents[dir.id] = {}
             if dir.dir_id is not None:
-                if dir.dir_id not in self.dir_contents:
-                    record_dir(self.schema_objs[dir.dir_id])
+                record_dir(self.schema_objs[dir.dir_id])
                 self.dir_contents[dir.dir_id][dir.name] = dir
+
         for dir in self.schema_objs.values():
             record_dir(dir)
 
@@ -1569,19 +1577,18 @@ class PathDict:
 
         # load table snapshots
         with orm.Session(Env.get().engine, future=True) as session:
-            q = session.query(schema.TableSnapshot, schema.Table, schema.TableSchemaVersion) \
+            q = session.query(schema.TableSnapshot, schema.TableSchemaVersion) \
                 .select_from(schema.TableSnapshot) \
-                .join(schema.Table) \
-                .join(schema.TableSchemaVersion) \
+                .join(schema.TableSchemaVersion, schema.TableSnapshot.tbl_id == schema.TableSchemaVersion.tbl_id) \
                 .where(sql.text((
                     f"({schema.TableSnapshot.__table__}.md->>'current_schema_version')::int = "
                     f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}")))
-            for snapshot_record, tbl_record, schema_version_record in q.all():
-                snapshot = TableSnapshot(snapshot_record, tbl_record, schema_version_record)
+            for snapshot_record, schema_version_record in q.all():
+                snapshot = TableSnapshot(snapshot_record, schema_version_record)
                 self.schema_objs[snapshot.id] = snapshot
                 assert snapshot_record.dir_id is not None
                 dir = self.schema_objs[snapshot_record.dir_id]
-                self.dir_contents[dir.id][snapshot.md.name] = snapshot
+                self.dir_contents[dir.id][snapshot.name] = snapshot
 
         # load Function metadata; doesn't load the actual callable, which can be large and is only done on-demand by the
         # FunctionRegistry
@@ -1614,6 +1621,9 @@ class PathDict:
 
     def __getitem__(self, path: Path) -> SchemaObject:
         return self._resolve_path(path)
+
+    def get_schema_obj(self, id: UUID) -> Optional[SchemaObject]:
+        return self.schema_objs.get(id)
 
     def __setitem__(self, path: Path, val: SchemaObject) -> None:
         parent_dir = self._resolve_path(path.parent)

@@ -233,9 +233,6 @@ class Env:
         else:
             return 'postgres:15-alpine'
 
-    def _has_gpu(self) -> bool:
-        return shutil.which('nvidia-smi') is not None
-
     def ffmpeg_image(self) -> str:
        if self._is_apple_cpu():
            return 'linuxserver/ffmpeg:arm64v8-latest'

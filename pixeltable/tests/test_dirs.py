@@ -71,29 +71,38 @@ class TestDirs:
         make_tbl(cl, 't1')
         make_tbl(cl, 'dir1.t1')
 
+        # bad name
         with pytest.raises(exc.Error):
             cl.rm_dir('1dir')
+        # bad path
         with pytest.raises(exc.Error):
             cl.rm_dir('dir1..sub1')
+        # doesn't exist
         with pytest.raises(exc.Error):
             cl.rm_dir('dir2')
-        with pytest.raises(exc.Error):
-            cl.rm_dir('t1')
-
+        # not empty
         with pytest.raises(exc.Error):
             cl.rm_dir('dir1')
+
+        cl.rm_dir('dir1.sub1.subsub1')
+        assert cl.list_dirs('dir1.sub1') == []
+
+        # check after reloading
+        cl = pt.Client()
+        assert cl.list_dirs('dir1.sub1') == []
 
     def test_move(self, test_client: pt.Client) -> None:
         cl = test_client
         cl.create_dir('dir1')
-        make_tbl(cl, 'dir1.t1')
-        assert cl.list_tables('dir1') == ['dir1.t1']
-        cl.move('dir1.t1', 'dir1.t2')
-        assert cl.list_tables('dir1') == ['dir1.t2']
+        cl.create_dir('dir1.sub1')
+        make_tbl(cl, 'dir1.sub1.t1')
+        assert cl.list_tables('dir1') == ['dir1.sub1.t1']
+        cl.move('dir1.sub1.t1', 'dir1.sub1.t2')
+        assert cl.list_tables('dir1') == ['dir1.sub1.t2']
         cl.create_dir('dir2')
         cl.move('dir1', 'dir2.dir1')
-        assert cl.list_tables('dir2') == ['dir2.dir1.t2']
+        assert cl.list_tables('dir2') == ['dir2.dir1.sub1.t2']
 
         # new client: force loading from store
         cl2 = pt.Client()
-        assert cl2.list_tables('dir2') == ['dir2.dir1.t2']
+        assert cl2.list_tables('dir2') == ['dir2.dir1.sub1.t2']

@@ -1858,6 +1858,7 @@ class DataRow:
     def __init__(self, size: int):
         self.vals: List[Any] = [None] * size  # either cell values or exceptions
         self.has_val = [False] * size
+        self.excs: List[Optional[Exception]] = [None] * size
         self.row_id: Optional[int] = None
         self.v_min: Optional[int] = None
 
@@ -1870,6 +1871,7 @@ class DataRow:
         size = len(self.vals)
         self.vals = [None] * size
         self.has_val = [False] * size
+        self.excs = [None] * size
         self.row_id = None
         self.v_min = None
         self.img_files = [None] * size
@@ -1877,6 +1879,19 @@ class DataRow:
     def set_pk(self, row_id: int, v_min: int) -> None:
         self.row_id = row_id
         self.v_min = v_min
+
+    def has_exc(self, slot_idx: int) -> bool:
+        return self.excs[slot_idx] is not None
+
+    def get_exc(self, slot_idx: int) -> Exception:
+        assert self.has_val[slot_idx] is False
+        assert self.excs[slot_idx] is not None
+        return self.excs[slot_idx]
+
+    def set_exc(self, slot_idx: int, exc: Exception) -> None:
+        assert self.has_val[slot_idx] is False
+        assert self.excs[slot_idx] is None
+        self.excs[slot_idx] = exc
 
     def __getitem__(self, index: object) -> Any:
         if not self.has_val[index]:
@@ -1887,7 +1902,10 @@ class DataRow:
         return self.vals[index]
 
     def get_stored_val(self, index: object) -> Any:
-        """Return the value that is stored in the db"""
+        """Return the value that gets stored in the db"""
+        assert self.excs[index] is None
+        if not self.has_val[index]:
+            a = 10
         assert self.has_val[index]
         if self.img_files[index] is not None:
             return str(self.img_files[index])
@@ -1899,16 +1917,15 @@ class DataRow:
         return self.vals[index]
 
     def __setitem__(self, index: object, val: Any) -> None:
+        assert self.excs[index] is None
         # we allow overwriting
         self.vals[index] = val
         self.has_val[index] = True
 
     def flush_img(self, index: object, filepath: Optional[str] = None) -> None:
-        if not self.has_val[index]:
-            return
-        if self.vals[index] is None or isinstance(self.vals[index], Exception):
-            # nothing to do
-            return
+        if self.vals[index] is None:
+                return
+        assert self.excs[index] is None
         if self.img_files[index] is None:
             if filepath is not None:
                 # we want to save this to a file
@@ -1978,7 +1995,7 @@ class Evaluator:
             assert self.unique_exprs[i].slot_idx == i
 
         # record transitive dependencies
-        self.dependencies = [set() for _ in range(self.num_materialized)]
+        self.dependencies: Set[int] = [set() for _ in range(self.num_materialized)]
         for i in range(self.num_materialized):
             expr = self.unique_exprs[i]
             if expr.slot_idx in self.input_expr_slot_idxs:
@@ -1989,7 +2006,7 @@ class Evaluator:
                 self.dependencies[i].update(self.dependencies[d.slot_idx])
 
         # derive transitive dependents
-        self.dependents = [set() for _ in range(self.num_materialized)]
+        self.dependents: Set[int] = [set() for _ in range(self.num_materialized)]
         for i in range(self.num_materialized):
             for j in self.dependencies[i]:
                 self.dependents[j].add(i)
@@ -2071,6 +2088,13 @@ class Evaluator:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
+    def get_dependency_exc(self, data_row: DataRow, e: Expr) -> Optional[Exception]:
+        """Return the first exception in our immediate dependencies, or None if our dependencies don't have any"""
+        for d in e.dependencies():
+            if data_row.has_exc(d.slot_idx):
+                return data_row.get_exc(d.slot_idx)
+        return None
+
     def eval(
             self, data_row: DataRow, ctx: List[Expr], profile: Optional[ExecProfile] = None, ignore_errors: bool = False
     ) -> None:
@@ -2081,12 +2105,9 @@ class Evaluator:
         profile: if present, populated with execution time of each expr.eval() call; indexed by expr.slot_idx
         ignore_errors: if False, raises ExprEvalError if any expr.eval() raises an exception
         """
-        had_exc = False
-        skip_exprs: Set[int] = set()  # skip dependents of exprs that had exception
         for expr in ctx:
-            if expr.slot_idx in skip_exprs or data_row.has_val[expr.slot_idx]:
+            if data_row.has_val[expr.slot_idx] or data_row.has_exc(expr.slot_idx):
                 continue
-
             try:
                 start_time = time.perf_counter()
                 expr.eval(data_row, self)
@@ -2095,55 +2116,14 @@ class Evaluator:
                     profile.eval_count[expr.slot_idx] += 1
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
-                data_row[expr.slot_idx] = exc
-                skip_exprs.update(self.dependents[expr.slot_idx])
-                if ignore_errors:
-                    had_exc = True
-                else:
+                # propagate exception to dependents
+                data_row.set_exc(expr.slot_idx, exc)
+                for slot_idx in self.dependents[expr.slot_idx]:
+                    data_row.set_exc(slot_idx, exc)
+                if not ignore_errors:
                     input_vals = [data_row[d.slot_idx] for d in expr.dependencies()]
                     raise ExprEvalError(
-                        expr, f'expression {expr}', data_row[expr.slot_idx], exc_tb, input_vals, 0)
-
-        if had_exc:
-            # propagate exceptions in data_row to their respective output_expr slots
-            for i, exc_val in [(i, val) for i, val in enumerate(data_row.vals) if isinstance(val, Exception)]:
-                for j in self.output_expr_ids[i]:
-                    data_row[j] = exc_val
-
-
-class ExprDict:
-    """
-    Implements semantics of dict from Expr.slot_idx (= id) to unique exprs. Exprs that test True for Expr.equals()
-    are updated to share the same slot_idx.
-    """
-    def __init__(self):
-        self.unique_exprs: List[Expr] = []
-        self.expr_dict: Dict[int, Expr] = {}
-
-    def add(self, expr: Expr) -> bool:
-        """
-        If expr is not unique, sets expr.slot_idx to that of the already-recorded duplicate and returns
-        False, otherwise returns True.
-        """
-        try:
-            existing = next(e for e in self.unique_exprs if e.equals(expr))
-            expr.slot_idx = existing.slot_idx
-            return False
-        except StopIteration:
-            self.unique_exprs.append(expr)
-            return True
-
-    def get(self, id: int) -> Expr:
-        """
-        Return expr with given id (= slot_idx)
-        """
-        if len(self.expr_dict) == 0:
-            self.expr_dict = {e.slot_idx: e for e in self.unique_exprs}
-            assert -1 not in self.expr_dict
-        return self.expr_dict[id]
-
-    def __iter__(self) -> Iterator[Expr]:
-        return iter(self.unique_exprs)
+                        expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0)
 
 
 class UniqueExprList:
