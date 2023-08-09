@@ -186,7 +186,7 @@ class TestExprs:
 
         # data that tests all combinations of nulls
         data = [(1, 1), (1, None), (None, 1), (None, None)]
-        t.insert_rows(data)
+        t.insert(data)
         result = t[t.c3, t.c4].show(0)
         assert result[0, 0] == 2
         assert result[0, 1] == 2
@@ -468,8 +468,8 @@ class TestExprs:
         new_t = cl.create_table('insert_test', [c2, c3, c4])
         new_t.add_column(catalog.Column(
             'c2_sum', computed_with=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3)))
-        data_df = t[t.c2, t.c4, t.c3].show(0).to_pandas()
-        new_t.insert_pandas(data_df)
+        rows = t[t.c2, t.c4, t.c3].show(0).rows
+        new_t.insert(rows, columns=['c2', 'c4', 'c3'])
         _ = new_t.show(0)
         print(_)
 

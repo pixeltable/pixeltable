@@ -1,6 +1,5 @@
-from typing import Tuple, Optional, List, Set
+from typing import Tuple, Optional, List, Set, Any
 
-import pandas
 import sqlalchemy as sql
 
 from pixeltable import catalog
@@ -13,7 +12,7 @@ class Planner:
 
     @classmethod
     def create_insert_plan(
-            cls, tbl: catalog.MutableTable, data: pandas.DataFrame
+            cls, tbl: catalog.MutableTable, rows: List[List[Any]], column_names: List[str]
     ) -> Tuple[ExecNode, List[ColumnInfo], List[ColumnInfo], int]:
         """Creates a plan for Table.insert()
 
@@ -24,7 +23,7 @@ class Planner:
             - number of materialized values per row
         """
         # stored_cols: all cols we need to store, incl computed cols (and indices)
-        stored_cols = [c for c in tbl.cols if c.is_stored and (c.name in data.columns or c.is_computed)]
+        stored_cols = [c for c in tbl.cols if c.is_stored and (c.name in column_names or c.is_computed)]
         if tbl.extracts_frames():
             stored_cols.append(tbl.frame_idx_col())
 
@@ -47,13 +46,12 @@ class Planner:
         ]
         evaluator = exprs.Evaluator(stored_exprs)
         num_db_cols = len(stored_cols) - len(index_cols)
-        db_col_range = range(num_db_cols)
-        db_col_info = [ColumnInfo(stored_cols[i], stored_exprs[i].slot_idx) for i in db_col_range]
+        db_col_info = [ColumnInfo(stored_cols[i], stored_exprs[i].slot_idx) for i in range(num_db_cols)]
         idx_col_range = range(len(stored_cols) - len(index_cols), len(stored_cols))
         idx_col_info = \
             [ColumnInfo(indexed_cols[i - num_db_cols], stored_exprs[i].slot_idx) for i in idx_col_range]
 
-        # create InsertDataNode that captures 'data'
+        # create InsertDataNode for 'rows'
         stored_col_info = [ColumnInfo(c, e.slot_idx) for c, e in zip(stored_cols, stored_exprs)]
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         frame_idx_col, frame_idx_slot_idx = tbl.frame_idx_col(), None
@@ -61,7 +59,8 @@ class Planner:
             frame_idx_slot_idx = stored_col_info[stored_cols.index(frame_idx_col)].slot_idx
         input_col_info = \
             [info for info in stored_col_info if not info.col.is_computed and not info.col == frame_idx_col]
-        plan = InsertDataNode(tbl, data, evaluator, input_col_info, frame_idx_slot_idx, tbl.next_row_id)
+        row_column_pos = {name: i for i, name in enumerate(column_names)}
+        plan = InsertDataNode(tbl, rows, row_column_pos, evaluator, input_col_info, frame_idx_slot_idx, tbl.next_row_id)
 
         # add an ExprEvalNode if there are columns to compute
         computed_col_info = [c for c in stored_col_info if c.col.is_computed]

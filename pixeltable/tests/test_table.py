@@ -95,9 +95,9 @@ class TestTable:
             catalog.Column('split', StringType(nullable=False)),
         ]
         tbl = cl.create_table('test', cols)
-        df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         # TODO: insert a random subset
-        tbl.insert_pandas(df[:20])
+        tbl.insert(rows[:20], columns=col_names)
         html_str = tbl.show(n=100)._repr_html_()
         print(html_str)
         # TODO: check html_str
@@ -156,7 +156,7 @@ class TestTable:
         cl = pt.Client()
         tbl = cl.get_table('test')
         assert tbl.parameters == params
-        tbl.insert_rows([[get_video_files()[0]]], ['video'])
+        tbl.insert([[get_video_files()[0]]], ['video'])
         # * 2: we have four stored img cols
         assert ImageStore.count(tbl.id) == tbl.count() * 2
         html_str = tbl.show(n=100)._repr_html_()
@@ -173,7 +173,7 @@ class TestTable:
             tbl.drop_column('frame_idx')
 
         # drop() clears stored images and the cache
-        tbl.insert_rows([[get_video_files()[0]]], ['video'])
+        tbl.insert([[get_video_files()[0]]], ['video'])
         _ = tbl.show()
         tbl.drop()
         assert ImageStore.count(tbl.id) == 0
@@ -221,24 +221,23 @@ class TestTable:
 
     def test_insert(self, test_client: pt.Client) -> None:
         cl = test_client
-        t1 = make_tbl(cl, 'test1', ['c1', 'c2'])
-        data1 = create_table_data(t1)
-        t1.insert_pandas(data1)
-        assert t1.count() == len(data1)
+        t = make_tbl(cl, 'test1', ['c1', 'c2'])
+        rows = create_table_data(t)
+        t.insert(rows, columns=['c1', 'c2'])
+        assert t.count() == len(rows)
 
         # incompatible schema
-        t2 = make_tbl(cl, 'test2', ['c2', 'c1'])
-        t2_data = create_table_data(t2)
         with pytest.raises(exc.Error):
-            t1.insert_pandas(t2_data)
+            t.insert(rows, columns=['c2', 'c1'])
 
         # TODO: test data checks
 
     def test_query(self, test_client: pt.Client) -> None:
         cl = test_client
-        t = make_tbl(cl, 'test', ['c1', 'c2', 'c3', 'c4', 'c5'])
-        t_data = create_table_data(t)
-        t.insert_pandas(t_data)
+        col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
+        t = make_tbl(cl, 'test', col_names)
+        rows = create_table_data(t)
+        t.insert(rows, columns=col_names)
         _ = t.show(n=0)
 
         # test querying existing table
@@ -394,14 +393,14 @@ class TestTable:
         assert len(t.c7.col.dependent_cols) == 0
         assert len(t.c8.col.dependent_cols) == 0
 
-        data_df = create_table_data(t, ['c1', 'c2', 'c3'], num_rows=10)
-        t.insert_pandas(data_df)
+        rows = create_table_data(t, ['c1', 'c2', 'c3'], num_rows=10)
+        t.insert(rows, columns=['c1', 'c2', 'c3'])
         _ = t.show()
 
         # not allowed to pass values for computed cols
         with pytest.raises(exc.Error):
-            data_df2 = create_table_data(t, ['c1', 'c2', 'c3', 'c4'], num_rows=10)
-            t.insert_pandas(data_df2)
+            rows2 = create_table_data(t, ['c1', 'c2', 'c3', 'c4'], num_rows=10)
+            t.insert(rows2, columns=['c1', 'c2', 'c3', 'c4'])
 
         # computed col references non-existent col
         with pytest.raises(exc.Error):
@@ -419,7 +418,7 @@ class TestTable:
                 assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
-        t2.insert_pandas(data_df)
+        t2.insert(rows, columns=['c1', 'c2', 'c3'])
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
 
@@ -433,20 +432,20 @@ class TestTable:
     def test_computed_col_exceptions(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client
 
-        # exception during insert_rows()
+        # exception during insert()
         c2 = catalog.Column('c2', IntType(nullable=False))
         schema = [c2]
-        data_df = test_tbl[test_tbl.c2].show(0).to_pandas()
+        rows = test_tbl[test_tbl.c2].show(0).rows
         t = cl.create_table('test_insert', schema)
         _ = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
-        status = t.insert_pandas(data_df)
+        status = t.insert(rows, columns=['c2'])
         assert status.num_excs == 10
         assert 'add1' in status.cols_with_excs
         assert t[t.add1.errortype != None].count() == 10
 
         # exception during add_column()
         t = cl.create_table('test_add_column', schema)
-        status = t.insert_pandas(data_df)
+        status = t.insert(rows, columns=['c2'])
         assert status.num_rows == 100
         assert status.num_excs == 0
         status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
@@ -455,8 +454,8 @@ class TestTable:
         assert t[t.add1.errortype != None].count() == 10
 
     def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
-        data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-        t.insert_pandas(data_df.loc[0:20, ['img']])
+        rows, _ = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        t.insert([[r[0]] for r in rows[:20]], columns=['img'])
         _ = t.count()
         _ = t.show()
         assert ImageStore.count(t.id) == t.count() * stores_img_col
@@ -470,7 +469,7 @@ class TestTable:
                 assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
-        t2.insert_pandas(data_df.loc[0:20, ['img']])
+        t2.insert([[r[0]] for r in rows[:20]], columns=['img'])
         assert ImageStore.count(t2.id) == t2.count() * stores_img_col
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
@@ -502,8 +501,8 @@ class TestTable:
         def f(img: PIL.Image.Image) -> PIL.Image.Image:
             raise RuntimeError
         t.add_column(catalog.Column('c3', computed_with=f(t.img), stored=True))
-        data_df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-        t.insert_pandas(data_df.loc[0:20, ['img']])
+        rows, _ = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        t.insert([[r[0]] for r in rows[:20]], columns=['img'])
         _ = t[t.c3.errortype].show(0)
 
     def test_computed_window_fn(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
@@ -519,49 +518,49 @@ class TestTable:
         new_t.add_column(catalog.Column('c5', IntType(), computed_with=lambda c2: c2 * c2))
         new_t.add_column(catalog.Column(
             'c6', computed_with=sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3)))
-        data_df = t[t.c2, t.c4, t.c3].show(0).to_pandas()
-        new_t.insert_pandas(data_df)
+        rows = t[t.c2, t.c4, t.c3].show(0).rows
+        new_t.insert(rows, columns=['c2', 'c4', 'c3'])
         _ = new_t.show(0)
         print(_)
 
     def test_revert(self, test_client: pt.Client) -> None:
         cl = test_client
         t1 = make_tbl(cl, 'test1', ['c1', 'c2'])
-        data1 = create_table_data(t1)
-        t1.insert_pandas(data1)
-        assert t1.count() == len(data1)
-        data2 = create_table_data(t1)
-        t1.insert_pandas(data2)
-        assert t1.count() == len(data1) + len(data2)
+        rows1 = create_table_data(t1)
+        t1.insert(rows1, columns=['c1', 'c2'])
+        assert t1.count() == len(rows1)
+        rows2 = create_table_data(t1)
+        t1.insert(rows2, columns=['c1', 'c2'])
+        assert t1.count() == len(rows1) + len(rows2)
         t1.revert()
-        assert t1.count() == len(data1)
-        t1.insert_pandas(data2)
-        assert t1.count() == len(data1) + len(data2)
+        assert t1.count() == len(rows1)
+        t1.insert(rows2, columns=['c1', 'c2'])
+        assert t1.count() == len(rows1) + len(rows2)
 
     def test_snapshot(self, test_client: pt.Client) -> None:
         cl = test_client
         cl.create_dir('main')
         tbl = make_tbl(cl, 'main.test1', ['c1', 'c2'])
-        data1 = create_table_data(tbl)
-        tbl.insert_pandas(data1)
-        assert tbl.count() == len(data1)
+        rows1 = create_table_data(tbl)
+        tbl.insert(rows1, columns=['c1', 'c2'])
+        assert tbl.count() == len(rows1)
 
         cl.create_dir('snap')
         cl.create_snapshot('snap.test1', 'main.test1')
         snap = cl.get_table('snap.test1')
         assert cl.get_path(snap) == 'snap.test1'
-        assert snap.count() == len(data1)
+        assert snap.count() == len(rows1)
 
         # reload md
         cl = pt.Client()
         snap = cl.get_table('snap.test1')
-        assert snap.count() == len(data1)
+        assert snap.count() == len(rows1)
 
         # adding data to a base table doesn't change the snapshot
-        data2 = create_table_data(tbl)
-        tbl.insert_pandas(data2)
-        assert tbl.count() == len(data1) + len(data2)
-        assert snap.count() == len(data1)
+        rows2 = create_table_data(tbl)
+        tbl.insert(rows2, columns=['c1', 'c2'])
+        assert tbl.count() == len(rows1) + len(rows2)
+        assert snap.count() == len(rows1)
 
         tbl.revert()
         # can't revert a version referenced by a snapshot

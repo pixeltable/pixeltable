@@ -2,7 +2,7 @@ import datetime
 import glob
 import os
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -31,7 +31,7 @@ def make_tbl(cl: pt.Client, name: str = 'test', col_names: List[str] = ['c1']) -
         schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type(i % 5))))
     return cl.create_table(name, schema)
 
-def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int = 10) -> pd.DataFrame:
+def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int = 10) -> List[List[Any]]:
     data: Dict[str, Any] = {}
     sample_dict = {
         'detections': [{
@@ -78,28 +78,30 @@ def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int
         if col.col_type.is_string_type():
             col_data = ['test string'] * num_rows
         if col.col_type.is_int_type():
-            col_data = np.random.randint(0, 100, size=num_rows)
+            col_data = np.random.randint(0, 100, size=num_rows).tolist()
         if col.col_type.is_float_type():
-            col_data = np.random.random(size=num_rows) * 100
+            col_data = (np.random.random(size=num_rows) * 100).tolist()
         if col.col_type.is_bool_type():
             col_data = np.random.randint(0, 2, size=num_rows)
             col_data = [False if i == 0 else True for i in col_data]
         if col.col_type.is_timestamp_type():
-            col_data = datetime.datetime.now()
+            col_data = [datetime.datetime.now()] * num_rows
         if col.col_type.is_json_type():
             col_data = [sample_dict] * num_rows
         # TODO: implement this
         assert not col.col_type.is_image_type()
         assert not col.col_type.is_array_type()
         data[col.name] = col_data
-    return pd.DataFrame(data=data)
+    rows = [[data[col_name][i] for col_name in col_names] for i in range(num_rows)]
+    return rows
 
-def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []) -> pd.DataFrame:
+def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []) -> Tuple[List[List[Any]], List[str]]:
     """
     Locate dir_name, create df out of file_name.
-    transform columns 'file_name' to column 'file_path' with absolute paths
     path_col_names: col names in csv file that contain file names; those will be converted to absolute paths
     by adding the path to 'file_name' as a prefix.
+    Returns:
+        tuple of (list of rows, list of column names)
     """
     glob_result = glob.glob(f'{os.getcwd()}/**/{dir_name}', recursive=True)
     assert len(glob_result) == 1, f'Could not find {dir_name}'
@@ -110,7 +112,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
     for col_name in path_col_names:
         assert col_name in df.columns
         df[col_name] = df.apply(lambda r: str(abs_path / r[col_name]), axis=1)
-        return df
+    return df.values.tolist(), df.columns.tolist()
 
 def get_video_files() -> List[str]:
     glob_result = glob.glob(f'{os.getcwd()}/**/videos/*', recursive=True)

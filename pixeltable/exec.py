@@ -4,12 +4,10 @@ from dataclasses import dataclass, field
 import logging
 import time
 import abc
-from collections import namedtuple
 import io
 import sys
 
 import numpy as np
-import pandas
 from tqdm.autonotebook import tqdm
 import nos
 import sqlalchemy as sql
@@ -648,63 +646,73 @@ class ExprEvalNode(ExecNode):
 class InsertDataNode(ExecNode):
     """Outputs in-memory data as a row batch of a particular table"""
     def __init__(
-            self, tbl: catalog.MutableTable, data: pandas.DataFrame, evaluator: exprs.Evaluator,
-            input_cols: List[ColumnInfo], frame_idx_slot_idx: int, start_row_id: int,
+            self, tbl: catalog.MutableTable, rows: List[List[Any]], row_column_pos: Dict[str, int],
+            evaluator: exprs.Evaluator, input_cols: List[ColumnInfo], frame_idx_slot_idx: int, start_row_id: int,
     ):
         super().__init__(evaluator, [], [], None)
         self.tbl = tbl
-        self.data = data
+        self.input_rows = rows
+        self.row_column_pos = row_column_pos  # col name -> idx of col in self.input_rows
         self.evaluator = evaluator
         self.input_cols = input_cols
         self.frame_idx_slot_idx = frame_idx_slot_idx
         self.start_row_id = start_row_id
         self.has_returned_data = False
-        self.rows: Optional[DataRowBatch] = None
+        self.output_rows: Optional[DataRowBatch] = None
 
     def _open(self) -> None:
         """Create row batch and populate with self.data"""
         if not self.tbl.extracts_frames():
-            self.rows = DataRowBatch(self.tbl, self.evaluator, len(self.data))
+            self.output_rows = DataRowBatch(self.tbl, self.evaluator, len(self.input_rows))
             for info in self.input_cols:
-                for idx, (_, val) in enumerate(self.data[info.col.name].items()):
-                    self.rows[idx, info.slot_idx] = val
+                assert info.col.name in self.row_column_pos
+                col_idx = self.row_column_pos[info.col.name]
+                for row_idx, input_row in enumerate(self.input_rows):
+                    self.output_rows[row_idx, info.slot_idx] = input_row[col_idx]
         else:
             # we're extracting frames: we replace each row with one row per frame, which has the frame_idx col set
             video_col = self.tbl.frame_src_col()
             assert video_col is not None and self.frame_idx_slot_idx is not None
-            video_paths = list(self.data[video_col.name])
-            video_path_isnull = list(self.data[video_col.name].isna())
-            # get the frame count per video
-            counts = [0] * len(self.data)
-            for i in range(len(self.data)):
-                if video_path_isnull[i]:
-                    counts[i] = 1
+            # get the output row count per video
+            counts = [0] * len(self.input_rows)
+            assert video_col.name in self.row_column_pos
+            video_col_idx = self.row_column_pos[video_col.name]
+            for row_idx, input_row in enumerate(self.input_rows):
+                video_path = input_row[video_col_idx]
+                if video_path is None:
+                    counts[row_idx] = 1  # this will occupy one row in output_rows
                     continue
-                with FrameIterator(video_paths[i], fps=self.tbl.parameters.extraction_fps) as frame_iter:
-                    counts[i] = len(frame_iter)
+                with FrameIterator(video_path, fps=self.tbl.parameters.extraction_fps) as frame_iter:
+                    counts[row_idx] = len(frame_iter)
 
-            self.rows = DataRowBatch(self.tbl, self.evaluator, sum(counts))
+            self.output_rows = DataRowBatch(self.tbl, self.evaluator, sum(counts))
             # populate frame_idx_col
             row_idx = 0
             for input_row_idx, count in enumerate(counts):
+                if self.input_rows[video_col_idx] is None:
+                    self.output_rows[row_idx, self.frame_idx_slot_idx] = None
+                    row_idx += 1
+                    continue
                 for i in range(count):
-                    self.rows[row_idx, self.frame_idx_slot_idx] = i
+                    self.output_rows[row_idx, self.frame_idx_slot_idx] = i
                     row_idx += 1
             # populate cols we get from the input df
             for info in self.input_cols:
                 row_idx = 0
-                for input_row_idx, (_, val) in enumerate(self.data[info.col.name].items()):
+                col_idx = self.row_column_pos[info.col.name]
+                for input_row_idx, input_row in enumerate(self.input_rows):
+                    val = input_row[col_idx]
                     for i in range(counts[input_row_idx]):
-                        self.rows[row_idx, info.slot_idx] = val
+                        self.output_rows[row_idx, info.slot_idx] = val
                         row_idx += 1
 
         # assign row ids
-        self.rows.set_row_ids([self.start_row_id + i for i in range(len(self.rows))])
-        self.ctx.num_rows = len(self.rows)
+        self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
+        self.ctx.num_rows = len(self.output_rows)
 
     def __next__(self) -> DataRowBatch:
         if self.has_returned_data:
             raise StopIteration
         self.has_returned_data = True
-        _logger.debug(f'InsertDataNode: created row batch with {len(self.rows)} rows')
-        return self.rows
+        _logger.debug(f'InsertDataNode: created row batch with {len(self.output_rows)} output_rows')
+        return self.output_rows

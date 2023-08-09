@@ -21,7 +21,7 @@ class TestFunctions:
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',
             extracted_frame_idx_col='frame_idx', extracted_fps=1)
         files = get_video_files()
-        tbl.insert_rows([[files[-1]]], ['video'])
+        tbl.insert([[files[-1]]], ['video'])
         tbl.add_column(catalog.Column('frame_s', computed_with=tbl.frame.resize((640, 480))))
         from pixeltable.functions.object_detection_2d import yolox_nano, yolox_large, yolox_xlarge
         tbl.add_column(catalog.Column('detections_n', computed_with=yolox_nano(tbl.frame_s)))

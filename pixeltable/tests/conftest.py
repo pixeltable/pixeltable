@@ -89,11 +89,15 @@ def test_tbl(test_client: pt.Client) -> catalog.Table:
         c6_data.append(d)
 
     c7_data = [d2] * num_rows
+    rows = [
+        [c1_data[i], c1_data[i] if i % 10 != 0 else None,
+         c2_data[i], c3_data[i], c4_data[i], c5_data[i], c6_data[i], c7_data[i]]
+        for i in range(num_rows)
+    ]
     data = {
         'c1': c1_data, 'c1n': [s if i % 10 != 0 else None for i, s in enumerate(c1_data)],
         'c2': c2_data, 'c3': c3_data, 'c4': c4_data, 'c5': c5_data, 'c6': c6_data, 'c7': c7_data}
-    pd_df = pd.DataFrame(data=data)
-    t.insert_pandas(pd_df)
+    t.insert(rows, columns=['c1', 'c1n', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'])
     return t
 
 @pytest.fixture(scope='function')
@@ -139,8 +143,8 @@ def img_tbl(test_client: pt.Client) -> catalog.Table:
     ]
     # this table is not indexed in order to avoid the cost of computing embeddings
     tbl = test_client.create_table('test_img_tbl', cols)
-    df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-    tbl.insert_pandas(df)
+    rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+    tbl.insert(rows, columns=col_names)
     return tbl
 
 @pytest.fixture(scope='function')
@@ -168,9 +172,10 @@ def indexed_img_tbl(test_client: pt.Client) -> catalog.Table:
         catalog.Column('split', StringType(nullable=False)),
     ]
     tbl = cl.create_table('test_indexed_img_tbl', cols)
-    df = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-    # select rows randomly in the hope of getting a good sample of the available categories
+    rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+    # select output_rows randomly in the hope of getting a good sample of the available categories
     rng = np.random.default_rng(17)
-    idxs = rng.choice(np.arange(len(df)), size=40, replace=False)
-    tbl.insert_pandas(df.iloc[idxs])
+    idxs = rng.choice(np.arange(len(rows)), size=40, replace=False)
+    rows = [rows[i] for i in idxs]
+    tbl.insert(rows, columns=col_names)
     return tbl

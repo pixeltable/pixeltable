@@ -44,7 +44,7 @@ def _format_video(video_file_path: str) -> str:
         return video_file_path
 
 class DataFrameResultSet:
-    def __init__(self, rows: List[List], col_names: List[str], col_types: List[ColumnType]):
+    def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
         self.rows = rows
         self.col_names = col_names
         self.col_types = col_types

@@ -28,7 +28,7 @@ class TestNOS:
         # add a stored column that isn't referenced in nos calls
         tbl.add_column(catalog.Column('transform2', computed_with=tbl.frame.rotate(60), stored=True))
 
-        tbl.insert_rows([[get_video_files()[0]]], ['video'])
+        tbl.insert([[get_video_files()[0]]], ['video'])
 
     def test_exceptions(self, test_client: pt.Client) -> None:
         cl = test_client
@@ -40,7 +40,7 @@ class TestNOS:
         tbl = cl.create_table(
             'test', cols, extract_frames_from='video', extracted_frame_col='frame',
             extracted_frame_idx_col='frame_idx', extracted_fps=1)
-        tbl.insert_rows([[get_video_files()[0]]], ['video'])
+        tbl.insert([[get_video_files()[0]]], ['video'])
         tbl.add_column(catalog.Column('frame_s', computed_with=tbl.frame.resize((640, 480))))
         # 'rotated' has exceptions
         tbl.add_column(catalog.Column(

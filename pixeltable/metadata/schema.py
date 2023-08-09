@@ -29,7 +29,7 @@ def md_from_dict(data_class_type: Type[T], data: Any) -> T:
 
 
 # structure of the stored metadata:
-# - each schema entity that grows somehow proportionally to the data (# of rows, total insert operations,
+# - each schema entity that grows somehow proportionally to the data (# of output_rows, total insert operations,
 #   number of schema changes) gets its own table
 # - each table has an 'md' column that basically contains the payload
 # - exceptions to that are foreign keys without which lookups would be too slow (ex.: TableSchemaVersions.tbl_id)

@@ -1,9 +1,6 @@
 import sqlalchemy as sql
-import pytest
 
 from pixeltable import catalog
-from pixeltable.type_system import IntType, JsonType
-from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file
 
 from pixeltable.env import Env
 

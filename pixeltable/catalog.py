@@ -10,6 +10,7 @@ import re
 from typing import Optional, List, Set, Dict, Any, Type, Union, Callable, Tuple
 from uuid import UUID
 from abc import abstractmethod
+import datetime
 
 import PIL
 import cv2
@@ -815,7 +816,7 @@ class MutableTable(Table):
                 tbl_id=self.id, schema_version=self.tbl_md.current_schema_version,
                 md=dataclasses.asdict(schema_version_md)))
 
-    def insert_rows(self, rows: List[List[Any]], columns: List[str] = [], print_stats: bool = False) -> UpdateStatus:
+    def insert(self, rows: List[List[Any]], columns: List[str] = [], print_stats: bool = False) -> UpdateStatus:
         """Insert rows into table.
 
         Args:
@@ -835,14 +836,14 @@ class MutableTable(Table):
             Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Note that the ``columns``
             argument is required here because ``rows`` only contain two columns.
 
-            >>> tbl.insert_rows([[1, 1], [2, 2]], columns=['a', 'b'])
+            >>> tbl.insert([[1, 1], [2, 2]], columns=['a', 'b'])
 
             Assuming a table with columns ``video``, ``frame`` and ``frame_idx`` and set up for automatic frame extraction,
             insert a single row containing a video file path (the video contains 100 frames). The row will be expanded
             into 100 rows, one for each frame, and the ``frame`` and ``frame_idx`` columns will be populated accordingly.
             Note that the ``columns`` argument is unnecessary here because only the ``video`` column is required.
 
-            >>> tbl.insert_rows([['/path/to/video.mp4']])
+            >>> tbl.insert([['/path/to/video.mp4']])
 
         """
         assert len(rows) > 0
@@ -868,8 +869,8 @@ class MutableTable(Table):
                 f'The number of column values in rows ({len(rows[0])}) does not match the given number of column names '
                 f'({", ".join(columns)})')
 
-        pd_df = pd.DataFrame.from_records(rows, columns=columns)
-        return self.insert_pandas(pd_df, print_stats=print_stats)
+        self._check_input_rows(rows, columns)
+        return self._insert_rows(rows, columns, print_stats=print_stats)
 
     def _get_insertable_col_names(self, required_only: bool = False) -> List[str]:
         """Return the names of all columns for which values can be specified."""
@@ -879,14 +880,14 @@ class MutableTable(Table):
             names.remove(self.cols_by_id[self.tbl_md.parameters.frame_idx_col_id].name)
         return names
 
-    def _check_data(self, data: pd.DataFrame):
+    def _check_input_rows(self, rows: List[List[Any]], column_names: List[str]) -> None:
         """
-        Make sure 'data' conforms to schema.
+        Make sure 'rows' conform to schema.
         """
-        assert len(data) > 0
+        assert len(rows) > 0
         all_col_names = {col.name for col in self.cols}
         reqd_col_names = set(self._get_insertable_col_names(required_only=True))
-        given_col_names = set(data.columns)
+        given_col_names = set(column_names)
         if not(reqd_col_names <= given_col_names):
             raise exc.Error(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')
         if not(given_col_names <= all_col_names):
@@ -899,75 +900,71 @@ class MutableTable(Table):
             raise exc.Error(
                 f'Provided values for computed columns: {", ".join(computed_col_names & given_col_names)}')
 
-        # check types
-        provided_cols = [self.cols_by_name[name] for name in data.columns]
-        for col in provided_cols:
-            if col.col_type.is_string_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
-                raise exc.Error(f'Column {col.name} requires string data but contains {data.dtypes[col.name]}')
-            if col.col_type.is_int_type() and not pd.api.types.is_integer_dtype(data.dtypes[col.name]):
-                raise exc.Error(f'Column {col.name} requires integer data but contains {data.dtypes[col.name]}')
-            if col.col_type.is_float_type() and not pd.api.types.is_numeric_dtype(data.dtypes[col.name]):
-                raise exc.Error(f'Column {col.name} requires numerical data but contains {data.dtypes[col.name]}')
-            if col.col_type.is_bool_type() and not pd.api.types.is_bool_dtype(data.dtypes[col.name]):
-                raise exc.Error(f'Column {col.name} requires boolean data but contains {data.dtypes[col.name]}')
-            if col.col_type.is_timestamp_type() and not pd.api.types.is_datetime64_any_dtype(data.dtypes[col.name]):
-                raise exc.Error(f'Column {col.name} requires datetime data but contains {data.dtypes[col.name]}')
-            if col.col_type.is_json_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
-                raise exc.Error(
-                    f'Column {col.name} requires dictionary data but contains {data.dtypes[col.name]}')
-            if col.col_type.is_array_type() and not pd.api.types.is_object_dtype(data.dtypes[col.name]):
-                raise exc.Error(
-                    f'Column {col.name} requires array data but contains {data.dtypes[col.name]}')
-            if col.col_type.is_image_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
-                raise exc.Error(
-                    f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
-            if col.col_type.is_video_type() and not pd.api.types.is_string_dtype(data.dtypes[col.name]):
-                raise exc.Error(
-                    f'Column {col.name} requires local file paths but contains {data.dtypes[col.name]}')
-
         # check data
-        data_cols = [self.cols_by_name[name] for name in data.columns]
-        for col in data_cols:
-            if not col.col_type.nullable:
-                # check for nulls
-                nulls = data[col.name].isna()
-                max_val_idx = nulls.idxmax()
-                if nulls[max_val_idx]:
+        row_cols = [self.cols_by_name[name] for name in column_names]
+        for col_idx, col in enumerate(row_cols):
+            for row_idx, row in enumerate(rows):
+                if not col.col_type.nullable and row[col_idx] is None:
                     raise exc.Error(
-                        f'Column {col.name}: row {max_val_idx} contains None for a non-nullable column')
-                pass
+                        f'Column {col.name}: row {row_idx} contains None for a non-nullable column')
+                val = row[col_idx]
+                if val is None:
+                    continue
 
-            # image cols: make sure file path points to a valid image file
-            if col.col_type.is_image_type():
-                for _, path_str in data[col.name].items():
-                    if path_str is None:
-                        continue
+                if col.col_type.is_string_type():
+                    if not isinstance(val, str):
+                        raise exc.Error(f'Column {col.name}: requires string values, but row {row_idx} contains: {val}')
+                    continue
+                if col.col_type.is_int_type():
+                    if not isinstance(val, int):
+                        raise exc.Error(f'Column {col.name}: requires int values, but row {row_idx} contains: {val}')
+                    continue
+                if col.col_type.is_float_type():
+                    if not isinstance(val, float):
+                        raise exc.Error(f'Column {col.name}: requires float values, but row {row_idx} contains: {val}')
+                    continue
+                if col.col_type.is_bool_type():
+                    if not isinstance(val, bool):
+                        raise exc.Error(f'Column {col.name}: requires bool values, but row {row_idx} contains: {val}')
+                    continue
+                if col.col_type.is_timestamp_type():
+                    if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
+                        raise exc.Error((
+                            f'Column {col.name}: requires datetime.datetime or datetime.date values, but row {row_idx} '
+                            f'contains: {val}'))
+                    continue
+                if col.col_type.is_array_type():
+                    if not isinstance(val, np.ndarray):
+                        raise exc.Error(
+                            f'Column {col.name}: requires ndarray values, but row {row_idx} contains: {val}')
+                    continue
+                if col.col_type.is_json_type():
+                    if not isinstance(val, dict) and not isinstance(val, list):
+                        raise exc.Error(
+                            f'Column {col.name}: requires dict or list values, but row {row_idx} contains: {val}')
+                    continue
+
+                # image cols: make sure file path points to a valid image file
+                if col.col_type.is_image_type():
                     try:
-                        _ = Image.open(path_str)
+                        _ = Image.open(val)
                     except FileNotFoundError:
-                        raise exc.Error(f'Column {col.name}: file does not exist: {path_str}')
+                        raise exc.Error(f'Column {col.name}: file in row {row_idx} does not exist: {val}')
                     except PIL.UnidentifiedImageError:
-                        raise exc.Error(f'Column {col.name}: not a valid image file: {path_str}')
+                        raise exc.Error(f'Column {col.name}: file in row {row_idx} is not a valid image file: {val}')
+                    continue
 
-            # image cols: make sure file path points to a valid image file; build index if col is indexed
-            if col.col_type.is_video_type():
-                for _, path_str in data[col.name].items():
-                    if path_str is None:
-                        continue
-                    path = pathlib.Path(path_str)
+                # video cols: make sure file path points to a valid video file
+                if col.col_type.is_video_type():
+                    path = pathlib.Path(val)
                     if not path.is_file():
-                        raise exc.Error(f'Column {col.name}: file does not exist: {path_str}')
-                    cap = cv2.VideoCapture(path_str)
+                        raise exc.Error(f'Column {col.name}: file in row {row_idx} does not exist: {val}')
+                    cap = cv2.VideoCapture(val)
                     success = cap.isOpened()
                     cap.release()
                     if not success:
-                        raise exc.Error(f'Column {col.name}: could not open video file {path_str}')
-
-            if col.col_type.is_json_type():
-                for idx, d in data[col.name].items():
-                    if d is not None and not isinstance(d, dict) and not isinstance(d, list):
-                        raise exc.Error(
-                            f'Value for column {col.name} in row {idx} requires a dictionary or list: {d} ')
+                        raise exc.Error(f'Column {col.name}: could not open video file {val} in row {row_idx}')
+                    continue
 
     class TableRowBuilder:
         def __init__(self, output_spec: List[ColumnInfo]):
@@ -1001,8 +998,8 @@ class MutableTable(Table):
             table_row.update({'rowid': rowid, 'v_min': version})
             return table_row, num_excs
 
-    def insert_pandas(self, data: pd.DataFrame, print_stats: bool = False) -> UpdateStatus:
-        """Insert data from pandas DataFrame into this table.
+    def _insert_rows(self, rows: List[List[Any]], column_names: List[str], print_stats: bool = False) -> UpdateStatus:
+        """Insert rows into this table.
 
         If self.parameters.frame_src_col_id != None:
 
@@ -1011,12 +1008,11 @@ class MutableTable(Table):
         - parameters.frame_idx_col_id is the integer column that receives the frame index (starting at 0)
         """
         self._check_is_dropped()
-        self._check_data(data)
 
         # we're creating a new version
         self.tbl_md.current_version += 1
         from pixeltable.plan import Planner
-        plan, db_col_info, idx_col_info, num_values_per_row = Planner.create_insert_plan(self, data)
+        plan, db_col_info, idx_col_info, num_values_per_row = Planner.create_insert_plan(self, rows, column_names)
         plan.open()
         rows = next(plan)
         plan.close()
