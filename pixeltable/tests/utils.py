@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Tuple
 
 import numpy as np
 import pandas as pd
+import PIL
 
 import pixeltable as pt
 from pixeltable import catalog
@@ -88,9 +89,14 @@ def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int
             col_data = [datetime.datetime.now()] * num_rows
         if col.col_type.is_json_type():
             col_data = [sample_dict] * num_rows
-        # TODO: implement this
-        assert not col.col_type.is_image_type()
-        assert not col.col_type.is_array_type()
+        if col.col_type.is_array_type():
+            col_data = [np.ones(col.col_type.shape, dtype=col.col_type.numpy_dtype()) for i in range(num_rows)]
+        if col.col_type.is_image_type():
+            image_path = get_image_files()[0]
+            col_data = [image_path for i in range(num_rows)]
+        if col.col_type.is_video_type():
+            video_path = get_video_files()[0]
+            col_data = [video_path for i in range(num_rows)]
         data[col.name] = col_data
     rows = [[data[col_name][i] for col_name in col_names] for i in range(num_rows)]
     return rows
@@ -116,4 +122,8 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
 
 def get_video_files() -> List[str]:
     glob_result = glob.glob(f'{os.getcwd()}/**/videos/*', recursive=True)
+    return glob_result
+
+def get_image_files() -> List[str]:
+    glob_result = glob.glob(f'{os.getcwd()}/**/imagenette2-160/*', recursive=True)
     return glob_result

@@ -221,16 +221,32 @@ class TestTable:
 
     def test_insert(self, test_client: pt.Client) -> None:
         cl = test_client
-        t = make_tbl(cl, 'test1', ['c1', 'c2'])
+        c1 = catalog.Column('c1', StringType(nullable=False))
+        c2 = catalog.Column('c2', IntType(nullable=False))
+        c3 = catalog.Column('c3', FloatType(nullable=False))
+        c4 = catalog.Column('c4', BoolType(nullable=False))
+        c5 = catalog.Column('c5', ArrayType((2, 3), dtype=IntType(), nullable=False))
+        c6 = catalog.Column('c6', JsonType(nullable=False))
+        c7 = catalog.Column('c7', ImageType(nullable=False))
+        c8 = catalog.Column('c8', VideoType(nullable=False))
+        cols = [c1, c2, c3, c4, c5, c6, c7, c8]
+        t = cl.create_table('test1', cols)
         rows = create_table_data(t)
-        t.insert(rows, columns=['c1', 'c2'])
+        t.insert(rows)
         assert t.count() == len(rows)
 
-        # incompatible schema
-        with pytest.raises(exc.Error):
-            t.insert(rows, columns=['c2', 'c1'])
+        # missing column
+        with pytest.raises(exc.Error) as exc_info:
+            t.insert([r[:-1] for r in rows], columns=[c.name for c in cols[:-1]])
+        assert 'Missing' in str(exc_info.value)
 
-        # TODO: test data checks
+        # incompatible schema
+        for col, row_pos in zip(cols, [1, 2, 3, 4, 5, 6, 1, 1]):
+            with pytest.raises(exc.Error) as exc_info:
+                cl.drop_table('test1', ignore_errors=True)
+                t = cl.create_table('test1', [col])
+                t.insert([[r[row_pos]] for r in rows])
+            assert 'requires' in str(exc_info.value)
 
     def test_query(self, test_client: pt.Client) -> None:
         cl = test_client
@@ -257,11 +273,12 @@ class TestTable:
         computed3 = t.order_by(t.computed3).show(0).to_pandas()['computed3']
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
-        status = t.update({'c3': 10.0}, where=t.c3 < 10.0, cascade=False)
+        # update to a value that also satisfies the where clause
+        status = t.update({'c3': 0.0}, where=t.c3 < 10.0, cascade=False)
         assert status.num_rows == 10
         assert status.updated_cols == ['c3']
-        assert t.where(t.c3 < 10.0).count() == 0
-        assert t.where(t.c3 == 10.0).count() == 11
+        assert t.where(t.c3 < 10.0).count() == 10
+        assert t.where(t.c3 == 0.0).count() == 10
         assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'] == computed1)
         assert np.all(t.order_by(t.computed2).show(0).to_pandas()['computed2'] == computed2)
         assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'] == computed3)
@@ -274,16 +291,14 @@ class TestTable:
         assert t.where(t.c3 == 10.0).count() == 1
 
         # cascade=True
-        status = t.update({'c3': 10.0}, where=t.c3 < 10.0, cascade=True)
+        status = t.update({'c3': 0.0}, where=t.c3 < 10.0, cascade=True)
         assert status.num_rows == 10
         assert status.updated_cols == ['c3']
-        assert t.where(t.c3 < 10.0).count() == 0
-        assert t.where(t.c3 == 10.0).count() == 11
-        assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'][:10] == pd.Series([11.0] * 10))
-        assert np.all(t.order_by(t.computed2).show(0).to_pandas()['computed2'][:10] == pd.Series([12.0] * 10))
-        assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'][:10] == pd.Series([13.0] * 10))
-        assert t.where(t.c3 < 10.0).count() == 0
-        assert t.where(t.c3 == 10.0).count() == 11
+        assert t.where(t.c3 < 10.0).count() == 10
+        assert t.where(t.c3 == 0.0).count() == 10
+        assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'][:10] == pd.Series([1.0] * 10))
+        assert np.all(t.order_by(t.computed2).show(0).to_pandas()['computed2'][:10] == pd.Series([2.0] * 10))
+        assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'][:10] == pd.Series([3.0] * 10))
 
         # unknown column
         with pytest.raises(exc.Error) as excinfo:

@@ -835,7 +835,6 @@ _PIL_METHOD_INFO: Dict[str, Union[ColumnType, Callable]] = {
     'effect_spread': _caller_return_type,
     'entropy': FloatType(),
     'filter': _caller_return_type,
-    'getbands': ArrayType((None,), StringType()),
     'getbbox': ArrayType((4,), IntType()),
     'getchannel': _caller_return_type,
     'getcolors': JsonType(),

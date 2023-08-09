@@ -946,6 +946,9 @@ class MutableTable(Table):
 
                 # image cols: make sure file path points to a valid image file
                 if col.col_type.is_image_type():
+                    if not isinstance(val, str):
+                        raise exc.Error(
+                            f'Column {col.name}: requires paths of image files, but row {row_idx} contains: {val}')
                     try:
                         _ = Image.open(val)
                     except FileNotFoundError:
@@ -956,10 +959,14 @@ class MutableTable(Table):
 
                 # video cols: make sure file path points to a valid video file
                 if col.col_type.is_video_type():
+                    if not isinstance(val, str):
+                        raise exc.Error(
+                            f'Column {col.name}: requires paths of video files, but row {row_idx} contains: {val}')
                     path = pathlib.Path(val)
                     if not path.is_file():
                         raise exc.Error(f'Column {col.name}: file in row {row_idx} does not exist: {val}')
                     cap = cv2.VideoCapture(val)
+                    # TODO: this succeeds for image files; figure out how to verify it's a video
                     success = cap.isOpened()
                     cap.release()
                     if not success:
@@ -1156,10 +1163,10 @@ class MutableTable(Table):
                         table_rows.append(table_row)
                     conn.execute(sql.insert(self.sa_tbl), table_rows)
 
-                # mark old versions of updated rows as deleted
+                # mark old versions (v_min < self.version) of updated rows as deleted
                 stmt = sql.update(self.sa_tbl) \
                     .values({self.v_max_col: self.version}) \
-                    .where(self.v_min_col <= self.version)  \
+                    .where(self.v_min_col < self.version)  \
                     .where(self.v_max_col == schema.Table.MAX_VERSION)
                 if where is not None:
                     assert analysis_info is not None

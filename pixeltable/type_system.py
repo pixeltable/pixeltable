@@ -6,6 +6,7 @@ import datetime
 import json
 import os
 
+import numpy as np
 import nos
 
 from pixeltable import exceptions as exc
@@ -488,6 +489,7 @@ class ArrayType(ColumnType):
             self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         self.shape = shape
+        assert dtype.is_int_type() or dtype.is_float_type()
         self.dtype = dtype._type
 
     def _supertype(cls, type1: ArrayType, type2: ArrayType) -> Optional[ArrayType]:
@@ -519,11 +521,17 @@ class ArrayType(ColumnType):
         return 'BYTEA'
 
     def to_sa_type(self) -> str:
-        return sql.VARBINARY
+        return sql.LargeBinary
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         import tensorflow as tf
         return tf.TensorSpec(shape=self.shape, dtype=self.dtype.to_tf())
+
+    def numpy_dtype(self) -> np.dtype:
+        if self.dtype == self.Type.INT:
+            return np.int32
+        if self.dtype == self.Type.FLOAT:
+            return np.float32
 
 
 class ImageType(ColumnType):
