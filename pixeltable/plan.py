@@ -148,13 +148,12 @@ class Planner:
                 similarity_clauses, info.filter = info.filter.split_conjuncts(
                     lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
                 if len(similarity_clauses) > 1:
-                    raise exc.Error(f'More than one nearest() or matches() not supported')
+                    raise exc.Error(f'More than one nearest() not supported')
                 if len(similarity_clauses) == 1:
                     info.similarity_clause = similarity_clauses[0]
                     img_col = info.similarity_clause.img_col_ref.col
                     if not img_col.is_indexed:
-                        raise exc.Error(
-                            f'nearest()/matches() not available for unindexed column {img_col.name}')
+                        raise exc.Error(f'nearest() not available for unindexed column {img_col.name}')
 
 
         info.all_exprs = info.select_list.copy()

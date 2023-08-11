@@ -37,27 +37,28 @@ class TestVideo:
         video_filepaths = get_video_files()
         cl = test_client
 
-        # default case: extracted frames are not stored
+        # default case: computed images are not stored
         tbl = self.create_and_insert(cl, None, video_filepaths)
         assert ImageStore.count(tbl.id) == 0
 
-        # extracted frames are explicitly not stored
+        # computed images are explicitly not stored
         tbl = self.create_and_insert(cl, False, video_filepaths)
         assert ImageStore.count(tbl.id) == 0
 
-        # extracted frames are stored
+        # computed images are stored
         tbl = self.create_and_insert(cl, True, video_filepaths)
         assert ImageStore.count(tbl.id) == tbl.count()
-        # revert() also removes extracted frames
+
+        # revert() also removes computed images
         tbl.insert([[p] for p in video_filepaths], columns=['video'])
         tbl.revert()
         assert ImageStore.count(tbl.id) == tbl.count()
 
-        # column values mismatch in output_rows
+        # column values mismatch in rows
         with pytest.raises(exc.Error):
             tbl.insert([[1, 2], [3]], columns=['video'])
 
-        # column values mismatch in output_rows
+        # column values mismatch in rows
         with pytest.raises(exc.Error):
             tbl.insert([[1, 2]], columns=['video'])
 
@@ -65,6 +66,21 @@ class TestVideo:
         cl.create_snapshot('snap', 'test')
         snap = cl.get_table('snap')
         _ = snap[snap.frame].show(10)
+
+    def test_query(self, test_client: pt.client) -> None:
+        video_filepaths = get_video_files()
+        cl = test_client
+        # all image cols are stored=None by default
+        cols = [
+            catalog.Column('video', VideoType()),
+            catalog.Column('frame', ImageType()),
+            catalog.Column('frame_idx', IntType()),
+        ]
+        t = cl.create_table(
+            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
+            extracted_frame_idx_col='frame_idx', extracted_fps=1)
+        t.insert([[p] for p in video_filepaths], columns=['video'])
+        _ = t.where(t.video == video_filepaths[0]).show(0)
 
     def test_computed_cols(self, test_client: pt.client) -> None:
         video_filepaths = get_video_files()
@@ -76,8 +92,8 @@ class TestVideo:
             catalog.Column('frame_idx', IntType()),
         ]
         t = cl.create_table(
-            'test', cols, extract_frames_from = 'video', extracted_frame_col = 'frame',
-            extracted_frame_idx_col = 'frame_idx', extracted_fps = 1)
+            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
+            extracted_frame_idx_col='frame_idx', extracted_fps=1)
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
         t.add_column(catalog.Column('c1', computed_with=t.frame.resize((224, 224))))
         t.add_column(catalog.Column('c2', computed_with=t.c1.rotate(10)))

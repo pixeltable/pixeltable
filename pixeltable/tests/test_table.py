@@ -2,6 +2,7 @@ import pytest
 import math
 import numpy as np
 import pandas as pd
+import datetime
 
 import PIL
 
@@ -235,6 +236,11 @@ class TestTable:
         t.insert(rows)
         assert t.count() == len(rows)
 
+        # empty input
+        with pytest.raises(exc.Error) as exc_info:
+            t.insert([])
+        assert 'empty' in str(exc_info.value)
+
         # missing column
         with pytest.raises(exc.Error) as exc_info:
             t.insert([r[:-1] for r in rows], columns=[c.name for c in cols[:-1]])
@@ -246,7 +252,35 @@ class TestTable:
                 cl.drop_table('test1', ignore_errors=True)
                 t = cl.create_table('test1', [col])
                 t.insert([[r[row_pos]] for r in rows])
-            assert 'requires' in str(exc_info.value)
+            assert 'Expected' in str(exc_info.value)
+
+        # rows not list of lists
+        with pytest.raises(exc.Error) as exc_info:
+            cl.drop_table('test1', ignore_errors=True)
+            t = cl.create_table('test1', [c5])
+            t.insert([np.ndarray((3, 2))])
+        assert 'lists' in str(exc_info.value)
+
+        # columns not list of column names
+        with pytest.raises(exc.Error) as exc_info:
+            cl.drop_table('test1', ignore_errors=True)
+            t = cl.create_table('test1', [c1])
+            t.insert([['test']], columns=[t.c1])
+        assert 'column names' in str(exc_info.value)
+
+        # columns not list of column names
+        with pytest.raises(exc.Error) as exc_info:
+            cl.drop_table('test1', ignore_errors=True)
+            t = cl.create_table('test1', [c1])
+            t.insert([['test']], columns='c1')
+        assert 'column names' in str(exc_info.value)
+
+        # bad array literal
+        with pytest.raises(exc.Error) as exc_info:
+            cl.drop_table('test1', ignore_errors=True)
+            t = cl.create_table('test1', [c5])
+            t.insert([[np.ndarray((3, 2))]])
+        assert 'Expected' in str(exc_info.value)
 
     def test_query(self, test_client: pt.Client) -> None:
         cl = test_client
@@ -263,6 +297,32 @@ class TestTable:
 
     def test_update(self, test_tbl: pt.Table, indexed_img_tbl: pt.Table) -> None:
         t = test_tbl
+        # update every type with a literal
+        test_cases = [
+            ('c1', 'new string'),
+            # TODO: ('c1n', None),
+            ('c3', -1.0),
+            ('c4', True),
+            ('c5', datetime.datetime.now()),
+            ('c6', [{'x': 1, 'y': 2}]),
+        ]
+        for col_name, literal in test_cases:
+            status = t.update({col_name: literal}, where=t.c3 < 10.0, cascade=False)
+            assert status.num_rows == 10
+            assert status.updated_cols == [col_name]
+            t.revert()
+
+        # exchange two columns
+        t.add_column(catalog.Column('float_col', FloatType()))
+        t.update({'float_col': 1.0})
+        # TODO: verify result
+        _ = t.show(10)
+        t.update({'c3': t.float_col, 'float_col': t.c3})
+        # TODO: verify result
+        _ = t.show(10)
+        t.revert()
+
+        # update column that is used in computed cols
         t.add_column(catalog.Column('computed1', computed_with=t.c3 + 1))
         t.add_column(catalog.Column('computed2', computed_with=t.computed1 + 1))
         t.add_column(catalog.Column('computed3', computed_with=t.c3 + 3))
@@ -300,10 +360,15 @@ class TestTable:
         assert np.all(t.order_by(t.computed2).show(0).to_pandas()['computed2'][:10] == pd.Series([2.0] * 10))
         assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'][:10] == pd.Series([3.0] * 10))
 
+        # bad update spec
+        with pytest.raises(exc.Error) as excinfo:
+            t.update({1: 1})
+        assert 'dict key' in str(excinfo.value)
+
         # unknown column
         with pytest.raises(exc.Error) as excinfo:
             t.update({'unknown': 1})
-        assert 'unknown' in str(excinfo.value)
+        assert 'unknown unknown' in str(excinfo.value)
 
         # incompatible type
         with pytest.raises(exc.Error) as excinfo:
@@ -317,13 +382,13 @@ class TestTable:
 
         # can't update computed column
         with pytest.raises(exc.Error) as excinfo:
-            t.update({'computed': 1})
-        assert 'computed' in str(excinfo.value)
+            t.update({'computed1': 1})
+        assert 'is computed' in str(excinfo.value)
 
         # non-expr
         with pytest.raises(exc.Error) as excinfo:
             t.update({'c3': lambda c3: math.sqrt(c3)})
-        assert 'not a valid literal' in str(excinfo.value)
+        assert 'not a recognized' in str(excinfo.value)
 
         # non-Predicate filter
         with pytest.raises(exc.Error) as excinfo:
@@ -331,10 +396,16 @@ class TestTable:
         assert 'Predicate' in str(excinfo.value)
 
         img_t = indexed_img_tbl
+
+        # can't update image col
+        with pytest.raises(exc.Error) as excinfo:
+            img_t.update({'img': 17}, where=img_t.img.nearest('car'))
+        assert 'has type image' in str(excinfo.value)
+
         # similarity search is not supported
         with pytest.raises(exc.Error) as excinfo:
-            img_t.update({'split': 'train'}, where=img_t.img.matches('car'))
-        assert 'matches()' in str(excinfo.value)
+            img_t.update({'split': 'train'}, where=img_t.img.nearest('car'))
+        assert 'nearest()' in str(excinfo.value)
 
         # filter not expressible in SQL
         with pytest.raises(exc.Error) as excinfo:
@@ -372,8 +443,8 @@ class TestTable:
         img_t = indexed_img_tbl
         # similarity search is not supported
         with pytest.raises(exc.Error) as excinfo:
-            img_t.delete(where=img_t.img.matches('car'))
-        assert 'matches()' in str(excinfo.value)
+            img_t.delete(where=img_t.img.nearest('car'))
+        assert 'nearest()' in str(excinfo.value)
 
         # filter not expressible in SQL
         with pytest.raises(exc.Error) as excinfo:

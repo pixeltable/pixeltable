@@ -374,12 +374,12 @@ class TestExprs:
         # TODO: figure out how to verify results
         #assert len(result) == 3
 
-        result = t[t.img.matches('musical instrument')].show(10)
+        result = t[t.img.nearest('musical instrument')].show(10)
         assert len(result) == 10
         # matches() with one SQL predicate and one Python predicate
         french_horn_category = 'n03394916'
         result = t[
-            t.img.matches('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)
+            t.img.nearest('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)
         ].show(10)
         #assert len(result) == 6
 
@@ -393,7 +393,7 @@ class TestExprs:
         with pytest.raises(exc.Error):
             _ = t[t.img.nearest(img)].show(10)
         with pytest.raises(exc.Error):
-            _ = t[t.img.matches('musical instrument')].show(10)
+            _ = t[t.img.nearest('musical instrument')].show(10)
 
     def test_serialization(
             self, test_tbl: catalog.Table, test_tbl_exprs: List[exprs.Expr],

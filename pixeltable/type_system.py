@@ -1,13 +1,17 @@
 from __future__ import annotations
+
 import abc
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union
-import enum
 import datetime
+import enum
 import json
 import os
+from pathlib import Path
+from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 
-import numpy as np
+import cv2
 import nos
+import numpy as np
+from PIL import Image
 
 from pixeltable import exceptions as exc
 
@@ -232,7 +236,7 @@ class ColumnType:
         pass
 
     @classmethod
-    def get_value_type(cls, val: Any) -> ColumnType:
+    def infer_literal_type(cls, val: Any) -> Optional[ColumnType]:
         if isinstance(val, str):
             return StringType()
         if isinstance(val, int):
@@ -243,8 +247,23 @@ class ColumnType:
             return BoolType()
         if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
             return TimestampType()
-        if isinstance(val, dict):
-            return JsonType()
+        if isinstance(val, np.ndarray):
+            col_type = ArrayType.from_literal(val)
+            if col_type is not None:
+                return col_type
+            # this could still be json-serializable
+        if isinstance(val, dict) or isinstance(val, np.ndarray):
+            try:
+                JsonType().validate_literal(val)
+                return JsonType()
+            except TypeError:
+                return None
+        return None
+
+    @abc.abstractmethod
+    def validate_literal(self, val: Any) -> None:
+        """Raise TypeError if val is not a valid literal for this type"""
+        pass
 
     def print_value(self, val: Any) -> str:
         return str(val)
@@ -354,6 +373,9 @@ class InvalidType(ColumnType):
     def print_value(self, val: Any) -> str:
         assert False
 
+    def validate_literal(self, val: Any) -> None:
+        assert False
+
 class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.STRING, nullable=nullable)
@@ -382,6 +404,10 @@ class StringType(ColumnType):
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
 
+    def validate_literal(self, val: Any) -> None:
+        if not isinstance(val, str):
+            raise TypeError(f'Expected string, got {val}')
+
 
 class IntType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -397,6 +423,10 @@ class IntType(ColumnType):
         # TODO: how to specify the correct int subtype?
         import tensorflow as tf
         return tf.TensorSpec(shape=(), dtype=tf.int64)
+
+    def validate_literal(self, val: Any) -> None:
+        if not isinstance(val, int):
+            raise TypeError(f'Expected int, got {val}')
 
 
 class FloatType(ColumnType):
@@ -414,6 +444,10 @@ class FloatType(ColumnType):
         # TODO: how to specify the correct float subtype?
         return tf.TensorSpec(shape=(), dtype=tf.float32)
 
+    def validate_literal(self, val: Any) -> None:
+        if not isinstance(val, float):
+            raise TypeError(f'Expected float, got {val}')
+
 
 class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -430,6 +464,10 @@ class BoolType(ColumnType):
         # TODO: how to specify the correct int subtype?
         return tf.TensorSpec(shape=(), dtype=tf.bool)
 
+    def validate_literal(self, val: Any) -> None:
+        if not isinstance(val, bool):
+            raise TypeError(f'Expected bool, got {val}')
+
 
 class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -443,6 +481,10 @@ class TimestampType(ColumnType):
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         raise TypeError(f'Timestamp type cannot be converted to Tensorflow')
+
+    def validate_literal(self, val: Any) -> None:
+        if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
+            raise TypeError(f'Expected datetime.datetime or datetime.date, got {val}')
 
 
 class JsonType(ColumnType):
@@ -479,17 +521,26 @@ class JsonType(ColumnType):
         return {k: v.to_tf() for k, v in self.type_spec.items()}
 
     def print_value(self, val: Any) -> str:
-        val_type = self.get_value_type(val)
+        val_type = self.infer_literal_type(val)
         if val_type == self:
             return str(val)
         return val_type.print_value(val)
+
+    def validate_literal(self, val: Any) -> None:
+        if not isinstance(val, dict) and not isinstance(val, list):
+            raise TypeError(f'Expected dict or list, got {val}')
+        try:
+            _ = json.dumps(val)
+        except TypeError as e:
+            raise TypeError(f'Expected JSON-serializable object, got {val}')
+
 
 class ArrayType(ColumnType):
     def __init__(
             self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         self.shape = shape
-        assert dtype.is_int_type() or dtype.is_float_type()
+        assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
         self.dtype = dtype._type
 
     def _supertype(cls, type1: ArrayType, type2: ArrayType) -> Optional[ArrayType]:
@@ -517,6 +568,46 @@ class ArrayType(ColumnType):
         dtype = cls.make_type(cls.Type(d['dtype']))
         return cls(shape, dtype, nullable=d['nullable'])
 
+    @classmethod
+    def from_literal(cls, val: np.ndarray) -> Optional[ArrayType]:
+        # determine our dtype
+        assert isinstance(val, np.ndarray)
+        if np.issubdtype(val.dtype, np.integer):
+            dtype = IntType()
+        elif np.issubdtype(val.dtype, np.floating):
+            dtype = FloatType()
+        elif val.dtype == np.bool_:
+            dtype = BoolType()
+        elif val.dtype == np.str_:
+            dtype = StringType()
+        else:
+            return None
+        return cls(val.shape, dtype=dtype, nullable=True)
+
+    def is_valid_literal(self, val: np.ndarray) -> bool:
+        if not isinstance(val, np.ndarray):
+            return False
+        if len(val.shape) != len(self.shape):
+            return False
+        # check that the shapes are compatible
+        for n1, n2 in zip(val.shape, self.shape):
+            if n1 is None:
+                return False
+            if n2 is None:
+                # wildcard
+                continue
+            if n1 != n2:
+                return False
+        return val.dtype == self.numpy_dtype()
+
+    def validate_literal(self, val: Any) -> None:
+        if not isinstance(val, np.ndarray):
+            raise TypeError(f'Expected numpy.ndarray, got {val}')
+        if not self.is_valid_literal(val):
+            raise TypeError((
+                f'Expected ndarray({self.shape}, dtype={self.numpy_dtype()}), '
+                f'got ndarray({val.shape}, dtype={val.dtype})'))
+
     def to_sql(self) -> str:
         return 'BYTEA'
 
@@ -529,9 +620,13 @@ class ArrayType(ColumnType):
 
     def numpy_dtype(self) -> np.dtype:
         if self.dtype == self.Type.INT:
-            return np.int32
+            return np.dtype(np.int32)
         if self.dtype == self.Type.FLOAT:
-            return np.float32
+            return np.dtype(np.float32)
+        if self.dtype == self.Type.BOOL:
+            return np.dtype(np.bool_)
+        if self.dtype == self.Type.STRING:
+            return np.dtype(np.str_)
 
 
 class ImageType(ColumnType):
@@ -638,6 +733,17 @@ class ImageType(ColumnType):
         import tensorflow as tf
         return tf.TensorSpec(shape=(self.height, self.width, self.num_channels), dtype=tf.uint8)
 
+    def validate_literal(self, val: Any) -> None:
+        # make sure file path points to a valid image file
+        if not isinstance(val, str):
+            raise TypeError(f'Expected file path, got {val}')
+        try:
+            _ = Image.open(val)
+        except FileNotFoundError:
+            raise TypeError(f'File not found: {val}')
+        except PIL.UnidentifiedImageError:
+            raise TypeError(f'File is not a valid image: {val}')
+
 
 class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -652,3 +758,16 @@ class VideoType(ColumnType):
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         assert False
+
+    def validate_literal(self, val: Any) -> None:
+        if not isinstance(val, str):
+            raise TypeError(f'Expected file path, got {val}')
+        path = Path(val)
+        if not path.is_file():
+            raise TypeError(f'File not found: {val}')
+        cap = cv2.VideoCapture(val)
+        # TODO: this succeeds for image files; figure out how to verify it's a video
+        success = cap.isOpened()
+        cap.release()
+        if not success:
+            raise TypeError(f'File is not a valid video: {val}')

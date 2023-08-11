@@ -296,12 +296,14 @@ class Expr(abc.ABC):
         """
         if isinstance(o, Expr):
             return o
+        # try to create a literal
+        obj_type = ColumnType.infer_literal_type(o)
+        if obj_type is not None:
+            return Literal(o, col_type=obj_type)
         if isinstance(o, dict):
             return InlineDict(o)
         elif isinstance(o, list):
             return InlineArray(tuple(o))
-        elif isinstance(o, typing.get_args(LiteralPythonTypes)):
-            return Literal(o)
         return None
 
     @abc.abstractmethod
@@ -393,7 +395,7 @@ class Expr(abc.ABC):
             return ArraySlice(self, index)
         raise Error(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> ImageMemberAccess:
+    def __getattr__(self, name: str) -> Union[ImageMemberAccess, JsonPath]:
         """
         ex.: <img col>.rotate(60)
         """
@@ -882,10 +884,9 @@ class ImageMemberAccess(Expr):
     Ex.: tbl.img_col_ref.rotate(90), tbl.img_col_ref.width
     """
     attr_info = _create_pil_attr_info()
-    special_img_predicates = ['nearest', 'matches']
 
     def __init__(self, member_name: str, caller: Expr):
-        if member_name in self.special_img_predicates:
+        if member_name == 'nearest':
             super().__init__(InvalidType())  # requires FunctionCall to return value
         elif member_name in _PIL_METHOD_INFO:
             super().__init__(InvalidType())  # requires FunctionCall to return value
@@ -921,22 +922,16 @@ class ImageMemberAccess(Expr):
         call_signature = f'({",".join([type(arg).__name__ for arg in args])})'
         if self.member_name == 'nearest':
             # - caller must be ColumnRef
-            # - signature is (PIL.Image.Image)
+            # - signature is (Union[PIL.Image.Image, str])
             if not isinstance(caller, ColumnRef):
-                raise Error(f'nearest(): caller must be an IMAGE column')
-            if len(args) != 1 or not isinstance(args[0], PIL.Image.Image):
+                raise Error(f'nearest(): caller must be an image column')
+            if len(args) != 1 or (not isinstance(args[0], PIL.Image.Image) and not isinstance(args[0], str)):
                 raise Error(
-                    f'nearest(): required signature is (PIL.Image.Image) (passed: {call_signature})')
-            return ImageSimilarityPredicate(caller, img=args[0])
-
-        if self.member_name == 'matches':
-            # - caller must be ColumnRef
-            # - signature is (str)
-            if not isinstance(caller, ColumnRef):
-                raise Error(f'matches(): caller must be an IMAGE column')
-            if len(args) != 1 or not isinstance(args[0], str):
-                raise Error(f"matches(): required signature is (str) (passed: {call_signature})")
-            return ImageSimilarityPredicate(caller, text=args[0])
+                    f'nearest(): required signature is (Union[PIL.Image.Image, str]) (passed: {call_signature})')
+            return ImageSimilarityPredicate(
+                caller,
+                img=args[0] if isinstance(args[0], PIL.Image.Image) else None,
+                text=args[0] if isinstance(args[0], str) else None)
 
         # TODO: verify signature
         return ImageMethodCall(self.member_name, caller, *args, **kwargs)
@@ -1115,17 +1110,15 @@ RELATIVE_PATH_ROOT = JsonPath(None)
 
 
 class Literal(Expr):
-    def __init__(self, val: LiteralPythonTypes):
-        if isinstance(val, str):
-            super().__init__(StringType())
-        if isinstance(val, int):
-            super().__init__(IntType())
-        if isinstance(val, float):
-            super().__init__(FloatType())
-        if isinstance(val, bool):
-            super().__init__(BoolType())
-        if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
-            super().__init__(TimestampType())
+    def __init__(self, val: Any, col_type: Optional[ColumnType] = None):
+        if col_type is not None:
+            col_type.validate_literal(val)
+        else:
+            # try to determine a type for val
+            col_type = ColumnType.infer_literal_type(val)
+            if col_type is None:
+                raise TypeError(f'Not a valid literal: {val}')
+        super().__init__(col_type)
         self.val = val
 
     def display_name(self) -> str:
@@ -1257,7 +1250,7 @@ class InlineArray(Expr):
             if idx >= 0:
                 element_type = ColumnType.supertype(element_type, self.components[idx].col_type)
             else:
-                element_type = ColumnType.supertype(element_type, ColumnType.get_value_type(val))
+                element_type = ColumnType.supertype(element_type, ColumnType.infer_literal_type(val))
             if element_type is None:
                 # there is no common element type: this is a json value, not an array
                 # TODO: make sure this doesn't contain Images

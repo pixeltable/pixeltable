@@ -186,7 +186,7 @@ class DataFrame:
         if self.where_clause is not None:
             analysis_info = Planner.get_info(self.tbl, self.where_clause)
             if analysis_info.similarity_clause is not None:
-                raise exc.Error('nearest()/matches() cannot be used with count()')
+                raise exc.Error('nearest() cannot be used with count()')
             if analysis_info.filter is not None:
                 raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
             stmt = stmt.where(analysis_info.sql_where_clause)

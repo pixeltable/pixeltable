@@ -1,17 +1,8 @@
-from typing import List
-import sqlalchemy as sql
+import datetime
 import pytest
 
-import pixeltable as pt
 from pixeltable import catalog
-from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType, VideoType
-from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
-from pixeltable.exprs import RELATIVE_PATH_ROOT as R
-from pixeltable.functions import udf_call, dict_map, cast, sum, count
-from pixeltable.functions.pil.image import blend
 from pixeltable import exceptions as exc
-from pixeltable import exprs
-from pixeltable.function import FunctionRegistry
 
 class TestDataFrame:
     def test_select_where(self, test_tbl: catalog.Table) -> None:
@@ -24,10 +15,24 @@ class TestDataFrame:
         res2 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).show(0)
         assert res1 == res2
 
+        # duplicate select list
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(t.c1).select(t.c2).show(0)
+        assert 'already specified' in str(exc_info.value)
+
+        # invalid expr in select list
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(datetime.datetime.now()).show(0)
+        assert 'Invalid expression' in str(exc_info.value)
+
     def test_order_by(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).show(0)
-        a = 10
+
+        # invalid expr in order_by()
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.order_by(datetime.datetime.now()).show(0)
+        assert 'Invalid expression' in str(exc_info.value)
 
     def test_count(self, test_tbl: catalog.Table, indexed_img_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -44,7 +49,7 @@ class TestDataFrame:
         with pytest.raises(exc.Error):
             _ = t.where(t.img.nearest(img)).count()
         with pytest.raises(exc.Error):
-            _ = t.where(t.img.matches('car')).count()
+            _ = t.where(t.img.nearest('car')).count()
 
         # for now, count() doesn't work with non-SQL Where clauses
         with pytest.raises(exc.Error):

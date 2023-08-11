@@ -846,7 +846,19 @@ class MutableTable(Table):
             >>> tbl.insert([['/path/to/video.mp4']])
 
         """
-        assert len(rows) > 0
+        if not isinstance(rows, list):
+            raise exc.Error('rows must be a list of lists')
+        if len(rows) == 0:
+            raise exc.Error('rows must not be empty')
+        for row in rows:
+            if not isinstance(row, list):
+                raise exc.Error('rows must be a list of lists')
+        if not isinstance(columns, list):
+            raise exc.Error('columns must be a list of column names')
+        for col_name in columns:
+            if not isinstance(col_name, str):
+                raise exc.Error('columns must be a list of column names')
+
         insertable_col_names = self._get_insertable_col_names()
         if len(columns) == 0 and len(rows[0]) != len(insertable_col_names):
             raise exc.Error(
@@ -910,68 +922,10 @@ class MutableTable(Table):
                 val = row[col_idx]
                 if val is None:
                     continue
-
-                if col.col_type.is_string_type():
-                    if not isinstance(val, str):
-                        raise exc.Error(f'Column {col.name}: requires string values, but row {row_idx} contains: {val}')
-                    continue
-                if col.col_type.is_int_type():
-                    if not isinstance(val, int):
-                        raise exc.Error(f'Column {col.name}: requires int values, but row {row_idx} contains: {val}')
-                    continue
-                if col.col_type.is_float_type():
-                    if not isinstance(val, float):
-                        raise exc.Error(f'Column {col.name}: requires float values, but row {row_idx} contains: {val}')
-                    continue
-                if col.col_type.is_bool_type():
-                    if not isinstance(val, bool):
-                        raise exc.Error(f'Column {col.name}: requires bool values, but row {row_idx} contains: {val}')
-                    continue
-                if col.col_type.is_timestamp_type():
-                    if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
-                        raise exc.Error((
-                            f'Column {col.name}: requires datetime.datetime or datetime.date values, but row {row_idx} '
-                            f'contains: {val}'))
-                    continue
-                if col.col_type.is_array_type():
-                    if not isinstance(val, np.ndarray):
-                        raise exc.Error(
-                            f'Column {col.name}: requires ndarray values, but row {row_idx} contains: {val}')
-                    continue
-                if col.col_type.is_json_type():
-                    if not isinstance(val, dict) and not isinstance(val, list):
-                        raise exc.Error(
-                            f'Column {col.name}: requires dict or list values, but row {row_idx} contains: {val}')
-                    continue
-
-                # image cols: make sure file path points to a valid image file
-                if col.col_type.is_image_type():
-                    if not isinstance(val, str):
-                        raise exc.Error(
-                            f'Column {col.name}: requires paths of image files, but row {row_idx} contains: {val}')
-                    try:
-                        _ = Image.open(val)
-                    except FileNotFoundError:
-                        raise exc.Error(f'Column {col.name}: file in row {row_idx} does not exist: {val}')
-                    except PIL.UnidentifiedImageError:
-                        raise exc.Error(f'Column {col.name}: file in row {row_idx} is not a valid image file: {val}')
-                    continue
-
-                # video cols: make sure file path points to a valid video file
-                if col.col_type.is_video_type():
-                    if not isinstance(val, str):
-                        raise exc.Error(
-                            f'Column {col.name}: requires paths of video files, but row {row_idx} contains: {val}')
-                    path = pathlib.Path(val)
-                    if not path.is_file():
-                        raise exc.Error(f'Column {col.name}: file in row {row_idx} does not exist: {val}')
-                    cap = cv2.VideoCapture(val)
-                    # TODO: this succeeds for image files; figure out how to verify it's a video
-                    success = cap.isOpened()
-                    cap.release()
-                    if not success:
-                        raise exc.Error(f'Column {col.name}: could not open video file {val} in row {row_idx}')
-                    continue
+                try:
+                    col.col_type.validate_literal(val)
+                except TypeError as e:
+                    raise exc.Error(f'Column {col.name} in row {row_idx}: {e}')
 
     class TableRowBuilder:
         def __init__(self, output_spec: List[ColumnInfo]):
@@ -1086,6 +1040,8 @@ class MutableTable(Table):
         from  pixeltable import exprs
         update_targets: List[Tuple[Column, exprs.Expr]] = []
         for col_name, val in value_spec.items():
+            if not isinstance(col_name, str):
+                raise exc.Error(f'Update specification: dict key must be column name, got {col_name!r}')
             if col_name not in self.cols_by_name:
                 raise exc.Error(f'Column {col_name} unknown')
             col = self.cols_by_name[col_name]
@@ -1093,20 +1049,25 @@ class MutableTable(Table):
                 raise exc.Error(f'Column {col_name} is computed and cannot be updated')
             if col.primary_key:
                 raise exc.Error(f'Column {col_name} is a primary key column and cannot be updated')
+            if col.col_type.is_image_type():
+                raise exc.Error(f'Column {col_name} has type image and cannot be updated')
+            if col.col_type.is_video_type():
+                raise exc.Error(f'Column {col_name} has type video and cannot be updated')
 
             # make sure that the value is compatible with the column type
-            if isinstance(val, exprs.Expr):
-                value_expr = val.copy()
-            else:
-                # try to convert value to Expr
+            # check if this is a literal
+            try:
+                value_expr = exprs.Literal(val, col_type=col.col_type)
+            except TypeError:
+                # it's not a literal, let's try to create an expr from it
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
-                    raise exc.Error(f'Value {val!r} is not a valid literal for column {col_name}')
-            if not col.col_type.matches(value_expr.col_type):
-                raise exc.Error((
-                    f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
-                    f'{col_name} ({col.col_type})'
-                ))
+                    raise exc.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
+                if not col.col_type.matches(value_expr.col_type):
+                    raise exc.Error((
+                        f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
+                        f'{col_name} ({col.col_type})'
+                    ))
             update_targets.append((col, value_expr))
 
         from pixeltable.exprs import Predicate
@@ -1117,7 +1078,7 @@ class MutableTable(Table):
                 raise exc.Error(f"'where' argument must be a Predicate, got {type(where)}")
             analysis_info = Planner.get_info(self, where)
             if analysis_info.similarity_clause is not None:
-                raise exc.Error('nearest()/matches() cannot be used with update()')
+                raise exc.Error('nearest() cannot be used with update()')
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
                 raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
@@ -1200,7 +1161,7 @@ class MutableTable(Table):
                 raise exc.Error(f"'where' argument must be a Predicate, got {type(where)}")
             analysis_info = Planner.get_info(self, where)
             if analysis_info.similarity_clause is not None:
-                raise exc.Error('nearest()/matches() cannot be used with delete()')
+                raise exc.Error('nearest() cannot be used with delete()')
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
                 raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
@@ -1212,7 +1173,7 @@ class MutableTable(Table):
             # mark rows as deleted
             stmt = sql.update(self.sa_tbl) \
                 .values({self.v_max_col: self.version}) \
-                .where(self.v_min_col <= self.version) \
+                .where(self.v_min_col < self.version) \
                 .where(self.v_max_col == schema.Table.MAX_VERSION) \
                 .returning(1)
             if where is not None:
