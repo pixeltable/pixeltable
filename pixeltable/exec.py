@@ -249,7 +249,8 @@ class SqlScanNode(ExecNode):
             self, tbl: catalog.Table, evaluator: exprs.Evaluator, sql_exprs: Iterable[exprs.Expr],
             where_clause: Optional[sql.sql.expression.ClauseElement] = None, filter: Optional[exprs.Predicate] = None,
             order_by_clause: List[sql.sql.expression.ClauseElement] = [],
-            limit: int = 0, set_pk: bool = False, rowids: List[int] = []
+            similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None,
+            limit: int = 0, set_pk: bool = False
 
     ):
         """
@@ -259,18 +260,16 @@ class SqlScanNode(ExecNode):
             filter: additional Where-clause predicate that can't be evaluated via SQL
             limit: max number of rows to return: 0 = no limit
             set_pk: if True, sets the primary for each DataRow
-            rowids: if not empty, only return rows with these rowids, in that order
         """
         # create Select stmt
         super().__init__(evaluator, sql_exprs, [], None)
         self.tbl = tbl
         self.evaluator = evaluator
         self.sql_exprs = sql_exprs
-        self.set_pk = set_pk or len(rowids) > 0  # we also need to set the rowid if we're ordering by rowid
+        self.set_pk = set_pk
         self.filter = filter
         self.filter_eval_ctx = evaluator.get_eval_ctx([filter], exclude=sql_exprs) if filter is not None else []
         self.limit = limit
-        self.rowids = rowids
         select_list = [e.sql_expr() for e in sql_exprs]
         if self.set_pk:
             select_list.extend([tbl.rowid_col, tbl.v_min_col])
@@ -279,8 +278,8 @@ class SqlScanNode(ExecNode):
             .where(tbl.v_max_col > tbl.version)
         if where_clause is not None:
             self.stmt = self.stmt.where(where_clause)
-        if len(rowids) > 0:
-            self.stmt = self.stmt.where(self.tbl.rowid_col.in_(rowids))
+        if similarity_clause is not None:
+            self.stmt = self.stmt.order_by(similarity_clause.img_col_ref.col.sa_idx_col.l2_distance(similarity_clause.embedding()))
         if len(order_by_clause) > 0:
             self.stmt = self.stmt.order_by(*order_by_clause)
         if limit != 0 and self.filter is None:
@@ -343,16 +342,6 @@ class SqlScanNode(ExecNode):
             output_batch.pop_row()
 
         output_batch.flush_imgs(None, self.stored_img_cols, self.flushed_img_slots)
-        if self.rowids:
-            # we need to reorder the output batch to match the order in self.rowids
-            rowid_to_idx = {row.row_id: i for i, row in enumerate(output_batch)}
-            reordered_batch = DataRowBatch(self.tbl, self.evaluator)
-            for rowid in self.rowids:
-                if rowid not in rowid_to_idx:
-                    continue
-                reordered_batch.add_row(output_batch[rowid_to_idx[rowid]])
-            output_batch = reordered_batch
-
         _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
         return output_batch
 

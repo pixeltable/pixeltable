@@ -164,7 +164,6 @@ class TestExprs:
         with pytest.raises(exc.Error):
             _ = t[t.c1.errormsg].show()
 
-    @pytest.mark.skip(reason='not implemented')
     def test_null_args(self, test_client: pt.Client) -> None:
         # create table with two int columns
         cols = [
@@ -185,7 +184,7 @@ class TestExprs:
         t.add_column(pt.Column('c4', FloatType(), computed_with=f(t.c1, t.c2)))
 
         # data that tests all combinations of nulls
-        data = [(1, 1), (1, None), (None, 1), (None, None)]
+        data = [[1.0, 1.0], [1.0, None], [None, 1.0], [None, None]]
         t.insert(data)
         result = t[t.c3, t.c4].show(0)
         assert result[0, 0] == 2
@@ -373,6 +372,10 @@ class TestExprs:
         # nearest() with one SQL predicate and one Python predicate
         result = t[t.img.nearest(img) & (t.category == probe[0, 1]) & (t.img.width > 1)].show(10)
         # TODO: figure out how to verify results
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t[t.img.nearest(img)].order_by(t.category).show()
+        assert 'cannot be used in conjunction with' in str(exc_info.value)
 
         result = t[t.img.nearest('musical instrument')].show(10)
         assert len(result) == 10

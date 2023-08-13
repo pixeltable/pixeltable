@@ -1500,11 +1500,11 @@ class Comparison(Predicate):
 
 
 class ImageSimilarityPredicate(Predicate):
-    def __init__(self, img_col: ColumnRef, img: Optional[PIL.Image.Image] = None, text: Optional[str] = None):
+    def __init__(self, img_col_ref: ColumnRef, img: Optional[PIL.Image.Image] = None, text: Optional[str] = None):
         assert (img is None) != (text is None)
         super().__init__()
-        self.img_col_ref = img_col
-        self.components = [img_col]
+        self.img_col_ref = img_col_ref
+        self.components = [img_col_ref]
         self.img = img
         self.text = text
 
@@ -1515,8 +1515,7 @@ class ImageSimilarityPredicate(Predicate):
             return embed_image(self.img)
 
     def __str__(self) -> str:
-        op_str = 'nearest' if self.img is not None else 'matches'
-        return f'{str(self.img_col_ref)}.{op_str}({"<img>" if self.img is not None else self.text})'
+        return f'{str(self.img_col_ref)}.nearest({"<img>" if self.img is not None else self.text})'
 
     def _equals(self, other: ImageSimilarityPredicate) -> bool:
         return False

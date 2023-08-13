@@ -154,6 +154,10 @@ class Planner:
                 if len(similarity_clauses) > 1:
                     raise exc.Error(f'More than one nearest() not supported')
                 if len(similarity_clauses) == 1:
+                    if len(info.order_by_clause) > 0:
+                        raise exc.Error((
+                            f'nearest() returns results in order of proximity and cannot be used in conjunction with '
+                            f'order_by()'))
                     info.similarity_clause = similarity_clauses[0]
                     img_col = info.similarity_clause.img_col_ref.col
                     if not img_col.is_indexed:
@@ -344,19 +348,11 @@ class Planner:
         is_agg_query = len(info.group_by_clause) > 0 or len(info.agg_fn_calls) > 0
         ctx = ExecContext(evaluator)
 
-        idx_rowids: List[int] = []
-        if info.similarity_clause is not None:
-            # do index lookup
-            assert info.similarity_clause.img_col_ref.col.idx is not None
-            embed = info.similarity_clause.embedding()
-            idx = info.similarity_clause.img_col_ref.col.idx
-            idx_rowids = idx.search(embed, limit, tbl.valid_rowids)
-
         order_by_clause = cls._determine_ordering(tbl, evaluator, info)
         sql_limit = 0 if is_agg_query else limit  # if we're aggregating, the limit applies to the agg output
         plan = SqlScanNode(
             tbl, evaluator, info.sql_exprs, where_clause=info.sql_where_clause, filter=info.filter, limit=sql_limit,
-            order_by_clause=order_by_clause, set_pk=with_pk, rowids=idx_rowids)
+            order_by_clause=order_by_clause, set_pk=with_pk, similarity_clause=info.similarity_clause)
 
         if len(info.group_by_clause) > 0 or len(info.agg_fn_calls) > 0:
             # we're doing aggregation; the input of the AggregateNode are the grouping exprs plus the

@@ -5,27 +5,21 @@ import dataclasses
 import inspect
 import json
 import logging
-import pathlib
 import re
 from typing import Optional, List, Set, Dict, Any, Type, Union, Callable, Tuple
 from uuid import UUID
 from abc import abstractmethod
-import datetime
 
-import PIL
-import cv2
-import numpy as np
 import pandas as pd
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
-from PIL import Image
 from tqdm.autonotebook import tqdm
+from pgvector.sqlalchemy import Vector
 
 from pixeltable import exceptions as exc
 from pixeltable.env import Env
 from pixeltable.exec import ColumnInfo
 from pixeltable.function import Function
-from pixeltable.index import VectorIndex
 from pixeltable.metadata import schema
 from pixeltable.type_system import ColumnType, StringType
 from pixeltable.utils.imgstore import ImageStore
@@ -119,12 +113,13 @@ class Column:
         # computed cols also have storage columns for the exception string and type
         self.sa_errormsg_col: Optional[sql.schema.Column] = None
         self.sa_errortype_col: Optional[sql.schema.Column] = None
+        # indexed columns also have a column for the embeddings
+        self.sa_idx_col: Optional[sql.schema.Column] = None
         self.tbl: Optional[Table] = None  # set by owning Table
 
         if indexed and not self.col_type.is_image_type():
             raise exc.Error(f'Column {name}: indexed=True requires ImageType')
         self.is_indexed = indexed
-        self.idx: Optional[VectorIndex] = None
 
     @classmethod
     def from_md(cls, col_id: int, md: schema.SchemaColumn, tbl: Table) -> Column:
@@ -185,9 +180,8 @@ class Column:
         if self.is_computed:
             self.sa_errormsg_col = sql.Column(self.errormsg_storage_name(), StringType().to_sa_type(), nullable=True)
             self.sa_errortype_col = sql.Column(self.errortype_storage_name(), StringType().to_sa_type(), nullable=True)
-
-    def set_idx(self, idx: VectorIndex) -> None:
-        self.idx = idx
+        if self.is_indexed:
+            self.sa_idx_col = sql.Column(self.index_storage_name(), Vector(512), nullable=True)
 
     def storage_name(self) -> str:
         assert self.id is not None
@@ -199,6 +193,9 @@ class Column:
 
     def errortype_storage_name(self) -> str:
         return f'{self.storage_name()}_errortype'
+
+    def index_storage_name(self) -> str:
+        return f'{self.storage_name()}_idx_0'
 
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'
@@ -286,9 +283,6 @@ class Table(SchemaObject):
         super().__init__(id, self.tbl_md.name, dir_id)
         self._set_cols(schema_version_md)
 
-        # we can't call _load_valid_rowids() here because the storage table may not exist yet
-        self.valid_rowids: Set[int] = set()
-
         # sqlalchemy-related metadata; used to insert and query the storage table
         self.sa_md = sql.MetaData()
         self._create_sa_tbl()
@@ -307,10 +301,6 @@ class Table(SchemaObject):
             if col_md.value_expr is not None:
                 col.value_expr = exprs.Expr.from_dict(col_md.value_expr, self)
                 self._record_value_expr(col)
-
-        for col in [col for col in self.cols if col.col_type.is_image_type()]:
-            if col.is_indexed:
-                col.set_idx(VectorIndex.load(self._vector_idx_name(self.id, col), dim=512))
 
     @property
     def version(self) -> int:
@@ -371,18 +361,6 @@ class Table(SchemaObject):
             result.extend(col.dependent_cols)
         result = [self.cols_by_id[id] for id in set([c.id for c in result])]
         return result + self._get_dependent_cols(result)
-
-    def _load_valid_rowids(self) -> None:
-        if not any(col.col_type.is_image_type() for col in self.cols):
-            return
-        stmt = sql.select(self.rowid_col) \
-            .where(self.v_min_col <= self.version) \
-            .where(self.v_max_col > self.version)
-        with Env.get().engine.begin() as conn:
-            rows = conn.execute(stmt)
-            for row in rows:
-                rowid = row[0]
-                self.valid_rowids.add(rowid)
 
     def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
         """Return a ColumnRef for the given column name.
@@ -479,14 +457,17 @@ class Table(SchemaObject):
             sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION))
 
         sa_cols = [self.rowid_col, self.v_min_col, self.v_max_col]
-        for col in [c for c in self.cols if c.is_stored]:
+        for col in [c for c in self.cols if c.is_stored or c.is_indexed]:
             # re-create sql.Columns for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
             col.create_sa_cols()
-            sa_cols.append(col.sa_col)
-            if col.is_computed:
-                sa_cols.append(col.sa_errormsg_col)
-                sa_cols.append(col.sa_errortype_col)
+            if col.is_stored:
+                sa_cols.append(col.sa_col)
+                if col.is_computed:
+                    sa_cols.append(col.sa_errormsg_col)
+                    sa_cols.append(col.sa_errortype_col)
+            if col.is_indexed:
+                sa_cols.append(col.sa_idx_col)
 
         if hasattr(self, 'sa_tbl'):
             self.sa_md.remove(self.sa_tbl)
@@ -505,8 +486,6 @@ class TableSnapshot(Table):
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
         super().__init__(snapshot_record.tbl_id, snapshot_record.dir_id, snapshot_md, schema_version_md)
         self.snapshot_tbl_id = snapshot_record.id
-        # it's safe to call _load_valid_rowids() here because the storage table already exists
-        self._load_valid_rowids()
 
     def __repr__(self) -> str:
         return f'TableSnapshot(name={self.name})'
@@ -641,11 +620,13 @@ class MutableTable(Table):
                             f'ADD COLUMN {col.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
                     conn.execute(sql.text(stmt))
                     added_storage_cols.extend([col.errormsg_storage_name(), col.errortype_storage_name()])
+                if col.is_indexed:
+                    stmt = (f'ALTER TABLE {self.storage_name()} '
+                            f'ADD COLUMN {col.index_storage_name()} VECTOR(512) DEFAULT NULL')
+                    conn.execute(sql.text(stmt))
+                    added_storage_cols.append(col.index_storage_name())
                 self._create_sa_tbl()
                 _logger.info(f'Added columns {added_storage_cols} to storage table {self.storage_name()}')
-
-        if col.is_indexed:
-            col.set_idx(VectorIndex.create(Table._vector_idx_name(self.id, col), 512))
 
         row_count = self.count()
         if row_count == 0:
@@ -658,8 +639,7 @@ class MutableTable(Table):
         from pixeltable.plan import Planner
         plan, value_expr_slot_idx, embedding_slot_idx = Planner.create_add_column_plan(self, col)
         plan.ctx.num_rows = row_count
-        embeddings: List[np.ndarray] = []
-        rowids: List[int] = []
+        # TODO: create pgvector index, if col is indexed
 
         plan.open()
         with Env.get().engine.begin() as conn:
@@ -669,6 +649,8 @@ class MutableTable(Table):
                 for row_batch in plan:
                     num_rows += len(row_batch)
                     for result_row in row_batch:
+                        values_dict: Dict[sql.Column, Any] = {}
+
                         if col.is_computed:
                             if result_row.has_exc(value_expr_slot_idx):
                                 num_excs += 1
@@ -676,25 +658,27 @@ class MutableTable(Table):
                                 # we store a NULL value and record the exception/exc type
                                 error_type = type(value_exc).__name__
                                 error_msg = str(value_exc)
-                                conn.execute(
-                                    sql.update(self.sa_tbl)
-                                        .values({
-                                            col.sa_col: None,
-                                            col.sa_errortype_col: error_type,
-                                            col.sa_errormsg_col: error_msg
-                                        })
-                                        .where(self.rowid_col == result_row.row_id)
-                                        .where(self.v_min_col == result_row.v_min))
+                                values_dict = {
+                                    col.sa_col: None,
+                                    col.sa_errortype_col: error_type,
+                                    col.sa_errormsg_col: error_msg
+                                }
                             else:
                                 val = result_row.get_stored_val(value_expr_slot_idx)
-                                conn.execute(
-                                    sql.update(self.sa_tbl)
-                                        .values({col.sa_col: val})
-                                        .where(self.rowid_col == result_row.row_id)
-                                        .where(self.v_min_col == result_row.v_min))
+                                values_dict = {col.sa_col: val}
+
                         if col.is_indexed:
-                            embeddings.append(result_row[embedding_slot_idx])
-                            rowids.append(result_row.row_id)
+                            # TODO: deal with exceptions
+                            assert not result_row.has_exc(embedding_slot_idx)
+                            # don't use get_stored_val() here, we need to pass the ndarray
+                            embedding = result_row[embedding_slot_idx]
+                            values_dict[col.sa_index_col] = embedding
+
+                        conn.execute(
+                            sql.update(self.sa_tbl)
+                                .values(values_dict)
+                                .where(self.rowid_col == result_row.row_id)
+                                .where(self.v_min_col == result_row.v_min))
 
                 msg = f'added {row_count} column values with {num_excs} error{"" if num_excs == 1 else "s"}'
                 print(msg)
@@ -709,10 +693,6 @@ class MutableTable(Table):
                 raise exc.Error(f'Error during SQL execution:\n{e}')
             finally:
                 plan.close()
-
-        if col.is_indexed:
-            # update the index
-            col.idx.add(embeddings, rowids)
 
     def drop_column(self, name: str) -> None:
         """Drop a column from the table.
@@ -928,12 +908,13 @@ class MutableTable(Table):
                     raise exc.Error(f'Column {col.name} in row {row_idx}: {e}')
 
     class TableRowBuilder:
-        def __init__(self, output_spec: List[ColumnInfo]):
+        def __init__(self, schema_col_info: List[ColumnInfo], idx_col_info: List[ColumnInfo]):
             """
             Args:
                 output_spec: list of (Column, slot_idx)
             """
-            self.output_spec = output_spec
+            self.schema_col_info = schema_col_info
+            self.idx_col_info = idx_col_info
 
         def create_row(
                 self, input_row: 'exprs.DataRow', rowid: int, version: int, exc_col_ids: Set[int]
@@ -941,7 +922,7 @@ class MutableTable(Table):
             """Return (a dict that represents a stored row (can be passed to sql.insert()), # of exceptions)"""
             num_excs = 0
             table_row: Dict[str, Any] = {}
-            for info in self.output_spec:
+            for info in self.schema_col_info:
                 if input_row.has_exc(info.slot_idx):
                     # exceptions get stored in the errortype/-msg columns
                     exc = input_row.get_exc(info.slot_idx)
@@ -956,6 +937,12 @@ class MutableTable(Table):
                     # we unfortunately need to set these, even if there are no errors
                     table_row[info.col.errortype_storage_name()] = None
                     table_row[info.col.errormsg_storage_name()] = None
+
+            for info in self.idx_col_info:
+                # don't use get_stored_val() here, we need to pass in the ndarray
+                val = input_row[info.slot_idx]
+                table_row[info.col.index_storage_name()] = val
+
             table_row.update({'rowid': rowid, 'v_min': version})
             return table_row, num_excs
 
@@ -973,7 +960,7 @@ class MutableTable(Table):
         # we're creating a new version
         self.tbl_md.current_version += 1
         from pixeltable.plan import Planner
-        plan, db_col_info, idx_col_info, num_values_per_row = Planner.create_insert_plan(self, rows, column_names)
+        plan, schema_col_info, idx_col_info, num_values_per_row = Planner.create_insert_plan(self, rows, column_names)
         plan.open()
         rows = next(plan)
         plan.close()
@@ -982,7 +969,7 @@ class MutableTable(Table):
         start_row_id = self.tbl_md.next_row_id
         batch_size = 16
         progress_bar = tqdm(total=len(rows), desc='Inserting rows into table', unit='rows')
-        row_builder = self.TableRowBuilder(db_col_info)
+        row_builder = self.TableRowBuilder(schema_col_info, idx_col_info)
         with Env.get().engine.begin() as conn:
             num_excs = 0
             cols_with_excs: Set[int] = set()
@@ -1005,15 +992,8 @@ class MutableTable(Table):
                     .values({schema.Table.md: dataclasses.asdict(self.tbl_md)})
                     .where(schema.Table.id == self.id))
 
-        if len(idx_col_info) > 0:
-            # update image indices
-            for info in tqdm(idx_col_info, desc='Updating image indices', unit='column'):
-                embeddings = [row[info.slot_idx] for row in rows]
-                info.col.idx.insert(np.asarray(embeddings), np.arange(start_row_id, self.tbl_md.next_row_id))
-
         if print_stats:
             plan.ctx.profile.print(num_rows=len(rows))
-        self.valid_rowids.update(range(start_row_id, self.tbl_md.next_row_id))
         if num_excs == 0:
             cols_with_excs_str = ''
         else:
@@ -1106,7 +1086,8 @@ class MutableTable(Table):
             ColumnInfo(col, select_list[i].slot_idx)
             for i, col in enumerate(copied_cols + updated_cols + recomputed_cols)  # same order as select_list
         ]
-        row_builder = self.TableRowBuilder(table_row_info)
+        # we assume that embeddings don't change
+        row_builder = self.TableRowBuilder(table_row_info, [])
         plan.open()
         num_excs = 0
         num_rows = 0
@@ -1421,10 +1402,6 @@ class MutableTable(Table):
                     pos=pos, name=col.name, col_type=col.col_type.as_dict(),
                     is_pk=col.primary_key, value_expr=value_expr_dict, stored=col.stored, is_indexed=col.is_indexed)
 
-                # for image cols, add VectorIndex for kNN search
-                if col.is_indexed and col.col_type.is_image_type():
-                    col.set_idx(VectorIndex.create(Table._vector_idx_name(tbl_record.id, col), 512))
-
             schema_version_md = schema.TableSchemaVersionMd(
                 schema_version=0, preceding_schema_version=None, columns=column_md)
             schema_version_record = schema.TableSchemaVersion(
@@ -1435,6 +1412,7 @@ class MutableTable(Table):
             assert tbl_record.id is not None
             tbl = MutableTable(tbl_record, schema_version_record)
             tbl.sa_md.create_all(bind=session.connection())
+            # TODO: create pgvector indices
             session.commit()
             _logger.info(f'created table {name}, id={tbl_record.id}')
             return tbl
@@ -1533,7 +1511,6 @@ class PathDict:
                     f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}")))
             for tbl_record, schema_version_record in q.all():
                 tbl = MutableTable(tbl_record, schema_version_record)
-                tbl._load_valid_rowids()  # TODO: move this someplace more appropriate
                 self.schema_objs[tbl.id] = tbl
                 assert tbl_record.dir_id is not None
                 dir = self.schema_objs[tbl_record.dir_id]

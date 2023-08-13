@@ -157,6 +157,10 @@ class Env:
             from pixeltable.metadata import schema
             schema.Base.metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
+            # enable pgvector
+            with self._sa_engine.begin() as conn:
+                conn.execute(sql.text('CREATE EXTENSION vector'))
+
         else:
             self._logger.info(f'found database {self.db_url(hide_passwd=True)}')
             if self._sa_engine is None:
@@ -169,29 +173,30 @@ class Env:
         """
         Start store and runtime containers.
         """
-        cl = docker.from_env()
-        try:
-            self._store_container = cl.containers.get('pixeltable-store')
-            self._logger.info('found store container')
-        except docker.errors.NotFound:
-            self._logger.info('starting store container')
-            self._store_container = cl.containers.run(
-                self._postgres_image(),
-                detach=True,
-                name='pixeltable-store',
-                ports={'5432/tcp': self._db_port},
-                environment={
-                    'POSTGRES_USER': self._db_user,
-                    'POSTGRES_PASSWORD': self._db_password,
-                    'POSTGRES_DB': self._db_name,
-                    'PGDATA': '/var/lib/postgresql/data',
-                },
-                volumes={
-                    str(self._home / 'pgdata') : {'bind': '/var/lib/postgresql/data', 'mode': 'rw'},
-                },
-                remove=True,
-            )
-            self._wait_for_postgres()
+        if not self._is_apple_cpu():
+            cl = docker.from_env()
+            try:
+                self._store_container = cl.containers.get('pixeltable-store')
+                self._logger.info('found store container')
+            except docker.errors.NotFound:
+                self._logger.info('starting store container')
+                self._store_container = cl.containers.run(
+                    self._postgres_image(),
+                    detach=True,
+                    name='pixeltable-store',
+                    ports={'5432/tcp': self._db_port},
+                    environment={
+                        'POSTGRES_USER': self._db_user,
+                        'POSTGRES_PASSWORD': self._db_password,
+                        'POSTGRES_DB': self._db_name,
+                        'PGDATA': '/var/lib/postgresql/data',
+                    },
+                    volumes={
+                        str(self._home / 'pgdata') : {'bind': '/var/lib/postgresql/data', 'mode': 'rw'},
+                    },
+                    remove=True,
+                )
+                self._wait_for_postgres()
 
         self._logger.info('connecting to NOS')
         nos.init(logging_level=logging.DEBUG)
@@ -229,9 +234,11 @@ class Env:
 
     def _postgres_image(self) -> str:
         if self._is_apple_cpu():
-            return 'arm64v8/postgres:15-alpine'
+            return 'ankane/pgvector:latest'
+            #return 'arm64v8/postgres:15-alpine'
         else:
-            return 'postgres:15-alpine'
+            #return 'postgres:15-alpine'
+            return 'ankane/pgvector:latest'
 
     def ffmpeg_image(self) -> str:
        if self._is_apple_cpu():
