@@ -23,31 +23,31 @@ class TestFunctions:
         files = get_video_files()
         tbl.insert([[files[-1]]], ['video'])
         tbl.add_column(catalog.Column('frame_s', computed_with=tbl.frame.resize((640, 480))))
-        from pixeltable.functions.object_detection_2d import yolox_nano, yolox_large, yolox_xlarge
-        tbl.add_column(catalog.Column('detections_n', computed_with=yolox_nano(tbl.frame_s)))
-        tbl.add_column(catalog.Column('detections_l', computed_with=yolox_large(tbl.frame_s)))
-        tbl.add_column(catalog.Column('gt', computed_with=yolox_xlarge(tbl.frame_s)))
+        from pixeltable.functions.object_detection_2d import yolox_nano, yolox_small, yolox_large
+        tbl.add_column(catalog.Column('detections_a', computed_with=yolox_nano(tbl.frame_s)))
+        tbl.add_column(catalog.Column('detections_b', computed_with=yolox_small(tbl.frame_s)))
+        tbl.add_column(catalog.Column('gt', computed_with=yolox_large(tbl.frame_s)))
         from pixeltable.functions.eval import eval_detections, mean_ap
         res = tbl.select(
             eval_detections(
-                tbl.detections_n.bboxes, tbl.detections_n.labels, tbl.detections_n.scores, tbl.gt.bboxes, tbl.gt.labels
+                tbl.detections_a.bboxes, tbl.detections_a.labels, tbl.detections_a.scores, tbl.gt.bboxes, tbl.gt.labels
             )).show()
         tbl.add_column(
             catalog.Column(
-                'eval_n',
+                'eval_a',
                 computed_with=eval_detections(
-                    tbl.detections_n.bboxes, tbl.detections_n.labels, tbl.detections_n.scores, tbl.gt.bboxes,
+                    tbl.detections_a.bboxes, tbl.detections_a.labels, tbl.detections_a.scores, tbl.gt.bboxes,
                     tbl.gt.labels)
             ))
         tbl.add_column(
             catalog.Column(
-                'eval_l',
+                'eval_b',
                 computed_with=eval_detections(
-                    tbl.detections_l.bboxes, tbl.detections_l.labels, tbl.detections_l.scores, tbl.gt.bboxes,
+                    tbl.detections_b.bboxes, tbl.detections_b.labels, tbl.detections_b.scores, tbl.gt.bboxes,
                     tbl.gt.labels)
             ))
-        ap_n = tbl.select(mean_ap(tbl.eval_n)).show()[0, 0]
-        ap_l = tbl.select(mean_ap(tbl.eval_l)).show()[0, 0]
-        common_classes = set(ap_n.keys()) & set(ap_l.keys())
+        ap_a = tbl.select(mean_ap(tbl.eval_a)).show()[0, 0]
+        ap_b = tbl.select(mean_ap(tbl.eval_b)).show()[0, 0]
+        common_classes = set(ap_a.keys()) & set(ap_b.keys())
         for k in common_classes:
-            assert ap_n[k] <= ap_l[k]
+            assert ap_a[k] <= ap_b[k]
