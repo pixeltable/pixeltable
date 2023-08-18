@@ -2,6 +2,7 @@ from __future__ import annotations
 import sys
 import types
 from typing import Optional, Callable, Dict, List, Any, Tuple
+from types import ModuleType
 import importlib
 import sqlalchemy as sql
 import cloudpickle
@@ -110,10 +111,11 @@ class Function:
 
     def __init__(
             self, md: Function.Metadata, id: Optional[UUID] = None,
-            module_name: Optional[str] = None, eval_symbol: Optional[str] = None, init_symbol: Optional[str] = None,
-            update_symbol: Optional[str] = None, value_symbol: Optional[str] = None,
-            eval_fn: Optional[Callable] = None, init_fn: Optional[Callable] = None,
-            update_fn: Optional[Callable] = None, value_fn: Optional[Callable] = None
+            module_name: Optional[str] = None, eval_symbol: Optional[str] = None,
+            init_symbol: Optional[str] = None, update_symbol: Optional[str] = None, value_symbol: Optional[str] = None,
+            eval_fn: Optional[Callable] = None,
+            init_fn: Optional[Callable] = None, update_fn: Optional[Callable] = None,
+            value_fn: Optional[Callable] = None
     ):
         self.id = id
         self.module_name = module_name
@@ -167,6 +169,15 @@ class Function:
                 f"the number of provided parameter types: "
                 f"{len(param_names)} ({', '.join(param_names)}) vs "
                 f"{len(param_types)} ({', '.join([str(t) for t in param_types])})")
+        for idx, param_name in enumerate(param_names):
+            default_val = sig.parameters[param_name].default
+            if default_val == inspect.Parameter.empty:
+                continue
+            try:
+                param_types[idx].validate_literal(default_val)
+            except TypeError as e:
+                raise exc.Error(f'Default value for parameter {param_name}: {str(e)}')
+
         parameters = [(param_names[i], param_types[i]) for i in range(len(param_names))]
         return Signature(return_type, parameters)
 
@@ -209,7 +220,8 @@ class Function:
     ) -> Function:
         assert module_name is not None and eval_symbol is not None
         eval_fn = _resolve_symbol(module_name, eval_symbol)
-        signature = cls._create_signature(eval_fn, False, param_types, return_type, check_params=False)
+        signature = cls._create_signature(eval_fn, False, param_types, return_type, check_params=True)
+        #signature = cls._create_signature(eval_fn, False, param_types, return_type, check_params=False)
         md = cls.Metadata(signature, False, True)
         return Function(md, module_name=module_name, eval_symbol=eval_symbol)
 
@@ -230,6 +242,15 @@ class Function:
         return Function(
             md, module_name=module_name,
             init_symbol=init_symbol, update_symbol=update_symbol, value_symbol=value_symbol)
+
+    @classmethod
+    def make_nos_function(
+            cls, return_type: ColumnType, param_types: List[ColumnType], param_names: List[str]
+    ) -> Function:
+        assert len(param_names) == len(param_types)
+        signature = Signature(return_type, [(name, col_type) for name, col_type in zip(param_names, param_types)])
+        md = cls.Metadata(signature, False, True)
+        return Function(md, module_name=module_name, eval_symbol=eval_symbol)
 
     @property
     def is_aggregate(self) -> bool:
@@ -378,6 +399,15 @@ class FunctionRegistry:
         Useful during testing
         """
         self.stored_fns_by_id: Dict[UUID, Function] = {}
+
+    def register_module(self, module: ModuleType) -> None:
+        """Register all Functions in a module"""
+        for name in dir(module):
+            obj = getattr(module, name)
+            if isinstance(obj, Function):
+                fqn = f'{module.__name__}.{name}'  # fully-qualified name
+                self.library_fns[fqn] = obj
+                obj.md.fqn = fqn
 
     def register_function(self, module_name: str, fn_name: str, fn: Function) -> None:
         fqn = f'{module_name}.{fn_name}'  # fully-qualified name

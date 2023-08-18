@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Tuple, Dict
 from collections import defaultdict
+import sys
 
 import numpy as np
 
@@ -173,7 +174,6 @@ eval_detections = Function.make_library_function(
     [JsonType(nullable=False), JsonType(nullable=False), JsonType(nullable=False), JsonType(nullable=False),
      JsonType(nullable=False)],
     __name__, '_eval_detections')
-FunctionRegistry.get().register_function(__name__, 'eval_detections', eval_detections)
 
 class MeanAPAggregator:
     def __init__(self):
@@ -220,5 +220,5 @@ mean_ap = Function.make_library_aggregate_function(
     update_symbol = 'MeanAPAggregator.update',
     value_symbol = 'MeanAPAggregator.value',
     allows_std_agg=True, allows_window=False)
-FunctionRegistry.get().register_function(__name__, 'mean_ap', mean_ap)
 
+FunctionRegistry.get().register_module(sys.modules[__name__])

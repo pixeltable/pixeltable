@@ -133,3 +133,30 @@ class TestFunction:
     def test_list(self, test_client: pt.Client) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
+
+    def test_call(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+
+        @pt.function(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType()])
+        def f1(a: int, b: float, c: float = 0.0) -> float:
+            return a + b + c
+
+        # _ = t[f1(t.c2, t.c3)].show(0)
+        # _ = t[f1(t.c2, t.c3, 0.0)].show(0)
+        # _ = t[f1(t.c2, t.c3, 1.0)].show(0)
+        # _ = t[f1(c=0.0, b=t.c3, a=t.c2)].show(0)
+        # _ = t[f1(c=1.0, b=t.c3, a=t.c2)].show(0)
+        #
+        # with pytest.raises(exc.Error):
+        #     _ = t[f1(t.c2, c=0.0)].show(0)
+        # with pytest.raises(exc.Error):
+        #     _ = t[f1(t.c2)].show(0)
+        # with pytest.raises(exc.Error):
+        #     _ = t[f1(c=1.0, a=t.c2)].show(0)
+
+        # bad default value
+        with pytest.raises(exc.Error):
+            @pt.function(return_type=IntType(), param_types=[IntType(), FloatType()])
+            def f1(a: int, b: float, c: str = '') -> float:
+                return a + b + c
+
