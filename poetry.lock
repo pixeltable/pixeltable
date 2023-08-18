@@ -99,12 +99,12 @@ tests-no-zope = ["cloudpickle", "hypothesis", "mypy (>=1.1.1)", "pympler", "pyte
 
 [[package]]
 name = "autonomi-nos"
-version = "0.0.9a1"
+version = "0.0.9"
 description = "Nitrous oxide system (NOS) for computer-vision."
 optional = false
 python-versions = ">=3.7.10"
 files = [
-    {file = "autonomi_nos-0.0.9a1-py3-none-any.whl", hash = "sha256:9b151a601bda8ac30a801640199e7b80f19295bc9cd7e32c3b1e947c708e214e"},
+    {file = "autonomi_nos-0.0.9-py3-none-any.whl", hash = "sha256:9fbf8f8c0ebc04e4f2ca54234a18ebaf4971bedece02ace889132ac790b58a44"},
 ]
 
 [package.dependencies]
@@ -3381,4 +3381,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "2e3fd21e0703b04df5c40ab0a1fe14598d3ba3f5be89de0a2282d848516106b6"
+content-hash = "b87dc9080dfd90670fcb1fb2f5ad6caaf8639880df79a000d8619571c5105ad0"
