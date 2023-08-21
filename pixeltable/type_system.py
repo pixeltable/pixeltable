@@ -193,6 +193,17 @@ class ColumnType:
     def __eq__(self, other: object) -> bool:
         return self.matches(other) and self.nullable == other.nullable
 
+    def is_supertype_of(self, other: ColumnType) -> bool:
+        if type(self) != type(other):
+            return False
+        if self.matches(other):
+            return True
+        return self._is_supertype_of(other)
+
+    @abc.abstractmethod
+    def _is_supertype_of(self, other: ColumnType) -> bool:
+        return False
+
     def matches(self, other: object) -> bool:
         """Two types match if they're equal, aside from nullability"""
         assert isinstance(other, ColumnType)
@@ -630,27 +641,9 @@ class ArrayType(ColumnType):
 
 
 class ImageType(ColumnType):
-    @enum.unique
-    class Mode(enum.Enum):
-        L = 0,
-        RGB = 1
-
-        @classmethod
-        def from_pil(cls, pil_mode: str) -> 'Mode':
-            if pil_mode == 'L':
-                return cls.L
-            if pil_mode == 'RGB':
-                return cls.RGB
-
-        def to_pil(self) -> str:
-            return self.name
-
-        def num_channels(self) -> int:
-            return len(self.name)
-
     def __init__(
             self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[Tuple[int, int]] = None,
-            mode: Optional[Mode] = None, nullable: bool = False
+            mode: Optional[str] = None, nullable: bool = False
     ):
         """
         TODO: does it make sense to specify only width or height?
@@ -684,13 +677,27 @@ class ImageType(ColumnType):
             params_str = ''
         return f'{self._type.name.lower()}{params_str}'
 
+    def _is_supertype_of(self, other: ImageType) -> bool:
+        if self.mode != other.mode:
+            return False
+        if self.width is None and self.height is None:
+            return True
+        if self.width != other.width and self.height != other.height:
+            return False
+
+    @property
+    def size(self) -> Optional[Tuple[int, int]]:
+        if self.width is None or self.height is None:
+            return None
+        return (self.width, self.height)
+
     @property
     def num_channels(self) -> Optional[int]:
         return None if self.mode is None else self.mode.num_channels()
 
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
-        result.update(width=self.width, height=self.height, mode=self.mode.value if self.mode is not None else None)
+        result.update(width=self.width, height=self.height, mode=self.mode)
         return result
 
     @classmethod
@@ -698,10 +705,7 @@ class ImageType(ColumnType):
         assert 'width' in d
         assert 'height' in d
         assert 'mode' in d
-        mode_val = d['mode']
-        return cls(
-            width=d['width'], height=d['height'], mode=cls.Mode(mode_val) if mode_val is not None else None,
-            nullable=d['nullable'])
+        return cls(width=d['width'], height=d['height'], mode=d['mode'], nullable=d['nullable'])
 
     def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
         if not target.is_image_type():

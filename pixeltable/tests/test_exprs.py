@@ -7,7 +7,7 @@ from pixeltable import catalog
 from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType, VideoType
 from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
-from pixeltable.functions import udf_call, dict_map, cast, sum, count
+from pixeltable.functions import dict_map, cast, sum, count
 from pixeltable.functions.pil.image import blend
 from pixeltable import exceptions as exc
 from pixeltable import exprs
@@ -309,8 +309,6 @@ class TestExprs:
         t = img_tbl
         result = t[t.img].show(n=100)
         _ = result._repr_html_()
-        df = t[t.img, udf_call(lambda img: img.rotate(60), ImageType(), tbl=t)]
-        _ = df.show(n=100)._repr_html_()
         df = t[[t.img, t.img.rotate(60)]]
         _ = df.show(n=100)._repr_html_()
 
@@ -331,10 +329,13 @@ class TestExprs:
 
     def test_img_functions(self, img_tbl) -> None:
         t = img_tbl
+        from pixeltable.functions.pil.image import resize
+        result = t[t.img.resize((224, 224))].show(0)
+        result = t[resize(t.img, (224, 224))].show(0)
         result = t[blend(t.img, t.img.rotate(90), 0.5)].show(100)
         print(result)
         from pixeltable.functions.image_embedding import openai_clip
-        result = t[openai_clip(t.img)].show(10)
+        result = t[openai_clip(t.img.resize((224, 224)))].show(10)
         print(result)
         _ = result._repr_html_()
         _ = t.img.entropy() > 1
@@ -372,7 +373,6 @@ class TestExprs:
         # nearest() with one SQL predicate and one Python predicate
         result = t[t.img.nearest(img) & (t.category == probe[0, 1]) & (t.img.width > 1)].show(10)
         # TODO: figure out how to verify results
-        #assert len(result) == 3
 
         result = t[t.img.nearest('musical instrument')].show(10)
         assert len(result) == 10
@@ -381,7 +381,10 @@ class TestExprs:
         result = t[
             t.img.nearest('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)
         ].show(10)
-        #assert len(result) == 6
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t[t.img.nearest(5)].show()
+        assert 'requires' in str(exc_info.value)
 
     # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
     # doesn't get created; why?

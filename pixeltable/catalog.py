@@ -1310,7 +1310,7 @@ class MutableTable(Table):
                     f'Column {col.name}: compute_with parameter refers to an unknown column: {param_name}')
             args.append(exprs.ColumnRef(existing_cols[param_name]))
         fn = Function.make_function(col.col_type, [arg.col_type for arg in args], col.compute_func)
-        col.value_expr = exprs.FunctionCall(fn, args)
+        col.value_expr = fn(*args)
 
     def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
         column_md: Dict[int, schema.SchemaColumn] = {}

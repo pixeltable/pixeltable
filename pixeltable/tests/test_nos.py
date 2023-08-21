@@ -24,7 +24,7 @@ class TestNOS:
             torchvision_fasterrcnn_mobilenet_v3_large_320_fpn as fasterrcnn
         tbl.add_column(catalog.Column('detections', computed_with=fasterrcnn(tbl.transform1)))
         from pixeltable.functions.image_embedding import openai_clip
-        tbl.add_column(catalog.Column('embed', computed_with=openai_clip(tbl.transform1)))
+        tbl.add_column(catalog.Column('embed', computed_with=openai_clip(tbl.transform1.resize((224, 224)))))
         # add a stored column that isn't referenced in nos calls
         tbl.add_column(catalog.Column('transform2', computed_with=tbl.frame.rotate(60), stored=True))
 

@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Optional
 import pandas as pd
 import logging
 import dataclasses
@@ -69,13 +69,11 @@ class Client:
         names = [info.fqn.split('.')[-1] for info in func_info]
         pd_df = pd.DataFrame({
             'Path': paths,
-            'Name': names,
+            'Function Name': names,
             'Parameters': [
-                ', '.join([p[0] + ': ' + str(p[1]) for p in info.signature.parameters]) for info in func_info
+                ', '.join([param_name + ': ' + str(param_type) for param_name, param_type in info.signature.parameters.items()]) for info in func_info
             ],
-            'Return Type': [str(info.signature.return_type) for info in func_info],
-            'Is Agg': [info.is_agg for info in func_info],
-            'Library': [info.is_library_fn for info in func_info],
+            'Return Type': [str(info.signature.get_return_type()) for info in func_info],
         })
         pd_df = pd_df.style.set_properties(**{'text-align': 'left'}) \
             .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])  # center-align headings

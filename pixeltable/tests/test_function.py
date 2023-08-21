@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from pixeltable.function import Function, FunctionRegistry
@@ -137,26 +138,81 @@ class TestFunction:
     def test_call(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
-        @pt.function(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType()])
-        def f1(a: int, b: float, c: float = 0.0) -> float:
-            return a + b + c
+        @pt.function(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])
+        def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
+            return a + b + c + d
 
-        # _ = t[f1(t.c2, t.c3)].show(0)
-        # _ = t[f1(t.c2, t.c3, 0.0)].show(0)
-        # _ = t[f1(t.c2, t.c3, 1.0)].show(0)
-        # _ = t[f1(c=0.0, b=t.c3, a=t.c2)].show(0)
-        # _ = t[f1(c=1.0, b=t.c3, a=t.c2)].show(0)
-        #
-        # with pytest.raises(exc.Error):
-        #     _ = t[f1(t.c2, c=0.0)].show(0)
-        # with pytest.raises(exc.Error):
-        #     _ = t[f1(t.c2)].show(0)
-        # with pytest.raises(exc.Error):
-        #     _ = t[f1(c=1.0, a=t.c2)].show(0)
+        r0 = t[t.c2, t.c3].show(0).to_pandas()
+        # positional params with default args
+        r1 = t[f1(t.c2, t.c3)].show(0).to_pandas()['col_0']
+        assert np.all(r1 == r0.c2 + r0.c3 + 1.0)
+        # kw args only
+        r2 = t[f1(c=0.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
+        assert np.all(r1 == r2)
+        # overriding default args
+        r3 = t[f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
+        assert np.all(r2 == r3)
+        # overriding default with positional arg
+        r4 = t[f1(t.c2, t.c3, 0.0)].show(0).to_pandas()['col_0']
+        assert np.all(r3 == r4)
+        # overriding default with positional arg and kw arg
+        r5 = t[f1(t.c2, t.c3, 1.0, d=0.0)].show(0).to_pandas()['col_0']
+        assert np.all(r4 == r5)
+        # d is kwarg
+        r6 = t[f1(t.c2, d=1.0, b=t.c3)].show(0).to_pandas()['col_0']
+        assert np.all(r5 == r6)
+        # d is Expr kwarg
+        r6 = t[f1(1, d=t.c3, b=t.c3)].show(0).to_pandas()['col_0']
+        assert np.all(r5 == r6)
+
+        # test handling of Nones
+        @pt.function(
+            return_type=IntType(),
+            param_types=[IntType(nullable=True), FloatType(nullable=False), FloatType(nullable=True)])
+        def f2(a: int, b: float = 0.0, c: float = 1.0) -> float:
+            return (0.0 if a is None else a) + b + (0.0 if c is None else c)
+        r0 = t[f2(1, t.c3)].show(0).to_pandas()['col_0']
+        r1 = t[f2(None, t.c3, 2.0)].show(0).to_pandas()['col_0']
+        assert np.all(r0 == r1)
+        r2 = t[f2(2, t.c3, None)].show(0).to_pandas()['col_0']
+        assert np.all(r1 == r2)
+        # kwarg with None
+        r3 = t[f2(c=None, a=t.c2)].show(0).to_pandas()['col_0']
+        # kwarg with Expr
+        r4 = t[f2(c=t.c3, a=None)].show(0).to_pandas()['col_0']
+        assert np.all(r3 == r4)
+
+        with pytest.raises(TypeError) as exc_info:
+            _ = t[f1(t.c2, c=0.0)].show(0)
+        assert "'b'" in str(exc_info.value)
+        with pytest.raises(TypeError) as exc_info:
+            _ = t[f1(t.c2)].show(0)
+        assert "'b'" in str(exc_info.value)
+        with pytest.raises(TypeError) as exc_info:
+            _ = t[f1(c=1.0, a=t.c2)].show(0)
+        assert "'b'" in str(exc_info.value)
 
         # bad default value
-        with pytest.raises(exc.Error):
+        with pytest.raises(exc.Error) as exc_info:
+            @pt.function(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType()])
+            def f1(a: int, b: float, c: str = '') -> float:
+                return a + b + c
+        assert 'default value' in str(exc_info.value).lower()
+        # missing param type
+        with pytest.raises(exc.Error) as exc_info:
             @pt.function(return_type=IntType(), param_types=[IntType(), FloatType()])
             def f1(a: int, b: float, c: str = '') -> float:
                 return a + b + c
-
+        assert 'number of parameters' in str(exc_info.value)
+        # bad parameter name
+        with pytest.raises(exc.Error) as exc_info:
+            @pt.function(return_type=IntType(), param_types=[IntType()])
+            def f1(group_by: int) -> int:
+                return group_by
+        assert 'reserved' in str(exc_info.value)
+        # bad parameter name
+        with pytest.raises(exc.Error) as exc_info:
+            @pt.function(return_type=IntType(), param_types=[IntType()])
+            def f1(order_by: int) -> int:
+                return order_by
+        assert 'reserved' in str(exc_info.value)

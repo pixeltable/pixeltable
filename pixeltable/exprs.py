@@ -11,6 +11,7 @@ import json
 import io
 from collections.abc import Iterable
 import time
+import inspect
 
 import PIL.Image
 import jmespath
@@ -20,11 +21,12 @@ import nos
 
 from pixeltable import catalog
 from pixeltable.type_system import \
-    ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType, ArrayType
+    ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, JsonType, ArrayType
 from pixeltable.function import Function, FunctionRegistry
 from pixeltable.exceptions import Error, ExprEvalError
 from pixeltable.utils.video import FrameIterator
 from pixeltable.utils import print_perf_counter_delta
+from pixeltable.utils.clip import embed_image, embed_text
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -589,36 +591,61 @@ class FrameColumnRef(ColumnRef):
 
 class FunctionCall(Expr):
     def __init__(
-            self, fn: Function, args: Tuple[Any], order_by_exprs: List[Expr] = [], group_by_exprs: List[Expr] = []):
+            self, fn: Function, bound_args: Dict[str, Any], order_by_exprs: List[Expr] = [],
+            group_by_exprs: List[Expr] = [], is_method_call: bool = False):
         signature = fn.md.signature
-        super().__init__(signature.return_type)
+        super().__init__(signature.get_return_type(bound_args))
         self.fn = fn
+        self.is_method_call = is_method_call
 
-        if signature.parameters is not None:
-            # check if arg types match param types and convert values, if necessary
-            if len(args) != len(signature.parameters):
-                raise Error(
-                    f"Number of arguments doesn't match signature: {args} vs {signature}")
-            args = list(args)
-            for i in range(len(args)):
-                if not isinstance(args[i], Expr):
-                    # TODO: check non-Expr args
+        # check argument types and values
+        for param_name, arg in bound_args.items():
+            if not isinstance(arg, Expr):
+                # make sure that non-Expr args are json-serializable
+                try:
+                    _ = json.dumps(arg)
                     continue
-                param_type = signature.parameters[i][1]
-                if args[i].col_type.matches(param_type):
-                    # nothing to do
-                    continue
-                converter = args[i].col_type.conversion_fn(param_type)
-                if converter is None:
-                    raise Error(f'Cannot convert {args[i].col_type} to {param_type}')
-                if converter == ColumnType.no_conversion:
-                    # nothing to do
-                    continue
-                convert_fn = Function.make_function(param_type, [args[i].col_type], converter)
-                args[i] = FunctionCall(convert_fn, (args[i],))
+                except TypeError:
+                    raise Error(f'Argument for parameter {param_name} is not json-serializable: {arg}')
 
-        self.components = [arg for arg in args if isinstance(arg, Expr)]
-        self.args = [arg if not isinstance(arg, Expr) else None for arg in args]
+            param_type = signature.parameters[param_name]
+            if not param_type.is_supertype_of(arg.col_type):
+                raise Error((
+                    f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
+                    f'{param_type}'))
+
+        # construct components, args, kwargs
+        self.components: List[Expr] = []
+        # Tuple[int, Any]:
+        # - for Exprs: (index into components, None)
+        # - otherwise: (-1, val)
+        self.args: List[Tuple[int, Any]] = []
+        self.arg_types: List[ColumnType] = []  # needed for runtime type checks
+        self.kwargs: Dict[str, Tuple[int, Any]] = {}
+        self.kwarg_types: Dict[str, ColumnType] = {}
+        # the prefix of parameters that are bound can be passed by position
+        for param in fn.py_signature.parameters.values():
+            if param.name not in bound_args or param.kind == inspect.Parameter.KEYWORD_ONLY:
+                break
+            arg = bound_args[param.name]
+            if isinstance(arg, Expr):
+                self.args.append((len(self.components), None))
+                self.components.append(arg.copy())
+            else:
+                self.args.append((-1, arg))
+            self.arg_types.append(signature.parameters[param.name])
+
+        # the remaining args are passed as keywords
+        kw_param_names = set(bound_args.keys()) - set(list(fn.py_signature.parameters.keys())[:len(self.args)])
+        for param_name in kw_param_names:
+            arg = bound_args[param_name]
+            if isinstance(arg, Expr):
+                self.kwargs[param_name] = (len(self.components), None)
+                self.components.append(arg.copy())
+            else:
+                # TODO: make sure it's json-serializable
+                self.kwargs[param_name] = (-1, arg)
+            self.kwarg_types[param_name] = signature.parameters[param_name]
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
@@ -648,10 +675,6 @@ class FunctionCall(Expr):
                 return None
             return type_info.batch_size()
 
-    @property
-    def _eval_fn(self) -> Optional[Callable]:
-        return self.fn.eval_fn
-
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
             return False
@@ -672,17 +695,20 @@ class FunctionCall(Expr):
         return self.display_str()
 
     def display_str(self, inline: bool = True) -> str:
-        fn_name = self.fn.display_name if self.fn.display_name != '' else 'anonymous_fn'
-        return f'{fn_name}({self._print_args()})'
+        if self.is_method_call:
+            return f'{self.components[0]}.{self.fn.name}({self._print_args(1, inline)})'
+        else:
+            fn_name = self.fn.display_name if self.fn.display_name != '' else 'anonymous_fn'
+            return f'{fn_name}({self._print_args()})'
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
-        arg_strs = [str(arg) if arg is not None else '' for arg in self.args[start_idx:]]
-        # fill in missing expr args
-        i = 0
-        for j in range(start_idx, len(self.args)):
-            if self.args[j] is None:
-                arg_strs[j] = str(self.components[i])
-                i += 1
+        arg_strs = [
+            str(arg) if idx == -1 else str(self.components[idx]) for idx, arg in self.args[start_idx:]
+        ]
+        arg_strs.extend([
+            f'{param_name}={str(arg) if idx == -1 else str(self.components[idx])}'
+            for param_name, (idx, arg) in self.kwargs.items()
+        ])
         if len(self.order_by) > 0:
             if self.fn.requires_order_by:
                 arg_strs.insert(0, Expr.print_list(self.order_by))
@@ -739,33 +765,35 @@ class FunctionCall(Expr):
         Update agg state
         """
         assert self.is_agg_fn_call
-        args = self._make_args(data_row)
-        self.fn.update_fn(self.aggregator, *args)
+        args, kwargs = self._make_args(data_row)
+        self.fn.update_fn(*[self.aggregator, *args], **kwargs)
 
-    def _make_args(self, data_row: DataRow) -> List[Any]:
-        args = copy.copy(self.args)
-        # fill in missing child values
-        i = 0
-        for j in range(len(args)):
-            if args[j] is None:
-                args[j] = data_row[self.components[i].slot_idx]
-                i += 1
-        return args
+    def _make_args(self, data_row: DataRow) -> Tuple[List[Any], Dict[str, Any]]:
+        args = [arg if idx == -1 else data_row[self.components[idx].slot_idx] for idx, arg in self.args]
+        kwargs = {
+            param_name: val if idx == -1 else data_row[self.components[idx].slot_idx]
+            for param_name, (idx, val) in self.kwargs.items()
+        }
+        return args, kwargs
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        args = self._make_args(data_row)
+        args, kwargs = self._make_args(data_row)
         signature = self.fn.md.signature
         if signature.parameters is not None:
             # check for nulls
-            assert len(args) == len(signature.parameters)
-            for arg, (_, param_type) in zip(args, signature.parameters):
+            for arg, param_type in zip(args, self.arg_types):
                 if arg is None and not param_type.nullable:
+                    # we can't evaluate this function
+                    data_row[self.slot_idx] = None
+                    return
+            for param_name, param_type in self.kwarg_types.items():
+                if kwargs[param_name] is None and not param_type.nullable:
                     # we can't evaluate this function
                     data_row[self.slot_idx] = None
                     return
 
         if not self.fn.is_aggregate:
-            data_row[self.slot_idx] = self.fn.eval_fn(*args)
+            data_row[self.slot_idx] = self.fn.eval_fn(*args, **kwargs)
         elif self.is_window_fn_call:
             if self.has_group_by():
                 if self.current_partition_vals is None:
@@ -785,7 +813,7 @@ class FunctionCall(Expr):
 
     def _as_dict(self) -> Dict:
         result = {
-            'fn': self.fn.as_dict(), 'args': self.args,
+            'fn': self.fn.as_dict(), 'args': self.args, 'kwargs': self.kwargs,
             'group_by_start_idx': self.group_by_start_idx, 'group_by_stop_idx': self.group_by_stop_idx,
             'order_by_start_idx': self.order_by_start_idx,
             **super()._as_dict()
@@ -796,68 +824,18 @@ class FunctionCall(Expr):
     def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
         assert 'fn' in d
         assert 'args' in d
-        # reassemble args
-        args = [arg if arg is not None else components[i] for i, arg in enumerate(d['args'])]
+        assert 'kwargs' in d
+        # reassemble bound args
+        fn = Function.from_dict(d['fn'])
+        param_names = list(fn.md.signature.parameters.keys())
+        bound_args = {param_names[i]: arg if idx == -1 else components[idx] for i, (idx, arg) in enumerate(d['args'])}
+        bound_args.update(
+            {param_name: val if idx == -1 else components[idx] for param_name, (idx, val) in d['kwargs'].items()})
         group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx']:]
-        fn_call = cls(Function.from_dict(d['fn']), args, group_by_exprs=group_by_exprs, order_by_exprs=order_by_exprs)
+        fn_call = cls(
+            Function.from_dict(d['fn']), bound_args, group_by_exprs=group_by_exprs, order_by_exprs=order_by_exprs)
         return fn_call
-
-
-def _caller_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
-    return caller.col_type
-
-def _convert_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
-    mode_str = args[0]
-    assert isinstance(mode_str, str)
-    assert isinstance(caller.col_type, ImageType)
-    return ImageType(
-        width=caller.col_type.width, height=caller.col_type.height, mode=ImageType.Mode.from_pil(mode_str))
-
-def _crop_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
-    left, upper, right, lower = args[0]
-    assert isinstance(caller.col_type, ImageType)
-    return ImageType(width=(right - left), height=(lower - upper), mode=caller.col_type.mode)
-
-def _resize_return_type(caller: Expr, *args: object, **kwargs: object) -> ColumnType:
-    w, h = args[0]
-    assert isinstance(caller.col_type, ImageType)
-    return ImageType(width=w, height=h, mode=caller.col_type.mode)
-
-# This only includes methods that return something that can be displayed in pixeltable
-# and that make sense to call (counterexample: copy() doesn't make sense to call)
-# This is hardcoded here instead of being dynamically extracted from the PIL type stubs because
-# doing that is messy and it's unclear whether it has any advantages.
-# TODO: how to capture return values like List[Tuple[int, int]]?
-# dict from method name to (function to compute value, function to compute return type)
-# TODO: JsonTypes() where it should be ArrayType(): need to determine the shape and base type
-_PIL_METHOD_INFO: Dict[str, Union[ColumnType, Callable]] = {
-    'convert': _convert_return_type,
-    'crop': _crop_return_type,
-    'effect_spread': _caller_return_type,
-    'entropy': FloatType(),
-    'filter': _caller_return_type,
-    'getbbox': ArrayType((4,), IntType()),
-    'getchannel': _caller_return_type,
-    'getcolors': JsonType(),
-    'getextrema': JsonType(),
-    'getpalette': JsonType(),
-    'getpixel': JsonType(),
-    'getprojection': JsonType(),
-    'histogram': JsonType(),
-# TODO: what to do with this? it modifies the img in-place
-#    paste: <ast.Constant object at 0x7f9e9a9be3a0>
-    'point': _caller_return_type,
-    'quantize': _caller_return_type,
-    'reduce': _caller_return_type,  # TODO: this is incorrect
-    'remap_palette': _caller_return_type,
-    'resize': _resize_return_type,
-    'rotate': _caller_return_type,  # TODO: this is incorrect
-# TODO: this returns a Tuple[Image], which we can't express
-#    split: <ast.Subscript object at 0x7f9e9a9cc9d0>
-    'transform': _caller_return_type,  # TODO: this is incorrect
-    'transpose': _caller_return_type,  # TODO: this is incorrect
-}
 
 
 # TODO: this doesn't dig up all attrs for actual jpeg images
@@ -882,18 +860,23 @@ class ImageMemberAccess(Expr):
     """
     Access of either an attribute or function member of PIL.Image.Image.
     Ex.: tbl.img_col_ref.rotate(90), tbl.img_col_ref.width
+    TODO: remove this class and use FunctionCall instead (attributes to be replaced by functions)
     """
     attr_info = _create_pil_attr_info()
 
     def __init__(self, member_name: str, caller: Expr):
         if member_name == 'nearest':
             super().__init__(InvalidType())  # requires FunctionCall to return value
-        elif member_name in _PIL_METHOD_INFO:
-            super().__init__(InvalidType())  # requires FunctionCall to return value
         elif member_name in self.attr_info:
             super().__init__(self.attr_info[member_name])
         else:
-            raise Error(f'Unknown Image member: {member_name}')
+            candidates = FunctionRegistry.get().get_type_methods(member_name, ColumnType.Type.IMAGE)
+            if len(candidates) == 0:
+                raise Error(f'Unknown Image member: {member_name}')
+            if len(candidates) > 1:
+                raise Error(f'Ambiguous Image method: {member_name}')
+            self.img_method = candidates[0]
+            super().__init__(InvalidType())  # requires FunctionCall to return value
         self.member_name = member_name
         self.components = [caller]
 
@@ -916,8 +899,7 @@ class ImageMemberAccess(Expr):
         assert len(components) == 1
         return cls(d['member_name'], components[0])
 
-    # TODO: correct signature?
-    def __call__(self, *args, **kwargs) -> Union[ImageMethodCall, ImageSimilarityPredicate]:
+    def __call__(self, *args, **kwargs) -> Union[FunctionCall, ImageSimilarityPredicate]:
         caller = self._caller
         call_signature = f'({",".join([type(arg).__name__ for arg in args])})'
         if self.member_name == 'nearest':
@@ -926,15 +908,15 @@ class ImageMemberAccess(Expr):
             if not isinstance(caller, ColumnRef):
                 raise Error(f'nearest(): caller must be an image column')
             if len(args) != 1 or (not isinstance(args[0], PIL.Image.Image) and not isinstance(args[0], str)):
-                raise Error(
-                    f'nearest(): required signature is (Union[PIL.Image.Image, str]) (passed: {call_signature})')
+                raise Error(f'nearest(): requires a PIL.Image.Image or str, got {call_signature} instead')
             return ImageSimilarityPredicate(
                 caller,
                 img=args[0] if isinstance(args[0], PIL.Image.Image) else None,
                 text=args[0] if isinstance(args[0], str) else None)
 
-        # TODO: verify signature
-        return ImageMethodCall(self.member_name, caller, *args, **kwargs)
+        result = self.img_method(*[caller, *args], **kwargs)
+        result.is_method_call = True
+        return result
 
     def _equals(self, other: ImageMemberAccess) -> bool:
         return self.member_name == other.member_name
@@ -948,47 +930,6 @@ class ImageMemberAccess(Expr):
             data_row[self.slot_idx] = getattr(caller_val, self.member_name)
         except AttributeError:
             data_row[self.slot_idx] = None
-
-
-class ImageMethodCall(FunctionCall):
-    """
-    Ex.: tbl.img_col_ref.rotate(90)
-    """
-    def __init__(self, method_name: str, caller: Expr, *args: object, **kwargs: object):
-        assert method_name in _PIL_METHOD_INFO
-        self.method_name = method_name
-        method_info = _PIL_METHOD_INFO[self.method_name]
-        if isinstance(method_info, ColumnType):
-            return_type = method_info
-        else:
-            return_type = method_info(caller, *args, **kwargs)
-        # TODO: register correct parameters
-        fn = Function.make_library_function(
-            return_type, None, module_name='PIL.Image', eval_symbol=f'Image.{method_name}')
-        super().__init__(fn, (caller, *args))
-        # TODO: deal with kwargs
-
-    def display_name(self) -> str:
-        return self.method_name
-
-    def __str__(self) -> str:
-        return f'{self.components[0]}.{self.method_name}({self._print_args(1)})'
-
-    def _as_dict(self) -> Dict:
-        return {'method_name': self.method_name, 'args': self.args, **super()._as_dict()}
-
-    @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
-        """
-        We're implementing this, instead of letting FunctionCall handle it, in order to return an
-        ImageMethodCall instead of a FunctionCall, which is useful for testing that a serialize()/deserialize()
-        roundtrip ends up with the same Expr.
-        """
-        assert 'method_name' in d
-        assert 'args' in d
-        # reassemble args, but skip args[0], which is our caller
-        args = [arg if arg is not None else components[i+1] for i, arg in enumerate(d['args'][1:])]
-        return cls(d['method_name'], components[0], *args)
 
 
 class JsonPath(Expr):
@@ -1574,11 +1515,9 @@ class ImageSimilarityPredicate(Predicate):
 
     def embedding(self) -> np.ndarray:
         if self.text is not None:
-            from pixeltable.functions.text_embedding import openai_clip
-            return openai_clip.eval_fn(self.text)
+            return embed_text(self.text)
         else:
-            from pixeltable.functions.image_embedding import openai_clip
-            return openai_clip.eval_fn(self.img)
+            return embed_image(self.img)
 
     def __str__(self) -> str:
         op_str = 'nearest' if self.img is not None else 'matches'

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import sys
 import types
-from typing import Optional, Callable, Dict, List, Any, Tuple
+from typing import Optional, Callable, Dict, List, Any, Tuple, Union
 from types import ModuleType
 import importlib
 import sqlalchemy as sql
@@ -31,16 +31,35 @@ def _resolve_symbol(module_name: str, symbol: str) -> object:
 
 
 class Signature:
-    def __init__(self, return_type: ColumnType, parameters: Optional[List[Tuple[str, ColumnType]]]):
+    """
+    Return type:
+    - most functions will have a fixed return type, which is specified directly
+    - some functions will have a return type that depends on the argument values;
+      ex.: PIL.Image.Image.resize() returns an image with dimensions specified as a parameter
+    - in the latter case, the 'return_type' field is a function that takes the bound arguments and returns the
+      return type; if no bound arguments are specified, a generic return type is returned (eg, ImageType() without a
+      size)
+    """
+    def __init__(
+            self,
+            return_type: Union[ColumnType, Callable[[Dict[str, Any]], ColumnType]],
+            parameters: List[Tuple[str, ColumnType]]):
         self.return_type = return_type
-        self.parameters = parameters
+        # we rely on the ordering guarantee of dicts in Python >=3.7
+        self.parameters = {param_name: param_type for param_name, param_type in parameters}
+        self.parameter_types_by_pos = [param_type for _, param_type in parameters]
+
+    def get_return_type(self, bound_args: Optional[Dict[str, Any]] = None) -> ColumnType:
+        if isinstance(self.return_type, ColumnType):
+            return self.return_type
+        return self.return_type(bound_args)
 
     def as_dict(self) -> Dict[str, Any]:
         result = {
-            'return_type': self.return_type.as_dict(),
+            'return_type': self.get_return_type().as_dict(),
         }
         if self.parameters is not None:
-            result['parameters'] = [[p[0], p[1].as_dict()] for p in self.parameters]
+            result['parameters'] = [[name, col_type.as_dict()] for name, col_type in self.parameters.items()]
         return result
 
     @classmethod
@@ -49,20 +68,23 @@ class Signature:
         return cls(ColumnType.from_dict(d['return_type']), parameters)
 
     def __eq__(self, other: Signature) -> bool:
-        if self.return_type != other.return_type or (self.parameters is None) != (other.parameters is None):
+        if self.get_return_type() != other.get_return_type() or (self.parameters is None) != (other.parameters is None):
             return False
         if self.parameters is None:
             return True
         if len(self.parameters) != len(other.parameters):
             return False
-        for i in range(len(self.parameters)):
-            # ignore the parameter name
-            if self.parameters[i][1] != other.parameters[i][1]:
+        # ignore the parameter name
+        for param_type, other_param_type in zip(self.parameter_types_by_pos, other.parameter_types_by_pos):
+            if param_type != other_param_type:
                 return False
         return True
 
     def __str__(self) -> str:
-        return f'({", ".join([p[0] + ": " + str(p[1]) for p in self.parameters])}) -> {str(self.return_type)}'
+        return (
+            f'({", ".join([name + ": " + str(col_type) for name, col_type in self.parameters.items()])})'
+            f'-> {str(self.get_return_type())}'
+        )
 
 
 class Function:
@@ -77,6 +99,8 @@ class Function:
     allows_std_agg: if True, the aggregate function can be used as a standard aggregate function w/o a window
     allows_window: if True, the aggregate function can be used with a window
     """
+    SPECIAL_PARAM_NAMES = ['group_by', 'order_by']
+
     class Metadata:
         def __init__(self, signature: Signature, is_agg: bool, is_library_fn: bool):
             self.signature = signature
@@ -115,7 +139,8 @@ class Function:
             init_symbol: Optional[str] = None, update_symbol: Optional[str] = None, value_symbol: Optional[str] = None,
             eval_fn: Optional[Callable] = None,
             init_fn: Optional[Callable] = None, update_fn: Optional[Callable] = None,
-            value_fn: Optional[Callable] = None
+            value_fn: Optional[Callable] = None,
+            py_signature: Optional[inspect.Signature] = None
     ):
         self.id = id
         self.module_name = module_name
@@ -140,6 +165,24 @@ class Function:
             if value_symbol is not None:
                 self.value_fn = _resolve_symbol(module_name, value_symbol)
 
+        # NOS functions don't have an eval_fn and specify their Python signature directly
+        if py_signature is not None:
+            self.py_signature = py_signature
+            return
+        # for everything else, we infer the Python signature
+        assert (md.is_agg and self.update_fn is not None) or (not md.is_agg and self.eval_fn is not None)
+        if md.is_agg:
+            # the Python signature is the signature of 'update', but without self
+            sig = inspect.signature(self.update_fn)
+            self.py_signature = \
+                inspect.Signature(list(sig.parameters.values())[1:], return_annotation=sig.return_annotation)
+        else:
+            self.py_signature = inspect.signature(self.eval_fn)
+
+    @property
+    def name(self) -> bool:
+        return self.md.fqn.split('.')[-1]
+
     @property
     def requires_order_by(self) -> bool:
         return self.md.requires_order_by
@@ -154,7 +197,7 @@ class Function:
 
     @classmethod
     def _create_signature(
-            cls, c: Callable, is_agg: bool, param_types: List[ColumnType], return_type: ColumnType,
+            cls, c: Callable, is_agg: bool, param_types: List[ColumnType], return_type: Union[ColumnType, Callable],
             check_params: bool = True
     ) -> Signature:
         if param_types is None:
@@ -169,9 +212,12 @@ class Function:
                 f"the number of provided parameter types: "
                 f"{len(param_names)} ({', '.join(param_names)}) vs "
                 f"{len(param_types)} ({', '.join([str(t) for t in param_types])})")
+        # check parameters for name collisions and default value compatibility
         for idx, param_name in enumerate(param_names):
+            if param_name in cls.SPECIAL_PARAM_NAMES:
+                raise exc.Error(f"'{param_name}' is a reserved parameter name")
             default_val = sig.parameters[param_name].default
-            if default_val == inspect.Parameter.empty:
+            if default_val == inspect.Parameter.empty or default_val is None:
                 continue
             try:
                 param_types[idx].validate_literal(default_val)
@@ -216,12 +262,11 @@ class Function:
 
     @classmethod
     def make_library_function(
-            cls, return_type: ColumnType, param_types: List[ColumnType], module_name: str, eval_symbol: str
+            cls, return_type: Union[ColumnType, Callable], param_types: List[ColumnType], module_name: str, eval_symbol: str
     ) -> Function:
         assert module_name is not None and eval_symbol is not None
         eval_fn = _resolve_symbol(module_name, eval_symbol)
         signature = cls._create_signature(eval_fn, False, param_types, return_type, check_params=True)
-        #signature = cls._create_signature(eval_fn, False, param_types, return_type, check_params=False)
         md = cls.Metadata(signature, False, True)
         return Function(md, module_name=module_name, eval_symbol=eval_symbol)
 
@@ -240,17 +285,24 @@ class Function:
         md.allows_std_agg = allows_std_agg
         md.allows_window = allows_window
         return Function(
-            md, module_name=module_name,
-            init_symbol=init_symbol, update_symbol=update_symbol, value_symbol=value_symbol)
+            md, module_name=module_name, init_symbol=init_symbol, update_symbol=update_symbol,
+            value_symbol=value_symbol)
 
     @classmethod
     def make_nos_function(
-            cls, return_type: ColumnType, param_types: List[ColumnType], param_names: List[str]
+            cls, return_type: ColumnType, param_types: List[ColumnType], param_names: List[str], module_name: str
     ) -> Function:
         assert len(param_names) == len(param_types)
         signature = Signature(return_type, [(name, col_type) for name, col_type in zip(param_names, param_types)])
         md = cls.Metadata(signature, False, True)
-        return Function(md, module_name=module_name, eval_symbol=eval_symbol)
+        # construct inspect.Signature
+        params = [
+            inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            for name, col_type in zip(param_names, param_types)
+        ]
+        py_signature = inspect.Signature(params)
+        # we pass module_name to indicate that it's a library function
+        return Function(md, module_name=module_name, py_signature=py_signature)
 
     @property
     def is_aggregate(self) -> bool:
@@ -288,6 +340,7 @@ class Function:
             if not isinstance(order_by_expr, exprs.Expr):
                 raise exc.Error(
                     f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_expr)}')
+            del kwargs['order_by']
         elif self.requires_order_by:
             # the first argument is the order-by expr
             if len(args) == 0:
@@ -309,20 +362,23 @@ class Function:
             if not isinstance(group_by_expr, exprs.Expr):
                 raise exc.Error(
                     f'group_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_expr)}')
+            del kwargs['group_by']
 
+        bound_args = self.py_signature.bind(*args, **kwargs)
         return exprs.FunctionCall(
-            self, args,
+            self, bound_args.arguments,
             order_by_exprs=[order_by_expr] if order_by_expr is not None else [],
             group_by_exprs=[group_by_expr] if group_by_expr is not None else [])
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False
-        return self.md.signature == other.md.signature \
-               and self.id == other.id and self.module_name == other.module_name \
-               and self.eval_symbol == other.eval_symbol and self.init_symbol == other.init_symbol \
-               and self.update_symbol == other.update_symbol and self.value_symbol == other.value_symbol \
-               and self.eval_fn == other.eval_fn and self.init_fn == other.init_fn \
+        if self.is_library_function != other.is_library_function:
+            return False
+        if self.is_library_function:
+            # this is a library function, which is uniquely identified by its fqn
+            return self.md.fqn == other.md.fqn
+        return self.eval_fn == other.eval_fn and self.init_fn == other.init_fn \
                and self.update_fn == other.update_fn and self.value_fn == other.value_fn
 
     def source(self) -> None:
@@ -440,21 +496,8 @@ class FunctionRegistry:
         model_info = [Env.get().nos_client.GetModelInfo(model) for model in models]
         model_info.sort(key=lambda info: info.task.value)
 
-        def create_nos_udf(task: str, model_name: str, param_names: List[str]) -> Callable:
-            def func(*args: Any) -> Any:
-                kwargs = {param_name: val for param_name, val in zip(param_names, args)}
-                # call NOS with an implied batch size of 1
-                result = Env.get().nos_client.Run(task=task, model_name=model_name, **kwargs)
-                # we get a batch-of-1 result back and need to remove the extra dimension
-                if len(result) == 1:
-                    return list(result.values())[0].squeeze(0)
-                else:
-                    result = {k: v.squeeze(0) for k, v in result.items()}
-                    return result
-
-            return func
-
         prev_task = ''
+        new_modules: List[types.ModuleType] = []
         pt_module: Optional[types.ModuleType] = None
         for info in model_info:
             if info.task.value != prev_task:
@@ -462,21 +505,21 @@ class FunctionRegistry:
                 module_name = f'pixeltable.functions.{info.task.name.lower()}'
                 pt_module = types.ModuleType(module_name)
                 pt_module.__package__ = 'pixeltable.functions'
+                new_modules.append(pt_module)
                 sys.modules[module_name] = pt_module
                 prev_task = info.task.value
 
-            # add a Function and its implementation for this model to the module
+            # add a Function for this model to the module
             model_id = info.name.replace("/", "_").replace("-", "_")
-            eval_symbol = f'{model_id}_impl'
-            inputs = info.signature.get_inputs_spec()
-            # create the eval function
-            setattr(pt_module, eval_symbol, create_nos_udf(info.task, info.name, list(inputs.keys())))
             return_type, param_types = self._convert_nos_signature(info.signature)
-            pt_func = Function.make_library_function(
-                return_type, param_types, module_name=module_name, eval_symbol=eval_symbol)
+            pt_func = Function.make_nos_function(
+                return_type, param_types, list(info.signature.get_inputs_spec().keys()), module_name)
             setattr(pt_module, model_id, pt_func)
-            self.register_function(module_name, model_id, pt_func)
-            self.nos_functions[pt_func.md.fqn] = info
+            fqn = f'{module_name}.{model_id}'
+            self.nos_functions[fqn] = info
+
+        for module in new_modules:
+            self.register_module(module)
 
     def get_nos_info(self, fn: Function) -> Optional[nos.common.ModelSpec]:
         return self.nos_functions.get(fn.md.fqn)
@@ -539,6 +582,13 @@ class FunctionRegistry:
             # this is an already-registered library function
             assert fqn in self.library_fns, f'{fqn} not found'
             return self.library_fns[fqn]
+
+    def get_type_methods(self, name: str, base_type: ColumnType.Type) -> List[Function]:
+        return [
+            fn for fn in self.library_fns.values()
+            if fn.md.fqn.endswith('.' + name)
+               and fn.md.signature.parameter_types_by_pos[0].type_enum == base_type
+        ]
 
     def create_function(self, fn: Function, dir_id: Optional[UUID] = None, name: Optional[str] = None) -> None:
         with Env.get().engine.begin() as conn:

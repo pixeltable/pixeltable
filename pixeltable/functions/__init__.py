@@ -18,22 +18,22 @@ import pixeltable.functions.pil.image
 from pixeltable.utils.video import convert_to_h264
 
 
-def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.Table]) -> exprs.FunctionCall:
-    """
-    Interprets eval_fn's parameters to be references to columns in 'tbl' and construct ColumnRefs as args.
-    """
-    params = inspect.signature(eval_fn).parameters
-    if len(params) > 0 and tbl is None:
-        raise exc.Error(f'udf_call() is missing tbl parameter')
-    args: List[exprs.ColumnRef] = []
-    for param_name in params:
-        if param_name not in tbl.cols_by_name:
-            raise exc.Error(
-                (f'udf_call(): lambda argument names need to be valid column names in table {tbl.name}: '
-                 f'column {param_name} unknown'))
-        args.append(exprs.ColumnRef(tbl.cols_by_name[param_name]))
-    fn = Function.make_function(return_type, [arg.col_type for arg in args], eval_fn)
-    return exprs.FunctionCall(fn, args)
+# def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.Table]) -> exprs.FunctionCall:
+#     """
+#     Interprets eval_fn's parameters to be references to columns in 'tbl' and construct ColumnRefs as args.
+#     """
+#     params = inspect.signature(eval_fn).parameters
+#     if len(params) > 0 and tbl is None:
+#         raise exc.Error(f'udf_call() is missing tbl parameter')
+#     args: List[exprs.ColumnRef] = []
+#     for param_name in params:
+#         if param_name not in tbl.cols_by_name:
+#             raise exc.Error(
+#                 (f'udf_call(): lambda argument names need to be valid column names in table {tbl.name}: '
+#                  f'column {param_name} unknown'))
+#         args.append(exprs.ColumnRef(tbl.cols_by_name[param_name]))
+#     fn = Function.make_function(return_type, [arg.col_type for arg in args], eval_fn)
+#     return exprs.FunctionCall(fn, args)
 
 def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
     expr.col_type = target_type
@@ -137,7 +137,7 @@ make_video = Function.make_library_aggregate_function(
 FunctionRegistry.get().register_function(__name__, 'make_video', make_video)
 
 __all__ = [
-    udf_call,
+    #udf_call,
     cast,
     dict_map,
     sum,

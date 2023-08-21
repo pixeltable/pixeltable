@@ -30,11 +30,15 @@ class Planner:
         # we include embeddings for indices by constructing computed cols; we need to do that for all indexed cols,
         # not just the stored ones
         indexed_cols = [c for c in tbl.cols if c.is_indexed]
-        from pixeltable.functions.image_embedding import openai_clip
         indexed_col_refs = \
             [exprs.FrameColumnRef(c) if tbl.is_frame_col(c) else exprs.ColumnRef(c) for c in indexed_cols]
-        index_cols = \
-            [catalog.Column('dummy', computed_with=openai_clip(col_ref), stored=True) for col_ref in indexed_col_refs]
+        from pixeltable.functions.image_embedding import openai_clip
+        # explicitly resize images to the required size
+        target_img_type = next(iter(openai_clip.md.signature.parameters.values()))
+        index_cols = [
+            catalog.Column('dummy', computed_with=openai_clip(col_ref.resize(target_img_type.size)), stored=True)
+            for col_ref in indexed_col_refs
+        ]
         stored_cols.extend(index_cols)
         assert len(stored_cols) > 0
 
