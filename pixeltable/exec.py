@@ -373,7 +373,10 @@ class ExprEvalNode(ExecNode):
         model_info: Optional[nos.common.ModelSpec]
         segments: List[List[exprs.Expr]]
         target_slot_idxs: List[int]
+
+        # for NOS cohorts:
         nos_param_names: Optional[List[str]] = None
+        scalar_nos_param_names: Optional[List[str]] = None
 
         # for models on images:
 
@@ -387,26 +390,41 @@ class ExprEvalNode(ExecNode):
         def __post_init__(self):
             if self.model_info is None:
                 return
+            nos_calls = [e for e in self.exprs if isinstance(e, exprs.FunctionCall) and e.is_nos_call()]
+            assert len(nos_calls) <= 1
+            nos_call = nos_calls[0] if len(nos_calls) > 0 else None
             self.nos_param_names = self.model_info.signature.get_inputs_spec().keys()
+            self.scalar_nos_param_names = []
+
             # try to determine batch_size and img_size
-            for pos, (_, type_info) in enumerate(self.model_info.signature.get_inputs_spec().items()):
+            batch_size = sys.maxsize
+            for pos, (param_name, type_info) in enumerate(self.model_info.signature.get_inputs_spec().items()):
                 if isinstance(type_info, list):
-                    if isinstance(type_info[0].base_spec(), nos.common.ImageSpec):
-                        # this is a multi-resolution image model
-                        self.img_batch_params = type_info
-                        self.img_param_pos = pos
-                        return
-                    else:
-                        continue
-                if isinstance(type_info.base_spec(), nos.common.ImageSpec):
-                    # this is a single-resolution image model
-                    if type_info.base_spec().shape is not None:
-                        self.img_size = (type_info.base_spec().shape[1], type_info.base_spec().shape[0])
-                    if type_info.batch_size() is not None:
-                        self.batch_size = type_info.batch_size()
+                    assert isinstance(type_info[0].base_spec(), nos.common.ImageSpec)
+                    # this is a multi-resolution image model
+                    self.img_batch_params = type_info
                     self.img_param_pos = pos
-                    self.img_batch_params = []
-                    return
+                else:
+                    if not type_info.is_batched():
+                        self.scalar_nos_param_names.append(param_name)
+                        if param_name not in nos_call.constant_args:
+                            # this is a scalar parameter that is not constant, so we need to do batches of 1
+                            batch_size = 1
+                    else:
+                        batch_size = min(batch_size, type_info.batch_size())
+
+                    if isinstance(type_info.base_spec(), nos.common.ImageSpec):
+                        # this is a single-resolution image model
+                        if type_info.base_spec().shape is not None:
+                            self.img_size = (type_info.base_spec().shape[1], type_info.base_spec().shape[0])
+                        self.img_param_pos = pos
+                        self.img_batch_params = []
+
+            if batch_size == sys.maxsize:
+                # some reasonable default
+                self.batch_size = 8
+            else:
+                self.batch_size = batch_size
 
         def is_multi_res_model(self) -> bool:
             return self.img_param_pos is not None and len(self.img_batch_params) > 0
@@ -593,6 +611,9 @@ class ExprEvalNode(ExecNode):
                             param_name: args[nos_batch_offset:nos_batch_offset + num_nos_batch_rows]
                             for param_name, args in zip(cohort.nos_param_names, arg_batches)
                         }
+                        # fix up scalar parameters
+                        kwargs.update(
+                            {param_name: kwargs[param_name][0] for param_name in cohort.scalar_nos_param_names})
                         start_ts = time.perf_counter()
                         _logger.debug(
                             f'Running NOS task {cohort.model_info.task}: '

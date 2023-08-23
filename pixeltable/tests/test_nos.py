@@ -48,3 +48,13 @@ class TestNOS:
         from pixeltable.functions.object_detection_2d import yolox_medium
         tbl.add_column(catalog.Column('detections', computed_with=yolox_medium(tbl.rotated), stored=True))
         assert tbl[tbl.detections.errortype != None].count() == 1
+
+    @pytest.mark.skip(reason='too slow')
+    def test_sd(self, test_client: pt.Client) -> None:
+        """Test model that mixes batched with scalar parameters"""
+        t = test_client.create_table('sd_test', [pt.Column('prompt', pt.StringType())])
+        t.insert([['cat on a sofa']])
+        from pixeltable.functions.image_generation import stabilityai_stable_diffusion_2 as sd2
+        t.add_column(pt.Column('img', computed_with=sd2(t.prompt, 1, 512, 512), stored=True))
+        img = t[t.img].show(1)[0, 0]
+        assert img.size == (512, 512)

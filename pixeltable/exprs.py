@@ -660,20 +660,15 @@ class FunctionCall(Expr):
         self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_exprs)
 
-        nos_info = FunctionRegistry.get().get_nos_info(self.fn)
-        self.nos_batch_size = self._get_nos_batch_size(nos_info) if nos_info is not None else None
+        self.nos_info = FunctionRegistry.get().get_nos_info(self.fn)
+        self.constant_args = {param_name for param_name, arg in bound_args.items() if not isinstance(arg, Expr)}
 
         # execution state for aggregate functions
         self.aggregator: Optional[Any] = None
         self.current_partition_vals: Optional[List[Any]] = None
 
-    def _get_nos_batch_size(self, info: nos.common.ModelSpec) -> int:
-        """Set batch_size"""
-        for _, type_info in info.signature.get_inputs_spec().items():
-            if isinstance(type_info, list):
-                # there are multiple options, we need to choose dynamically at runtime
-                return None
-            return type_info.batch_size()
+    def is_nos_call(self) -> bool:
+        return self.nos_info is not None
 
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
