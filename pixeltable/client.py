@@ -1,17 +1,20 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
 import pandas as pd
 import logging
 import dataclasses
+from uuid import UUID
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
 from pixeltable.catalog import \
-    SchemaObject, MutableTable, TableSnapshot, Table, Dir, Column, NamedFunction, Path, PathDict, init_catalog
+    TableVersion, SchemaObject, MutableTable, TableSnapshot, View, Table, TableBase, Dir, Column, NamedFunction, Path,\
+    PathDict,init_catalog
 from pixeltable.metadata import schema
 from pixeltable.env import Env
 from pixeltable.function import FunctionRegistry, Function
 from pixeltable import exceptions as exc
+from pixeltable.exprs import Predicate
 
 __all__ = [
     'Client',
@@ -32,6 +35,124 @@ class Client:
         FunctionRegistry.get().register_nos_functions()
         init_catalog()
         self.paths = PathDict()
+        self._load_table_versions()
+        self._load_functions()
+
+    def _load_table_versions(self) -> None:
+        # key: [id, version]
+        # - for the current/live version of a table, version is None
+        # - however, TableVersion.version will be set correctly
+        self.tbl_versions: Dict[Tuple[UUID, int], TableVersion] = {}
+        # load TableVersions
+        with orm.Session(Env.get().engine, future=True) as session:
+            # load current versions of all non-view tables
+            q = session.query(schema.Table, schema.TableSchemaVersion) \
+                .select_from(schema.Table) \
+                .join(schema.TableSchemaVersion) \
+                .where(schema.Table.base_id == None) \
+                .where(sql.text((
+                f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
+                f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}")))
+            for tbl_record, schema_version_record in q.all():
+                tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+                schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+                instance = TableVersion(tbl_record.id, None, tbl_md, tbl_md.current_version, schema_version_md)
+                self.tbl_versions[(tbl_record.id, None)] = instance
+                tbl = MutableTable(tbl_record.dir_id, instance)
+                self.paths.add_schema_obj(tbl.dir_id, instance.name, tbl)
+
+            # load bases for views over snapshots;
+            # do this ordered by creation ts so that we can resolve base references in one pass
+            ViewAlias = orm.aliased(schema.Table)
+            q = session.query(schema.Table, ViewAlias.base_version, schema.TableSchemaVersion) \
+                .select_from(schema.Table) \
+                .join(ViewAlias, schema.Table.id == ViewAlias.base_id) \
+                .join(
+                schema.TableVersion,
+                sql.and_(
+                    schema.TableVersion.tbl_id == schema.Table.id,
+                    schema.TableVersion.version == ViewAlias.base_version)) \
+                .join(schema.TableSchemaVersion, schema.TableSchemaVersion.tbl_id == schema.Table.id) \
+                .where(sql.text((
+                f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
+                f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}"))) \
+                .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float"))
+            for tbl_record, tbl_version, schema_version_record in q.all():
+                assert tbl_version is not None
+                assert (tbl_record.id, tbl_version) not in self.tbl_versions
+                schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+                if tbl_record.base_id is not None:
+                    base = self.tbl_versions[(tbl_record.base_id, tbl_record.base_version)]
+                else:
+                    base = None
+                tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+                instance = TableVersion(tbl_record.id, base, tbl_md, tbl_version, schema_version_md)
+                self.tbl_versions[(tbl_record.id, tbl_version)] = instance
+
+            # load views
+            q = session.query(schema.Table, schema.TableSchemaVersion) \
+                .select_from(schema.Table) \
+                .join(schema.TableVersion, schema.Table.id == schema.TableVersion.tbl_id) \
+                .join(schema.TableSchemaVersion) \
+                .where(schema.Table.base_id != None) \
+                .where(sql.text((
+                    f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
+                    f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}"))) \
+                .where(sql.text((
+                    f"({schema.Table.__table__}.md->>'current_version')::int = "
+                    f"{schema.TableVersion.__table__}.{schema.TableVersion.version.name}"))) \
+                .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float"))
+            for tbl_record, schema_version_record in q.all():
+                base_id, base_version = tbl_record.base_id, tbl_record.base_version
+                assert (base_id, tbl_record.base_version) in self.tbl_versions
+                base = self.tbl_versions[(base_id, base_version)]
+                tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+                schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+                instance = TableVersion(tbl_record.id, base, tbl_md, tbl_md.current_version, schema_version_md)
+                self.tbl_versions[(tbl_record.id, None)] = instance
+                view = View(tbl_record.dir_id, instance)
+                self.paths.add_schema_obj(view.dir_id, instance.name, view)
+
+            # load table versions referenced by snapshots; do this ordered by creation ts so that we can resolve base
+            # references in one pass
+            q = session.query(schema.TableSnapshot, schema.Table, schema.TableSchemaVersion) \
+                .select_from(schema.TableSnapshot) \
+                .join(schema.Table) \
+                .join(schema.TableVersion,
+                      sql.and_(
+                          schema.TableSnapshot.tbl_id == schema.TableVersion.tbl_id,
+                          schema.TableSnapshot.tbl_version == schema.TableVersion.version)) \
+                .join(schema.TableSchemaVersion, schema.TableSchemaVersion.tbl_id == schema.TableSnapshot.tbl_id) \
+                .where(sql.text((
+                    f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
+                    f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}"))) \
+                .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float"))
+            for snapshot_record, tbl_record, schema_version_record in q.all():
+                tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+                schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+                if tbl_record.base_id is not None:
+                    base = self.tbl_versions[(tbl_record.base_id, tbl_record.base_version)]
+                else:
+                    base = None
+                instance = TableVersion(
+                    tbl_record.id, base, tbl_md, snapshot_record.tbl_version, schema_version_md)
+                self.tbl_versions[(snapshot_record.tbl_id, snapshot_record.tbl_version)] = instance
+                snapshot_md = schema.md_from_dict(schema.TableSnapshotMd, snapshot_record.md)
+                snapshot = TableSnapshot(snapshot_record.id, snapshot_record.dir_id, snapshot_md.name, instance)
+                self.paths.add_schema_obj(snapshot_record.dir_id, snapshot_md.name, snapshot)
+
+    def _load_functions(self) -> None:
+        # load Function metadata; doesn't load the actual callable, which can be large and is only done on-demand by the
+        # FunctionRegistry
+        with orm.Session(Env.get().engine, future=True) as session:
+            q = session.query(schema.Function.id, schema.Function.dir_id, schema.Function.md) \
+                .where(sql.text(f"({schema.Function.__table__}.md->>'name')::text IS NOT NULL"))
+            for id, dir_id, md in q.all():
+                assert 'name' in md
+                name = md['name']
+                assert name is not None
+                named_fn = NamedFunction(id, dir_id, name)
+                self.paths.add_schema_obj(dir_id, name, named_fn)
 
     def logging(
             self, *, to_stdout: Optional[bool] = None, level: Optional[int] = None,
@@ -152,18 +273,73 @@ class Client:
         tbl = MutableTable.create(
             dir.id, path.name, schema, num_retained_versions, extract_frames_from, extracted_frame_col,
             extracted_frame_idx_col, extracted_fps)
+        self.tbl_versions[(tbl.id, None)] = tbl.tbl_version
         self.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
         return tbl
 
-    def get_table(self, path: str) -> Table:
-        """Get a handle to a table (regular or snapshot) from the database.
+    def create_snapshot(self, snapshot_path: str, tbl_path: str, ignore_errors: bool = False) -> TableSnapshot:
+        """Create a snapshot of a table.
+
+        Args:
+            snapshot_path: Path to the snapshot.
+            tbl_path: Path to the table.
+            ignore_errors: Whether to ignore errors if the snapshot already exists.
+
+        Raises:
+            Error: If snapshot_path already exists or the parent does not exist.
+        """
+        try:
+            snapshot_path_obj = Path(snapshot_path)
+            self.paths.check_is_valid(snapshot_path_obj, expected=None)
+            tbl_path_obj = Path(tbl_path)
+            self.paths.check_is_valid(tbl_path_obj, expected=Table)
+        except Exception as e:
+            if ignore_errors:
+                return
+            else:
+                raise e
+        tbl = self.paths[tbl_path_obj]
+        assert isinstance(tbl, Table)
+        # tbl.tbl_version is the live/mutable version of the table, but we need a snapshot of it
+        tbl_version = tbl.tbl_version
+        if (tbl_version.id, tbl_version.version) not in self.tbl_versions:
+            # create an immutable copy
+            tbl_version = tbl_version.create_snapshot_copy()
+            self.tbl_versions[(tbl_version.id, tbl_version.version)] = tbl_version
+        dir = self.paths[snapshot_path_obj.parent]
+        snapshot = TableSnapshot.create(dir.id, snapshot_path_obj.name, tbl_version)
+        self.paths[snapshot_path_obj] = snapshot
+        _logger.info(f'Created snapshot {snapshot_path}')
+        return snapshot
+
+    def create_view(
+            self, path_str: str, base: TableBase, schema: List[Column] = [], filter: Optional[Predicate] = None,
+            num_retained_versions: int = 10, ignore_errors: bool = False) -> View:
+        path = Path(path_str)
+        try:
+            self.paths.check_is_valid(path, expected=None)
+        except Exception as e:
+            if ignore_errors:
+                return
+            else:
+                raise e
+        dir = self.paths[path.parent]
+
+        view = View.create(dir.id, path.name, base.tbl_version, schema, filter, num_retained_versions)
+        self.tbl_versions[(view.id, None)] = view.tbl_version
+        self.paths[path] = view
+        _logger.info(f'Created view {path_str}')
+        return view
+
+    def get_table(self, path: str) -> TableBase:
+        """Get a handle to a table (including views and snapshots) from the database.
 
         Args:
             path: Path to the table.
 
         Returns:
-            A :py:class:`MutableTable` or :py:class:`TableSnapshot` object.
+            A :py:class:`MutableTable` or :py:class:`View` or :py:class:`TableSnapshot` object.
 
         Raises:
             Error: If the path does not exist or does not designate a table.
@@ -182,9 +358,8 @@ class Client:
             >>> table = cl.get_table('my_snapshot')
         """
         p = Path(path)
-        self.paths.check_is_valid(p, expected=Table)
+        self.paths.check_is_valid(p, expected=TableBase)
         obj = self.paths[p]
-        assert isinstance(obj, Table)
         return obj
 
     def move(self, path: str, new_path: str) -> None:
@@ -241,13 +416,13 @@ class Client:
         assert dir_path is not None
         path = Path(dir_path, empty_is_valid=True)
         self.paths.check_is_valid(path, expected=Dir)
-        return [str(p) for p in self.paths.get_children(path, child_type=Table, recursive=recursive)]
+        return [str(p) for p in self.paths.get_children(path, child_type=TableBase, recursive=recursive)]
 
-    def drop_table(self, path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
+    def drop_table(self, path: str, force: bool = False, ignore_errors: bool = False) -> None:
         """Drop a table from the database.
 
         Args:
-            path_str: Path to the table.
+            path: Path to the table.
             force: Whether to drop the table even if it has unsaved changes.
             ignore_errors: Whether to ignore errors if the table does not exist.
 
@@ -257,53 +432,19 @@ class Client:
         Example:
             >>> cl.drop_table('my_table')
         """
-        path = Path(path_str)
+        path_obj = Path(path)
         try:
-            self.paths.check_is_valid(path, expected=MutableTable)
+            self.paths.check_is_valid(path_obj, expected=TableBase)
         except Exception as e:
             if ignore_errors:
                 return
             else:
                 raise e
-        tbl = self.paths[path]
+        tbl = self.paths[path_obj]
         assert isinstance(tbl, MutableTable)
         tbl.drop()
-        del self.paths[path]
-        _logger.info(f'Dropped table {path_str}')
-
-    def create_snapshot(self, snapshot_path: str, tbl_path: str) -> None:
-        """Create a snapshot of a table.
-
-        Args:
-            snapshot_path: Path to the snapshot.
-            tbl_path: Path to the table.
-
-        Raises:
-            Error: If snapshot_path already exists or the parent does not exist.
-        """
-        snapshot_path_obj = Path(snapshot_path)
-        self.paths.check_is_valid(snapshot_path_obj, expected=None)
-        tbl_path_obj = Path(tbl_path)
-        self.paths.check_is_valid(tbl_path_obj, expected=MutableTable)
-        tbl = self.paths[tbl_path_obj]
-        assert isinstance(tbl, MutableTable)
-
-        with orm.Session(Env.get().engine, future=True) as session:
-            dir = self.paths[snapshot_path_obj.parent]
-            snapshot_md = schema.TableMd(
-                name=snapshot_path_obj.name, current_version=tbl.version, current_schema_version=tbl.schema_version,
-                next_col_id=-1, next_row_id=-1, column_history={}, parameters=tbl.tbl_md.parameters)
-            snapshot_record = schema.TableSnapshot(dir_id=dir.id, tbl_id=tbl.id, md=dataclasses.asdict(snapshot_md))
-            session.add(snapshot_record)
-            session.flush()
-            assert snapshot_record.id is not None
-            schema_version_record = session.query(schema.TableSchemaVersion)\
-                .where(schema.TableSchemaVersion.tbl_id == tbl.id) \
-                .where(schema.TableSchemaVersion.schema_version == tbl.schema_version).one()
-            snapshot = TableSnapshot(snapshot_record, schema_version_record)
-            self.paths[snapshot_path_obj] = snapshot
-            session.commit()
-            _logger.info(f'Created snapshot {snapshot_path}')
+        del self.paths[path_obj]
+        _logger.info(f'Dropped table {path}')
 
     def create_dir(self, path_str: str, ignore_errors: bool = False) -> None:
         """Create a directory.
@@ -508,6 +649,7 @@ class Client:
         with Env.get().engine.begin() as conn:
             conn.execute(sql.delete(schema.TableSnapshot.__table__))
             conn.execute(sql.delete(schema.TableSchemaVersion.__table__))
+            conn.execute(sql.delete(schema.TableVersion.__table__))
             conn.execute(sql.delete(schema.Table.__table__))
             conn.execute(sql.delete(schema.Function.__table__))
             conn.execute(sql.delete(schema.Dir.__table__))
@@ -518,4 +660,4 @@ class Client:
             ]
             for tbl_path in tbl_paths:
                 tbl = self.paths[tbl_path]
-                tbl.sa_md.drop_all(bind=conn)
+                tbl.store_tbl.drop(conn)

@@ -10,9 +10,45 @@ from pixeltable import exceptions as exc
 
 class Planner:
 
+    # TODO: create an exec.CountNode and change this to create_count_plan()
+    @classmethod
+    def create_count_stmt(
+            cls, tbl: catalog.TableVersion, where_clause: Optional[exprs.Predicate] = None
+    ) -> sql.Select:
+        # identify the base table
+        base_tbl = tbl
+        while base_tbl.base is not None:
+            base_tbl = base_tbl.base
+        stmt = sql.select(sql.func.count('*')).select_from(base_tbl.store_tbl.sa_tbl)
+        stmt = stmt \
+            .where(base_tbl.store_tbl.v_min_col <= base_tbl.version) \
+            .where(base_tbl.store_tbl.v_max_col > base_tbl.version)
+
+        # join views
+        # TODO: omit views that don't have filters
+        while tbl.base is not None:
+            assert tbl.is_view()
+            # join with rows in tbl that are visible at the current version of base_tbl;
+            # we can ignore the view predicate here, it's indirectly applied via the join
+            stmt = stmt.join(tbl.store_tbl.sa_tbl, base_tbl.store_tbl.rowid_col == tbl.store_tbl.base_rowid_col) \
+                .where(tbl.store_tbl.base_v_min_col <= base_tbl.version) \
+                .where(tbl.store_tbl.base_v_max_col > base_tbl.version) \
+                .where(tbl.store_tbl.v_min_col <= tbl.version) \
+                .where(tbl.store_tbl.v_max_col > tbl.version)
+            tbl = tbl.base
+
+        if where_clause is not None:
+            analysis_info = cls.get_info(tbl, where_clause)
+            if analysis_info.similarity_clause is not None:
+                raise exc.Error('nearest() cannot be used with count()')
+            if analysis_info.filter is not None:
+                raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+            stmt = stmt.where(analysis_info.sql_where_clause)
+        return stmt
+
     @classmethod
     def create_insert_plan(
-            cls, tbl: catalog.MutableTable, rows: List[List[Any]], column_names: List[str]
+            cls, tbl: catalog.TableVersion, rows: List[List[Any]], column_names: List[str]
     ) -> Tuple[ExecNode, List[ColumnInfo], List[ColumnInfo], int]:
         """Creates a plan for Table.insert()
 
@@ -22,6 +58,7 @@ class Planner:
             - info for cols stored in the NN index
             - number of materialized values per row
         """
+        assert not tbl.is_view()
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols if c.is_stored and (c.name in column_names or c.is_computed)]
         if tbl.extracts_frames():
@@ -64,7 +101,7 @@ class Planner:
         input_col_info = \
             [info for info in stored_col_info if not info.col.is_computed and not info.col == frame_idx_col]
         row_column_pos = {name: i for i, name in enumerate(column_names)}
-        plan = InsertDataNode(tbl, rows, row_column_pos, evaluator, input_col_info, frame_idx_slot_idx, tbl.next_row_id)
+        plan = InsertDataNode(tbl, rows, row_column_pos, evaluator, input_col_info, frame_idx_slot_idx, tbl.next_rowid)
 
         # add an ExprEvalNode if there are columns to compute
         computed_col_info = [c for c in stored_col_info if c.col.is_computed]
@@ -76,7 +113,48 @@ class Planner:
                 ignore_errors=True, input=plan)
         plan.set_stored_img_cols(stored_img_col_info)
         plan.set_ctx(ExecContext(evaluator, batch_size=0, show_pbar=True))
-        return plan, db_col_info, idx_col_info, len(stored_cols)
+        return plan, db_col_info, idx_col_info, len(computed_col_info)
+
+    @classmethod
+    def create_view_load_plan(
+            cls, view: catalog.TableVersion, base_version: Optional[int] = None
+    ) -> Tuple[ExecNode, List[ColumnInfo], List[ColumnInfo], int]:
+        """Creates a query plan for populating a view.
+
+        Args:
+            view: the view to populate
+            base_version: if set, only retrieves rows with version == base_version (not all visible rows)
+        Returns:
+            - root node of the plan
+            - info for cols stored in the db
+            - info for cols stored in the NN index
+            - number of materialized values per row
+        """
+        assert view.is_view()
+        # select list:
+        # 1. stored computed cols, resolved
+        stored_computed_cols = [c for c in view.cols if c.is_stored and c.is_computed]
+        select_list = [c.value_expr.copy().resolve_computed_cols(unstored_only=False) for c in stored_computed_cols]
+
+        # 2. embeddings for indices:
+        # we include embeddings for indices by constructing computed cols; we need to do that for all indexed cols,
+        # not just the stored ones
+        indexed_cols = [c for c in view.cols if c.is_indexed]
+        indexed_col_refs = [exprs.ColumnRef(c) for c in indexed_cols]
+        from pixeltable.functions.image_embedding import openai_clip
+        # explicitly resize images to the required size
+        target_img_type = next(iter(openai_clip.md.signature.parameters.values()))
+        select_list.extend([openai_clip(col_ref.resize(target_img_type.size)) for col_ref in indexed_col_refs])
+        plan, select_list = cls.create_query_plan(
+            view.base, select_list=select_list, where_clause=view.predicate, with_pk=True, ignore_errors=False,
+            version=base_version)
+        num_idx_cols = len(indexed_cols)
+        db_col_info = [
+            ColumnInfo(c, e.slot_idx)
+            for c, e in zip(stored_computed_cols, select_list[:len(select_list) - num_idx_cols])
+        ]
+        idx_col_info = [ColumnInfo(c, e.slot_idx) for c, e in zip(indexed_cols, select_list[-num_idx_cols:])]
+        return plan, db_col_info, idx_col_info, len(select_list)
 
     class AnalysisInfo:
         def __init__(self, tbl: catalog.Table):
@@ -134,8 +212,9 @@ class Planner:
 
     @classmethod
     def _analyze_query(
-            cls, tbl: catalog.Table, select_list: List[exprs.Expr], where_clause: Optional[exprs.Predicate] = None,
-            group_by_clause: List[exprs.Expr] = [], order_by_clause: List[Tuple[exprs.Expr, bool]] = []
+            cls, tbl: catalog.TableVersion, select_list: List[exprs.Expr],
+            where_clause: Optional[exprs.Predicate] = None, group_by_clause: List[exprs.Expr] = [],
+            order_by_clause: List[Tuple[exprs.Expr, bool]] = []
     ) -> AnalysisInfo:
         """Performs semantic analysis of query and returns AnalysisInfo"""
         info = cls.AnalysisInfo(tbl)
@@ -252,7 +331,7 @@ class Planner:
 
     @classmethod
     def _determine_ordering(
-        cls, tbl: catalog.Table, evaluator: exprs.Evaluator, info: AnalysisInfo
+        cls, tbl: catalog.TableVersion, evaluator: exprs.Evaluator, info: AnalysisInfo
     ) -> List[sql.sql.expression.ClauseElement]:
         """Returns the ORDER BY clause of the SqlScanNode"""
         order_by_items: List[Tuple[exprs.Expr, bool]] = []
@@ -335,10 +414,10 @@ class Planner:
 
     @classmethod
     def create_query_plan(
-            cls, tbl: catalog.Table, select_list: List[exprs.Expr], where_clause: Optional[exprs.Predicate] = None,
-            group_by_clause: List[exprs.Expr] = [], order_by_clause: List[Tuple[exprs.Expr, bool]] = [],
-            limit: Optional[int] = None,
-            with_pk: bool = False, ignore_errors: bool = False
+            cls, tbl: catalog.TableVersion, select_list: List[exprs.Expr],
+            where_clause: Optional[exprs.Predicate] = None, group_by_clause: List[exprs.Expr] = [],
+            order_by_clause: List[Tuple[exprs.Expr, bool]] = [], limit: Optional[int] = None,
+            with_pk: bool = False, ignore_errors: bool = False, version: Optional[int] = None
     ) -> Tuple[ExecNode, List[exprs.Expr]]:
         info = cls._analyze_query(
             tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
@@ -352,7 +431,7 @@ class Planner:
         sql_limit = 0 if is_agg_query else limit  # if we're aggregating, the limit applies to the agg output
         plan = SqlScanNode(
             tbl, evaluator, info.sql_exprs, where_clause=info.sql_where_clause, filter=info.filter, limit=sql_limit,
-            order_by_clause=order_by_clause, set_pk=with_pk, similarity_clause=info.similarity_clause)
+            order_by_clause=order_by_clause, set_pk=with_pk, similarity_clause=info.similarity_clause, version=version)
 
         if len(info.group_by_clause) > 0 or len(info.agg_fn_calls) > 0:
             # we're doing aggregation; the input of the AggregateNode are the grouping exprs plus the
@@ -388,12 +467,12 @@ class Planner:
         return plan, info.select_list
 
     @classmethod
-    def get_info(cls, tbl: catalog.Table, where_clause: exprs.Predicate) -> AnalysisInfo:
+    def get_info(cls, tbl: catalog.TableVersion, where_clause: exprs.Predicate) -> AnalysisInfo:
         return cls._analyze_query(tbl, [], where_clause=where_clause)
 
     @classmethod
     def create_add_column_plan(
-            cls, tbl: catalog.Table, col: catalog.Column) -> Tuple[ExecNode, Optional[int], Optional[int]]:
+            cls, tbl: catalog.TableVersion, col: catalog.Column) -> Tuple[ExecNode, Optional[int], Optional[int]]:
         """Creates a plan for MutableTable.add_column()
         Returns:
             plan: the plan to execute

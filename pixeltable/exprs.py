@@ -12,6 +12,7 @@ import io
 from collections.abc import Iterable
 import time
 import inspect
+from uuid import UUID
 
 import PIL.Image
 import jmespath
@@ -283,13 +284,14 @@ class Expr(abc.ABC):
 
     @classmethod
     def list_subexprs(
-            cls, expr_list: List[Expr], filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+            cls, expr_list: List[Expr], expr_class: Optional[Type[Expr]] = None,
+            filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Generator[Expr, None, None]:
         """
         Produce subexprs for all exprs in list.
         """
         for e in expr_list:
-            yield from e.subexprs(filter=filter, traverse_matches=traverse_matches)
+            yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
 
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
@@ -367,11 +369,11 @@ class Expr(abc.ABC):
         return {}
 
     @classmethod
-    def deserialize(cls, dict_str: str, t: catalog.Table) -> Expr:
+    def deserialize(cls, dict_str: str, t: catalog.TableVersion) -> Expr:
         return cls.from_dict(json.loads(dict_str), t)
 
     @classmethod
-    def from_dict(cls, d: Dict, t: catalog.Table) -> Expr:
+    def from_dict(cls, d: Dict, t: catalog.TableVersion) -> Expr:
         """
         Turn dict that was produced by calling Expr.as_dict() into an instance of the correct Expr subclass.
         """
@@ -383,11 +385,11 @@ class Expr(abc.ABC):
         return type_class._from_dict(d, components, t)
 
     @classmethod
-    def from_dict_list(cls, dict_list: List[Dict], t: catalog.Table) -> List[Expr]:
+    def from_dict_list(cls, dict_list: List[Dict], t: catalog.TableVersion) -> List[Expr]:
         return [cls.from_dict(d, t) for d in dict_list]
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert False, 'not implemented'
 
     def __getitem__(self, index: object) -> Expr:
@@ -477,6 +479,7 @@ class ColumnRef(Expr):
         ERRORMSG = 2
 
     def __init__(self, col: catalog.Column, prop: Property = Property.VALUE):
+        assert col.tbl is not None
         self.col = col
         self.prop = prop
         if prop == self.Property.VALUE:
@@ -500,9 +503,6 @@ class ColumnRef(Expr):
 
     def display_name(self) -> str:
         return str(self)
-        if self.prop == self.Property.VALUE:
-            return self.col.name
-        return f'{self.col.name}.{self.prop.name.lower()}'
 
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col and self.prop == other.prop
@@ -530,12 +530,22 @@ class ColumnRef(Expr):
         pass
 
     def _as_dict(self) -> Dict:
-        return {'col_id': self.col.id, 'prop': self.prop.value}
+        return {'tbl_id': str(self.col.tbl.id), 'col_id': self.col.id, 'prop': self.prop.value}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'col_id' in d
-        result = cls(t.cols_by_id[d['col_id']])
+        assert t.id is not None
+        origin_id = UUID(d['tbl_id'])
+        origin = t
+        while origin_id != origin.id:
+            # only views can reference Tables other than themselves
+            assert t.is_view() and t.base is not None
+            origin = t.base
+
+        col_id = d['col_id']
+        assert col_id in origin.cols_by_id
+        result = cls(origin.cols_by_id[col_id])
         if d['prop'] != cls.Property.VALUE.value:
             result = getattr(result, cls.Property(d['prop']).name.lower())
         return result
@@ -816,7 +826,7 @@ class FunctionCall(Expr):
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'fn' in d
         assert 'args' in d
         assert 'kwargs' in d
@@ -889,7 +899,7 @@ class ImageMemberAccess(Expr):
         return {'member_name': self.member_name, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'member_name' in d
         assert len(components) == 1
         return cls(d['member_name'], components[0])
@@ -950,7 +960,7 @@ class JsonPath(Expr):
         return {'path_elements': self.path_elements, 'scope_idx': self.scope_idx, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'path_elements' in d
         assert 'scope_idx' in d
         assert len(components) <= 1
@@ -1081,7 +1091,7 @@ class Literal(Expr):
         return {'val': self.val, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'val' in d
         return cls(d['val'])
 
@@ -1148,7 +1158,7 @@ class InlineDict(Expr):
         return {'dict_items': self.dict_items, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'dict_items' in d
         arg: Dict[str, Any] = {}
         for key, idx, val in d['dict_items']:
@@ -1225,7 +1235,7 @@ class InlineArray(Expr):
         return {'elements': self.elements, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'elements' in d
         arg: List[Any] = []
         for idx, val in d['elements']:
@@ -1280,7 +1290,7 @@ class ArraySlice(Expr):
         return {'index': index, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'index' in d
         index = []
         for el in d['index']:
@@ -1433,7 +1443,7 @@ class CompoundPredicate(Predicate):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'operator' in d
         return cls(LogicalOperator(d['operator']), components)
 
@@ -1494,7 +1504,7 @@ class Comparison(Predicate):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'operator' in d
         return cls(ComparisonOperator(d['operator']), components[0], components[1])
 
@@ -1532,7 +1542,7 @@ class ImageSimilarityPredicate(Predicate):
         return {'img': self.img, 'text': self.text, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'img' in d
         assert 'text' in d
         assert len(components) == 1
@@ -1560,7 +1570,7 @@ class IsNull(Predicate):
         data_row[self.slot_idx] = data_row[self.components[0].slot_idx] is None
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert len(components) == 1
         return cls(components[0])
 
@@ -1644,7 +1654,7 @@ class ArithmeticExpr(Expr):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert 'operator' in d
         assert len(components) == 2
         return cls(ArithmeticOperator(d['operator']), components[0], components[1])
@@ -1781,7 +1791,7 @@ class JsonMapper(Expr):
         return {'components': [c.as_dict() for c in self.components[0:2]]}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.Table) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
         assert len(components) == 2
         return cls(components[0], components[1])
 
@@ -1794,8 +1804,8 @@ class DataRow:
         self.vals: List[Any] = [None] * size  # either cell values or exceptions
         self.has_val = [False] * size
         self.excs: List[Optional[Exception]] = [None] * size
-        self.row_id: Optional[int] = None
-        self.v_min: Optional[int] = None
+        # the primary key of a row is a sequence of ints (the number is different for table vs view)
+        self.pk: Optional[Tuple[int, ...]] = None
 
         # img_files:
         # - path of file for image in vals[i]
@@ -1807,13 +1817,11 @@ class DataRow:
         self.vals = [None] * size
         self.has_val = [False] * size
         self.excs = [None] * size
-        self.row_id = None
-        self.v_min = None
+        self.pk = None
         self.img_files = [None] * size
 
-    def set_pk(self, row_id: int, v_min: int) -> None:
-        self.row_id = row_id
-        self.v_min = v_min
+    def set_pk(self, pk: Tuple[int, ...]) -> None:
+        self.pk = pk
 
     def has_exc(self, slot_idx: int) -> bool:
         return self.excs[slot_idx] is not None
@@ -1865,7 +1873,7 @@ class DataRow:
             if filepath is not None:
                 # we want to save this to a file
                 self.img_files[index] = filepath
-                self.vals[index].save(filepath)
+                self.vals[index].save(filepath, format='JPEG')
             else:
                 # we discard the content of this cell
                 self.has_val[index] = False

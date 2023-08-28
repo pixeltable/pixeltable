@@ -34,7 +34,7 @@ class DataRowBatch:
     """
     Set of DataRows, indexed by rowid. Keeps track of image memory consumption and can flush images.
     """
-    def __init__(self, table: catalog.Table, evaluator: exprs.Evaluator, len: int = 0):
+    def __init__(self, table: catalog.TableVersion, evaluator: exprs.Evaluator, len: int = 0):
         self.table_id = table.id
         self.table_version = table.version
         self.evaluator = evaluator
@@ -51,9 +51,10 @@ class DataRowBatch:
         return self.rows.pop()
 
     def set_row_ids(self, row_ids: List[int]) -> None:
+        """Sets pks for rows in batch, assuming they are table rows"""
         assert len(row_ids) == len(self.rows)
         for row, row_id in zip(self.rows, row_ids):
-            row.set_pk(row_id, self.table_version)
+            row.set_pk((row_id, self.table_version))
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -85,7 +86,7 @@ class DataRowBatch:
             idx_range = slice(0, len(self.rows))
         for row in self.rows[idx_range]:
             for info in stored_img_info:
-                filepath = str(ImageStore.get_path(self.table_id, info.col.id, row.v_min, row.row_id, 'jpg'))
+                filepath = str(ImageStore.get_path(self.table_id, info.col.id, self.table_version))
                 row.flush_img(info.slot_idx, filepath)
             for slot_idx in flushed_slot_idxs:
                 row.flush_img(slot_idx)
@@ -120,6 +121,7 @@ class ExecContext:
         self.profile = exprs.ExecProfile(evaluator)
         # num_rows is used to compute the total number of computed cells used for the progress bar
         self.num_rows: Optional[int] = None
+        self.conn: Optional[sql.engine.Connection] = None  # if present, use this to execute SQL queries
 
 
 class ExecNode(abc.ABC):
@@ -178,7 +180,7 @@ class ExecNode(abc.ABC):
 
 class AggregationNode(ExecNode):
     def __init__(
-            self, tbl: catalog.Table, evaluator: exprs.Evaluator, group_by: List[exprs.Expr],
+            self, tbl: catalog.TableVersion, evaluator: exprs.Evaluator, group_by: List[exprs.Expr],
             agg_fn_calls: List[exprs.FunctionCall], input_exprs: List[exprs.Expr], input: ExecNode
     ):
         super().__init__(evaluator, group_by + agg_fn_calls, input_exprs, input)
@@ -246,11 +248,11 @@ class SqlScanNode(ExecNode):
     """Materializes data from the store via SQL
     """
     def __init__(
-            self, tbl: catalog.Table, evaluator: exprs.Evaluator, sql_exprs: Iterable[exprs.Expr],
+            self, tbl: catalog.TableVersion, evaluator: exprs.Evaluator, sql_exprs: Iterable[exprs.Expr],
             where_clause: Optional[sql.sql.expression.ClauseElement] = None, filter: Optional[exprs.Predicate] = None,
             order_by_clause: List[sql.sql.expression.ClauseElement] = [],
             similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None,
-            limit: int = 0, set_pk: bool = False
+            limit: int = 0, set_pk: bool = False, version: Optional[int] = None
 
     ):
         """
@@ -260,26 +262,43 @@ class SqlScanNode(ExecNode):
             filter: additional Where-clause predicate that can't be evaluated via SQL
             limit: max number of rows to return: 0 = no limit
             set_pk: if True, sets the primary for each DataRow
+            version: if set, return only rows created for this exact version
         """
         # create Select stmt
         super().__init__(evaluator, sql_exprs, [], None)
         self.tbl = tbl
         self.evaluator = evaluator
         self.sql_exprs = sql_exprs
-        self.set_pk = set_pk
         self.filter = filter
         self.filter_eval_ctx = evaluator.get_eval_ctx([filter], exclude=sql_exprs) if filter is not None else []
         self.limit = limit
         select_list = [e.sql_expr() for e in sql_exprs]
-        if self.set_pk:
-            select_list.extend([tbl.rowid_col, tbl.v_min_col])
-        self.stmt = sql.select(*select_list) \
-            .where(tbl.v_min_col <= tbl.version) \
-            .where(tbl.v_max_col > tbl.version)
+        if set_pk:
+            pk_cols = tbl.store_tbl.pk_columns()
+            self.num_pk_cols = len(pk_cols)
+            select_list.extend(pk_cols)
+        else:
+            self.num_pk_cols = 0
+
+        self.stmt = sql.select(*select_list)
+        self.stmt, base_tbl = self._create_from_clause(tbl, self.stmt)
+
+        # select base table rows
+        if version is not None:
+            # for a specific version
+            self.stmt = self.stmt \
+                .where(base_tbl.store_tbl.v_min_col == version)
+        else:
+            # for all rows visible at the current version
+            self.stmt = self.stmt \
+                .where(base_tbl.store_tbl.v_min_col <= base_tbl.version) \
+                .where(base_tbl.store_tbl.v_max_col > base_tbl.version)
+
         if where_clause is not None:
             self.stmt = self.stmt.where(where_clause)
         if similarity_clause is not None:
-            self.stmt = self.stmt.order_by(similarity_clause.img_col_ref.col.sa_idx_col.l2_distance(similarity_clause.embedding()))
+            self.stmt = self.stmt.order_by(
+                similarity_clause.img_col_ref.col.sa_idx_col.l2_distance(similarity_clause.embedding()))
         if len(order_by_clause) > 0:
             self.stmt = self.stmt.order_by(*order_by_clause)
         if limit != 0 and self.filter is None:
@@ -289,18 +308,50 @@ class SqlScanNode(ExecNode):
         self.conn: Optional[sql.engine.Connection] = None
         self.result_cursor: Optional[sql.engine.CursorResult] = None
 
+    def _create_from_clause(
+            self, tbl: catalog.TableVersion, stmt: sql.Select
+    ) -> Tuple[sql.Select, catalog.TableVersion]:
+        """Add From clause to stmt for only those tables referenced in exprs
+        Returns:
+            [augmented stmt, base table]
+        """
+        base_tbl = tbl
+        while base_tbl.base is not None:
+            base_tbl = base_tbl.base
+        stmt = stmt.select_from(base_tbl.store_tbl.sa_tbl)
+        # TODO: omit views that are not referenced in exprs and don't have filters
+        while tbl.base is not None:
+            assert tbl.is_view()
+            # join with rows in tbl that are visible at the current version of base_tbl;
+            # we can ignore the view predicate here, it's indirectly applied via the join
+            stmt = stmt.join(tbl.store_tbl.sa_tbl, base_tbl.store_tbl.rowid_col == tbl.store_tbl.base_rowid_col) \
+                .where(tbl.store_tbl.base_v_min_col <= base_tbl.version) \
+                .where(tbl.store_tbl.base_v_max_col > base_tbl.version) \
+                .where(tbl.store_tbl.v_min_col <= tbl.version) \
+                .where(tbl.store_tbl.v_max_col > tbl.version)
+            tbl = tbl.base
+        return stmt, base_tbl
+
     def __next__(self) -> DataRowBatch:
-        if self.conn is None:
-            self.conn = Env.get().engine.connect()
-            try:
-                # run the query; do this here rather than in _open(), exceptions are only expected during iteration
-                self.result_cursor = self.conn.execute(self.stmt)
-                self.has_more_rows = True
-            except Exception as e:
-                self.conn.close()
-                self.conn = None
-                self.has_more_rows = False
-                raise e
+        if self.result_cursor is None:
+            # run the query; do this here rather than in _open(), exceptions are only expected during iteration
+            if self.ctx.conn is not None:
+                try:
+                    self.result_cursor = self.ctx.conn.execute(self.stmt)
+                    self.has_more_rows = True
+                except Exception as e:
+                    self.has_more_rows = False
+                    raise e
+            else:
+                self.conn = Env.get().engine.connect()
+                try:
+                    self.result_cursor = self.conn.execute(self.stmt)
+                    self.has_more_rows = True
+                except Exception as e:
+                    self.conn.close()
+                    self.conn = None
+                    self.has_more_rows = False
+                    raise e
 
         if not self.has_more_rows:
             raise StopIteration
@@ -316,9 +367,9 @@ class SqlScanNode(ExecNode):
 
             if needs_row:
                 output_batch.add_row()
-            if self.set_pk:
+            if self.num_pk_cols > 0:
                 row = output_batch[-1]
-                row.set_pk(sql_row[-2], sql_row[-1])
+                row.set_pk(tuple(sql_row[-self.num_pk_cols:]))
             # copy the output of the SQL query into the output row
             for i, e in enumerate(self.sql_exprs):
                 slot_idx = e.slot_idx
@@ -657,10 +708,11 @@ class ExprEvalNode(ExecNode):
 class InsertDataNode(ExecNode):
     """Outputs in-memory data as a row batch of a particular table"""
     def __init__(
-            self, tbl: catalog.MutableTable, rows: List[List[Any]], row_column_pos: Dict[str, int],
+            self, tbl: catalog.TableVersion, rows: List[List[Any]], row_column_pos: Dict[str, int],
             evaluator: exprs.Evaluator, input_cols: List[ColumnInfo], frame_idx_slot_idx: int, start_row_id: int,
     ):
         super().__init__(evaluator, [], [], None)
+        assert tbl.is_insertable()
         self.tbl = tbl
         self.input_rows = rows
         self.row_column_pos = row_column_pos  # col name -> idx of col in self.input_rows

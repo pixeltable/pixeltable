@@ -110,18 +110,43 @@ class TableMd:
     next_row_id: int
 
     column_history: dict[int, ColumnHistory]  # col_id -> ColumnHistory
-
     parameters: TableParameters
+
+    # filter predicate applied to the base table; view-only
+    predicate: Optional[dict]
 
 
 class Table(Base):
+    """
+    Table represents both tables and views.
+
+    Views are in essence a subclass of tables, because they also store materialized columns. The differences are:
+    - views have a base Table and can reference a particular version of that Table
+    - views can have a filter predicate
+    """
     __tablename__ = 'tables'
 
     MAX_VERSION = 9223372036854775807  # 2^63 - 1
 
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
+    base_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), nullable=True)  # view-only
+    base_version = sql.Column(BigInteger, nullable=True)  # view-only
     md = sql.Column(JSONB, nullable=False)  # TableMd
+
+
+@dataclasses.dataclass
+class TableVersionMd:
+    created_at: float  # time.time()
+    version: int
+    schema_version: int
+
+
+class TableVersion(Base):
+    __tablename__ = 'tableversions'
+    tbl_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False)
+    version = sql.Column(BigInteger, primary_key=True, nullable=False)
+    md = sql.Column(JSONB, nullable=False)  # TableVersionMd
 
 
 @dataclasses.dataclass
@@ -156,13 +181,21 @@ class TableSchemaVersion(Base):
     md = sql.Column(JSONB, nullable=False)  # TableSchemaVersionMd
 
 
+@dataclasses.dataclass
+class TableSnapshotMd:
+    name: str
+    created_at: float  # time.time()
+
+
 class TableSnapshot(Base):
     __tablename__ = 'tablesnapshots'
 
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     tbl_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), nullable=False)
-    md = sql.Column(JSONB, nullable=False)  # TableMd
+    tbl_version = sql.Column(BigInteger, nullable=False)
+    md = sql.Column(JSONB, nullable=False)  # TableSnapshotMd
+    # TODO: FK to TableSchemaVersion
 
 
 @dataclasses.dataclass

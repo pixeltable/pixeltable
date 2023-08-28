@@ -51,6 +51,11 @@ class DataFrameResultSet:
 
     def __len__(self) -> int:
         return len(self.rows)
+    def column_names(self) -> List[str]:
+        return self.col_names
+
+    def column_types(self) -> List[ColumnType]:
+        return self.col_types
 
     def _repr_html_(self) -> str:
         img_col_idxs = [i for i, col_type in enumerate(self.col_types) if col_type.is_image_type()]
@@ -80,7 +85,7 @@ class DataFrameResultSet:
 
 
 class AnalysisInfo:
-    def __init__(self, tbl: catalog.Table):
+    def __init__(self, tbl: catalog.TableVersion):
         self.tbl = tbl
         # output of the SQL scan stage
         self.sql_scan_output_exprs: List[exprs.Expr] = []
@@ -112,7 +117,7 @@ class AnalysisInfo:
 
 class DataFrame:
     def __init__(
-            self, tbl: catalog.Table,
+            self, tbl: catalog.TableVersion,
             select_list: Optional[List[exprs.Expr]] = None,
             where_clause: Optional[exprs.Predicate] = None,
             group_by_clause: Optional[List[exprs.Expr]] = None,
@@ -127,9 +132,10 @@ class DataFrame:
     def exec(self, n: int = 20) -> Generator[exprs.DataRow, None, None]:
         """Returned value: list of select list values"""
         if self.select_list is None:
+            # select all columns
             self.select_list = [
                 exprs.FrameColumnRef(col) if self.tbl.is_frame_col(col) else exprs.ColumnRef(col)
-                for col in self.tbl.columns
+                for col in self.tbl.columns()
             ]
         if self.group_by_clause is None:
             self.group_by_clause = []
@@ -180,16 +186,8 @@ class DataFrame:
         return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in self.select_list])
 
     def count(self) -> int:
-        stmt = sql.select(sql.func.count('*')).select_from(self.tbl.sa_tbl) \
-            .where(self.tbl.v_min_col <= self.tbl.version) \
-            .where(self.tbl.v_max_col > self.tbl.version)
-        if self.where_clause is not None:
-            analysis_info = Planner.get_info(self.tbl, self.where_clause)
-            if analysis_info.similarity_clause is not None:
-                raise exc.Error('nearest() cannot be used with count()')
-            if analysis_info.filter is not None:
-                raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
-            stmt = stmt.where(analysis_info.sql_where_clause)
+        from pixeltable.plan import Planner
+        stmt = Planner.create_count_stmt(self.tbl, self.where_clause)
         with Env.get().engine.connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
@@ -207,8 +205,8 @@ class DataFrame:
         assert isinstance(self.select_list[0], exprs.ColumnRef)
         col = self.select_list[0].col
         stmt = sql.select(sql.distinct(col.sa_col)) \
-            .where(self.tbl.v_min_col <= self.tbl.version) \
-            .where(self.tbl.v_max_col > self.tbl.version) \
+            .where(self.tbl.store_tbl.v_min_col <= self.tbl.version) \
+            .where(self.tbl.store_tbl.v_max_col > self.tbl.version) \
             .order_by(col.sa_col)
         if self.where_clause is not None:
             sql_where_clause = self.where_clause.sql_expr()
@@ -228,10 +226,10 @@ class DataFrame:
             expr = items[i]
             if isinstance(expr, dict):
                 select_list[i] = expr = exprs.InlineDict(expr)
-            if isinstance(expr, list):
+            elif isinstance(expr, list):
                 select_list[i] = expr = exprs.InlineArray(tuple(expr))
-            if not isinstance(expr, exprs.Expr):
-                raise exc.Error(f'Invalid expression in select list: {expr}')
+            elif not isinstance(expr, exprs.Expr):
+                select_list[i] = expr = exprs.Literal(expr)
             if expr.col_type.is_invalid_type():
                 raise exc.Error(f'Invalid type: {expr}')
             # TODO: check that ColumnRefs in expr refer to self.tbl
