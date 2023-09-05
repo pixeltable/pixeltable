@@ -748,8 +748,6 @@ class ImageType(ColumnType):
                 _ = Image.open(io.BytesIO(val))
             except PIL.UnidentifiedImageError:
                 raise TypeError(f'Binary is not a valid image: {val}')
-            
-
         elif isinstance(val, str):
             try:
                 _ = Image.open(val)

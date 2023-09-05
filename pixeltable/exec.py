@@ -682,12 +682,11 @@ class InsertDataNode(ExecNode):
                 assert info.col.name in self.row_column_pos
                 col_idx = self.row_column_pos[info.col.name]
                 for row_idx, input_row in enumerate(self.input_rows):
-                    if info.col.col_type.type_enum == catalog.ColumnType.Type.IMAGE and isinstance(input_row[col_idx], bytes):
+                    if info.col.col_type.is_image_type() and isinstance(input_row[col_idx], bytes):
                         # We're receiving an inline image binary. We will save it to a file here and store the path.
                         valbytes = input_row[col_idx]
                         row = self.output_rows[row_idx]
-                        col = self.tbl.cols_by_name[info.col.name]
-                        valpath = str(ImageStore.get_path(self.tbl.id, col.id, row.v_min, row.row_id, '.bin'))
+                        valpath = str(ImageStore.get_path(self.tbl.id, info.col.id, row.v_min, row.row_id, '.bin'))
                         with open(valpath, 'wb') as f: 
                             f.write(valbytes)
                         self.output_rows[row_idx, info.slot_idx] = valpath
