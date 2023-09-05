@@ -675,11 +675,24 @@ class InsertDataNode(ExecNode):
         """Create row batch and populate with self.data"""
         if not self.tbl.extracts_frames():
             self.output_rows = DataRowBatch(self.tbl, self.evaluator, len(self.input_rows))
+            # assign row ids prior to needing them for file names
+            self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
+            
             for info in self.input_cols:
                 assert info.col.name in self.row_column_pos
                 col_idx = self.row_column_pos[info.col.name]
                 for row_idx, input_row in enumerate(self.input_rows):
-                    self.output_rows[row_idx, info.slot_idx] = input_row[col_idx]
+                    if info.col.col_type.type_enum == catalog.ColumnType.Type.IMAGE and isinstance(input_row[col_idx], bytes):
+                        # We're receiving an inline image binary. We will save it to a file here and store the path.
+                        valbytes = input_row[col_idx]
+                        row = self.output_rows[row_idx]
+                        col = self.tbl.cols_by_name[info.col.name]
+                        valpath = str(ImageStore.get_path(self.tbl.id, col.id, row.v_min, row.row_id, '.bin'))
+                        with open(valpath, 'wb') as f: 
+                            f.write(valbytes)
+                        self.output_rows[row_idx, info.slot_idx] = valpath
+                    else:
+                        self.output_rows[row_idx, info.slot_idx] = input_row[col_idx]
         else:
             # we're extracting frames: we replace each row with one row per frame, which has the frame_idx col set
             video_col = self.tbl.frame_src_col()
@@ -717,8 +730,9 @@ class InsertDataNode(ExecNode):
                         self.output_rows[row_idx, info.slot_idx] = val
                         row_idx += 1
 
-        # assign row ids
-        self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
+            # assign row ids
+            self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
+
         self.ctx.num_rows = len(self.output_rows)
 
     def __next__(self) -> DataRowBatch:
