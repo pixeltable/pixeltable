@@ -741,13 +741,13 @@ class ImageType(ColumnType):
     def validate_literal(self, val: Any) -> None:
         # make sure file path points to a valid image file or binary is a valid image
         if not isinstance(val, (str, bytes)):
-            raise TypeError(f'Expected file path or binary, got {val}')
+            raise TypeError(f'Expected file path or bytes')
 
         if isinstance(val, bytes):
             try:
                 _ = Image.open(io.BytesIO(val))
             except PIL.UnidentifiedImageError:
-                raise TypeError(f'Binary is not a valid image: {val}')
+                raise TypeError(f'Bytes are not a valid PIL image')
         elif isinstance(val, str):
             try:
                 _ = Image.open(val)

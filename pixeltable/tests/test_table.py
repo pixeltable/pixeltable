@@ -100,6 +100,7 @@ class TestTable:
         tbl = cl.create_table('test', cols)
 
         rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        sample_rows = random.sample(rows, 20)
 
         # add literal image data and column
         for r in rows:
@@ -107,8 +108,6 @@ class TestTable:
                 r.append(f.read())
 
         col_names.append('img_literal')
-
-        sample_rows = random.sample(rows, 20)
         tbl.insert(sample_rows, columns=col_names)
 
         # compare img and img_literal
@@ -122,6 +121,30 @@ class TestTable:
         html_str = tbl.show(n=100)._repr_html_()
         print(html_str)
         # TODO: check html_str
+
+    def test_insert_bad_images(self, test_client: pt.Client) -> None:
+        # bad image file
+        cl = test_client
+        cols = [
+            catalog.Column('img', ImageType(nullable=False)),
+            catalog.Column('category', StringType(nullable=False)),
+            catalog.Column('split', StringType(nullable=False)),
+        ]
+        tbl = test_client.create_table('test', cols)
+        rows, col_names = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
+
+        # check insert with bad image file fails
+        with pytest.raises(exc.Error):
+            tbl.insert(rows, columns=col_names)
+
+        # replace row with literal
+        bad_row = rows[0]
+        img_idx = col_names.index('img')
+        bad_row[img_idx] = b'bad image literal'
+
+        # check insert with bad image literal fails
+        with pytest.raises(exc.Error):
+            tbl.insert(rows, columns=col_names)
 
     def test_create_video_table(self, test_client: pt.Client) -> None:
         cl = test_client

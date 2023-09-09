@@ -725,25 +725,29 @@ class InsertDataNode(ExecNode):
 
     def _open(self) -> None:
         """Create row batch and populate with self.data"""
+
+        for info in self.input_cols:
+            assert info.col.name in self.row_column_pos
+        # before anything, convert any literal images within the input rows into references
+        _input_rows = [] # do not mutate self.input_rows, this may modify the argument also
+        for input_row in self.input_rows:
+            new_row = [val for val in input_row]
+            for info in self.input_cols:
+                col_idx = self.row_column_pos[info.col.name]
+                val = input_row[col_idx]
+                if info.col.col_type.is_image_type() and isinstance(val, bytes):
+                    # we will save literal to a file here and use this path as the new value
+                    valpath = str(ImageStore.get_path(self.tbl.id, info.col.id, self.tbl.version))
+                    open(valpath, 'wb').write(val)
+                    new_row[col_idx] = valpath
+            _input_rows.append(new_row)
+        self.input_rows = _input_rows
         if not self.tbl.extracts_frames():
             self.output_rows = DataRowBatch(self.tbl, self.evaluator, len(self.input_rows))
-            # assign row ids prior to needing them for file names
-            self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
-            
             for info in self.input_cols:
-                assert info.col.name in self.row_column_pos
                 col_idx = self.row_column_pos[info.col.name]
                 for row_idx, input_row in enumerate(self.input_rows):
-                    if info.col.col_type.is_image_type() and isinstance(input_row[col_idx], bytes):
-                        # We're receiving an inline image binary. We will save it to a file here and store the path.
-                        valbytes = input_row[col_idx]
-                        row = self.output_rows[row_idx]
-                        valpath = str(ImageStore.get_path(self.tbl.id, info.col.id, self.tbl.version))
-                        with open(valpath, 'wb') as f: 
-                            f.write(valbytes)
-                        self.output_rows[row_idx, info.slot_idx] = valpath
-                    else:
-                        self.output_rows[row_idx, info.slot_idx] = input_row[col_idx]
+                    self.output_rows[row_idx, info.slot_idx] = input_row[col_idx]
         else:
             # we're extracting frames: we replace each row with one row per frame, which has the frame_idx col set
             video_col = self.tbl.frame_src_col()
@@ -781,9 +785,8 @@ class InsertDataNode(ExecNode):
                         self.output_rows[row_idx, info.slot_idx] = val
                         row_idx += 1
 
-            # assign row ids
-            self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
-
+        # assign row ids
+        self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
         self.ctx.num_rows = len(self.output_rows)
 
     def __next__(self) -> DataRowBatch:
