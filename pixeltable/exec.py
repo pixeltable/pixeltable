@@ -738,7 +738,7 @@ class InsertDataNode(ExecNode):
                         # We're receiving an inline image binary. We will save it to a file here and store the path.
                         valbytes = input_row[col_idx]
                         row = self.output_rows[row_idx]
-                        valpath = str(ImageStore.get_path(self.tbl.id, info.col.id, row.v_min, row.row_id, '.bin'))
+                        valpath = str(ImageStore.get_path(self.tbl.id, info.col.id, self.tbl.version))
                         with open(valpath, 'wb') as f: 
                             f.write(valbytes)
                         self.output_rows[row_idx, info.slot_idx] = valpath
