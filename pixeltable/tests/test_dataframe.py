@@ -20,10 +20,10 @@ class TestDataFrame:
             _ = t.select(t.c1).select(t.c2).show(0)
         assert 'already specified' in str(exc_info.value)
 
-        # invalid expr in select list
-        with pytest.raises(exc.Error) as exc_info:
-            _ = t.select(datetime.datetime.now()).show(0)
-        assert 'Invalid expression' in str(exc_info.value)
+        # invalid expr in select list: Callable is not a valid literal
+        with pytest.raises(TypeError) as exc_info:
+            _ = t.select(datetime.datetime.now).show(0)
+        assert 'Not a valid literal' in str(exc_info.value)
 
     def test_order_by(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -54,3 +54,8 @@ class TestDataFrame:
         # for now, count() doesn't work with non-SQL Where clauses
         with pytest.raises(exc.Error):
             _ = t.where(t.img.width > 100).count()
+
+    def test_select_literal(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        res = t.select(1.0).where(t.c2 < 10).show(0)
+        assert res.rows == [[1.0]] * 10

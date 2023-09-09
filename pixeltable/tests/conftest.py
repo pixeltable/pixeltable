@@ -11,7 +11,7 @@ import pixeltable as pt
 import pixeltable.catalog as catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType
-from pixeltable.tests.utils import read_data_file, make_tbl, create_table_data
+from pixeltable.tests.utils import read_data_file, create_test_tbl
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
@@ -41,64 +41,7 @@ def test_client(init_env) -> pt.Client:
 
 @pytest.fixture(scope='function')
 def test_tbl(test_client: pt.Client) -> catalog.Table:
-    cols = [
-        catalog.Column('c1', StringType(nullable=False)),
-        catalog.Column('c1n', StringType(nullable=True)),
-        catalog.Column('c2', IntType(nullable=False), primary_key=True),
-        catalog.Column('c3', FloatType(nullable=False)),
-        catalog.Column('c4', BoolType(nullable=False)),
-        catalog.Column('c5', TimestampType(nullable=False)),
-        catalog.Column('c6', JsonType(nullable=False)),
-        catalog.Column('c7', JsonType(nullable=False)),
-    ]
-    t = test_client.create_table('test_tbl', cols)
-    t.add_column(catalog.Column('c8', computed_with=[[1, 2, 3], [4, 5, 6]]))
-
-    num_rows = 100
-    d1 = {
-        'f1': 'test string 1',
-        'f2': 1,
-        'f3': 1.0,
-        'f4': True,
-        'f5': [1.0, 2.0, 3.0, 4.0],
-        'f6': {
-            'f7': 'test string 2',
-            'f8': [1.0, 2.0, 3.0, 4.0],
-        },
-    }
-    d2 = [d1, d1]
-
-    c1_data = [f'test string {i}' for i in range(num_rows)]
-    c2_data = [i for i in range(num_rows)]
-    c3_data = [float(i) for i in range(num_rows)]
-    c4_data = [bool(i % 2) for i in range(num_rows)]
-    c5_data = [datetime.datetime.now()] * num_rows
-    c6_data = []
-    for i in range(num_rows):
-        d = {
-            'f1': f'test string {i}',
-            'f2': i,
-            'f3': float(i),
-            'f4': bool(i % 2),
-            'f5': [1.0, 2.0, 3.0, 4.0],
-            'f6': {
-                'f7': 'test string 2',
-                'f8': [1.0, 2.0, 3.0, 4.0],
-            },
-        }
-        c6_data.append(d)
-
-    c7_data = [d2] * num_rows
-    rows = [
-        [c1_data[i], c1_data[i] if i % 10 != 0 else None,
-         c2_data[i], c3_data[i], c4_data[i], c5_data[i], c6_data[i], c7_data[i]]
-        for i in range(num_rows)
-    ]
-    data = {
-        'c1': c1_data, 'c1n': [s if i % 10 != 0 else None for i, s in enumerate(c1_data)],
-        'c2': c2_data, 'c3': c3_data, 'c4': c4_data, 'c5': c5_data, 'c6': c6_data, 'c7': c7_data}
-    t.insert(rows, columns=['c1', 'c1n', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'])
-    return t
+    return create_test_tbl(test_client)
 
 @pytest.fixture(scope='function')
 def test_stored_fn(test_client: pt.Client) -> pt.Function:

@@ -12,7 +12,7 @@ from pixeltable import exceptions as exc
 from pixeltable import catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
-from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files
+from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files, assert_resultset_eq
 from pixeltable.functions import make_video, sum
 from pixeltable.utils.imgstore import ImageStore
 
@@ -336,7 +336,7 @@ class TestTable:
         t.add_column(catalog.Column('float_col', FloatType()))
         t.update({'float_col': 1.0})
         # TODO: verify result
-        _ = t.show(10)
+        _ = t[t.c3, t.float_col].show(10)
         t.update({'c3': t.float_col, 'float_col': t.c3})
         # TODO: verify result
         _ = t.show(10)
@@ -432,6 +432,19 @@ class TestTable:
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
+    def test_cascading_update(self, test_tbl: pt.MutableTable) -> None:
+        t = test_tbl
+        t.add_column(catalog.Column('d1', computed_with=t.c3 - 1))
+        # add column that can be updated
+        t.add_column(catalog.Column('c10', FloatType()))
+        t.update({'c10': t.c3})
+        # computed column that depends on two columns: exercise duplicate elimination during query construction
+        t.add_column(catalog.Column('d2', computed_with=t.c3 - t.c10))
+        r1 = t.where(t.c2 < 5).select(t.c3 + 1.0, t.c10 - 1.0, t.c3, 2.0).order_by(t.c2).show(0)
+        t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
+        r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).show(0)
+        assert_resultset_eq(r1, r2)
+
     def test_delete(self, test_tbl: pt.Table, indexed_img_tbl: pt.Table) -> None:
         t = test_tbl
 
@@ -517,16 +530,16 @@ class TestTable:
 
         # test loading from store
         cl = pt.Client()
-        t2 = cl.get_table('test')
-        assert len(t.columns) == len(t2.columns)
-        for i in range(len(t.columns)):
-            if t.columns[i].value_expr is not None:
-                assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
+        t = cl.get_table('test')
+        assert len(t.columns()) == len(t.columns())
+        for i in range(len(t.columns())):
+            if t.columns()[i].value_expr is not None:
+                assert t.columns()[i].value_expr.equals(t.columns()[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
-        t2.insert(rows, columns=['c1', 'c2', 'c3'])
-        res = t2.show(0)
-        tbl_df = t2.show(0).to_pandas()
+        t.insert(rows, columns=['c1', 'c2', 'c3'])
+        res = t.show(0)
+        tbl_df = t.show(0).to_pandas()
 
         # can't drop c4: c5 depends on it
         with pytest.raises(exc.Error):
@@ -569,10 +582,10 @@ class TestTable:
         # test loading from store
         cl = pt.Client()
         t2 = cl.get_table(t.name)
-        assert len(t.columns) == len(t2.columns)
-        for i in range(len(t.columns)):
-            if t.columns[i].value_expr is not None:
-                assert t.columns[i].value_expr.equals(t2.columns[i].value_expr)
+        assert len(t.columns()) == len(t2.columns())
+        for i in range(len(t.columns())):
+            if t.columns()[i].value_expr is not None:
+                assert t.columns()[i].value_expr.equals(t2.columns()[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert([[r[0]] for r in rows[:20]], columns=['img'])
@@ -675,9 +688,9 @@ class TestTable:
 
     def test_add_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns)
+        num_orig_cols = len(t.columns())
         t.add_column(catalog.Column('add1', pt.IntType(nullable=False)))
-        assert len(t.columns) == num_orig_cols + 1
+        assert len(t.columns()) == num_orig_cols + 1
 
         # duplicate name
         with pytest.raises(exc.Error):
@@ -689,22 +702,22 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         cl = pt.Client()
         t = cl.get_table(t.name)
-        assert len(t.columns) == num_orig_cols + 1
+        assert len(t.columns()) == num_orig_cols + 1
 
         # revert() works
         t.revert()
-        assert len(t.columns) == num_orig_cols
+        assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
         cl = pt.Client()
         t = cl.get_table(t.name)
-        assert len(t.columns) == num_orig_cols
+        assert len(t.columns()) == num_orig_cols
 
     def test_drop_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns)
+        num_orig_cols = len(t.columns())
         t.drop_column('c1')
-        assert len(t.columns) == num_orig_cols - 1
+        assert len(t.columns()) == num_orig_cols - 1
 
         with pytest.raises(exc.Error):
             t.drop_column('unknown')
@@ -712,22 +725,22 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         cl = pt.Client()
         t = cl.get_table(t.name)
-        assert len(t.columns) == num_orig_cols - 1
+        assert len(t.columns()) == num_orig_cols - 1
 
         # revert() works
         t.revert()
-        assert len(t.columns) == num_orig_cols
+        assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
         cl = pt.Client()
         t = cl.get_table(t.name)
-        assert len(t.columns) == num_orig_cols
+        assert len(t.columns()) == num_orig_cols
 
     def test_rename_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns)
+        num_orig_cols = len(t.columns())
         t.rename_column('c1', 'c1_renamed')
-        assert len(t.columns) == num_orig_cols
+        assert len(t.columns()) == num_orig_cols
 
         # unknown column
         with pytest.raises(exc.Error):
