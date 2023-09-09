@@ -1838,7 +1838,7 @@ class DataRow:
 
     def __getitem__(self, index: object) -> Any:
         if not self.has_val[index]:
-            a = 10
+            pass
         assert self.has_val[index]
         if self.img_files[index] is not None and self.vals[index] is None:
             self.vals[index] = PIL.Image.open(self.img_files[index])
@@ -1848,7 +1848,7 @@ class DataRow:
         """Return the value that gets stored in the db"""
         assert self.excs[index] is None
         if not self.has_val[index]:
-            a = 10
+            pass
         assert self.has_val[index]
         if self.img_files[index] is not None:
             return str(self.img_files[index])
