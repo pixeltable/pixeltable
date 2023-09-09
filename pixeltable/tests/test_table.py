@@ -94,11 +94,30 @@ class TestTable:
             catalog.Column('img', ImageType(nullable=False)),
             catalog.Column('category', StringType(nullable=False)),
             catalog.Column('split', StringType(nullable=False)),
+            catalog.Column('img_literal', ImageType(nullable=False)),
         ]
         tbl = cl.create_table('test', cols)
+
         rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+
+        # add literal image data and column
+        for r in rows:
+            with open(r[0], 'rb') as f:
+                r.append(f.read())
+
+        col_names.append('img_literal')
+
         # TODO: insert a random subset
         tbl.insert(rows[:20], columns=col_names)
+
+        # compare img and img_literal
+        # TODO: currently tbl.select(tabl.img == tbl.img_literal) returns False. should not.
+        tdf = tbl.select(tbl.img, tbl.img_literal).show()
+        pdf = tdf.to_pandas()
+        for tup in pdf.itertuples():
+            assert tup.img == tup.img_literal
+
+        # check that literal and non-literal image cols are equal (ie no loss of fidelity)
         html_str = tbl.show(n=100)._repr_html_()
         print(html_str)
         # TODO: check html_str
