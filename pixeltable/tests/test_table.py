@@ -3,6 +3,7 @@ import math
 import numpy as np
 import pandas as pd
 import datetime
+import random
 
 import PIL
 
@@ -107,8 +108,8 @@ class TestTable:
 
         col_names.append('img_literal')
 
-        # TODO: insert a random subset
-        tbl.insert(rows[:20], columns=col_names)
+        sample_rows = random.sample(rows, 20)
+        tbl.insert(sample_rows, columns=col_names)
 
         # compare img and img_literal
         # TODO: currently tbl.select(tabl.img == tbl.img_literal) returns False. should not.
