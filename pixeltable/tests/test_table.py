@@ -111,13 +111,12 @@ class TestTable:
         tbl.insert(sample_rows, columns=col_names)
 
         # compare img and img_literal
-        # TODO: currently tbl.select(tabl.img == tbl.img_literal) returns False. should not.
+        # TODO: make tbl.select(tbl.img == tbl.img_literal) work
         tdf = tbl.select(tbl.img, tbl.img_literal).show()
         pdf = tdf.to_pandas()
         for tup in pdf.itertuples():
             assert tup.img == tup.img_literal
 
-        # check that literal and non-literal image cols are equal (ie no loss of fidelity)
         html_str = tbl.show(n=100)._repr_html_()
         print(html_str)
         # TODO: check html_str
@@ -134,8 +133,9 @@ class TestTable:
         rows, col_names = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
 
         # check insert with bad image file fails
-        with pytest.raises(exc.Error):
+        with pytest.raises(exc.Error) as exc_info:
             tbl.insert(rows, columns=col_names)
+            assert 'not a valid PIL image' in str(exc_info.value)
 
         # replace row with literal
         bad_row = rows[0]
@@ -143,8 +143,9 @@ class TestTable:
         bad_row[img_idx] = b'bad image literal'
 
         # check insert with bad image literal fails
-        with pytest.raises(exc.Error):
+        with pytest.raises(exc.Error) as exc_info:
             tbl.insert(rows, columns=col_names)
+            assert 'not a valid PIL image' in str(exc_info.value)
 
     def test_create_video_table(self, test_client: pt.Client) -> None:
         cl = test_client

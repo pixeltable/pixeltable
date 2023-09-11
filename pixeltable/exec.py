@@ -728,20 +728,23 @@ class InsertDataNode(ExecNode):
 
         for info in self.input_cols:
             assert info.col.name in self.row_column_pos
+
         # before anything, convert any literal images within the input rows into references
-        _input_rows = [] # do not mutate self.input_rows, this may modify the argument also
-        for input_row in self.input_rows:
-            new_row = [val for val in input_row]
-            for info in self.input_cols:
+        # copy the input rows to avoid indirectly modifying the argument
+        _input_rows = [row.copy() for row in self.input_rows]
+        for info in self.input_cols:
+            if info.col.col_type.is_image_type():
                 col_idx = self.row_column_pos[info.col.name]
-                val = input_row[col_idx]
-                if info.col.col_type.is_image_type() and isinstance(val, bytes):
-                    # we will save literal to a file here and use this path as the new value
-                    valpath = str(ImageStore.get_path(self.tbl.id, info.col.id, self.tbl.version))
-                    open(valpath, 'wb').write(val)
-                    new_row[col_idx] = valpath
-            _input_rows.append(new_row)
+                for row_idx, input_row in enumerate(_input_rows):
+                    val = input_row[col_idx]
+                    if isinstance(val, bytes):
+                        # we will save literal to a file here and use this path as the new value
+                        valpath = str(ImageStore.get_path(self.tbl.id, info.col.id, self.tbl.version))
+                        open(valpath, 'wb').write(val)
+                        input_row[col_idx] = valpath
+
         self.input_rows = _input_rows
+
         if not self.tbl.extracts_frames():
             self.output_rows = DataRowBatch(self.tbl, self.evaluator, len(self.input_rows))
             for info in self.input_cols:
