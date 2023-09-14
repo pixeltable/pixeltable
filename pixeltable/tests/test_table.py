@@ -15,6 +15,7 @@ from pixeltable.type_system import \
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files, assert_resultset_eq
 from pixeltable.functions import make_video, sum
 from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils.filecache import FileCache
 
 
 class TestTable:
@@ -89,7 +90,7 @@ class TestTable:
         with pytest.raises(exc.Error):
             cl.drop_table('.test2')
 
-    def test_create_images(self, test_client: pt.Client) -> None:
+    def test_create_image_table(self, test_client: pt.Client) -> None:
         cl = test_client
         cols = [
             catalog.Column('img', ImageType(nullable=False)),
@@ -117,10 +118,6 @@ class TestTable:
         for tup in pdf.itertuples():
             assert tup.img == tup.img_literal
 
-        html_str = tbl.show(n=100)._repr_html_()
-        print(html_str)
-        # TODO: check html_str
-
     def test_insert_bad_images(self, test_client: pt.Client) -> None:
         # bad image file
         cl = test_client
@@ -146,6 +143,48 @@ class TestTable:
         with pytest.raises(exc.Error) as exc_info:
             tbl.insert(rows, columns=col_names)
         assert 'not a valid image' in str(exc_info.value)
+
+    def test_create_s3_image_table(self, test_client: pt.Client) -> None:
+        cl = test_client
+        tbl = cl.create_table('test', [catalog.Column('img', ImageType(nullable=False))])
+        urls = [
+            's3://open-images-dataset/validation/3c02ca9ec9b2b77b.jpg',
+            's3://open-images-dataset/validation/3c13e0015b6c3bcf.jpg',
+            's3://open-images-dataset/validation/3ba5380490084697.jpg',
+            's3://open-images-dataset/validation/3afeb4b34f90c0cf.jpg',
+            's3://open-images-dataset/validation/3b07a2c0d5c0c789.jpg',
+        ]
+
+        tbl.insert([[url] for url in urls], columns=['img'])
+        # first query: we need to download the images
+        _ = tbl.show(0)
+        cache_stats = FileCache.get().stats()
+        assert cache_stats.num_requests == 5
+        assert cache_stats.num_hits == 0
+        assert FileCache.get().num_files() == 5
+        assert FileCache.get().num_files(tbl.id) == 5
+        assert FileCache.get().avg_file_size() > 0
+        # second query: we read from the cache
+        _ = tbl.show(0)
+        cache_stats = FileCache.get().stats()
+        assert cache_stats.num_requests == 10
+        assert cache_stats.num_hits == 5
+        # after clearing the cache, we need to re-fetch the files
+        FileCache.get().clear()
+        _ = tbl.show(0)
+        cache_stats = FileCache.get().stats()
+        assert cache_stats.num_requests == 5
+        assert cache_stats.num_hits == 0
+
+        # start with fresh client and FileCache instance to test FileCache initialization with pre-existing files
+        cl = pt.Client()
+        # is there a better way to do this?
+        FileCache._instance = None
+        t = cl.get_table('test')
+        _ = tbl.show(0)
+        cache_stats = FileCache.get().stats()
+        assert cache_stats.num_requests == 5
+        assert cache_stats.num_hits == 5
 
     def test_create_video_table(self, test_client: pt.Client) -> None:
         cl = test_client

@@ -1,11 +1,12 @@
 from typing import Tuple, Optional, List, Set, Any
+from uuid import UUID
 
 import sqlalchemy as sql
 
 from pixeltable import catalog
 from pixeltable import exprs
 from pixeltable.exec import \
-    ColumnInfo, ExecContext, ExprEvalNode, InsertDataNode, SqlScanNode, ExecNode, AggregationNode
+    ColumnInfo, ExecContext, ExprEvalNode, InsertDataNode, SqlScanNode, ExecNode, AggregationNode, CachePrefetchNode
 from pixeltable import exceptions as exc
 
 class Planner:
@@ -413,6 +414,22 @@ class Planner:
         return s1 <= s2
 
     @classmethod
+    def _insert_prefetch_node(
+            cls, tbl_id: UUID, output_exprs: List[exprs.Expr], evaluator: exprs.Evaluator, input: ExecNode) -> ExecNode:
+        """Returns a CachePrefetchNode into the plan if needed, otherwise returns input"""
+        eval_ctx = evaluator.get_eval_ctx(output_exprs)
+        media_col_refs = [
+            e for e in eval_ctx
+            if isinstance(e, exprs.ColumnRef) and (e.col_type.is_image_type() or e.col_type.is_video_type())
+        ]
+        if len(media_col_refs) == 0:
+            return input
+        # we need to prefetch external files for media column types
+        file_col_info = [ColumnInfo(e.col, e.slot_idx) for e in media_col_refs]
+        prefetch_node = CachePrefetchNode(tbl_id, file_col_info, input)
+        return prefetch_node
+
+    @classmethod
     def create_query_plan(
             cls, tbl: catalog.TableVersion, select_list: List[exprs.Expr],
             where_clause: Optional[exprs.Predicate] = None, group_by_clause: List[exprs.Expr] = [],
@@ -431,7 +448,9 @@ class Planner:
         sql_limit = 0 if is_agg_query else limit  # if we're aggregating, the limit applies to the agg output
         plan = SqlScanNode(
             tbl, evaluator, info.sql_exprs, where_clause=info.sql_where_clause, filter=info.filter, limit=sql_limit,
-            order_by_clause=order_by_clause, set_pk=with_pk, similarity_clause=info.similarity_clause, version=version)
+            order_by_clause=order_by_clause, set_pk=True, similarity_clause=info.similarity_clause, version=version)
+            #order_by_clause = order_by_clause, set_pk = with_pk, similarity_clause = info.similarity_clause, version = version)
+        plan = cls._insert_prefetch_node(tbl.id, info.select_list, evaluator, plan)
 
         if len(info.group_by_clause) > 0 or len(info.agg_fn_calls) > 0:
             # we're doing aggregation; the input of the AggregateNode are the grouping exprs plus the

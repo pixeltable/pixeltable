@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union
+import urllib.parse
 
 import cv2
 import nos
@@ -748,7 +749,14 @@ class ImageType(ColumnType):
                 _ = Image.open(io.BytesIO(val))
             except PIL.UnidentifiedImageError:
                 raise TypeError(f'Bytes are not a valid image')
+        # TODO:
+        # - unify file validation for ImageType and VideoType
+        # - turn it into an ExecNode, so it can be done in parallel for external URLs
         elif isinstance(val, str):
+            parsed = urllib.parse.urlparse(val)
+            if parsed.scheme != '' and parsed.scheme != 'file':
+                # skip validation for now
+                return
             try:
                 _ = Image.open(val)
             except FileNotFoundError:
@@ -776,6 +784,11 @@ class VideoType(ColumnType):
     def validate_literal(self, val: Any) -> None:
         if not isinstance(val, str):
             raise TypeError(f'Expected file path, got {val}')
+        # TODO: see ImageType.validate_literal()
+        parsed = urllib.parse.urlparse(val)
+        if parsed.scheme != '' and parsed.scheme != 'file':
+            # skip validation for now
+            return
         path = Path(val)
         if not path.is_file():
             raise TypeError(f'File not found: {val}')

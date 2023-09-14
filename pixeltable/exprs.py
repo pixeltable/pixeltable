@@ -13,12 +13,13 @@ from collections.abc import Iterable
 import time
 import inspect
 from uuid import UUID
+import urllib.parse
+import urllib.request
 
 import PIL.Image
 import jmespath
 import numpy as np
 import sqlalchemy as sql
-import nos
 
 from pixeltable import catalog
 from pixeltable.type_system import \
@@ -1798,7 +1799,11 @@ class JsonMapper(Expr):
 
 class DataRow:
     """
-    Encapsulates data and execution state needed by Evaluator and DataRowBatch.
+    Encapsulates all data and execution state needed by Evaluator and DataRowBatch:
+    - state for in-memory computation
+    - state for storing the data
+
+    This is not meant to be a black-box abstraction.
     """
     def __init__(self, size: int):
         self.vals: List[Any] = [None] * size  # either cell values or exceptions
@@ -1807,10 +1812,16 @@ class DataRow:
         # the primary key of a row is a sequence of ints (the number is different for table vs view)
         self.pk: Optional[Tuple[int, ...]] = None
 
-        # img_files:
-        # - path of file for image in vals[i]
-        # - None if vals[i] is not an image or if the image hasn't been written to a file yet
-        self.img_files: Optional[str] = [None] * size
+        # file_urls:
+        # - stored url of file for image or video in vals[i]
+        # - None if vals[i] is not an image/video
+        # - not None if file_paths[i] is not None
+        self.file_urls: Optional[str] = [None] * size
+
+        # file_paths:
+        # - local path of file for image or video in vals[i]; points to the file cache if file_urls[i] is remote
+        # - None if vals[i] is not an image/video or if there is no local file yet for file_urls[i]
+        self.file_paths: Optional[str] = [None] * size
 
     def clear(self) -> None:
         size = len(self.vals)
@@ -1818,7 +1829,8 @@ class DataRow:
         self.has_val = [False] * size
         self.excs = [None] * size
         self.pk = None
-        self.img_files = [None] * size
+        self.file_urls = [None] * size
+        self.file_paths = [None] * size
 
     def set_pk(self, pk: Tuple[int, ...]) -> None:
         self.pk = pk
@@ -1837,21 +1849,28 @@ class DataRow:
         self.excs[slot_idx] = exc
 
     def __getitem__(self, index: object) -> Any:
+        """Returns in-memory value"""
         if not self.has_val[index]:
+            # for debugging purposes
             pass
         assert self.has_val[index]
-        if self.img_files[index] is not None and self.vals[index] is None:
-            self.vals[index] = PIL.Image.open(self.img_files[index])
+        # if we need to load this from a file, it should have been materialized locally
+        assert not(self.file_urls[index] is not None and self.file_paths[index] is None)
+        if self.file_paths[index] is not None and self.vals[index] is None:
+            self.vals[index] = PIL.Image.open(self.file_paths[index])
         return self.vals[index]
 
     def get_stored_val(self, index: object) -> Any:
         """Return the value that gets stored in the db"""
         assert self.excs[index] is None
         if not self.has_val[index]:
+            # for debugging purposes
             pass
         assert self.has_val[index]
-        if self.img_files[index] is not None:
-            return str(self.img_files[index])
+        # if this is a file, we should have a url
+        assert not(self.file_paths[index] is not None and self.file_urls[index] is None)
+        if self.file_urls[index] is not None:
+            return self.file_urls[index]
         if isinstance(self.vals[index], np.ndarray):
             np_array = self.vals[index]
             buffer = io.BytesIO()
@@ -1866,13 +1885,15 @@ class DataRow:
         self.has_val[index] = True
 
     def flush_img(self, index: object, filepath: Optional[str] = None) -> None:
+        """Discard the in-memory value and save it to a local file, if filepath is not None"""
         if self.vals[index] is None:
-                return
+            return
         assert self.excs[index] is None
-        if self.img_files[index] is None:
+        if self.file_paths[index] is None:
             if filepath is not None:
                 # we want to save this to a file
-                self.img_files[index] = filepath
+                self.file_paths[index] = filepath
+                self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
                 self.vals[index].save(filepath, format='JPEG')
             else:
                 # we discard the content of this cell
@@ -1881,15 +1902,6 @@ class DataRow:
             # we already have a file for this image, nothing left to do
             pass
         self.vals[index] = None
-
-    def __len__(self) -> int:
-        return len(self.vals)
-
-    def __copy__(self):
-        result = DataRow(len(self.vals))
-        result.vals = copy.copy(self.vals)
-        result.has_val = copy.copy(self.has_val)
-        return result
 
 
 class ExecProfile:

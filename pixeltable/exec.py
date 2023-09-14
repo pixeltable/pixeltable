@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import datetime
 from typing import List, Iterator, Set, Dict, Any, Optional, Tuple, Iterable
 from dataclasses import dataclass, field
 import logging
@@ -6,6 +8,12 @@ import time
 import abc
 import io
 import sys
+import urllib.parse
+import urllib.request
+from uuid import UUID
+import concurrent.futures
+import threading
+import os
 
 import numpy as np
 from tqdm.autonotebook import tqdm
@@ -19,6 +27,7 @@ from pixeltable.function import Function, FunctionRegistry
 from pixeltable.env import Env
 from pixeltable.utils.video import FrameIterator
 from pixeltable import exceptions as exc
+from pixeltable.utils.filecache import FileCache
 
 
 _logger = logging.getLogger('pixeltable')
@@ -65,10 +74,18 @@ class DataRowBatch:
     def __setitem__(self, index: object, val: Any) -> None:
         row_idx, slot_idx = index
         if slot_idx in self.img_slot_idxs and isinstance(val, str):
-            # this is a filepath to an image
+            # this is either a local file path or a URL
             row = self.rows[row_idx]
-            assert row.img_files[slot_idx] is None
-            row.img_files[slot_idx] = val
+            parsed = urllib.parse.urlparse(val)
+            if parsed.scheme == '' or parsed.scheme == 'file':
+                # local file path
+                assert row.file_urls[slot_idx] is None and row.file_paths[slot_idx] is None
+                row.file_urls[slot_idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(parsed.path))
+                row.file_paths[slot_idx] = parsed.path
+            else:
+                # URL
+                assert row.file_urls[slot_idx] is None
+                row.file_urls[slot_idx] = val
             row.has_val[slot_idx] = True
         elif slot_idx in self.array_slot_idxs and isinstance(val, bytes):
             self.rows[row_idx][slot_idx] = np.load(io.BytesIO(val))
@@ -495,7 +512,6 @@ class ExprEvalNode(ExecNode):
         self.cohorts: List[List[ExprEvalNode.Cohort]] = []
         self._create_cohorts()
 
-
     def __next__(self) -> DataRowBatch:
         input_batch = next(self.input)
         if len(input_batch) == 0:
@@ -798,3 +814,70 @@ class InsertDataNode(ExecNode):
         self.has_returned_data = True
         _logger.debug(f'InsertDataNode: created row batch with {len(self.output_rows)} output_rows')
         return self.output_rows
+
+
+class CachePrefetchNode(ExecNode):
+    """Brings files with external URLs into the cache
+
+    TODO:
+    - maintain a queue of row batches, in order to overlap download and evaluation
+    - adapting the number of download threads at runtime to maximize throughput
+    """
+    def __init__(self, tbl_id: UUID, file_col_info: List[ColumnInfo], input: ExecNode):
+        # []: we don't have anything to evaluate
+        super().__init__(input.evaluator, [], [], input)
+        self.tbl_id = tbl_id
+        self.file_col_info = file_col_info
+
+        # clients for specific services are constructed as needed, because it's time-consuming
+        self.boto_client: Optional[Any] = None
+        self.boto_client_lock = threading.Lock()
+
+    def __next__(self) -> DataRowBatch:
+        input_batch = next(self.input)
+        if len(input_batch) == 0:
+            return input_batch
+
+        # collect external URLs that aren't already cached, and set DataRow.file_paths for those that are
+        file_cache = FileCache.get()
+        cache_misses: List[Tuple[exprs.DataRow, ColumnInfo]] = []
+        for row in input_batch:
+            for info in self.file_col_info:
+                if row.file_urls[info.slot_idx] is None or row.file_paths[info.slot_idx] is not None:
+                    # nothing to do
+                    continue
+                local_path = file_cache.lookup(self.tbl_id, info.col.id, row.pk)
+                if local_path is None:
+                    cache_misses.append((row, info))
+                else:
+                    row.file_paths[info.slot_idx] = local_path
+
+        # download the cache misses in parallel
+        # TODO: set max_workers to maximize throughput
+        futures: Dict[concurrent.futures.Future, Tuple[exprs.DataRow, ColumnInfo]] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+            for row, info in cache_misses:
+                futures[executor.submit(self._fetch_url, row.file_urls[info.slot_idx])] = (row, info)
+            for future in concurrent.futures.as_completed(futures):
+                # TODO:  does this need to deal with recoverable errors (such as retry after throttling)?
+                tmp_path = future.result()
+                row, info = futures[future]
+                local_path = file_cache.add(self.tbl_id, info.col.id, row.pk, tmp_path)
+                row.file_paths[info.slot_idx] = local_path
+                _logger.debug(f'PrefetchNode: cached {row.file_urls[info.slot_idx]} as {local_path}')
+
+        return input_batch
+
+    def _fetch_url(self, url: str) -> str:
+        """Fetches a remote URL into Env.tmp_dir and returns its path"""
+        parsed = urllib.parse.urlparse(url)
+        assert parsed.scheme != '' and parsed.scheme != 'file'
+        if parsed.scheme == 's3':
+            from pixeltable.utils.s3 import get_client
+            with self.boto_client_lock:
+                if self.boto_client is None:
+                    self.boto_client = get_client()
+            tmp_path = Env.get().tmp_dir / os.path.basename(parsed.path)
+            self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
+            return tmp_path
+        assert False, f'Unsupported URL scheme: {parsed.scheme}'

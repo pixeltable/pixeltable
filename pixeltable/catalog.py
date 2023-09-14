@@ -236,6 +236,7 @@ class TableVersion:
             self.next_col_id = tbl_md.next_col_id
             self.next_rowid = tbl_md.next_row_id
         else:
+            # disable schema changes and updates
             self.next_col_id = -1
             self.next_rowid = -1
         self.column_history = tbl_md.column_history

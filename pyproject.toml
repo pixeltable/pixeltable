@@ -32,6 +32,7 @@ sqlalchemy = "^2.0.17"
 sqlalchemy-utils = "^0.41.1"
 autonomi-nos = "^0.0.9"
 pgvector = "^0.2.1"
+boto3 = {version = "^1.17", optional = true}
 
 [tool.poetry.group.dev.dependencies]
 tensorflow-io-gcs-filesystem = { version = "^0.28.0", python = ">=3.9,<3.11" }
@@ -52,6 +53,9 @@ sphinx = ">=5.2,<7"
 sphinx-book-theme = "^1.0.1"
 myst-nb = "^0.17.2"
 myst-parser = ">=0.18,<0.19"
+
+[tool.poetry.extras]
+s3 = ["boto3"]
 
 [build-system]
 requires = ["poetry-core"]

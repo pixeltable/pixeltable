@@ -32,9 +32,10 @@ class Env:
 
     def __init__(self):
         self._home: Optional[Path] = None
-        self._img_dir: Optional[Path] = None
-        self._nnidx_dir: Optional[Path] = None
-        self._log_dir: Optional[Path] = None
+        self._img_dir: Optional[Path] = None  # computed images
+        self._filecache_dir: Optional[Path] = None  # cached media files with external URL
+        self._log_dir: Optional[Path] = None  # log files
+        self._tmp_dir: Optional[Path] = None  # any tmp files
         self._sa_engine: Optional[sql.engine.base.Engine] = None
         self._db_name: Optional[str] = None
         self._db_user: Optional[str] = None
@@ -112,8 +113,9 @@ class Env:
         assert self._home is None or self._home == home
         self._home = home
         self._img_dir = self._home / 'images'
-        self._nnidx_dir = self._home / 'nnidxs'
+        self._filecache_dir = self._home / 'filecache'
         self._log_dir = self._home / 'logs'
+        self._tmp_dir = self._home / 'tmp'
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
 
@@ -133,10 +135,12 @@ class Env:
 
         if not self._img_dir.exists():
             self._img_dir.mkdir()
-        if not self._nnidx_dir.exists():
-            self._nnidx_dir.mkdir()
+        if not self._filecache_dir.exists():
+            self._filecache_dir.mkdir()
         if not self._log_dir.exists():
             self._log_dir.mkdir()
+        if not self._tmp_dir.exists():
+            self._tmp_dir.mkdir()
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
@@ -261,9 +265,14 @@ class Env:
         return self._img_dir
 
     @property
-    def nnidx_dir(self) -> Path:
-        assert self._nnidx_dir is not None
-        return self._nnidx_dir
+    def filecache_dir(self) -> Path:
+        assert self._filecache_dir is not None
+        return self._filecache_dir
+
+    @property
+    def tmp_dir(self) -> Path:
+        assert self._tmp_dir is not None
+        return self._tmp_dir
 
     @property
     def engine(self) -> sql.engine.base.Engine:

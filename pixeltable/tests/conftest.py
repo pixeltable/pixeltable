@@ -30,14 +30,12 @@ def init_env(tmp_path_factory) -> None:
     yield
     # leave db in place for debugging purposes
 
-
 @pytest.fixture(scope='function')
 def test_client(init_env) -> pt.Client:
     cl = pt.Client()
     cl.logging(level=logging.DEBUG)
     yield cl
     cl.reset_catalog()
-
 
 @pytest.fixture(scope='function')
 def test_tbl(test_client: pt.Client) -> catalog.Table:
@@ -99,7 +97,6 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
         # we're using a list here, not a tuple; the latter turns into a list during the back/forth conversion
         img_t.img.rotate(90).resize([224, 224]),
     ]
-
 
 # TODO: why does this not work with a session scope? (some user tables don't get created with create_all())
 #@pytest.fixture(scope='session')
