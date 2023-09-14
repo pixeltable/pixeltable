@@ -747,7 +747,7 @@ class ImageType(ColumnType):
             try:
                 _ = Image.open(io.BytesIO(val))
             except PIL.UnidentifiedImageError:
-                raise TypeError(f'Bytes are not a valid PIL image')
+                raise TypeError(f'Bytes are not a valid image')
         elif isinstance(val, str):
             try:
                 _ = Image.open(val)

@@ -135,7 +135,7 @@ class TestTable:
         # check insert with bad image file fails
         with pytest.raises(exc.Error) as exc_info:
             tbl.insert(rows, columns=col_names)
-            assert 'not a valid PIL image' in str(exc_info.value)
+        assert 'not a valid image' in str(exc_info.value)
 
         # replace row with literal
         bad_row = rows[0]
@@ -145,7 +145,7 @@ class TestTable:
         # check insert with bad image literal fails
         with pytest.raises(exc.Error) as exc_info:
             tbl.insert(rows, columns=col_names)
-            assert 'not a valid PIL image' in str(exc_info.value)
+        assert 'not a valid image' in str(exc_info.value)
 
     def test_create_video_table(self, test_client: pt.Client) -> None:
         cl = test_client
