@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import datetime
 import enum
+import io
 import json
 import os
 from pathlib import Path
@@ -738,15 +739,24 @@ class ImageType(ColumnType):
         return tf.TensorSpec(shape=(self.height, self.width, self.num_channels), dtype=tf.uint8)
 
     def validate_literal(self, val: Any) -> None:
-        # make sure file path points to a valid image file
-        if not isinstance(val, str):
-            raise TypeError(f'Expected file path, got {val}')
-        try:
-            _ = Image.open(val)
-        except FileNotFoundError:
-            raise TypeError(f'File not found: {val}')
-        except PIL.UnidentifiedImageError:
-            raise TypeError(f'File is not a valid image: {val}')
+        # make sure file path points to a valid image file or binary is a valid image
+        if not isinstance(val, (str, bytes)):
+            raise TypeError(f'Expected file path or bytes')
+
+        if isinstance(val, bytes):
+            try:
+                _ = Image.open(io.BytesIO(val))
+            except PIL.UnidentifiedImageError:
+                raise TypeError(f'Bytes are not a valid image')
+        elif isinstance(val, str):
+            try:
+                _ = Image.open(val)
+            except FileNotFoundError:
+                raise TypeError(f'File not found: {val}')
+            except PIL.UnidentifiedImageError:
+                raise TypeError(f'File is not a valid image: {val}')
+        else:
+            assert False
 
 
 class VideoType(ColumnType):

@@ -497,4 +497,3 @@ class TestExprs:
         with pytest.raises(exc.Error):
             # nested aggregates
             _ = t[sum(count(t.c2))].group_by(t.c2 % 2).show()
-        a = 10

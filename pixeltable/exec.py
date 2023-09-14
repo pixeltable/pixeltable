@@ -725,10 +725,29 @@ class InsertDataNode(ExecNode):
 
     def _open(self) -> None:
         """Create row batch and populate with self.data"""
+
+        for info in self.input_cols:
+            assert info.col.name in self.row_column_pos
+
+        # before anything, convert any literal images within the input rows into references
+        # copy the input rows to avoid indirectly modifying the argument
+        _input_rows = [row.copy() for row in self.input_rows]
+        for info in self.input_cols:
+            if info.col.col_type.is_image_type():
+                col_idx = self.row_column_pos[info.col.name]
+                for row_idx, input_row in enumerate(_input_rows):
+                    val = input_row[col_idx]
+                    if isinstance(val, bytes):
+                        # we will save literal to a file here and use this path as the new value
+                        valpath = str(ImageStore.get_path(self.tbl.id, info.col.id, self.tbl.version))
+                        open(valpath, 'wb').write(val)
+                        input_row[col_idx] = valpath
+
+        self.input_rows = _input_rows
+
         if not self.tbl.extracts_frames():
             self.output_rows = DataRowBatch(self.tbl, self.evaluator, len(self.input_rows))
             for info in self.input_cols:
-                assert info.col.name in self.row_column_pos
                 col_idx = self.row_column_pos[info.col.name]
                 for row_idx, input_row in enumerate(self.input_rows):
                     self.output_rows[row_idx, info.slot_idx] = input_row[col_idx]
