@@ -9,7 +9,7 @@ import sqlalchemy.orm as orm
 
 from pixeltable.catalog import \
     TableVersion, SchemaObject, MutableTable, TableSnapshot, View, Table, TableBase, Dir, Column, NamedFunction, Path,\
-    PathDict,init_catalog
+    PathDict, init_catalog
 from pixeltable.metadata import schema
 from pixeltable.env import Env
 from pixeltable.function import FunctionRegistry, Function
