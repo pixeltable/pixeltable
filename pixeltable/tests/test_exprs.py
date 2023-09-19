@@ -1,4 +1,6 @@
 from typing import List
+import urllib.parse
+
 import sqlalchemy as sql
 import pytest
 
@@ -12,6 +14,7 @@ from pixeltable.functions.pil.image import blend
 from pixeltable import exceptions as exc
 from pixeltable import exprs
 from pixeltable.function import FunctionRegistry
+from pixeltable.tests.utils import get_image_files
 
 
 class TestExprs:
@@ -157,12 +160,49 @@ class TestExprs:
         with pytest.raises(exc.Error):
             _ = t[t.c2 <= 2][agg(t.c2 - 1)].show()
 
-    def test_error_props(self, test_tbl: catalog.Table) -> None:
+    def test_props(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
         t = test_tbl
-        with pytest.raises(exc.Error):
-            _ = t[t.c1.errortype].show()
-        with pytest.raises(exc.Error):
-            _ = t[t.c1.errormsg].show()
+        res = t.select(t.c8.errortype).show(0).to_pandas()
+        assert res.iloc[:, 0].isna().all()
+        res = t.select(t.c8.errormsg).show(0).to_pandas()
+        assert res.iloc[:, 0].isna().all()
+
+        img_t = img_tbl
+        # fileurl
+        res = img_t.select(img_t.img.fileurl).show(0).to_pandas()
+        stored_urls = set(res.iloc[:, 0])
+        assert len(stored_urls) == len(res)
+        all_urls  = set([urllib.parse.urljoin('file:', path) for path in get_image_files()])
+        assert stored_urls <= all_urls
+
+        # localpath
+        res = img_t.select(img_t.img.localpath).show(0).to_pandas()
+        stored_paths = set(res.iloc[:, 0])
+        assert len(stored_paths) == len(res)
+        all_paths  = set(get_image_files())
+        assert stored_paths <= all_paths
+
+        # non-computed columns don't have errortype/-msg
+        with pytest.raises(exc.Error) as excinfo:
+            _ = t.select(t.c1.errortype).show()
+        assert 'not valid for' in str(excinfo.value)
+        with pytest.raises(exc.Error) as excinfo:
+            _ = t.select(t.c1.errormsg).show()
+        assert 'not valid for' in str(excinfo.value)
+
+        # fileurl/localpath only applies to image/video columns
+        with pytest.raises(exc.Error) as excinfo:
+            _ = t.select(t.c1.fileurl).show()
+        assert 'only valid for' in str(excinfo.value)
+        with pytest.raises(exc.Error) as excinfo:
+            _ = t.select(t.c1.localpath).show()
+        assert 'only valid for' in str(excinfo.value)
+
+        # fileurl/localpath doesn't apply to computed img columns
+        img_t.add_column(catalog.Column('c9', computed_with=img_t.img.rotate(30)))
+        with pytest.raises(exc.Error) as excinfo:
+            _ = img_t.select(img_t.c9.localpath).show()
+        assert 'computed unstored' in str(excinfo.value)
 
     def test_null_args(self, test_client: pt.Client) -> None:
         # create table with two int columns

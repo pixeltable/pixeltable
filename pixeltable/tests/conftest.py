@@ -96,6 +96,8 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
         img_t.img.rotate(90),
         # we're using a list here, not a tuple; the latter turns into a list during the back/forth conversion
         img_t.img.rotate(90).resize([224, 224]),
+        img_t.img.fileurl,
+        img_t.img.localpath,
     ]
 
 # TODO: why does this not work with a session scope? (some user tables don't get created with create_all())

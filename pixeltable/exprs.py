@@ -471,85 +471,129 @@ class Expr(abc.ABC):
 
 
 class ColumnRef(Expr):
-    """
-    A reference to a table column that is materialized in the store (ie, corresponds to a column in the store).
-    """
-    class Property(enum.Enum):
-        VALUE = 0
-        ERRORTYPE = 1
-        ERRORMSG = 2
+    """A reference to a table column
 
-    def __init__(self, col: catalog.Column, prop: Property = Property.VALUE):
+    When this reference is created in the context of a view, it can also refer to a column of the view base.
+    For that reason, a ColumnRef needs to be serialized with the qualifying table id (column ids are only
+    unique in the context of a particular table).
+    """
+    def __init__(self, col: catalog.Column):
+        super().__init__(col.col_type)
         assert col.tbl is not None
         self.col = col
-        self.prop = prop
-        if prop == self.Property.VALUE:
-            col_type = col.col_type
-        else:
-            col_type = StringType(nullable=True)
-        super().__init__(col_type)
 
     def __getattr__(self, name: str) -> Expr:
-        if name == self.Property.ERRORTYPE.name.lower():
-            if not self.col.is_computed:
-                raise Error(f'{name} not valid for a non-computed column: {self}')
-            return ColumnRef(self.col, self.Property.ERRORTYPE)
-        if name == self.Property.ERRORMSG.name.lower():
-            if not self.col.is_computed:
-                raise Error(f'{name} not valid for a non-computed column: {self}')
-            return ColumnRef(self.col, self.Property.ERRORMSG)
+        # resolve column properties
+        if name == ColumnPropertyRef.Property.ERRORTYPE.name.lower() \
+                or name == ColumnPropertyRef.Property.ERRORMSG.name.lower():
+            if not self.col.is_computed or not self.col.is_stored:
+                raise Error(f'{name} not valid for a non-computed or unstored column: {self}')
+            return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
+        if name == ColumnPropertyRef.Property.FILEURL.name.lower() \
+                or name == ColumnPropertyRef.Property.LOCALPATH.name.lower():
+            if not self.col.col_type.is_image_type() and not self.col.col_type.is_video_type():
+                raise Error(f'{name} only valid for image and video columns: {self}')
+            if self.col.is_computed and not self.col.is_stored:
+                raise Error(f'{name} not valid for computed unstored columns: {self}')
+            return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
+
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
+
         return super().__getattr__(name)
 
     def display_name(self) -> str:
         return str(self)
 
     def _equals(self, other: ColumnRef) -> bool:
-        return self.col == other.col and self.prop == other.prop
+        return self.col == other.col
 
     def __str__(self) -> str:
-        if self.prop == self.Property.VALUE:
-            return self.col.name
-        return f'{self.col.name}.{self.prop.name.lower()}'
+        return self.col.name
 
     def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
         if not self.col.is_stored:
             return None
-        if self.prop == self.Property.VALUE:
-            assert self.col.sa_col is not None
-            return self.col.sa_col
-        if self.prop == self.Property.ERRORTYPE:
-            assert self.col.sa_errortype_col is not None
-            return self.col.sa_errortype_col
-        if self.prop == self.Property.ERRORMSG:
-            assert self.col.sa_errormsg_col is not None
-            return self.col.sa_errormsg_col
+        assert self.col.sa_col is not None
+        return self.col.sa_col
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        # we get called while materializing computed cols
         pass
 
     def _as_dict(self) -> Dict:
-        return {'tbl_id': str(self.col.tbl.id), 'col_id': self.col.id, 'prop': self.prop.value}
+        return {'tbl_id': str(self.col.tbl.id), 'col_id': self.col.id}
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
-        assert 'col_id' in d
         assert t.id is not None
+        # resolve d['tbl_id'], which is either t or a base of t
         origin_id = UUID(d['tbl_id'])
         origin = t
         while origin_id != origin.id:
-            # only views can reference Tables other than themselves
+            # only views can reference TableVersions other than themselves
             assert t.is_view() and t.base is not None
             origin = t.base
 
         col_id = d['col_id']
         assert col_id in origin.cols_by_id
-        result = cls(origin.cols_by_id[col_id])
-        if d['prop'] != cls.Property.VALUE.value:
-            result = getattr(result, cls.Property(d['prop']).name.lower())
-        return result
+        return cls(origin.cols_by_id[col_id])
+
+
+class ColumnPropertyRef(Expr):
+    """A reference to a property of a table column
+
+    The properties themselves are type-specific and may or may not need to reference the underlying column data.
+    """
+    class Property(enum.Enum):
+        ERRORTYPE = 0
+        ERRORMSG = 1
+        FILEURL = 2
+        LOCALPATH = 3
+
+    def __init__(self, col_ref: ColumnRef, prop: Property):
+        super().__init__(StringType(nullable=True))
+        self.components = [col_ref]
+        self.prop = prop
+
+    def display_name(self) -> str:
+        return str(self)
+
+    def _equals(self, other: ColumnRef) -> bool:
+        return self.prop == other.prop
+
+    @property
+    def _col_ref(self) -> ColumnRef:
+        return self.components[0]
+
+    def __str__(self) -> str:
+        return f'{self._col_ref}.{self.prop.name.lower()}'
+
+    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+        if not self._col_ref.col.is_stored:
+            return None
+        if self.prop == self.Property.ERRORTYPE:
+            assert self._col_ref.col.sa_errortype_col is not None
+            return self._col_ref.col.sa_errortype_col
+        if self.prop == self.Property.ERRORMSG:
+            assert self._col_ref.col.sa_errormsg_col is not None
+            return self._col_ref.col.sa_errormsg_col
+        return None
+
+    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+        assert self.prop == self.Property.FILEURL or self.prop == self.Property.LOCALPATH
+        assert data_row.has_val[self._col_ref.slot_idx]
+        if self.prop == self.Property.FILEURL:
+            data_row[self.slot_idx] = data_row.file_urls[self._col_ref.slot_idx]
+        if self.prop == self.Property.LOCALPATH:
+            data_row[self.slot_idx] = data_row.file_paths[self._col_ref.slot_idx]
+
+    def _as_dict(self) -> Dict:
+        return {'prop': self.prop.value, **super()._as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+        assert 'prop' in d
+        return cls(components[0], cls.Property(d['prop']))
 
 
 class FrameColumnRef(ColumnRef):
