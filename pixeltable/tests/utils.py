@@ -9,7 +9,7 @@ import pandas as pd
 
 import pixeltable as pt
 from pixeltable import catalog
-from pixeltable.type_system import ColumnType, StringType, IntType, FloatType, BoolType, TimestampType, JsonType
+from pixeltable.type_system import ColumnType, StringType, IntType, FloatType, BoolType, TimestampType, JsonType, ImageType
 from pixeltable.dataframe import DataFrameResultSet
 
 
@@ -158,6 +158,21 @@ def create_test_tbl(client: pt.Client) -> catalog.Table:
     t.insert(rows, columns=['c1', 'c1n', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'])
     return t
 
+def create_img_tbl(test_client: pt.Client) -> catalog.Table:
+    cols = [
+        catalog.Column('img', ImageType(nullable=False), indexed=False),
+        catalog.Column('category', StringType(nullable=False)),
+        catalog.Column('split', StringType(nullable=False)),
+        catalog.Column('row_id', IntType(nullable=False)),
+    ]
+    # this table is not indexed in order to avoid the cost of computing embeddings
+    tbl = test_client.create_table('test_img_tbl', cols)
+    rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+    for i,r in enumerate(rows):
+        r.append(i)
+    tbl.insert(rows, columns=col_names + ['row_id'])
+    return tbl
+
 def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []) -> Tuple[List[List[Any]], List[str]]:
     """
     Locate dir_name, create df out of file_name.
@@ -166,7 +181,8 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
     Returns:
         tuple of (list of rows, list of column names)
     """
-    glob_result = glob.glob(f'{os.getcwd()}/**/{dir_name}', recursive=True)
+    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    glob_result = glob.glob(f'{tests_dir}/**/{dir_name}', recursive=True)
     assert len(glob_result) == 1, f'Could not find {dir_name}'
     abs_path = Path(glob_result[0])
     data_file_path = abs_path / file_name

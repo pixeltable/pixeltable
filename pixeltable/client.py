@@ -441,7 +441,6 @@ class Client:
             else:
                 raise e
         tbl = self.paths[path_obj]
-        assert isinstance(tbl, MutableTable)
         tbl.drop()
         del self.paths[path_obj]
         _logger.info(f'Dropped table {path}')

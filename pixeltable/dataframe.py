@@ -4,7 +4,6 @@ import io
 import os
 from typing import List, Optional, Any, Dict, Generator, Tuple
 from pathlib import Path
-import pandas as pd
 import sqlalchemy as sql
 from PIL import Image
 import traceback
@@ -16,6 +15,13 @@ from pixeltable.type_system import ColumnType
 from pixeltable import exprs
 from pixeltable import exceptions as exc
 from pixeltable.plan import Planner
+
+import json
+import hashlib
+import pyarrow as pa
+
+from pixeltable.utils.dirs import transactional_folder
+
 
 __all__ = [
     'DataFrame'
@@ -69,7 +75,8 @@ class DataFrameResultSet:
     def __str__(self) -> str:
         return self.to_pandas().to_string()
 
-    def to_pandas(self) -> pd.DataFrame:
+    def to_pandas(self) -> 'pandas.DataFrame':
+        import pandas as pd
         return pd.DataFrame.from_records(self.rows, columns=self.col_names)
 
     def __getitem__(self, index: Any) -> Any:
@@ -125,18 +132,17 @@ class DataFrame:
         self.tbl = tbl
         # exprs contain execution state and therefore cannot be shared
         self.select_list = copy.deepcopy(select_list)  # None: implies all cols
+        self._manual_column_names = {}
         self.where_clause = copy.deepcopy(where_clause)
         self.group_by_clause = copy.deepcopy(group_by_clause)
         self.order_by_clause = copy.deepcopy(order_by_clause)
 
-    def exec(self, n: int = 20) -> Generator[exprs.DataRow, None, None]:
+    def exec(self, n: int = 20, image_format : str = 'pil') -> Generator[List, None, None]:
         """Returned value: list of select list values"""
-        if self.select_list is None:
-            # select all columns
-            self.select_list = [
-                exprs.FrameColumnRef(col) if self.tbl.is_frame_col(col) else exprs.ColumnRef(col)
-                for col in self.tbl.columns()
-            ]
+        assert image_format in ['pil', 'bytes'], image_format
+        self.select_list = self._get_select_list()
+        columns = self.get_column_names()
+        types = self.get_column_types()
         if self.group_by_clause is None:
             self.group_by_clause = []
         if self.order_by_clause is None:
@@ -150,12 +156,53 @@ class DataFrame:
         try:
             result = next(plan)
             for data_row in result:
-                result_row = [data_row[e.slot_idx] for e in self.select_list]
+                result_row = []
+
+                for (i, e) in enumerate(self.select_list):
+                    val = data_row[e.slot_idx] 
+
+                    # TODO: file urls
+                    if types[columns[i]].is_image_type() and image_format == 'bytes':
+                        if data_row.file_paths[e.slot_idx] is not None:
+                            val = open(data_row.file_paths[e.slot_idx], 'rb').read()
+                        elif isinstance(val, Image.Image):
+                            # result of image transform without column
+                            buf = io.BytesIO()
+                            val.save(buf, format='PNG')
+                            val = buf.getvalue()
+                        else:
+                            assert False, f'unknown image type {type(val)}'
+
+                        assert isinstance(val, bytes)
+
+                    result_row.append(val)
                 yield result_row
         finally:
             plan.close()
         return
+    
+    def set_column_names(self, names : Dict[int, str]):
+        # TODO validate position within range
+        self._manual_column_names.update(names)
 
+    def get_column_names(self) -> List[str]:
+        table_names = [expr.display_name() for expr in self._get_select_list()]
+        col_names = [self._manual_column_names.get(i, n if n != '' else f'col_{i}') for i, n in enumerate(table_names)]
+        return col_names
+    
+    def _get_select_list(self) -> List[exprs.Expr]:
+        if self.select_list is None:
+            return [
+                exprs.FrameColumnRef(col) if self.tbl.is_frame_col(col) else exprs.ColumnRef(col)
+                for col in self.tbl.columns()
+            ]
+        else:
+            return self.select_list
+    
+    def get_column_types(self) -> Dict[str, ColumnType]:
+        slist = self._get_select_list()
+        return {n: e.col_type for n, e in zip(self.get_column_names(), slist)}
+    
     def show(self, n: int = 20) -> DataFrameResultSet:
         try:
             data_rows = [row for row in self.exec(n)]
@@ -180,9 +227,7 @@ class DataFrame:
         except sql.exc.DBAPIError as e:
             raise exc.Error(f'Error during SQL execution:\n{e}')
 
-        col_names = [expr.display_name() for expr in self.select_list]
-        # replace ''
-        col_names = [n if n != '' else f'col_{i}' for i, n in enumerate(col_names)]
+        col_names = self.get_column_names()
         return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in self.select_list])
 
     def count(self) -> int:
@@ -279,3 +324,96 @@ class DataFrame:
         if isinstance(index, list):
             return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
+    
+    def _json_key(self) -> Dict[str, Any]:
+        ''' json information that fully reconstructs the values of the Dataframe.
+            most important property: if two Dataframes have the same json_key, they hold the same data.
+            It is okay if two Dataframes have different json_keys but hold the same data.
+            
+            NB: this is also a way to name a dataframe in a way someone else on the same system can reproduce, 
+            not sure if this is a good idea though.
+        '''
+        d = {
+            'type': 'DataFrame', ## TODO: how about tbl itself has a method to get the right json.
+            'tbl_id': str(self.tbl.id),
+            'tbl_version': self.tbl.version,
+            'select_list': [e.as_dict() for e in self.select_list] if self.select_list is not None else None,
+            'where_clause': self.where_clause.as_dict() if self.where_clause is not None else None
+        }
+
+        return json.loads(json.dumps(d)) # check that it is serializable
+
+    def _hash_key(self) -> str:
+        ''' A value dependent fixed length key used for caching.
+        '''
+        k = self._json_key()
+        mstr = json.dumps(k, sort_keys=True)
+        return hashlib.sha256(mstr.encode()).hexdigest()
+    
+    def _to_parquet(self, partition_size=2000) -> str:
+        ''' Export the dataframe to parquet format.
+            Uses cached version when available.
+            TODO: partition size is a parameter here for testing.
+            TODO: ideally we want to limit size of chunks to tens of MBs, which depends on data and.
+            can probably use arrow batch to get estimates without.
+        '''
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        assert (self.count() / partition_size) < 10000 # partition names run out of digits currently
+
+        name = self._hash_key()
+        dest_path = (Env.get()._cache_dir / name).with_suffix('.parquet')
+        if dest_path.exists() and dest_path.is_dir(): # already cached and folder fully formed.
+            return str(dest_path)
+        
+        column_names = self.get_column_names()
+
+        # store the changes atomically
+        with transactional_folder(dest_path) as temp_path:
+            # dump metadata json file so we can inspect what was the source of the parquet file later on.
+            json.dump(self._json_key(), (temp_path / '.pixeltable.json').open('w'))
+
+            batch_num = 0
+            row_batch = []
+            def flush(row_batch, batch_num):
+                pydict = {column_names[i]: [row[i] for row in row_batch] for i in range(len(row_batch[0]))}
+                tab = pa.Table.from_pydict(pydict)
+                output_path =temp_path / f'part-{batch_num:04d}.parquet'
+                pq.write_table(tab, output_path)
+
+
+            for data_row in self.exec(n=None, image_format='bytes'):                    
+                row_batch.append(data_row)
+                if len(row_batch) == partition_size: # flush parquet chunk
+                    flush(row_batch, batch_num)
+                    batch_num += 1
+                    row_batch = []
+
+            flush(row_batch, batch_num)
+
+        return str(dest_path)
+    
+    def to_pytorch_dataset(self, image_format : str = 'pt') -> 'torch.utils.data.IterableDataset':
+        ''' return an object with the torch iterator interface
+            image_format : 'np', 'pt'
+        '''
+        from pixeltable.utils.pytorch import PixeltablePytorchDataset
+        pqpath = Path(self._to_parquet())
+        import os
+        import pyarrow.parquet as pq
+
+        def _get_part_metadata(pqpath):
+            files = sorted([f for f in os.listdir(pqpath) if f.endswith('.parquet')])
+            rows_per_file = {}
+
+            for file in files:
+                file_path = os.path.join(pqpath, file)
+                parquet_file = pq.ParquetFile(file_path)
+                rows_per_file[file] = parquet_file.metadata.num_rows
+
+            return [(file, num_rows) for file, num_rows in rows_per_file.items()]
+
+        part_metadata = _get_part_metadata(pqpath)
+        return PixeltablePytorchDataset(column_types=self.get_column_types(), parquet_path=pqpath, image_format=image_format, 
+                                        part_metadata=part_metadata)

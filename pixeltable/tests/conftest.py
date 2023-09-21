@@ -11,7 +11,7 @@ import pixeltable as pt
 import pixeltable.catalog as catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType
-from pixeltable.tests.utils import read_data_file, create_test_tbl
+from pixeltable.tests.utils import read_data_file, create_test_tbl, create_img_tbl
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
@@ -77,16 +77,7 @@ def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List
 
 @pytest.fixture(scope='function')
 def img_tbl(test_client: pt.Client) -> catalog.Table:
-    cols = [
-        catalog.Column('img', ImageType(nullable=False), indexed=False),
-        catalog.Column('category', StringType(nullable=False)),
-        catalog.Column('split', StringType(nullable=False)),
-    ]
-    # this table is not indexed in order to avoid the cost of computing embeddings
-    tbl = test_client.create_table('test_img_tbl', cols)
-    rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-    tbl.insert(rows, columns=col_names)
-    return tbl
+    return create_img_tbl(test_client)
 
 @pytest.fixture(scope='function')
 def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:

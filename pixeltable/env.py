@@ -116,6 +116,8 @@ class Env:
         self._filecache_dir = self._home / 'filecache'
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
+        self._cache_dir = self._home / 'cache'
+
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
 
@@ -141,6 +143,8 @@ class Env:
             self._log_dir.mkdir()
         if not self._tmp_dir.exists():
             self._tmp_dir.mkdir()
+        if not self._cache_dir.exists():
+            self._cache_dir.mkdir()
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
@@ -177,30 +181,29 @@ class Env:
         """
         Start store and runtime containers.
         """
-        if not self._is_apple_cpu():
-            cl = docker.from_env()
-            try:
-                self._store_container = cl.containers.get('pixeltable-store')
-                self._logger.info('found store container')
-            except docker.errors.NotFound:
-                self._logger.info('starting store container')
-                self._store_container = cl.containers.run(
-                    self._postgres_image(),
-                    detach=True,
-                    name='pixeltable-store',
-                    ports={'5432/tcp': self._db_port},
-                    environment={
-                        'POSTGRES_USER': self._db_user,
-                        'POSTGRES_PASSWORD': self._db_password,
-                        'POSTGRES_DB': self._db_name,
-                        'PGDATA': '/var/lib/postgresql/data',
-                    },
-                    volumes={
-                        str(self._home / 'pgdata') : {'bind': '/var/lib/postgresql/data', 'mode': 'rw'},
-                    },
-                    remove=True,
-                )
-                self._wait_for_postgres()
+        cl = docker.from_env()
+        try:
+            self._store_container = cl.containers.get('pixeltable-store')
+            self._logger.info('found store container')
+        except docker.errors.NotFound:
+            self._logger.info('starting store container')
+            self._store_container = cl.containers.run(
+                self._postgres_image(),
+                detach=True,
+                name='pixeltable-store',
+                ports={'5432/tcp': self._db_port},
+                environment={
+                    'POSTGRES_USER': self._db_user,
+                    'POSTGRES_PASSWORD': self._db_password,
+                    'POSTGRES_DB': self._db_name,
+                    'PGDATA': '/var/lib/postgresql/data',
+                },
+                volumes={
+                    str(self._home / 'pgdata') : {'bind': '/var/lib/postgresql/data', 'mode': 'rw'},
+                },
+                remove=True,
+            )
+            self._wait_for_postgres()
 
         self._logger.info('connecting to NOS')
         nos.init(logging_level=logging.DEBUG)
