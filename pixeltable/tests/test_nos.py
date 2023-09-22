@@ -6,48 +6,43 @@ from pixeltable.type_system import \
 from pixeltable.tests.utils import get_video_files
 from pixeltable.exprs import Literal
 import pixeltable as pt
+from pixeltable.iterators import FrameIterator
 
 
 class TestNOS:
     def test_basic(self, test_client: pt.Client) -> None:
         cl = test_client
-        cols = [
-            catalog.Column('video', VideoType()),
-            catalog.Column('frame', ImageType()),
-            catalog.Column('frame_idx', IntType()),
-        ]
-        tbl = cl.create_table(
-            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
-            extracted_frame_idx_col='frame_idx', extracted_fps=1)
-        tbl.add_column(catalog.Column('transform1', computed_with=tbl.frame.rotate(30), stored=False))
+        video_t = cl.create_table('video_tbl', [catalog.Column('video', VideoType())])
+        # create frame view
+        args = {'video': video_t.video, 'fps': 1}
+        v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
+        v.add_column(catalog.Column('transform1', computed_with=v.frame.rotate(30), stored=False))
         from pixeltable.functions.object_detection_2d import \
             torchvision_fasterrcnn_mobilenet_v3_large_320_fpn as fasterrcnn
-        tbl.add_column(catalog.Column('detections', computed_with=fasterrcnn(tbl.transform1)))
+        v.add_column(catalog.Column('detections', computed_with=fasterrcnn(v.transform1)))
         from pixeltable.functions.image_embedding import openai_clip
-        tbl.add_column(catalog.Column('embed', computed_with=openai_clip(tbl.transform1.resize((224, 224)))))
+        v.add_column(catalog.Column('embed', computed_with=openai_clip(v.transform1.resize((224, 224)))))
         # add a stored column that isn't referenced in nos calls
-        tbl.add_column(catalog.Column('transform2', computed_with=tbl.frame.rotate(60), stored=True))
+        v.add_column(catalog.Column('transform2', computed_with=v.frame.rotate(60), stored=True))
 
-        tbl.insert([[get_video_files()[0]]], ['video'])
+        status = video_t.insert([[get_video_files()[0]]], ['video'])
+        pass
 
     def test_exceptions(self, test_client: pt.Client) -> None:
         cl = test_client
-        cols = [
-            catalog.Column('video', VideoType()),
-            catalog.Column('frame', ImageType()),
-            catalog.Column('frame_idx', IntType()),
-        ]
-        tbl = cl.create_table(
-            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
-            extracted_frame_idx_col='frame_idx', extracted_fps=1)
-        tbl.insert([[get_video_files()[0]]], ['video'])
-        tbl.add_column(catalog.Column('frame_s', computed_with=tbl.frame.resize((640, 480))))
+        video_t = cl.create_table('video_tbl', [catalog.Column('video', VideoType())])
+        # create frame view
+        args = {'video': video_t.video, 'fps': 1}
+        v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
+        video_t.insert([[get_video_files()[0]]], ['video'])
+
+        v.add_column(catalog.Column('frame_s', computed_with=v.frame.resize((640, 480))))
         # 'rotated' has exceptions
-        tbl.add_column(catalog.Column(
+        v.add_column(catalog.Column(
             'rotated', ImageType(), computed_with=lambda frame_s, frame_idx: frame_s.rotate(int(360 / frame_idx))))
         from pixeltable.functions.object_detection_2d import yolox_medium
-        tbl.add_column(catalog.Column('detections', computed_with=yolox_medium(tbl.rotated), stored=True))
-        assert tbl[tbl.detections.errortype != None].count() == 1
+        v.add_column(catalog.Column('detections', computed_with=yolox_medium(v.rotated), stored=True))
+        assert v.where(v.detections.errortype != None).count() == 1
 
     @pytest.mark.skip(reason='too slow')
     def test_sd(self, test_client: pt.Client) -> None:

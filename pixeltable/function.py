@@ -220,7 +220,7 @@ class Function:
             if default_val == inspect.Parameter.empty or default_val is None:
                 continue
             try:
-                param_types[idx].validate_literal(default_val)
+                _ = param_types[idx].create_literal(default_val)
             except TypeError as e:
                 raise exc.Error(f'Default value for parameter {param_name}: {str(e)}')
 
@@ -327,7 +327,8 @@ class Function:
     def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs
 
-        order_by_expr: Optional[exprs.Expr] = None
+        # perform semantic analysis of special parameters 'order_by' and 'group_by'
+        order_by_clause: Optional[Any] = None
         if 'order_by' in kwargs:
             if self.requires_order_by:
                 raise exc.Error(
@@ -336,39 +337,33 @@ class Function:
                 raise exc.Error(f'Order_by invalid with a non-aggregate function')
             if not self.allows_window:
                 raise exc.Error(f'Order_by invalid with an aggregate function that does not allow windows')
-            order_by_expr = kwargs['order_by']
-            if not isinstance(order_by_expr, exprs.Expr):
-                raise exc.Error(
-                    f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_expr)}')
+            order_by_clause = kwargs['order_by']
             del kwargs['order_by']
         elif self.requires_order_by:
             # the first argument is the order-by expr
             if len(args) == 0:
                 raise exc.Error(f'Function requires an ordering expression as its first argument')
-            order_by_expr = args[0]
-            if not isinstance(order_by_expr, exprs.Expr):
+            order_by_clause = args[0]
+            if not isinstance(order_by_clause, exprs.Expr):
                 raise exc.Error(
-                    f'The first argument needs to be a Pixeltable expression, but instead is a {type(order_by_expr)}')
+                    f'The first argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause)}')
             # don't pass the first parameter on, the Function doesn't get to see it
             args = args[1:]
 
-        group_by_expr: Optional[exprs.Expr] = None
+        group_by_clause: Optional[Any] = None
         if 'group_by' in kwargs:
             if not self.is_aggregate:
                 raise exc.Error(f'Group_by invalid with a non-aggregate function')
             if not self.allows_window:
                 raise exc.Error(f'Group_by invalid with an aggregate function that does not allow windows')
-            group_by_expr = kwargs['group_by']
-            if not isinstance(group_by_expr, exprs.Expr):
-                raise exc.Error(
-                    f'group_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_expr)}')
+            group_by_clause = kwargs['group_by']
             del kwargs['group_by']
 
         bound_args = self.py_signature.bind(*args, **kwargs)
         return exprs.FunctionCall(
             self, bound_args.arguments,
-            order_by_exprs=[order_by_expr] if order_by_expr is not None else [],
-            group_by_exprs=[group_by_expr] if group_by_expr is not None else [])
+            order_by_clause=[order_by_clause] if order_by_clause is not None else [],
+            group_by_clause=[group_by_clause] if group_by_clause is not None else [])
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):

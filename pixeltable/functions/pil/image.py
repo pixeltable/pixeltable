@@ -74,7 +74,7 @@ def resize_return_type(bound_args: Dict[str, Any]) -> ColumnType:
     assert 'size' in bound_args
     return ImageType(size=bound_args['size'])
 resize = Function.make_library_function(
-    resize_return_type, [ImageType(), ArrayType((2,), dtype=IntType())], __name__, '_resize')
+    resize_return_type, [ImageType(), JsonType()], __name__, '_resize')
 
 # Image.rotate()
 def _rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:

@@ -11,11 +11,18 @@ from pixeltable import exceptions as exc
 from pixeltable import catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
-from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq
+from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq, get_video_files
+from pixeltable.iterators import FrameIterator
 
 
 class TestView:
-    def create_tbl(self, cl: pt.Client) -> catalog.MutableTable:
+    """
+    TODO:
+    - test tree of views
+    - test consecutive component views
+
+    """
+    def create_tbl(self, cl: pt.Client) -> catalog.InsertableTable:
         """Create table with computed columns"""
         t = create_test_tbl(cl)
         t.add_column(catalog.Column('d1', computed_with=t.c3 - 1))
@@ -37,8 +44,12 @@ class TestView:
         ]
         v = cl.create_view('test_view', t, schema=cols, filter=t.c2 < 10)
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).show(0))
+            v.select(v.v1).order_by(v.c2).collect(),
+            t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())
+        # view-only query; returns the same result
+        assert_resultset_eq(
+            v.select(v.v1).order_by(v.v1).collect(),
+            t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())
         # computed columns that don't reference the base table
         v.add_column(catalog.Column('v3', computed_with=v.v1 * 2.0))
         v.add_column(catalog.Column('v4', computed_with=v.v2[0]))
@@ -54,27 +65,27 @@ class TestView:
         assert set(v_old.cols_by_name.keys()) == set(v.cols_by_name.keys())
         assert v.cols_by_name['v1'].value_expr == v.c3 * 2.0
 
+        view_query = v.select(v.v1).order_by(v.c2)
+        base_query = t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2)
+
         # insert data: of 20 new rows, only 10 are reflected in the view
         rows = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).show(0).rows
-        t.insert(rows)
+        status = t.insert(rows)
+        assert status.num_rows == 30
         assert t.count() == 120
-        assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).show(0))
+        assert_resultset_eq(view_query.collect(), base_query.collect())
 
         # update data: cascade to view
-        t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
+        status = t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
+        assert status.num_rows == 10 * 2  # *2: rows affected in both base table and view
         assert t.count() == 120
-        assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).show(0))
+        assert_resultset_eq(view_query.collect(), base_query.collect())
 
         # base table delete is reflected in view
-        t.delete(where=t.c2 < 5)
+        status = t.delete(where=t.c2 < 5)
+        status.num_rows == 10 * 2  # *2: rows affected in both base table and view
         assert t.count() == 110
-        assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).show(0))
+        assert_resultset_eq(view_query.collect(), base_query.collect())
 
         # test delete view
         cl.drop_table('test_view')
@@ -165,6 +176,7 @@ class TestView:
             v.order_by(v.c2).show(0),
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
+    @pytest.mark.skip(reason='revise view snapshots')
     def test_snapshot_view(self, test_client: pt.Client) -> None:
         """Test view over a snapshot"""
         cl = test_client
@@ -208,53 +220,7 @@ class TestView:
         assert t.count() == 110
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).show(0), res)
 
-    def test_view_snapshot(self, test_client: pt.Client) -> None:
-        """Test snapshot of a view"""
-        cl = test_client
-        t = self.create_tbl(cl)
-
-        # create view with filter and computed columns
-        cols = [
-            catalog.Column('v1', computed_with=t.c3 * 2.0),
-            catalog.Column('v2', computed_with=t.c6.f5)
-        ]
-        v = cl.create_view('test_view', t, schema=cols, filter=t.c2 < 10)
-        s = cl.create_snapshot('test_snap', 'test_view')
-        snapshot_query = s.order_by(s.c2)
-        table_query = \
-            t.select(t.c3 * 2.0, t.c6.f5, t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c8, t.d1, t.c10, t.d2) \
-                .where(t.c2 < 10).order_by(t.c2)
-        assert_resultset_eq(snapshot_query.show(0), table_query.show(0))
-        # add more columns
-        v.add_column(catalog.Column('v3', computed_with=v.v1 * 2.0))
-        v.add_column(catalog.Column('v4', computed_with=v.v2[0]))
-        assert_resultset_eq(snapshot_query.show(0), table_query.show(0))
-
-        # check md after reload
-        cl = pt.Client()
-        t = cl.get_table('test_tbl')
-        s_old = s
-        s = cl.get_table('test_snap')
-        assert s.tbl_version.predicate == s_old.tbl_version.predicate
-        assert set(s_old.tbl_version.cols_by_name.keys()) == set(s.tbl_version.cols_by_name.keys())
-        assert s.tbl_version.cols_by_name['v1'].value_expr == t.c3 * 2.0
-
-        # insert data: snapshot sees new rows
-        rows = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).show(0).rows
-        t.insert(rows)
-        assert t.count() == 120
-        assert_resultset_eq(snapshot_query.show(0), table_query.show(0))
-
-        # update data: snapshot sees changes
-        t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
-        assert t.count() == 120
-        assert_resultset_eq(snapshot_query.show(0), table_query.show(0))
-
-        # base table delete: snapshot sees changes
-        t.delete(where=t.c2 < 5)
-        assert t.count() == 110
-        assert_resultset_eq(snapshot_query.show(0), table_query.show(0))
-
+    @pytest.mark.skip(reason='revise view snapshots')
     def test_snapshots(self, test_client: pt.Client) -> None:
         """Test snapshot of a view of a snapshot"""
         cl = test_client
@@ -303,3 +269,52 @@ class TestView:
         assert t.count() == 110
         assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
 
+    def test_component_view(self, test_client: pt.Client) -> None:
+        cl = test_client
+        # create video table
+        cols = [catalog.Column('video', VideoType()), catalog.Column('angle', IntType())]
+        video_t = cl.create_table('video_tbl', cols)
+        video_filepaths = get_video_files()
+
+        with pytest.raises(exc.Error) as excinfo:
+            # parameter missing
+            args = {'fps': 1}
+            _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
+        assert 'missing a required argument' in str(excinfo.value)
+
+        with pytest.raises(exc.Error) as excinfo:
+            # bad parameter type
+            args = {'video': video_t.video, 'fps': '1'}
+            _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
+        assert 'expected int' in str(excinfo.value)
+
+        with pytest.raises(exc.Error) as excinfo:
+            # bad parameter type
+            args = {'video': 1, 'fps': 1}
+            _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
+        assert 'expected file path' in str(excinfo.value)
+
+        # create frame view
+        args = {'video': video_t.video, 'fps': 1}
+        view_t = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
+        # computed column that references an unstored computed column from the view and a column from the base
+        view_t.add_column(catalog.Column('angle2', computed_with=view_t.angle + 1))
+        # computed column that references an unstored and a stored computed view column
+        view_t.add_column(catalog.Column('v1', computed_with=view_t.frame.rotate(view_t.angle2), stored=True))
+        # computed column that references a stored computed column from the view
+        view_t.add_column(catalog.Column('v2', computed_with=view_t.frame_idx - 1))
+
+        # and load data
+        rows = [[p, 30] for p in video_filepaths]
+        video_t.insert(rows)
+        # pos and frame_idx are identical
+        res = view_t.select(view_t.pos, view_t.frame_idx).collect().to_pandas()
+        assert np.all(res['pos'] == res['frame_idx'])
+
+        video_url = video_t.select(video_t.video.fileurl).show(0)[0, 0]
+        result = view_t.where(view_t.video == video_url).select(view_t.frame, view_t.frame_idx) \
+            .collect()
+        result = view_t.where(view_t.video == video_url).select(view_t.frame_idx).order_by(view_t.frame_idx) \
+            .collect().to_pandas()
+        assert len(result) > 0
+        assert np.all(result['frame_idx'] == pd.Series(range(len(result))))

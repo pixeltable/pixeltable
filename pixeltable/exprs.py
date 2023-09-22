@@ -15,6 +15,8 @@ import inspect
 from uuid import UUID
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
+import hashlib
 
 import PIL.Image
 import jmespath
@@ -24,12 +26,12 @@ import sqlalchemy as sql
 from pixeltable import catalog
 from pixeltable.type_system import \
     ColumnType, InvalidType, StringType, IntType, FloatType, BoolType, JsonType, ArrayType
-from pixeltable.function import Function, FunctionRegistry
+from pixeltable.function import Function, FunctionRegistry, Signature
 from pixeltable.exceptions import Error, ExprEvalError
-from pixeltable.utils.video import FrameIterator
 from pixeltable.utils import print_perf_counter_delta
 from pixeltable.utils.clip import embed_image, embed_text
 from pixeltable.catalog import is_valid_identifier
+from pixeltable.iterators import ComponentIterator
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -124,8 +126,17 @@ class Expr(abc.ABC):
     """
     def __init__(self, col_type: ColumnType):
         self.col_type = col_type
-        # index of the expr's value in the data row; set for all materialized exprs; -1: invalid
-        # not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
+
+        # each instance has an id that is used for equality comparisons
+        # - set by the subclass's __init__()
+        # - produced by _create_id()
+        # - not expected to survive a serialize()/deserialize() roundtrip
+        self.id: Optional[int] = None
+
+        # index of the expr's value in the data row:
+        # - set for all materialized exprs
+        # - -1: not executable
+        # - not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
         self.slot_idx = -1
         self.components: List[Expr] = []  # the subexprs that are needed to construct this expr
 
@@ -173,6 +184,23 @@ class Expr(abc.ABC):
             if not self.components[i].equals(other.components[i]):
                 return False
         return self._equals(other)
+
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        """Returns attribute/value pairs that are used to construct the instance id.
+
+        Attribute values must be immutable and have str() defined.
+        """
+        return [('classname', self.__class__.__name__)]
+
+    def _create_id(self) -> int:
+        hasher = hashlib.sha256()
+        for attr, value in self._id_attrs():
+            hasher.update(attr.encode('utf-8'))
+            hasher.update(str(value).encode('utf-8'))
+        for expr in self.components:
+            hasher.update(str(expr.id).encode('utf-8'))
+        # truncate to machine's word size
+        return int(hasher.hexdigest(), 16) & sys.maxsize
 
     @classmethod
     def list_equals(cls, a: List[Expr], b: List[Expr]) -> bool:
@@ -234,6 +262,14 @@ class Expr(abc.ABC):
                 assert ref.col.value_expr is not None
                 result = result.substitute(ref, ref.col.value_expr)
 
+    def is_bound_by(self, tbl: catalog.TableVersion) -> bool:
+        """Returns True if this expr can be evaluated in the context of tbl."""
+        col_refs = self.subexprs(ColumnRef)
+        for col_ref in col_refs:
+            if not tbl.has_column(col_ref.col):
+                return False
+        return True
+
     @classmethod
     def list_substitute(cls, expr_list: List[Expr], old: Expr, new: Expr) -> None:
         for i in range(len(expr_list)):
@@ -290,11 +326,20 @@ class Expr(abc.ABC):
             cls, expr_list: List[Expr], expr_class: Optional[Type[Expr]] = None,
             filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Generator[Expr, None, None]:
-        """
-        Produce subexprs for all exprs in list.
-        """
+        """Produce subexprs for all exprs in list. Can contain duplicates."""
         for e in expr_list:
             yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
+
+    def tbl_ids(self) -> Set[UUID]:
+        """Returns table ids referenced by this expr."""
+        return {ref.col.tbl.id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
+
+    @classmethod
+    def list_tbl_ids(cls, expr_list: List[Expr]) -> Set[UUID]:
+        ids: Set[UUID] = set()
+        for e in expr_list:
+            ids.update(e.tbl_ids())
+        return ids
 
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
@@ -318,7 +363,7 @@ class Expr(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         """
         If this expr can be materialized directly in SQL:
         - returns a ClauseElement
@@ -330,7 +375,7 @@ class Expr(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         """
         Compute the expr value for data_row and store the result in data_row[slot_idx].
         Not called if sql_expr() != None (exception: Literal).
@@ -483,6 +528,23 @@ class ColumnRef(Expr):
         super().__init__(col.col_type)
         assert col.tbl is not None
         self.col = col
+        self.is_unstored_iter_col = \
+            col.tbl.is_component_view() and col.tbl.is_iterator_column(col) and not col.is_stored
+        self.iter_arg_ctx: Optional[RowBuilder.EvalCtx] = None
+        # number of rowid columns in the base table
+        self.base_rowid_len = len(col.tbl.base.store_tbl.rowid_columns()) if self.is_unstored_iter_col else 0
+        self.base_rowid = [None] * self.base_rowid_len
+        self.iterator: Optional[ComponentIterator] = None
+        # index of the position column in the view's primary key
+        self.pos_idx: Optional[int] = len(col.tbl.store_tbl.rowid_columns()) - 1 if self.is_unstored_iter_col else None
+        self.id = self._create_id()
+
+    def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx) -> None:
+        self.iter_arg_ctx = iter_arg_ctx
+        assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
+
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id)]
 
     def __getattr__(self, name: str) -> Expr:
         # resolve column properties
@@ -500,11 +562,11 @@ class ColumnRef(Expr):
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
 
         if self.col_type.is_json_type():
-            return JsonPath(self).__getattr__(name)
+            return JsonPath(self, [name])
 
         return super().__getattr__(name)
 
-    def default_column_name(self) -> str:
+    def default_column_name(self) -> Optional[str]:
         return str(self)
 
     def _equals(self, other: ColumnRef) -> bool:
@@ -513,29 +575,29 @@ class ColumnRef(Expr):
     def __str__(self) -> str:
         return self.col.name
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
-        if not self.col.is_stored:
-            return None
-        assert self.col.sa_col is not None
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         return self.col.sa_col
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        pass
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        if not self.is_unstored_iter_col:
+            return
+        # if this is a new base row, we need to instantiate a new iterator
+        if self.base_rowid != data_row.pk[:self.base_rowid_len]:
+            row_builder.eval(data_row, self.iter_arg_ctx)
+            iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
+            self.iterator = self.col.tbl.iterator_cls(**iterator_args)
+            self.base_rowid = data_row.pk[:self.base_rowid_len]
+        self.iterator.set_pos(data_row.pk[self.pos_idx])
+        res = next(self.iterator)
+        data_row[self.slot_idx] = res[self.col.name]
 
     def _as_dict(self) -> Dict:
         return {'tbl_id': str(self.col.tbl.id), 'col_id': self.col.id}
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
-        assert t.id is not None
         # resolve d['tbl_id'], which is either t or a base of t
-        origin_id = UUID(d['tbl_id'])
-        origin = t
-        while origin_id != origin.id:
-            # only views can reference TableVersions other than themselves
-            assert t.is_view() and t.base is not None
-            origin = t.base
-
+        origin = t.find_tbl(UUID(d['tbl_id']))
         col_id = d['col_id']
         assert col_id in origin.cols_by_id
         return cls(origin.cols_by_id[col_id])
@@ -556,12 +618,16 @@ class ColumnPropertyRef(Expr):
         super().__init__(StringType(nullable=True))
         self.components = [col_ref]
         self.prop = prop
+        self.id = self._create_id()
 
-    def default_column_name(self) -> str:
+    def default_column_name(self) -> Optional[str]:
         return str(self).replace('.', '_')
 
     def _equals(self, other: ColumnRef) -> bool:
         return self.prop == other.prop
+
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('prop', self.prop.value)]
 
     @property
     def _col_ref(self) -> ColumnRef:
@@ -570,7 +636,7 @@ class ColumnPropertyRef(Expr):
     def __str__(self) -> str:
         return f'{self._col_ref}.{self.prop.name.lower()}'
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         if not self._col_ref.col.is_stored:
             return None
         if self.prop == self.Property.ERRORTYPE:
@@ -581,7 +647,7 @@ class ColumnPropertyRef(Expr):
             return self._col_ref.col.sa_errormsg_col
         return None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         assert self.prop == self.Property.FILEURL or self.prop == self.Property.LOCALPATH
         assert data_row.has_val[self._col_ref.slot_idx]
         if self.prop == self.Property.FILEURL:
@@ -598,88 +664,73 @@ class ColumnPropertyRef(Expr):
         return cls(components[0], cls.Property(d['prop']))
 
 
-class FrameColumnRef(ColumnRef):
+class RowidRef(Expr):
+    """A reference to (a part of) a table rowid column
+
+    This is used internally to support grouping by a base table and for references to the 'pos' column.
     """
-    Reference to an extracted frame column.
-    TODO: create window function that can do frame extraction and remove this class.
-    """
-    def __init__(self, col: catalog.Column):
-        assert col.col_type.is_image_type()
-        assert col.tbl.parameters.frame_col_id == col.id
-        super().__init__(col)
-        # we need to reference the video and frame idx cols in eval()
-        self.tbl = col.tbl
-        video_col = self.tbl.cols_by_id[self.tbl.parameters.frame_src_col_id]
-        frame_idx_col = self.tbl.cols_by_id[self.tbl.parameters.frame_idx_col_id]
-        self.components = [ColumnRef(video_col), ColumnRef(frame_idx_col)]
-        # execution state
-        self.current_video: Optional[str] = None
-        self.frames: Optional[FrameIterator] = None
+    def __init__(self, tbl: catalog.TableVersion, idx: int):
+        super().__init__(IntType(nullable=False))
+        # normalize to simplify comparisons: we refer to the lowest base table that has the requested rowid idx
+        # (which has the same values as all its descendent views)
+        while tbl.base is not None and len(tbl.base.store_tbl.rowid_columns()) > idx:
+            tbl = tbl.base
+        self.tbl = tbl
+        self.rowid_component_idx = idx
+        self.id = self._create_id()
 
-    @property
-    def _video_ref(self) -> ColumnRef:
-        return self.components[0]
+    def default_column_name(self) -> Optional[str]:
+        return str(self)
 
-    @property
-    def _frame_idx_ref(self) -> ColumnRef:
-        return self.components[1]
+    def _equals(self, other: ColumnRef) -> bool:
+        return self.tbl is other.tbl and self.rowid_component_idx == other.rowid_component_idx
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('tbl_id', self.tbl.id), ('idx', self.rowid_component_idx)]
+
+    def __str__(self) -> str:
+        # check if this is the pos column of a component view
+        if self.tbl.is_component_view() and self.rowid_component_idx == self.tbl.store_tbl.pos_col_idx:
+            return catalog.globals.POS_COLUMN_NAME
         return None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
-        # extract frame
-        assert data_row.file_paths[self._video_ref.slot_idx] is not None
-        video_path = data_row.file_paths[self._video_ref.slot_idx]  # we need the local path
-        if self.frames is None or self.current_video != video_path:
-            self.current_video = video_path
-            if self.frames is not None:
-                self.frames.close()
-            self.frames = FrameIterator(self.current_video, fps=self.tbl.parameters.extraction_fps)
-        frame_idx = data_row[self._frame_idx_ref.slot_idx]
-        self.frames.seek(frame_idx)
-        _, frame = next(self.frames, None)
-        data_row[self.slot_idx] = frame
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
+        rowid_cols = self.tbl.store_tbl.rowid_columns()
+        return rowid_cols[self.rowid_component_idx]
 
-    def release(self) -> None:
-        if self.frames is not None:
-            self.frames.close()
-            self.frames = None
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        data_row[self.slot_idx] = data_row.pk[self.rowid_component_idx]
+
+    def _as_dict(self) -> Dict:
+        return {'tbl_id': str(self.tbl.id), 'idx': self.rowid_component_idx}
+
+    @classmethod
+    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+        tbl = t.find_tbl(UUID(d['tbl_id']))
+        assert tbl is not None
+        return cls(tbl, d['idx'])
 
 
 class FunctionCall(Expr):
     def __init__(
-            self, fn: Function, bound_args: Dict[str, Any], order_by_exprs: List[Expr] = [],
-            group_by_exprs: List[Expr] = [], is_method_call: bool = False):
+            self, fn: Function, bound_args: Dict[str, Any], order_by_clause: List[Any] = [],
+            group_by_clause: List[Any] = [], is_method_call: bool = False):
         signature = fn.md.signature
         super().__init__(signature.get_return_type(bound_args))
         self.fn = fn
         self.is_method_call = is_method_call
-
-        # check argument types and values
-        for param_name, arg in bound_args.items():
-            if not isinstance(arg, Expr):
-                # make sure that non-Expr args are json-serializable
-                try:
-                    _ = json.dumps(arg)
-                    continue
-                except TypeError:
-                    raise Error(f'Argument for parameter {param_name} is not json-serializable: {arg}')
-
-            param_type = signature.parameters[param_name]
-            if not param_type.is_supertype_of(arg.col_type):
-                raise Error((
-                    f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
-                    f'{param_type}'))
+        self.check_args(signature, bound_args)
 
         # construct components, args, kwargs
         self.components: List[Expr] = []
+
         # Tuple[int, Any]:
         # - for Exprs: (index into components, None)
         # - otherwise: (-1, val)
         self.args: List[Tuple[int, Any]] = []
-        self.arg_types: List[ColumnType] = []  # needed for runtime type checks
         self.kwargs: Dict[str, Tuple[int, Any]] = {}
+
+        self.arg_types: List[ColumnType] = []  # needed for runtime type checks
         self.kwarg_types: Dict[str, ColumnType] = {}
         # the prefix of parameters that are bound can be passed by position
         for param in fn.py_signature.parameters.values():
@@ -708,15 +759,25 @@ class FunctionCall(Expr):
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
         self.group_by_start_idx, self.group_by_stop_idx = 0, 0
-        if len(group_by_exprs) > 0:
+        if len(group_by_clause) > 0:
+            # TODO: analyze group_by_clause
+            if isinstance(group_by_clause[0], catalog.Table):
+                group_by_exprs = self._create_rowid_refs(group_by_clause[0])
+            else:
+                assert isinstance(group_by_clause[0], Expr)
+                group_by_exprs = group_by_clause
             # record grouping exprs in self.components, we need to evaluate them to get partition vals
             self.group_by_start_idx = len(self.components)
             self.group_by_stop_idx = len(self.components) + len(group_by_exprs)
             self.components.extend(group_by_exprs)
-        # we want to make sure that order_by_exprs get assigned slot_idxs, even though we won't need to evaluate them
+
+        # we want to make sure that order_by_clause get assigned slot_idxs, even though we won't need to evaluate them
         # (that's done in SQL)
+        if len(order_by_clause) > 0 and not isinstance(order_by_clause[0], Expr):
+            raise Error(
+                f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}')
         self.order_by_start_idx = len(self.components)
-        self.components.extend(order_by_exprs)
+        self.components.extend(order_by_clause)
 
         self.nos_info = FunctionRegistry.get().get_nos_info(self.fn)
         self.constant_args = {param_name for param_name, arg in bound_args.items() if not isinstance(arg, Expr)}
@@ -724,6 +785,40 @@ class FunctionCall(Expr):
         # execution state for aggregate functions
         self.aggregator: Optional[Any] = None
         self.current_partition_vals: Optional[List[Any]] = None
+
+        self.id = self._create_id()
+
+    def _create_rowid_refs(self, tbl: catalog.Table) -> List[Expr]:
+        rowid_cols = tbl.tbl_version.store_tbl.rowid_columns()
+        return [RowidRef(tbl.tbl_version, i) for i in range(len(rowid_cols))] if len(rowid_cols) > 0 else []
+
+    @classmethod
+    def check_args(cls, signature: Signature, bound_args: Dict[str, Any]) -> None:
+        """Checks that bound_args are compatible with signature.
+
+        Convert literals to the correct type and update bound_args in place, if necessary.
+        """
+        for param_name, arg in bound_args.items():
+            if not isinstance(arg, Expr):
+                # make sure that non-Expr args are json-serializable and are literals of the correct type
+                try:
+                    _ = json.dumps(arg)
+                except TypeError:
+                    raise Error(f"Argument for parameter '{param_name}' is not json-serializable: {arg}")
+                if arg is not None:
+                    try:
+                        param_type = signature.parameters[param_name]
+                        bound_args[param_name] = param_type.create_literal(arg)
+                    except TypeError as e:
+                        msg = str(e)
+                        raise Error(f"Argument for parameter '{param_name}': {msg[0].lower() + msg[1:]}")
+                continue
+
+            param_type = signature.parameters[param_name]
+            if not param_type.is_supertype_of(arg.col_type):
+                raise Error((
+                    f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
+                    f'{param_type}'))
 
     def is_nos_call(self) -> bool:
         return self.nos_info is not None
@@ -743,6 +838,16 @@ class FunctionCall(Expr):
         if self.order_by_start_idx != other.order_by_start_idx:
             return False
         return True
+
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [
+            ('fn', self.fn.md.fqn),
+            ('args', self.args),
+            ('kwargs', self.kwargs),
+            ('group_by_start_idx', self.group_by_start_idx),
+            ('group_by_stop_idx', self.group_by_stop_idx),
+            ('order_by_start_idx', self.order_by_start_idx)
+        ]
 
     def __str__(self) -> str:
         return self.display_str()
@@ -802,7 +907,7 @@ class FunctionCall(Expr):
         assert self.is_agg_fn_call
         return self.order_by
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         # TODO: implement for standard aggregate functions
         return None
 
@@ -829,7 +934,7 @@ class FunctionCall(Expr):
         }
         return args, kwargs
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         args, kwargs = self._make_args(data_row)
         signature = self.fn.md.signature
         if signature.parameters is not None:
@@ -887,7 +992,7 @@ class FunctionCall(Expr):
         group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx']:]
         fn_call = cls(
-            Function.from_dict(d['fn']), bound_args, group_by_exprs=group_by_exprs, order_by_exprs=order_by_exprs)
+            Function.from_dict(d['fn']), bound_args, group_by_clause=group_by_exprs, order_by_clause=order_by_exprs)
         return fn_call
 
 
@@ -932,8 +1037,9 @@ class ImageMemberAccess(Expr):
             super().__init__(InvalidType())  # requires FunctionCall to return value
         self.member_name = member_name
         self.components = [caller]
+        self.id = self._create_id()
 
-    def default_column_name(self) -> str:
+    def default_column_name(self) -> Optional[str]:
         return self.member_name.replace('.', '_')
 
     @property
@@ -974,10 +1080,13 @@ class ImageMemberAccess(Expr):
     def _equals(self, other: ImageMemberAccess) -> bool:
         return self.member_name == other.member_name
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('member_name', self.member_name)]
+
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         return None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         caller_val = data_row[self._caller.slot_idx]
         try:
             data_row[self.slot_idx] = getattr(caller_val, self.member_name)
@@ -998,6 +1107,9 @@ class JsonPath(Expr):
         self.path_elements: List[Union[str, int]] = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         self.scope_idx = scope_idx
+        # NOTE: the _create_id() result will change if set_anchor() gets called;
+        # this is not a problem, because _create_id() shouldn't be called after init()
+        self.id = self._create_id()
 
     def __str__(self) -> str:
         # else "R": the anchor is RELATIVE_PATH_ROOT
@@ -1086,7 +1198,10 @@ class JsonPath(Expr):
     def _equals(self, other: JsonPath) -> bool:
         return self.path_elements == other.path_elements
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('path_elements', self.path_elements)]
+
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         """
         Postgres appears to have a bug: jsonb_path_query('{a: [{b: 0}, {b: 1}]}', '$.a.b') returns
         *two* rows (each containing col val 0), not a single row with [0, 0].
@@ -1111,7 +1226,7 @@ class JsonPath(Expr):
                 result.append(f'[{_print_slice(element)}]')
         return ''.join(result)
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         val = data_row[self._anchor.slot_idx]
         if self.compiled_path is not None:
             val = self.compiled_path.search(val)
@@ -1124,7 +1239,7 @@ RELATIVE_PATH_ROOT = JsonPath(None)
 class Literal(Expr):
     def __init__(self, val: Any, col_type: Optional[ColumnType] = None):
         if col_type is not None:
-            col_type.validate_literal(val)
+            val = col_type.create_literal(val)
         else:
             # try to determine a type for val
             col_type = ColumnType.infer_literal_type(val)
@@ -1132,8 +1247,9 @@ class Literal(Expr):
                 raise TypeError(f'Not a valid literal: {val}')
         super().__init__(col_type)
         self.val = val
+        self.id = self._create_id()
 
-    def default_column_name(self) -> str:
+    def default_column_name(self) -> Optional[str]:
         return 'Literal'
 
     def __str__(self) -> str:
@@ -1144,12 +1260,15 @@ class Literal(Expr):
     def _equals(self, other: Literal) -> bool:
         return self.val == other.val
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('val', self.val)]
+
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         # we need to return something here so that we can generate a Where clause for predicates
         # that involve literals (like Where c > 0)
         return sql.sql.expression.literal(self.val)
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, even though sql_expr() does not return None
         data_row[self.slot_idx] = self.val
 
@@ -1193,6 +1312,8 @@ class InlineDict(Expr):
             self.type_spec[key] = self.components[idx].col_type
         self.col_type = JsonType(self.type_spec)
 
+        self.id = self._create_id()
+
     def __str__(self) -> str:
         item_strs: List[str] = []
         i = 0
@@ -1207,10 +1328,13 @@ class InlineDict(Expr):
     def _equals(self, other: InlineDict) -> bool:
         return self.dict_items == other.dict_items
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('dict_items', self.dict_items)]
+
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         return None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         result = {}
         for key, idx, val in self.dict_items:
             assert isinstance(key, str)
@@ -1278,6 +1402,8 @@ class InlineArray(Expr):
         elif element_type.is_json_type():
             self.col_type = JsonType()
 
+        self.id = self._create_id()
+
     def __str__(self) -> str:
         elem_strs = [str(val) if val is not None else str(self.components[idx]) for idx, val in self.elements]
         return f'[{", ".join(elem_strs)}]'
@@ -1285,10 +1411,13 @@ class InlineArray(Expr):
     def _equals(self, other: InlineDict) -> bool:
         return self.elements == other.elements
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('elements', self.elements)]
+
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         return None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         result = [None] * len(self.elements)
         for i, (child_idx, val) in enumerate(self.elements):
             if child_idx >= 0:
@@ -1322,6 +1451,7 @@ class ArraySlice(Expr):
         super().__init__(arr.col_type)
         self.components = [arr]
         self.index = index
+        self.id = self._create_id()
 
     def __str__(self) -> str:
         index_strs: List[str] = []
@@ -1339,10 +1469,13 @@ class ArraySlice(Expr):
     def _equals(self, other: ArraySlice) -> bool:
         return self.index == other.index
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('index', self.index)]
+
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         return None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         val = data_row[self._array.slot_idx]
         data_row[self.slot_idx] = val[self.index]
 
@@ -1370,15 +1503,6 @@ class ArraySlice(Expr):
 class Predicate(Expr):
     def __init__(self) -> None:
         super().__init__(BoolType())
-
-    def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional[Predicate]]:
-        """
-        Return ClauseElement for what can be evaluated in SQL and a predicate for the remainder that needs to be
-        evaluated in Python.
-        Needed to for predicate push-down into SQL.
-        """
-        e = self.sql_expr()
-        return (None, self) if e is None else (e, None)
 
     def split_conjuncts(
             self, condition: Callable[[Predicate], bool]) -> Tuple[List[Predicate], Optional[Predicate]]:
@@ -1423,6 +1547,8 @@ class CompoundPredicate(Predicate):
             for operand in operands:
                 self._merge_operand(operand)
 
+        self.id = self._create_id()
+
     def __str__(self) -> str:
         if self.operator == LogicalOperator.NOT:
             return f'~({self.components[0]})'
@@ -1450,30 +1576,8 @@ class CompoundPredicate(Predicate):
     def _equals(self, other: CompoundPredicate) -> bool:
         return self.operator == other.operator
 
-    def extract_sql_predicate(self) -> Tuple[Optional[sql.sql.expression.ClauseElement], Optional[Predicate]]:
-        if self.operator == LogicalOperator.NOT:
-            e = self.sql_expr()
-            return (None, self) if e is None else (e, None)
-
-        sql_exprs = [op.sql_expr() for op in self.components]
-        if self.operator == LogicalOperator.OR and any(e is None for e in sql_exprs):
-            # if any clause of a | can't be evaluated in SQL, we need to evaluate everything in Python
-            return None, self
-        if not(any(e is None for e in sql_exprs)):
-            # we can do everything in SQL
-            return self.sql_expr(), None
-
-        assert self.operator == LogicalOperator.AND
-        if not any(e is not None for e in sql_exprs):
-            # there's nothing that can be done in SQL
-            return None, self
-
-        sql_preds = [e for e in sql_exprs if e is not None]
-        other_preds = [self.components[i] for i, e in enumerate(sql_exprs) if e is None]
-        assert len(sql_preds) > 0
-        combined_sql_pred = sql.and_(*sql_preds)
-        combined_other = self.make_conjunction(other_preds)
-        return combined_sql_pred, combined_other
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('operator', self.operator.value)]
 
     def split_conjuncts(
             self, condition: Callable[[Predicate], bool]) -> Tuple[List[Predicate], Optional[Predicate]]:
@@ -1483,7 +1587,7 @@ class CompoundPredicate(Predicate):
         non_matches = [op for op in self.components if not condition(op)]
         return (matches, self.make_conjunction(non_matches))
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         sql_exprs = [op.sql_expr() for op in self.components]
         if any(e is None for e in sql_exprs):
             return None
@@ -1495,7 +1599,7 @@ class CompoundPredicate(Predicate):
         combined = operator(*sql_exprs)
         return combined
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.operator == LogicalOperator.NOT:
             data_row[self.slot_idx] = not data_row[self.components[0].slot_idx]
         else:
@@ -1519,12 +1623,16 @@ class Comparison(Predicate):
         super().__init__()
         self.operator = operator
         self.components = [op1, op2]
+        self.id = self._create_id()
 
     def __str__(self) -> str:
         return f'{self._op1} {self.operator} {self._op2}'
 
     def _equals(self, other: Comparison) -> bool:
         return self.operator == other.operator
+
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('operator', self.operator.value)]
 
     @property
     def _op1(self) -> Expr:
@@ -1534,7 +1642,7 @@ class Comparison(Predicate):
     def _op2(self) -> Expr:
         return self.components[1]
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         left = self._op1.sql_expr()
         right = self._op2.sql_expr()
         if left is None or right is None:
@@ -1552,7 +1660,7 @@ class Comparison(Predicate):
         if self.operator == ComparisonOperator.GE:
             return left >= right
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.operator == ComparisonOperator.LT:
             data_row[self.slot_idx] = data_row[self._op1.slot_idx] < data_row[self._op2.slot_idx]
         elif self.operator == ComparisonOperator.LE:
@@ -1583,6 +1691,7 @@ class ImageSimilarityPredicate(Predicate):
         self.components = [img_col_ref]
         self.img = img
         self.text = text
+        self.id = self._create_id()
 
     def embedding(self) -> np.ndarray:
         if self.text is not None:
@@ -1596,10 +1705,13 @@ class ImageSimilarityPredicate(Predicate):
     def _equals(self, other: ImageSimilarityPredicate) -> bool:
         return False
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('img', id(self.img)), ('text', self.text)]
+
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         return None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         assert False
 
     def _as_dict(self) -> Dict:
@@ -1619,20 +1731,21 @@ class IsNull(Predicate):
     def __init__(self, e: Expr):
         super().__init__()
         self.components = [e]
+        self.id = self._create_id()
 
     def __str__(self) -> str:
         return f'{str(self.components[0])} == None'
 
-    def _equals(self, other: ImageSimilarityPredicate) -> bool:
+    def _equals(self, other: IsNull) -> bool:
         return True
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         e = self.components[0].sql_expr()
         if e is None:
             return None
         return e == None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         data_row[self.slot_idx] = data_row[self.components[0].slot_idx] is None
 
     @classmethod
@@ -1661,6 +1774,8 @@ class ArithmeticExpr(Expr):
         if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
             raise Error(f'{self}: {operator} requires numeric types, but {op2} has type {op2.col_type}')
 
+        self.id = self._create_id()
+
     def __str__(self) -> str:
         # add parentheses around operands that are ArithmeticExprs to express precedence
         op1_str = f'({self._op1})' if isinstance(self._op1, ArithmeticExpr) else str(self._op1)
@@ -1670,6 +1785,9 @@ class ArithmeticExpr(Expr):
     def _equals(self, other: ArithmeticExpr) -> bool:
         return self.operator == other.operator
 
+    def _id_attrs(self) -> List[Tuple[str, Any]]:
+        return super()._id_attrs() + [('operator', self.operator.value)]
+
     @property
     def _op1(self) -> Expr:
         return self.components[0]
@@ -1678,7 +1796,7 @@ class ArithmeticExpr(Expr):
     def _op2(self) -> Expr:
         return self.components[1]
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         left = self._op1.sql_expr()
         right = self._op2.sql_expr()
         if left is None or right is None:
@@ -1694,7 +1812,7 @@ class ArithmeticExpr(Expr):
         if self.operator == ArithmeticOperator.MOD:
             return left % right
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         op1_val = data_row[self._op1.slot_idx]
         op2_val = data_row[self._op2.slot_idx]
         # check types if we couldn't do that prior to execution
@@ -1736,6 +1854,7 @@ class ObjectRef(Expr):
         super().__init__(JsonType())  # JsonType: this could be anything
         self._scope = scope
         self.owner = owner
+        self.id = self._create_id()
 
     def scope(self) -> ExprScope:
         return self._scope
@@ -1746,10 +1865,10 @@ class ObjectRef(Expr):
     def _equals(self, other: ObjectRef) -> bool:
         return self.owner is other.owner
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         return None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, but the value has already been materialized elsewhere
         pass
 
@@ -1771,7 +1890,8 @@ class JsonMapper(Expr):
         scope_anchor = ObjectRef(self.target_expr_scope, self)
         self.components = [src_expr, target_expr, scope_anchor]
         self.parent_mapper: Optional[JsonMapper] = None
-        self.target_expr_eval_ctx: List[Expr] = []
+        self.target_expr_eval_ctx: Optional[RowBuilder.EvalCtx] = None
+        self.id = self._create_id()
 
     def bind_rel_paths(self, mapper: Optional[JsonMapper]) -> None:
         self._src_expr.bind_rel_paths(mapper)
@@ -1828,10 +1948,10 @@ class JsonMapper(Expr):
     def _equals(self, other: JsonMapper) -> bool:
         return True
 
-    def sql_expr(self) -> Optional[sql.sql.expression.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ClauseElement]:
         return None
 
-    def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, but the value has already been materialized elsewhere
         src = data_row[self._src_expr.slot_idx]
         if not isinstance(src, list):
@@ -1840,12 +1960,12 @@ class JsonMapper(Expr):
             return
 
         result = [None] * len(src)
-        if len(self.target_expr_eval_ctx) == 0:
-            self.target_expr_eval_ctx = evaluator.get_eval_ctx([self._target_expr])
+        if self.target_expr_eval_ctx is None:
+            self.target_expr_eval_ctx = row_builder.create_eval_ctx([self._target_expr])
         for i, val in enumerate(src):
             data_row[self.scope_anchor.slot_idx] = val
             # stored target_expr
-            exc_tb = evaluator.eval(data_row, self.target_expr_eval_ctx)
+            exc_tb = row_builder.eval(data_row, self.target_expr_eval_ctx)
             assert exc_tb is None
             result[i] = data_row[self._target_expr.slot_idx]
         data_row[self.slot_idx] = result
@@ -1864,7 +1984,7 @@ class JsonMapper(Expr):
 
 class DataRow:
     """
-    Encapsulates all data and execution state needed by Evaluator and DataRowBatch:
+    Encapsulates all data and execution state needed by RowBuilder and DataRowBatch:
     - state for in-memory computation
     - state for storing the data
     This is not meant to be a black-box abstraction.
@@ -1913,6 +2033,18 @@ class DataRow:
         self.file_urls = [None] * size
         self.file_paths = [None] * size
 
+    def copy(self, target: DataRow) -> None:
+        """Create a copy of the contents of this DataRow in target
+        The copy shares the cell values, but not the control structures (eg, self.has_val), because these
+        need to be independently updateable.
+        """
+        target.vals = self.vals.copy()
+        target.has_val = self.has_val.copy()
+        target.excs = self.excs.copy()
+        target.pk = self.pk
+        target.file_urls = self.file_urls.copy()
+        target.file_paths = self.file_paths.copy()
+
     def set_pk(self, pk: Tuple[int, ...]) -> None:
         self.pk = pk
 
@@ -1934,7 +2066,7 @@ class DataRow:
         if not self.has_val[index]:
             # for debugging purposes
             pass
-        assert self.has_val[index]
+        assert self.has_val[index], index
 
         if index in self.img_slot_idxs:
             # if we need to load this from a file, it should have been materialized locally
@@ -1979,7 +2111,10 @@ class DataRow:
             if parsed.scheme == '' or parsed.scheme == 'file':
                 # local file path
                 assert self.file_urls[idx] is None and self.file_paths[idx] is None
-                self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(parsed.path))
+                if parsed.scheme == '':
+                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(parsed.path))
+                else:
+                    self.file_urls[idx] = val
                 self.file_paths[idx] = urllib.parse.unquote(parsed.path)
             else:
                 # URL
@@ -2023,79 +2158,210 @@ class DataRow:
 
 
 class ExecProfile:
-    def __init__(self, evaluator: Evaluator):
-        self.eval_time = [0.0] * evaluator.num_materialized
-        self.eval_count = [0] * evaluator.num_materialized
-        self.evaluator = evaluator
+    def __init__(self, row_builder: RowBuilder):
+        self.eval_time = [0.0] * row_builder.num_materialized
+        self.eval_count = [0] * row_builder.num_materialized
+        self.row_builder = row_builder
 
     def print(self, num_rows: int) -> str:
-        for i in range(self.evaluator.num_materialized):
+        for i in range(self.row_builder.num_materialized):
             if self.eval_count[i] == 0:
                 continue
             per_call_time = self.eval_time[i] / self.eval_count[i]
             calls_per_row = self.eval_count[i] / num_rows
             multiple_str = f'({calls_per_row}x)' if calls_per_row > 1 else ''
-            print(f'{self.evaluator.unique_exprs[i]}: {print_perf_counter_delta(per_call_time)} {multiple_str}')
+            print(f'{self.row_builder.unique_exprs[i]}: {print_perf_counter_delta(per_call_time)} {multiple_str}')
 
 
-class Evaluator:
+@dataclass
+class ColumnSlotIdx:
+    """Info for how to locate materialized column in DataRow
+    TODO: can this be integrated into RowBuilder directly?
     """
-    Evaluates a list of Exprs against a data row.
+    col: catalog.Column
+    slot_idx: int
+
+
+class RowBuilder:
+    """Create and populate DataRows and table rows from exprs and computed columns
+
+    For ColumnRefs to unstored iterator columns:
+    - in order for them to be executable, we also record the iterator args and pass them to the ColumnRef
     """
 
-    def __init__(self, output_exprs: List[Expr], input_exprs: List[Expr] = []):
+    @dataclass
+    class EvalCtx:
+        """Context for evaluating a set of target exprs"""
+        slot_idxs: List[int]  # slot idxs of exprs needed to evaluate target exprs; does not contain duplicates
+        exprs: List[Expr]  # exprs corresponding to slot_idxs
+        target_slot_idxs: List[int]  # slot idxs of target exprs; might contain duplicates
+        target_exprs: List[Expr]  # exprs corresponding to target_slot_idxs
+
+    def __init__(
+            self, output_exprs: List[Expr], columns: List[catalog.Column],
+            indices: List[Tuple[catalog.Column, Function]], input_exprs: List[Expr],
+            resolve_unstored_only: bool
+    ):
         """
-        Set up Evaluator to evaluate any Expr in expr_list.
-        If with_sql == True, assumes that exprs that have a SQL equivalent (to_sql() != None) will be materialized
-        via SQL, and that none of its dependencies will need to be materialized.
-
         Args:
             output_exprs: list of Exprs to be evaluated
-            input_exprs: list of Exprs that are assigned a slot_idx but aren't evaluated (expected to be input)
+            columns: list of columns to be materialized
+            indices: list of embeddings to be materialized (Tuple[indexed column, embedding function])
         """
-        # all following list are indexed with slot_idx
         self.unique_exprs = UniqueExprList()  # dependencies precede their dependents
         self.next_slot_idx = 0
 
-        # we start by assigning slot_idxs to input exprs
-        for e in input_exprs:
-            self._assign_idxs(e, recursive=False)
-        self.input_expr_slot_idxs = [e.slot_idx for e in input_exprs]
-        for e in output_exprs:
-            self._assign_idxs(e, recursive=True)
+        # record input and output exprs; make copies to avoid reusing execution state
+        unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
+        self.input_expr_slot_idxs = {e.slot_idx for e in unique_input_exprs}
 
-        for i in range(len(self.unique_exprs)):
-            assert self.unique_exprs[i].slot_idx == i
+        # output exprs: all exprs the caller wants to materialize
+        # - explicitly requested output_exprs
+        # - values for computed columns
+        # - embedding values for indices
+        self.output_exprs = [
+            self._record_unique_expr(e.copy().resolve_computed_cols(resolve_unstored_only), recursive=True)
+            for e in output_exprs
+        ]
 
-        # record transitive dependencies
-        self.dependencies: Set[int] = [set() for _ in range(self.num_materialized)]
-        for i in range(self.num_materialized):
-            expr = self.unique_exprs[i]
+        # record columns for create_table_row()
+        self.table_columns: List[ColumnSlotIdx] = []
+        for col in columns:
+            if col.is_computed:
+                assert col.value_expr is not None
+                # create a copy here so we don't reuse execution state and resolve references to computed columns
+                expr = col.value_expr.copy().resolve_computed_cols(unstored_only=resolve_unstored_only)
+                expr = self._record_unique_expr(expr, recursive=True)
+                self.add_table_column(col, expr.slot_idx)
+                self.output_exprs.append(expr)
+            else:
+                # record a ColumnRef so that references to this column resolve to the same slot idx
+                ref = ColumnRef(col)
+                ref = self._record_unique_expr(ref, recursive=False)
+                self.add_table_column(col, ref.slot_idx)
+
+        # record indices; indexed by slot_idx
+        self.index_columns: List[catalog.Column] = []
+        for col, embedding_fn in indices:
+            # we assume that the parameter of the embedding function is a ref to an image column
+            assert col.col_type.is_image_type()
+            # construct expr to compute embedding; explicitly resize images to the required size
+            target_img_type = next(iter(embedding_fn.md.signature.parameters.values()))
+            expr = embedding_fn(ColumnRef(col).resize(target_img_type.size))
+            expr = self._record_unique_expr(expr, recursive=True)
+            self.output_exprs.append(expr)
+            if len(self.index_columns) <= expr.slot_idx:
+                # pad to slot_idx
+                self.index_columns.extend([None] * (expr.slot_idx - len(self.index_columns) + 1))
+            self.index_columns[expr.slot_idx] = col
+
+        # default eval ctx: all output exprs
+        self.default_eval_ctx = self.create_eval_ctx(self.output_exprs, exclude=unique_input_exprs)
+
+        # references to unstored iterator columns:
+        # - those ColumnRefs need to instantiate iterators
+        # - we create and record the iterator args here and pass them to their respective ColumnRefs
+        col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
+        def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
+            tbl = col_ref.col.tbl
+            return tbl.is_component_view() and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
+        unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
+        component_views = [col_ref.col.tbl for col_ref in unstored_iter_col_refs]
+        unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
+        self.unstored_iter_args = \
+            {id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()}
+
+        for col_ref in unstored_iter_col_refs:
+            iter_arg_ctx = self.create_eval_ctx([unstored_iter_args[col_ref.col.tbl.id]])
+            col_ref.set_iter_arg_ctx(iter_arg_ctx)
+
+        # we guarantee that we can compute the expr DAG in a single front-to-back pass
+        for i in range(1, len(self.unique_exprs)):
+            assert self.unique_exprs.exprs[i].slot_idx > self.unique_exprs.exprs[i - 1].slot_idx
+
+        # record transitive dependencies (list of set of slot_idxs, indexed by slot_idx)
+        self.dependencies: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        for expr in self.unique_exprs:
             if expr.slot_idx in self.input_expr_slot_idxs:
                 # this is input and therefore doesn't depend on other exprs
                 continue
-            for d in self.unique_exprs[i].dependencies():
-                self.dependencies[i].add(d.slot_idx)
-                self.dependencies[i].update(self.dependencies[d.slot_idx])
+            for d in expr.dependencies():
+                self.dependencies[expr.slot_idx].add(d.slot_idx)
+                self.dependencies[expr.slot_idx].update(self.dependencies[d.slot_idx])
 
         # derive transitive dependents
-        self.dependents: Set[int] = [set() for _ in range(self.num_materialized)]
-        for i in range(self.num_materialized):
-            for j in self.dependencies[i]:
-                self.dependents[j].add(i)
+        self.dependents: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        for expr in self.unique_exprs:
+            for d in self.dependencies[expr.slot_idx]:
+                self.dependents[d].add(expr.slot_idx)
 
-        # records the Exprs in parameter 'expr_list' that a subexpr belongs to
+        # records the output_expr that a subexpr belongs to
         # (a subexpr can be shared across multiple output exprs)
-        self.output_expr_ids = [set() for _ in range(self.num_materialized)]
-        for e in output_exprs:
+        self.output_expr_ids: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        for e in self.output_exprs:
             self._record_output_expr_id(e, e.slot_idx)
 
+    def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
+        """Record a column that is part of the table row"""
+        self.table_columns.append(ColumnSlotIdx(col, slot_idx))
+
+    def output_slot_idxs(self) -> List[ColumnSlotIdx]:
+        """Return ColumnSlotIdx for output columns"""
+        return self.table_columns
+
+    def index_slot_idxs(self) -> List[ColumnSlotIdx]:
+        """Return ColumnSlotIdx for index columns"""
+        return [
+            ColumnSlotIdx(self.output_columns[i], i) for i in range(len(self.index_columns))
+            if self.output_columns[i] is not None
+        ]
+
+    @property
+    def num_materialized(self) -> int:
+        return self.next_slot_idx
+
+    def get_output_exprs(self) -> List[Expr]:
+        """Returns exprs that were requested in the c'tor and require evaluation"""
+        return self.output_exprs
+
+    def _next_slot_idx(self) -> int:
+        result = self.next_slot_idx
+        self.next_slot_idx += 1
+        return result
+
+    def _record_unique_expr(self, expr: Expr, recursive: bool) -> Expr:
+        """Records the expr if it's not a duplicate and assigns a slot idx to expr and its components"
+        Returns:
+            the unique expr
+        """
+        if expr in self.unique_exprs:
+            # expr is a duplicate: we use the original instead
+            return self.unique_exprs[expr]
+
+        # expr value needs to be computed via Expr.eval()
+        if recursive:
+            for i, c in enumerate(expr.components):
+                # make sure we only refer to components that have themselves been recorded
+                expr.components[i] = self._record_unique_expr(c, True)
+        assert expr.slot_idx < 0
+        expr.slot_idx = self._next_slot_idx()
+        self.unique_exprs.append(expr)
+        return expr
+
+    def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
+        self.output_expr_ids[e.slot_idx].add(output_expr_id)
+        for d in e.dependencies():
+            self._record_output_expr_id(d, output_expr_id)
+
     def _compute_dependencies(self, target_slot_idxs: List[int], excluded_slot_idxs: List[int]) -> List[int]:
-        """Compute exprs needed to materialize the given target slots, but excluding 'excluded_slot_idxs'"""
-        dependencies = [set() for _ in range(self.num_materialized)]
+        """Compute exprs needed to materialize the given target slots, excluding 'excluded_slot_idxs'"""
+        dependencies = [set() for _ in range(self.num_materialized)]  # indexed by slot_idx
         # doing this front-to-back ensures that we capture transitive dependencies
-        for i in range(max(target_slot_idxs) + 1):
-            expr = self.unique_exprs[i]
+        max_target_slot_idx = max(target_slot_idxs)
+        for expr in self.unique_exprs:
+            if expr.slot_idx > max_target_slot_idx:
+                # we're done
+                break
             if expr.slot_idx in excluded_slot_idxs:
                 continue
             if expr.slot_idx in self.input_expr_slot_idxs:
@@ -2104,47 +2370,36 @@ class Evaluator:
             for d in expr.dependencies():
                 if d.slot_idx in excluded_slot_idxs:
                     continue
-                dependencies[i].add(d.slot_idx)
-                dependencies[i].update(dependencies[d.slot_idx])
+                dependencies[expr.slot_idx].add(d.slot_idx)
+                dependencies[expr.slot_idx].update(dependencies[d.slot_idx])
         # merge dependencies and convert to list
         return sorted(set().union(*[dependencies[i] for i in target_slot_idxs]))
 
-    def _assign_idxs(self, expr: Expr, recursive: bool) -> None:
-        if expr in self.unique_exprs:
-            # expr is a duplicate: we copy slot_idx for itself and its components
-            original = self.unique_exprs[expr]
-            expr.slot_idx = original.slot_idx
-            if recursive and expr.slot_idx not in self.input_expr_slot_idxs:
-                for c in expr.components:
-                    self._assign_idxs(c, True)
-            # nothing left to do
-            return
+    def substitute_exprs(self, expr_list: List[Expr], remove_duplicates: bool = True) -> None:
+        """Substitutes exprs with their executable counterparts from unique_exprs and optionally removes duplicates"""
+        i = 0
+        unique_ids: Set[i] = set()  # slot idxs within expr_list
+        while i < len(expr_list):
+            unique_expr = self.unique_exprs[expr_list[i]]
+            if unique_expr.slot_idx in unique_ids and remove_duplicates:
+                del expr_list[i]
+            else:
+                expr_list[i] = unique_expr
+                unique_ids.add(unique_expr.slot_idx)
+                i += 1
 
-        # expr value needs to be computed via Expr.eval()
-        if recursive:
-            for c in expr.components:
-                self._assign_idxs(c, True)
-        assert expr.slot_idx < 0
-        expr.slot_idx = self.next_slot_idx
-        self.next_slot_idx += 1
-        self.unique_exprs.append(expr)
-
-    def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
-        self.output_expr_ids[e.slot_idx].add(output_expr_id)
-        for d in e.dependencies():
-            self._record_output_expr_id(d, output_expr_id)
-
-    @property
-    def num_materialized(self) -> int:
-        return self.next_slot_idx
-
-    def get_eval_ctx(self, targets: List[Expr], exclude: List[Expr] = []) -> List[Expr]:
+    def get_dependencies(self, targets: List[Expr], exclude: List[Expr] = []) -> List[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
-        The exprs given in 'exclude' are also excluded.
+        The exprs given in 'exclude' are excluded.
+        Returns:
+            list of Exprs from unique_exprs (= with slot_idx set)
         """
         if len(targets) == 0:
             return []
+        # make sure we only refer to recorded exprs
+        targets = [self.unique_exprs[e] for e in targets]
+        exclude = [self.unique_exprs[e] for e in exclude]
         target_slot_idxs = [e.slot_idx for e in targets]
         excluded_slot_idxs = [e.slot_idx for e in exclude]
         all_dependencies = set(self._compute_dependencies(target_slot_idxs, excluded_slot_idxs))
@@ -2153,15 +2408,20 @@ class Evaluator:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def get_dependency_exc(self, data_row: DataRow, e: Expr) -> Optional[Exception]:
-        """Return the first exception in our immediate dependencies, or None if our dependencies don't have any"""
-        for d in e.dependencies():
-            if data_row.has_exc(d.slot_idx):
-                return data_row.get_exc(d.slot_idx)
-        return None
+    def create_eval_ctx(self, targets: List[Expr], exclude: List[Expr] = []) -> EvalCtx:
+        """Return EvalCtx for targets"""
+        if len(targets) == 0:
+            return self.EvalCtx([], [], [], [])
+        dependencies = self.get_dependencies(targets, exclude)
+        targets = [self.unique_exprs[e] for e in targets]
+        target_slot_idxs = [e.slot_idx for e in targets]
+        ctx_slot_idxs = [e.slot_idx for e in dependencies]
+        return self.EvalCtx(
+            slot_idxs=ctx_slot_idxs, exprs=[self.unique_exprs[slot_idx] for slot_idx in ctx_slot_idxs],
+            target_slot_idxs=target_slot_idxs, target_exprs=targets)
 
     def eval(
-            self, data_row: DataRow, ctx: List[Expr], profile: Optional[ExecProfile] = None, ignore_errors: bool = False
+            self, data_row: DataRow, ctx: EvalCtx, profile: Optional[ExecProfile] = None, ignore_errors: bool = False
     ) -> None:
         """
         Populates the slots in data_row given in ctx.
@@ -2170,7 +2430,8 @@ class Evaluator:
         profile: if present, populated with execution time of each expr.eval() call; indexed by expr.slot_idx
         ignore_errors: if False, raises ExprEvalError if any expr.eval() raises an exception
         """
-        for expr in ctx:
+        for expr in ctx.exprs:
+            assert expr.slot_idx >= 0
             if data_row.has_val[expr.slot_idx] or data_row.has_exc(expr.slot_idx):
                 continue
             try:
@@ -2190,23 +2451,58 @@ class Evaluator:
                     raise ExprEvalError(
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0)
 
+    def create_table_row(self, data_row: DataRow, exc_col_ids: Set[int]) -> Tuple[Dict[str, Any], int]:
+        """Create a table row from the slots that have an output column assigned"""
+        """Return Tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
+            This excludes system columns.
+        """
+        num_excs = 0
+        table_row: Dict[str, Any] = {}
+        for info in self.table_columns:
+            col, slot_idx = info.col, info.slot_idx
+            if data_row.has_exc(slot_idx):
+                # exceptions get stored in the errortype/-msg columns
+                exc = data_row.get_exc(slot_idx)
+                num_excs += 1
+                exc_col_ids.add(col.id)
+                table_row[col.storage_name()] = None
+                table_row[col.errortype_storage_name()] = type(exc).__name__
+                table_row[col.errormsg_storage_name()] = str(exc)
+            else:
+                val = data_row.get_stored_val(slot_idx)
+                table_row[col.storage_name()] = val
+                # we unfortunately need to set these, even if there are no errors
+                table_row[col.errortype_storage_name()] = None
+                table_row[col.errormsg_storage_name()] = None
+
+        for slot_idx, col in enumerate(self.index_columns):
+            if col is None:
+                continue
+            # don't use get_stored_val() here, we need to pass in the ndarray
+            val = data_row[slot_idx]
+            table_row[col.index_storage_name()] = val
+
+        return table_row, num_excs
+
 
 class UniqueExprList:
     """
     A List[Expr] which ignores duplicates and which supports [] access by Expr.equals().
     We can't use set() because Expr doesn't have a __hash__() and Expr.__eq__() has been repurposed.
+
+    TODO: now that we have Expr.id, replace with UniqueExprs, implemented as a Dict[Expr.id, Expr]
     """
     def __init__(self, elements: Optional[Iterable[Expr]] = None):
-        self.unique_exprs: List[Expr] = []
+        self.exprs: List[Expr] = []
         if elements is not None:
             for e in elements:
                 self.append(e)
 
     def append(self, expr: Expr) -> None:
         try:
-            _ = next(e for e in self.unique_exprs if e.equals(expr))
+            _ = next(e for e in self.exprs if e.equals(expr))
         except StopIteration:
-            self.unique_exprs.append(expr)
+            self.exprs.append(expr)
 
     def extend(self, elements: Iterable[Expr]) -> None:
         for e in elements:
@@ -2215,30 +2511,31 @@ class UniqueExprList:
     def __contains__(self, item: Expr) -> bool:
         assert isinstance(item, Expr)
         try:
-            _ = next(e for e in self.unique_exprs if e.equals(item))
+            _ = next(e for e in self.exprs if e.equals(item))
             return True
         except StopIteration:
             return False
 
     def contains(self, cls: Type[Expr]) -> bool:
         try:
-            _ = next(e for e in self.unique_exprs if isinstance(e, cls))
+            _ = next(e for e in self.exprs if isinstance(e, cls))
             return True
         except StopIteration:
             return False
 
     def __len__(self) -> int:
-        return len(self.unique_exprs)
+        return len(self.exprs)
 
     def __iter__(self) -> Iterator[Expr]:
-        return iter(self.unique_exprs)
+        return iter(self.exprs)
 
     def __getitem__(self, index: object) -> Optional[Expr]:
         assert isinstance(index, int) or isinstance(index, Expr)
         if isinstance(index, int):
-            return self.unique_exprs[index]
+            # return expr with matching slot_idx
+            return [e for e in self.exprs if e.slot_idx == index][0]
         else:
             try:
-                return next(e for e in self.unique_exprs if e.equals(index))
+                return next(e for e in self.exprs if e.equals(index))
             except StopIteration:
                 return None

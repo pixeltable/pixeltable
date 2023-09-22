@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Type, Any
 import pandas as pd
 import logging
 import dataclasses
@@ -8,13 +8,14 @@ import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
 from pixeltable.catalog import \
-    TableVersion, SchemaObject, MutableTable, TableSnapshot, View, Table, TableBase, Dir, Column, NamedFunction, Path,\
-    PathDict, init_catalog
+    TableVersion, SchemaObject, InsertableTable, TableSnapshot, View, MutableTable, Table, Dir, Column, NamedFunction,\
+    Path, PathDict, init_catalog
 from pixeltable.metadata import schema
 from pixeltable.env import Env
 from pixeltable.function import FunctionRegistry, Function
 from pixeltable import exceptions as exc
 from pixeltable.exprs import Predicate
+from pixeltable.iterators import ComponentIterator
 
 __all__ = [
     'Client',
@@ -59,7 +60,7 @@ class Client:
                 schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
                 instance = TableVersion(tbl_record.id, None, tbl_md, tbl_md.current_version, schema_version_md)
                 self.tbl_versions[(tbl_record.id, None)] = instance
-                tbl = MutableTable(tbl_record.dir_id, instance)
+                tbl = InsertableTable(tbl_record.dir_id, instance)
                 self.paths.add_schema_obj(tbl.dir_id, instance.name, tbl)
 
             # load bases for views over snapshots;
@@ -224,19 +225,13 @@ class Client:
 
     def create_table(
             self, path_str: str, schema: List[Column], num_retained_versions: int = 10,
-            extract_frames_from: Optional[str] = None, extracted_frame_col: Optional[str] = None,
-            extracted_frame_idx_col: Optional[str] = None, extracted_fps: Optional[int] = None,
-    ) -> MutableTable:
-        """Create a new :py:class:`MutableTable`.
+    ) -> InsertableTable:
+        """Create a new :py:class:`InsertableTable`.
 
         Args:
             path_str: Path to the table.
             schema: List of Columns in the table.
             num_retained_versions: Number of versions of the table to retain.
-            extract_frames_from: Name of the video column from which to extract frames.
-            extracted_frame_col: Name of the image column in which to store the extracted frames.
-            extracted_frame_idx_col: Name of the int column in which to store the frame indices.
-            extracted_fps: Frame rate at which to extract frames. 0: extract all frames.
 
         Returns:
             The newly created table.
@@ -248,32 +243,12 @@ class Client:
             Create a table with an int and a string column:
 
             >>> table = cl.create_table('my_table', schema=[Column('col1', IntType()), Column('col2', StringType())])
-
-            Create a table to store videos with automatic frame extraction. This requires a minimum of 3 columns:
-            a video column, an image column to store the extracted frames, and an int column to store the frame
-            indices.
-
-            >>> table = cl.create_table('my_table',
-            ... schema=[Column('video', VideoType()), Column('frame', ImageType()), Column('frame_idx', IntType())],
-            ... extract_frames_from='video', extracted_frame_col='frame', extracted_frame_idx_col='frame_idx',
-            ... extracted_fps=1)
         """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None)
         dir = self.paths[path.parent]
 
-        # make sure frame extraction params are either fully present or absent
-        frame_extraction_param_count = int(extract_frames_from is not None) + int(extracted_frame_col is not None) \
-                                       + int(extracted_frame_idx_col is not None) + int(extracted_fps is not None)
-        if frame_extraction_param_count != 0 and frame_extraction_param_count != 4:
-            raise exc.Error(
-                'Frame extraction requires that all parameters (extract_frames_from, extracted_frame_col, '
-                'extracted_frame_idx_col, extracted_fps) be specified')
-        if extracted_fps is not None and extracted_fps < 0:
-            raise exc.Error('extracted_fps must be >= 0')
-        tbl = MutableTable.create(
-            dir.id, path.name, schema, num_retained_versions, extract_frames_from, extracted_frame_col,
-            extracted_frame_idx_col, extracted_fps)
+        tbl = InsertableTable.create(dir.id, path.name, schema, num_retained_versions)
         self.tbl_versions[(tbl.id, None)] = tbl.tbl_version
         self.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
@@ -294,14 +269,15 @@ class Client:
             snapshot_path_obj = Path(snapshot_path)
             self.paths.check_is_valid(snapshot_path_obj, expected=None)
             tbl_path_obj = Path(tbl_path)
-            self.paths.check_is_valid(tbl_path_obj, expected=Table)
+            #self.paths.check_is_valid(tbl_path_obj, expected=MutableTable)
+            self.paths.check_is_valid(tbl_path_obj, expected=InsertableTable)
         except Exception as e:
             if ignore_errors:
                 return
             else:
                 raise e
         tbl = self.paths[tbl_path_obj]
-        assert isinstance(tbl, Table)
+        assert isinstance(tbl, MutableTable)
         # tbl.tbl_version is the live/mutable version of the table, but we need a snapshot of it
         tbl_version = tbl.tbl_version
         if (tbl_version.id, tbl_version.version) not in self.tbl_versions:
@@ -315,8 +291,10 @@ class Client:
         return snapshot
 
     def create_view(
-            self, path_str: str, base: TableBase, schema: List[Column] = [], filter: Optional[Predicate] = None,
+            self, path_str: str, base: Table, schema: List[Column] = [], filter: Optional[Predicate] = None,
+            iterator_class: Optional[Type[ComponentIterator]] = None, iterator_args: Optional[Dict[str, Any]] = None,
             num_retained_versions: int = 10, ignore_errors: bool = False) -> View:
+        assert (iterator_class is None) == (iterator_args is None)
         path = Path(path_str)
         try:
             self.paths.check_is_valid(path, expected=None)
@@ -327,20 +305,22 @@ class Client:
                 raise e
         dir = self.paths[path.parent]
 
-        view = View.create(dir.id, path.name, base.tbl_version, schema, filter, num_retained_versions)
+        view = View.create(
+            dir.id, path.name, base.tbl_version, schema, predicate=filter, iterator_cls=iterator_class,
+            iterator_args=iterator_args, num_retained_versions=num_retained_versions)
         self.tbl_versions[(view.id, None)] = view.tbl_version
         self.paths[path] = view
         _logger.info(f'Created view {path_str}')
         return view
 
-    def get_table(self, path: str) -> TableBase:
+    def get_table(self, path: str) -> Table:
         """Get a handle to a table (including views and snapshots).
 
         Args:
             path: Path to the table.
 
         Returns:
-            A :py:class:`MutableTable` or :py:class:`View` or :py:class:`TableSnapshot` object.
+            A :py:class:`InsertableTable` or :py:class:`View` or :py:class:`TableSnapshot` object.
 
         Raises:
             Error: If the path does not exist or does not designate a table.
@@ -359,7 +339,7 @@ class Client:
             >>> table = cl.get_table('my_snapshot')
         """
         p = Path(path)
-        self.paths.check_is_valid(p, expected=TableBase)
+        self.paths.check_is_valid(p, expected=Table)
         obj = self.paths[p]
         return obj
 
@@ -417,7 +397,7 @@ class Client:
         assert dir_path is not None
         path = Path(dir_path, empty_is_valid=True)
         self.paths.check_is_valid(path, expected=Dir)
-        return [str(p) for p in self.paths.get_children(path, child_type=TableBase, recursive=recursive)]
+        return [str(p) for p in self.paths.get_children(path, child_type=Table, recursive=recursive)]
 
     def drop_table(self, path: str, force: bool = False, ignore_errors: bool = False) -> None:
         """Drop a table.
@@ -435,7 +415,7 @@ class Client:
         """
         path_obj = Path(path)
         try:
-            self.paths.check_is_valid(path_obj, expected=TableBase)
+            self.paths.check_is_valid(path_obj, expected=Table)
         except Exception as e:
             if ignore_errors:
                 return
@@ -507,7 +487,7 @@ class Client:
             raise exc.Error(f'Directory {path_str} is not empty')
         # TODO: figure out how to make force=True work in the presence of snapshots
         #        # delete tables
-        #        for tbl_path in self.paths.get_children(path, child_type=Table, recursive=True):
+        #        for tbl_path in self.paths.get_children(path, child_type=MutableTable, recursive=True):
         #            self.drop_table(str(tbl_path), force=True)
         #        # rm subdirs
         #        for dir_path in self.paths.get_children(path, child_type=Dir, recursive=False):
@@ -656,7 +636,7 @@ class Client:
             # delete all data tables
             # TODO: also deleted generated images
             tbl_paths = [
-                p for p in self.paths.get_children(Path('', empty_is_valid=True), MutableTable, recursive=True)
+                p for p in self.paths.get_children(Path('', empty_is_valid=True), InsertableTable, recursive=True)
             ]
             for tbl_path in tbl_paths:
                 tbl = self.paths[tbl_path]

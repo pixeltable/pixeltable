@@ -18,6 +18,7 @@ from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, 
 from pixeltable.functions import make_video, sum
 from pixeltable.utils.imgstore import ImageStore
 from pixeltable.utils.filecache import FileCache
+from pixeltable.iterators import FrameIterator
 
 
 class TestTable:
@@ -75,7 +76,7 @@ class TestTable:
         cl = pt.Client()
 
         tbl = cl.get_table('test')
-        assert isinstance(tbl, catalog.MutableTable)
+        assert isinstance(tbl, catalog.InsertableTable)
         tbl.add_column(catalog.Column('c5', IntType()))
         tbl.drop_column('c1')
         tbl.rename_column('c2', 'c17')
@@ -212,22 +213,14 @@ class TestTable:
 
     def test_create_video_table(self, test_client: pt.Client) -> None:
         cl = test_client
-        cols = [
-            catalog.Column('payload', IntType(nullable=False)),
-            catalog.Column('video', VideoType(nullable=False)),
-            catalog.Column('frame', ImageType(nullable=False)),
-            catalog.Column('frame_idx', IntType(nullable=False)),
-        ]
-        tbl = cl.create_table(
-            'test', cols, extract_frames_from='video', extracted_frame_col='frame',
-            extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        # create_table() didn't mess with our 'cols' variable
-        assert cols[1].stored == None
-        tbl.add_column(catalog.Column('c1', computed_with=tbl.frame.rotate(30), stored=True))
-        tbl.add_column(catalog.Column('c2', computed_with=tbl.c1.rotate(40), stored=False))
-        tbl.add_column(catalog.Column('c3', computed_with=tbl.c2.rotate(50), stored=True))
+        tbl = cl.create_table('test_tbl', [catalog.Column('payload', IntType(nullable=False)), catalog.Column('video', VideoType(nullable=False))])
+        args = {'video': tbl.video, 'fps': 0}
+        view = cl.create_view('test_view', tbl, iterator_class=FrameIterator, iterator_args=args)
+        view.add_column(catalog.Column('c1', computed_with=view.frame.rotate(30), stored=True))
+        view.add_column(catalog.Column('c2', computed_with=view.c1.rotate(40), stored=False))
+        view.add_column(catalog.Column('c3', computed_with=view.c2.rotate(50), stored=True))
         # a non-materialized column that refers to another non-materialized column
-        tbl.add_column(catalog.Column('c4', computed_with=tbl.c2.rotate(60), stored=False))
+        view.add_column(catalog.Column('c4', computed_with=view.c2.rotate(60), stored=False))
 
         class WindowFnAggregator:
             def __init__(self):
@@ -246,95 +239,45 @@ class TestTable:
             value_fn=WindowFnAggregator.value,
             requires_order_by=True, allows_window=True)
         # cols computed with window functions are stored by default
-        tbl.add_column((catalog.Column('c5', computed_with=window_fn(tbl.frame_idx, group_by=tbl.video))))
-        assert tbl.cols_by_name['c5'].is_stored
+        view.add_column((catalog.Column('c5', computed_with=window_fn(view.frame_idx, group_by=view.video))))
+        assert view.cols_by_name['c5'].is_stored
 
-        # cannot store frame col
-        with pytest.raises(exc.Error):
-            cols = [
-                catalog.Column('video', VideoType(nullable=False)),
-                catalog.Column('frame', ImageType(nullable=False), stored=True),
-                catalog.Column('frame_idx', IntType(nullable=False)),
-            ]
-            _ = cl.create_table(
-                'test', cols, extract_frames_from='video', extracted_frame_col='frame',
-                extracted_frame_idx_col='frame_idx', extracted_fps=0)
-
-        params = tbl.parameters
+        params = view.parameters
         # reload to make sure that metadata gets restored correctly
         cl = pt.Client()
-        tbl = cl.get_table('test')
-        assert tbl.parameters == params
+        tbl = cl.get_table('test_tbl')
+        view = cl.get_table('test_view')
+        assert view.parameters == params
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         status = tbl.insert([[1, url]], columns=['payload', 'video'])
         assert status.num_excs == 0
-        _ = tbl.count()
-        assert ImageStore.count(tbl.id) == tbl.count() * 2
+        # * 2: we have 2 stored img cols
+        assert ImageStore.count(view.id) == view.count() * 2
         # also insert a local file
         tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
-        # * 2: we have 2 stored img cols
-        _ = tbl.count()
-        assert ImageStore.count(tbl.id) == tbl.count() * 2
+        assert ImageStore.count(view.id) == view.count() * 2
 
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        assert ImageStore.count(tbl.id) == 0
+        assert ImageStore.count(view.id) == 0
 
         with pytest.raises(exc.Error):
             # can't drop frame col
-            tbl.drop_column('frame')
+            view.drop_column('frame')
         with pytest.raises(exc.Error):
             # can't drop frame_idx col
-            tbl.drop_column('frame_idx')
+            view.drop_column('frame_idx')
 
         # drop() clears stored images and the cache
         tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
-        _ = tbl.show()
+        with pytest.raises(exc.Error) as exc_info:
+            tbl.drop()
+        assert '1 view' in str(exc_info.value)
+        view.drop()
         tbl.drop()
-        assert ImageStore.count(tbl.id) == 0
-
-        # missing parameters
-        with pytest.raises(exc.Error):
-            _ = cl.create_table(
-                'exc', cols, extract_frames_from='video',
-                extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        # invalid fps
-        with pytest.raises(exc.Error):
-            _ = cl.create_table(
-                'test', cols, extract_frames_from='video', extracted_frame_col='frame',
-                extracted_frame_idx_col='frame_idx', extracted_fps=-1)
-        # wrong column type
-        with pytest.raises(exc.Error):
-            _ = cl.create_table(
-                'exc', cols, extract_frames_from='frame', extracted_frame_col='frame',
-                extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        # wrong column type
-        with pytest.raises(exc.Error):
-            _ = cl.create_table(
-                'exc', cols, extract_frames_from='video', extracted_frame_col='frame_idx',
-                extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        # wrong column type
-        with pytest.raises(exc.Error):
-            _ = cl.create_table(
-                'exc', cols, extract_frames_from='video', extracted_frame_col='frame',
-                extracted_frame_idx_col='frame', extracted_fps=0)
-        # unknown column
-        with pytest.raises(exc.Error):
-            _ = cl.create_table(
-                'exc', cols, extract_frames_from='breaks', extracted_frame_col='frame',
-                extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        # unknown column
-        with pytest.raises(exc.Error):
-            _ = cl.create_table(
-                'exc', cols, extract_frames_from='video', extracted_frame_col='breaks',
-                extracted_frame_idx_col='frame_idx', extracted_fps=0)
-        # unknown column
-        with pytest.raises(exc.Error):
-            _ = cl.create_table(
-                'exc', cols, extract_frames_from='video', extracted_frame_col='frame',
-                extracted_frame_idx_col='breaks', extracted_fps=0)
+        assert ImageStore.count(view.id) == 0
 
     def test_insert(self, test_client: pt.Client) -> None:
         cl = test_client
@@ -349,8 +292,9 @@ class TestTable:
         cols = [c1, c2, c3, c4, c5, c6, c7, c8]
         t = cl.create_table('test1', cols)
         rows = create_table_data(t)
-        t.insert(rows)
-        assert t.count() == len(rows)
+        status = t.insert(rows)
+        assert status.num_rows == len(rows)
+        assert status.num_excs == 0
 
         # empty input
         with pytest.raises(exc.Error) as exc_info:
@@ -363,7 +307,7 @@ class TestTable:
         assert 'Missing' in str(exc_info.value)
 
         # incompatible schema
-        for col, row_pos in zip(cols, [1, 2, 3, 4, 5, 6, 1, 1]):
+        for col, row_pos in zip(cols, [1, 2, 4, 4, 5, 6, 1, 1]):
             with pytest.raises(exc.Error) as exc_info:
                 cl.drop_table('test1', ignore_errors=True)
                 t = cl.create_table('test1', [col])
@@ -411,7 +355,7 @@ class TestTable:
         t2 = cl.get_table('test')
         _  = t2.show(n=0)
 
-    def test_update(self, test_tbl: pt.Table, indexed_img_tbl: pt.Table) -> None:
+    def test_update(self, test_tbl: pt.MutableTable, indexed_img_tbl: pt.MutableTable) -> None:
         t = test_tbl
         # update every type with a literal
         test_cases = [
@@ -422,20 +366,23 @@ class TestTable:
             ('c5', datetime.datetime.now()),
             ('c6', [{'x': 1, 'y': 2}]),
         ]
+        count = t.count()
         for col_name, literal in test_cases:
             status = t.update({col_name: literal}, where=t.c3 < 10.0, cascade=False)
             assert status.num_rows == 10
-            assert status.updated_cols == [col_name]
+            assert status.updated_cols == [f'{t.name}.{col_name}']
+            assert t.count() == count
             t.revert()
 
         # exchange two columns
         t.add_column(catalog.Column('float_col', FloatType()))
         t.update({'float_col': 1.0})
-        # TODO: verify result
-        _ = t[t.c3, t.float_col].show(10)
+        float_col_vals = t.select(t.float_col).collect().to_pandas()['float_col']
+        c3_vals = t.select(t.c3).collect().to_pandas()['c3']
+        assert np.all(float_col_vals == pd.Series([1.0] * t.count()))
         t.update({'c3': t.float_col, 'float_col': t.c3})
-        # TODO: verify result
-        _ = t.show(10)
+        assert np.all(t.select(t.c3).collect().to_pandas()['c3'] == float_col_vals)
+        assert np.all(t.select(t.float_col).collect().to_pandas()['float_col'] == c3_vals)
         t.revert()
 
         # update column that is used in computed cols
@@ -452,9 +399,10 @@ class TestTable:
         # update to a value that also satisfies the where clause
         status = t.update({'c3': 0.0}, where=t.c3 < 10.0, cascade=False)
         assert status.num_rows == 10
-        assert status.updated_cols == ['c3']
+        assert status.updated_cols == ['test_tbl.c3']
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 0.0).count() == 10
+        # computed cols are not updated
         assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'] == computed1)
         assert np.all(t.order_by(t.computed2).show(0).to_pandas()['computed2'] == computed2)
         assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'] == computed3)
@@ -469,7 +417,8 @@ class TestTable:
         # cascade=True
         status = t.update({'c3': 0.0}, where=t.c3 < 10.0, cascade=True)
         assert status.num_rows == 10
-        assert status.updated_cols == ['c3']
+        assert set(status.updated_cols) == \
+               set(['test_tbl.c3', 'test_tbl.computed1', 'test_tbl.computed2', 'test_tbl.computed3'])
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 0.0).count() == 10
         assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'][:10] == pd.Series([1.0] * 10))
@@ -528,7 +477,7 @@ class TestTable:
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
-    def test_cascading_update(self, test_tbl: pt.MutableTable) -> None:
+    def test_cascading_update(self, test_tbl: pt.InsertableTable) -> None:
         t = test_tbl
         t.add_column(catalog.Column('d1', computed_with=t.c3 - 1))
         # add column that can be updated
@@ -541,7 +490,7 @@ class TestTable:
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).show(0)
         assert_resultset_eq(r1, r2)
 
-    def test_delete(self, test_tbl: pt.Table, indexed_img_tbl: pt.Table) -> None:
+    def test_delete(self, test_tbl: pt.MutableTable, indexed_img_tbl: pt.MutableTable) -> None:
         t = test_tbl
 
         cnt = t.where(t.c3 < 10.0).count()
@@ -644,7 +593,7 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
-    def test_computed_col_exceptions(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
+    def test_computed_col_exceptions(self, test_client: pt.Client, test_tbl: catalog.MutableTable) -> None:
         cl = test_client
 
         # exception during insert()
@@ -655,7 +604,7 @@ class TestTable:
         _ = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
         status = t.insert(rows, columns=['c2'])
         assert status.num_excs == 10
-        assert 'add1' in status.cols_with_excs
+        assert 'test_insert.add1' in status.cols_with_excs
         assert t[t.add1.errortype != None].count() == 10
 
         # exception during add_column()
@@ -665,12 +614,13 @@ class TestTable:
         assert status.num_excs == 0
         status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
         assert status.num_excs == 10
-        assert 'add1' in status.cols_with_excs
+        assert 'test_add_column.add1' in status.cols_with_excs
         assert t[t.add1.errortype != None].count() == 10
 
-    def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
+    def _test_computed_img_cols(self, t: catalog.MutableTable, stores_img_col: bool) -> None:
         rows, _ = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-        t.insert([[r[0]] for r in rows[:20]], columns=['img'])
+        status = t.insert([[r[0]] for r in rows[:20]], columns=['img'])
+        assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
         assert ImageStore.count(t.id) == t.count() * stores_img_col
@@ -720,7 +670,7 @@ class TestTable:
         t.insert([[r[0]] for r in rows[:20]], columns=['img'])
         _ = t[t.c3.errortype].show(0)
 
-    def test_computed_window_fn(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
+    def test_computed_window_fn(self, test_client: pt.Client, test_tbl: catalog.MutableTable) -> None:
         cl = test_client
         t = test_tbl
         # backfill
@@ -782,7 +732,7 @@ class TestTable:
         with pytest.raises(exc.Error):
             tbl.revert()
 
-    def test_add_column(self, test_tbl: catalog.Table) -> None:
+    def test_add_column(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.add_column(catalog.Column('add1', pt.IntType(nullable=False)))
@@ -809,7 +759,7 @@ class TestTable:
         t = cl.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
-    def test_drop_column(self, test_tbl: catalog.Table) -> None:
+    def test_drop_column(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.drop_column('c1')
@@ -832,7 +782,7 @@ class TestTable:
         t = cl.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
-    def test_rename_column(self, test_tbl: catalog.Table) -> None:
+    def test_rename_column(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.rename_column('c1', 'c1_renamed')
@@ -865,7 +815,7 @@ class TestTable:
         assert 'c1' in t.cols_by_name
         assert 'c1_renamed' not in t.cols_by_name
 
-    def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
+    def test_add_computed_column(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
         status = t.add_column(catalog.Column('add1', computed_with=t.c2 + 10))
         assert status.num_excs == 0
@@ -887,7 +837,7 @@ class TestTable:
         result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()
         assert len(result) == 10
 
-    def test_describe(self, test_tbl: catalog.Table) -> None:
+    def test_describe(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
         fn = lambda c2: np.full((3, 4), c2)
         t.add_column(

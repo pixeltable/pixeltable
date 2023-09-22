@@ -33,12 +33,12 @@ def init_env(tmp_path_factory) -> None:
 @pytest.fixture(scope='function')
 def test_client(init_env) -> pt.Client:
     cl = pt.Client()
-    cl.logging(level=logging.DEBUG)
+    cl.logging(level=logging.DEBUG, to_stdout=True)
     yield cl
     cl.reset_catalog()
 
 @pytest.fixture(scope='function')
-def test_tbl(test_client: pt.Client) -> catalog.Table:
+def test_tbl(test_client: pt.Client) -> catalog.MutableTable:
     return create_test_tbl(test_client)
 
 @pytest.fixture(scope='function')
@@ -50,7 +50,7 @@ def test_stored_fn(test_client: pt.Client) -> pt.Function:
     return test_fn
 
 @pytest.fixture(scope='function')
-def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List[exprs.Expr]:
+def test_tbl_exprs(test_tbl: catalog.MutableTable, test_stored_fn: pt.Function) -> List[exprs.Expr]:
     t = test_tbl
     return [
         t.c1,
@@ -76,11 +76,11 @@ def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List
     ]
 
 @pytest.fixture(scope='function')
-def all_datatype_tbl(test_client: pt.Client) -> catalog.Table:
+def all_datatypes_tbl(test_client: pt.Client) -> catalog.MutableTable:
     return create_all_datatype_tbl(test_client)
 
 @pytest.fixture(scope='function')
-def img_tbl(test_client: pt.Client) -> catalog.Table:
+def img_tbl(test_client: pt.Client) -> catalog.MutableTable:
     cols = [
         catalog.Column('img', ImageType(nullable=False), indexed=False),
         catalog.Column('category', StringType(nullable=False)),
@@ -93,7 +93,7 @@ def img_tbl(test_client: pt.Client) -> catalog.Table:
     return tbl
 
 @pytest.fixture(scope='function')
-def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
+def img_tbl_exprs(img_tbl: catalog.MutableTable) -> List[exprs.Expr]:
     img_t = img_tbl
     return [
         img_t.img.width,
@@ -106,11 +106,11 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
 
 # TODO: why does this not work with a session scope? (some user tables don't get created with create_all())
 #@pytest.fixture(scope='session')
-#def indexed_img_tbl(init_env: None) -> catalog.Table:
+#def indexed_img_tbl(init_env: None) -> catalog.MutableTable:
 #    cl = pt.Client()
 #    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')
-def indexed_img_tbl(test_client: pt.Client) -> catalog.Table:
+def indexed_img_tbl(test_client: pt.Client) -> catalog.MutableTable:
     cl = test_client
     cols = [
         catalog.Column('img', ImageType(nullable=False), indexed=True),

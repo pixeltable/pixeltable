@@ -1,6 +1,6 @@
 from .client import Client
 from .dataframe import DataFrame
-from .catalog import Column, MutableTable, TableSnapshot, Table, View
+from .catalog import Column, InsertableTable, TableSnapshot, MutableTable, View
 from .exceptions import Error, Error
 from .type_system import \
     ColumnType, StringType, IntType, FloatType, BoolType,  TimestampType, JsonType, ArrayType, ImageType, VideoType
@@ -17,8 +17,8 @@ __all__ = [
     'Client',
     'DataFrame',
     'Column',
+    'InsertableTable',
     'MutableTable',
-    'Table',
     'TableSnapshot',
     'View',
     'Error',

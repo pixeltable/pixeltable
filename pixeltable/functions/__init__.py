@@ -20,7 +20,7 @@ import av.container
 import av.stream
 
 
-# def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.Table]) -> exprs.FunctionCall:
+# def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.MutableTable]) -> exprs.FunctionCall:
 #     """
 #     Interprets eval_fn's parameters to be references to columns in 'tbl' and construct ColumnRefs as args.
 #     """

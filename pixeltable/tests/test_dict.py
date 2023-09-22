@@ -5,7 +5,7 @@ from pixeltable import catalog
 from pixeltable.env import Env
 
 class TestExprs:
-    def test_basic(self, test_tbl: catalog.Table) -> None:
+    def test_basic(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
         res = t[t.c6].show()
         stmt = sql.select(sql.func.jsonb_path_query(t.cols_by_name['c6'].sa_col, '$.detections[*].bounding_box'))

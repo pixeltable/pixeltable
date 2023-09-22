@@ -55,7 +55,7 @@ class TestFunction:
             library_fn = Function.make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
             cl.create_function('library_fn', library_fn)
 
-    def test_update(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
+    def test_update(self, test_client: pt.Client, test_tbl: catalog.MutableTable) -> None:
         cl = test_client
         t = test_tbl
         cl.create_function('test_fn', self.func)
@@ -135,7 +135,7 @@ class TestFunction:
         _ = FunctionRegistry.get().list_functions()
         print(_)
 
-    def test_call(self, test_tbl: catalog.Table) -> None:
+    def test_call(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
 
         @pt.function(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])

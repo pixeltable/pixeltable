@@ -10,102 +10,117 @@ from tqdm.autonotebook import tqdm
 from pixeltable import catalog
 from pixeltable.metadata import schema
 from pixeltable.type_system import StringType
-from pixeltable.exec import ExecNode, DataRowBatch, ColumnInfo
+from pixeltable.exec import ExecNode
 from pixeltable import exprs
+from pixeltable.exprs import ColumnSlotIdx
+from pixeltable.utils.sql import log_stmt
 
 
 _logger = logging.getLogger('pixeltable')
 
 
 class StoreBase:
-    """Base class for stored tables"""
+    """Base class for stored tables
+
+    Each row has the following system columns:
+    - rowid columns: one or more columns that identify a user-visible row across all versions
+    - v_min: version at which the row was created
+    - v_max: version at which the row was deleted (or MAX_VERSION if it's still live)
+    """
+
     def __init__(self, tbl_version: catalog.TableVersion):
         self.tbl_version = tbl_version
         self.sa_md = sql.MetaData()
         self.sa_tbl: Optional[sql.Table] = None
         self._create_sa_tbl()
 
-    @abc.abstractmethod
     def pk_columns(self) -> List[sql.Column]:
-        """Return primary key columns"""
+        return self._pk_columns
+
+    def rowid_columns(self) -> List[sql.Column]:
+        return self._pk_columns[:-1]
+
+    @abc.abstractmethod
+    def _create_rowid_columns(self) -> List[sql.Column]:
+        """Create and return rowid columns"""
         pass
 
     @abc.abstractmethod
     def _create_system_columns(self) -> List[sql.Column]:
         """Create and return system columns"""
-        pass
+        rowid_cols = self._create_rowid_columns()
+        self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
+        self.v_max_col = \
+            sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION))
+        self._pk_columns = [*rowid_cols, self.v_min_col]
+        return [*rowid_cols, self.v_min_col, self.v_max_col]
+
 
     def _create_sa_tbl(self) -> None:
         """Create self.sa_tbl from self.tbl_version."""
-        store_cols = self._create_system_columns()
+        system_cols = self._create_system_columns()
+        all_cols = system_cols.copy()
+        idxs: List[sql.Index] = []
         for col in [c for c in self.tbl_version.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
-            # to the last sql.Table version we created and cannot be reused
+            # to the last sql.MutableTable version we created and cannot be reused
             col.create_sa_cols()
-            store_cols.append(col.sa_col)
+            all_cols.append(col.sa_col)
             if col.is_computed:
-                store_cols.append(col.sa_errormsg_col)
-                store_cols.append(col.sa_errortype_col)
+                all_cols.append(col.sa_errormsg_col)
+                all_cols.append(col.sa_errortype_col)
             if col.is_indexed:
-                store_cols.append(col.sa_idx_col)
+                all_cols.append(col.sa_idx_col)
+
+            # we create an index for:
+            # - scalar columns
+            # - non-computed video and image columns (they will contain external paths/urls that users might want to
+            #   filter on)
+            if col.col_type.is_scalar_type() \
+                    or (col.col_type.is_video_type() or col.col_type.is_image_type()) and not col.is_computed:
+                idx_name = f'idx_{col.id}_{self.tbl_version.id.hex}'
+                idxs.append(sql.Index(idx_name, col.sa_col))
 
         if self.sa_tbl is not None:
             # if we're called in response to a schema change, we need to remove the old table first
             self.sa_md.remove(self.sa_tbl)
-        self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *store_cols)
+
+        # index for all system columns:
+        # - base x view joins can be executed as merge joins
+        # - speeds up ORDER BY rowid DESC
+        # - allows filtering for a particular table version in index scan
+        idx_name = f'sys_cols_idx_{self.tbl_version.id.hex}'
+        idxs.append(sql.Index(idx_name, *system_cols))
+        # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
+        idx_name = f'vmin_idx_{self.tbl_version.id.hex}'
+        idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using='brin'))
+        idx_name = f'vmax_idx_{self.tbl_version.id.hex}'
+        idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using='brin'))
+
+        self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
 
     @abc.abstractmethod
     def _storage_name(self) -> str:
         """Return the name of the data store table"""
         pass
 
-    def _create_row(
-            self, input_row: exprs.DataRow, schema_col_info: List[ColumnInfo], idx_col_info: List[ColumnInfo],
-            exc_col_ids: Set[int]
+    def _create_table_row(
+            self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, exc_col_ids: Set[int],
+            v_min: Optional[int] = None
     ) -> Tuple[Dict[str, Any], int]:
-        """Return Tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
-            This excludes system columns.
+        """Return Tuple[complete table row, # of exceptions] for insert()
+        Creates a row that includes the PK columns, with the values from input_row.pk.
+        Returns:
+            Tuple[complete table row, # of exceptions]
         """
-        num_excs = 0
-        table_row: Dict[str, Any] = {}
-        for info in schema_col_info:
-            if input_row.has_exc(info.slot_idx):
-                # exceptions get stored in the errortype/-msg columns
-                exc = input_row.get_exc(info.slot_idx)
-                num_excs += 1
-                exc_col_ids.add(info.col.id)
-                table_row[info.col.storage_name()] = None
-                table_row[info.col.errortype_storage_name()] = type(exc).__name__
-                table_row[info.col.errormsg_storage_name()] = str(exc)
+        table_row, num_excs = row_builder.create_table_row(input_row, exc_col_ids)
+        assert input_row.pk is not None and len(input_row.pk) == len(self._pk_columns)
+        for pk_col, pk_val in zip(self._pk_columns, input_row.pk):
+            if pk_col == self.v_min_col and v_min is not None:
+                table_row[pk_col.name] = v_min
             else:
-                val = input_row.get_stored_val(info.slot_idx)
-                table_row[info.col.storage_name()] = val
-                # we unfortunately need to set these, even if there are no errors
-                table_row[info.col.errortype_storage_name()] = None
-                table_row[info.col.errormsg_storage_name()] = None
-
-        for info in idx_col_info:
-            # don't use get_stored_val() here, we need to pass in the ndarray
-            val = input_row[info.slot_idx]
-            table_row[info.col.index_storage_name()] = val
-
+                table_row[pk_col.name] = pk_val
         return table_row, num_excs
-
-    @abc.abstractmethod
-    def _create_insert_row(
-        self, input_row: exprs.DataRow, schema_col_info: List[ColumnInfo], idx_col_info: List[ColumnInfo],
-        exc_col_ids: Set[int]
-    ) -> Tuple[Dict[str, Any], int]:
-        """Return Tuple[complete table row, # of exceptions] for insert()"""
-        pass
-
-    @abc.abstractmethod
-    def _create_update_row(
-            self, input_row: exprs.DataRow, schema_col_info: List[ColumnInfo], idx_col_info: List[ColumnInfo],
-            exc_col_ids: Set[int]
-    ) -> Tuple[Dict[str, Any], int]:
-        """Return Tuple[complete table row, # of exceptions] for update()"""
-        pass
 
     def create(self, conn: sql.engine.Connection) -> None:
         self.sa_md.create_all(bind=conn)
@@ -121,8 +136,9 @@ class StoreBase:
         message).
         """
         assert col.is_stored
-        stmt = f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.storage_name()} {col.col_type.to_sql()}'
-        conn.execute(sql.text(stmt))
+        stmt = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.storage_name()} {col.col_type.to_sql()}')
+        log_stmt(_logger, stmt)
+        conn.execute(stmt)
         added_storage_cols = [col.storage_name()]
         if col.is_computed:
             # we also need to create the errormsg and errortype storage cols
@@ -193,13 +209,13 @@ class StoreBase:
                 update_stmt = sql.update(self.sa_tbl).values(values_dict)
                 for pk_col, pk_val in zip(self.pk_columns(), result_row.pk):
                     update_stmt = update_stmt.where(pk_col == pk_val)
+                log_stmt(_logger, update_stmt)
                 conn.execute(update_stmt)
 
         return num_excs
 
     def insert_rows(
-            self, exec_plan: ExecNode, schema_col_info: List[ColumnInfo], idx_col_info: List[ColumnInfo],
-            conn: sql.engine.Connection
+            self, exec_plan: ExecNode, conn: sql.engine.Connection, v_min: Optional[int] = None
     ) -> Tuple[int, int, Set[int]]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
@@ -212,6 +228,7 @@ class StoreBase:
         num_rows = 0
         cols_with_excs: Set[int] = set()
         progress_bar: Optional[tqdm] = None  # create this only after we started executing
+        row_builder = exec_plan.row_builder
         try:
             exec_plan.open()
             for row_batch in exec_plan:
@@ -221,8 +238,7 @@ class StoreBase:
                     table_rows: List[Dict[str, Any]] = []
                     for row_idx in range(batch_start_idx, min(batch_start_idx + batch_size, len(row_batch))):
                         row = row_batch[row_idx]
-                        table_row, num_row_exc = \
-                            self._create_insert_row(row, schema_col_info, idx_col_info, cols_with_excs)
+                        table_row, num_row_exc = self._create_table_row(row, row_builder, cols_with_excs, v_min=v_min)
                         num_excs += num_row_exc
                         table_rows.append(table_row)
                         if progress_bar is None:
@@ -235,42 +251,25 @@ class StoreBase:
         finally:
             exec_plan.close()
 
-    def update_rows(
-            self, exec_plan: ExecNode, row_info: List[ColumnInfo], where_clause: Optional[sql.sql.ClauseElement],
-            conn: sql.engine.Connection
-    ) -> Tuple[int, int, Set[int]]:
-        """Update rows in the store table
-        Returns:
-            number of rows, number of exceptions, set of column ids that have exceptions
-        """
-        exec_plan.ctx.conn = conn
-        num_excs = 0
-        num_rows = 0
-        cols_with_excs: Set[int] = set()
-        try:
-            # insert new versions of updated rows
-            for row_batch in exec_plan:
-                num_rows += len(row_batch)
-                table_rows: List[Dict[str, Any]] = []
-                for result_row in row_batch:
-                    # idx_col_info=[]: we assume that embeddings don't change
-                    table_row, num_row_exc = self._create_update_row(result_row, row_info, [], cols_with_excs)
-                    num_excs += num_row_exc
-                    table_rows.append(table_row)
-                conn.execute(sql.insert(self.sa_tbl), table_rows)
-        finally:
-            exec_plan.close()
+    @abc.abstractmethod
+    def _delete_rows_where_clause(self, version: int, where_clause: sql.ClauseElement) -> sql.ClauseElement:
+        """Return Where clause for delete_rows()"""
+        pass
 
-        # mark old versions (v_min < self.version) of updated rows as deleted
+    def delete_rows(
+            self, version: int, where_clause: Optional[sql.ClauseElement], conn: sql.engine.Connection) -> int:
+        """Mark rows that were live at version and satisfy where_clause as deleted.
+        Returns:
+            number of deleted rows
+        """
         where_clause = where_clause if where_clause is not None else sql.true()
+        delete_where_clause = self._delete_rows_where_clause(version, where_clause)
         stmt = sql.update(self.sa_tbl) \
             .values({self.v_max_col: self.tbl_version.version}) \
-            .where(self.v_min_col < self.tbl_version.version) \
-            .where(self.v_max_col == schema.Table.MAX_VERSION) \
-            .where(where_clause)
-        conn.execute(stmt)
-
-        return num_rows, num_excs, cols_with_excs
+            .where(delete_where_clause)
+        log_stmt(_logger, stmt)
+        status = conn.execute(stmt)
+        return status.rowcount
 
 
 class StoreTable(StoreBase):
@@ -278,121 +277,64 @@ class StoreTable(StoreBase):
         assert not tbl_version.is_view()
         super().__init__(tbl_version)
 
-    def pk_columns(self) -> List[sql.Column]:
-        return self._pk_columns
-
-    def _create_system_columns(self) -> List[sql.Column]:
+    def _create_rowid_columns(self) -> List[sql.Column]:
         self.rowid_col = sql.Column('rowid', sql.BigInteger, nullable=False)
-        self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
-        self.v_max_col = \
-            sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION))
-        self._pk_columns = [self.rowid_col, self.v_min_col]
-        return [self.rowid_col, self.v_min_col, self.v_max_col]
+        return [self.rowid_col]
 
     def _storage_name(self) -> str:
         return f'tbl_{self.tbl_version.id.hex}'
 
-    def _create_insert_row(
-            self, input_row: exprs.DataRow, schema_col_info: List[ColumnInfo], idx_col_info: List[ColumnInfo],
-            exc_col_ids: Set[int]
-    ) -> Tuple[Dict[str, Any], int]:
-        """Create a row with a new rowid and the current table version
-        Returns:
-             Tuple[complete table row, # of exceptions]
-         """
-        table_row, num_excs = self._create_row(input_row, schema_col_info, idx_col_info, exc_col_ids)
-        table_row.update({
-            self.rowid_col.name: self.tbl_version.next_rowid,
-            self.v_min_col.name: self.tbl_version.version,
-        })
-        self.tbl_version.next_rowid += 1
-        return table_row, num_excs
-
-    def _create_update_row(
-            self, input_row: exprs.DataRow, schema_col_info: List[ColumnInfo], idx_col_info: List[ColumnInfo],
-            exc_col_ids: Set[int]
-    ) -> Tuple[Dict[str, Any], int]:
-        """Create a row with the same rowid as the input and the current table version
-        Returns:
-            Tuple[complete table row, # of exceptions]
-        """
-        table_row, num_excs = self._create_row(input_row, schema_col_info, idx_col_info, exc_col_ids)
-        assert input_row.pk is not None and len(input_row.pk) == 2
-        table_row.update({
-            self.rowid_col.name: input_row.pk[0],
-            self.v_min_col.name: self.tbl_version.version,
-        })
-        return table_row, num_excs
+    def _delete_rows_where_clause(self, version: int, where_clause: sql.ClauseElement) -> sql.ClauseElement:
+        """Return filter for live rows that match where_clause"""
+        return sql.and_(
+            self.v_min_col <= version,
+            self.v_max_col == schema.Table.MAX_VERSION,
+            where_clause)
 
 
 class StoreView(StoreBase):
     def __init__(self, catalog_view: catalog.TableVersion):
         assert catalog_view.is_view()
+        self.base = catalog_view.base.store_tbl
         super().__init__(catalog_view)
 
-    def pk_columns(self) -> List[sql.Column]:
-        return self._pk_columns
-
-    def _create_system_columns(self) -> List[sql.Column]:
-        self.base_rowid_col = sql.Column('base_rowid', sql.BigInteger, nullable=False)
-        self.base_v_min_col = sql.Column('base_v_min', sql.BigInteger, nullable=False)
-        self.base_v_max_col = \
-            sql.Column('base_v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION))
-        self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
-        self.v_max_col = \
-            sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION))
-        self._pk_columns = [self.base_rowid_col, self.base_v_min_col, self.v_min_col]
-        return [self.base_rowid_col, self.base_v_min_col, self.base_v_max_col, self.v_min_col, self.v_max_col]
+    def _create_rowid_columns(self) -> List[sql.Column]:
+        # a view row corresponds directly to a single base row, which means it needs to duplicate its rowid columns
+        self.rowid_cols = [c.copy() for c in self.base.rowid_columns()]
+        return self.rowid_cols
 
     def _storage_name(self) -> str:
         return f'view_{self.tbl_version.id.hex}'
 
-    def _create_insert_row(
-            self, input_row: exprs.DataRow, schema_col_info: List[ColumnInfo], idx_col_info: List[ColumnInfo],
-            exc_col_ids: Set[int]
-    ) -> Tuple[Dict[str, Any], int]:
-        """Creates a row with the input's rowid/v_min and the current table version
-        Returns:
-            Tuple[complete table row, # of exceptions]
-        """
-        table_row, num_excs = self._create_row(input_row, schema_col_info, idx_col_info, exc_col_ids)
-        # the input row is from the base table
-        assert input_row.pk is not None and len(input_row.pk) == 2
-        table_row.update({
-            self.base_rowid_col.name: input_row.pk[0],
-            self.base_v_min_col.name: input_row.pk[1],
-            self.v_min_col.name: self.tbl_version.version,
-        })
-        return table_row, num_excs
+    def _delete_rows_where_clause(self, version: int, where_clause: sql.ClauseElement) -> sql.ClauseElement:
+        """Return filter for rows that belong to base table rows that got deleted in the current version"""
+        rowid_clauses = [c1 == c2 for c1, c2 in zip(self.rowid_columns(), self.base.rowid_columns())]
+        return sql.and_(
+            *rowid_clauses,
+            self.base.v_max_col == self.base.tbl_version.version,
+            self.v_min_col <= version,
+            self.v_max_col == schema.Table.MAX_VERSION,
+            where_clause)
 
-    def _create_update_row(
-            self, input_row: exprs.DataRow, schema_col_info: List[ColumnInfo], idx_col_info: List[ColumnInfo],
-            exc_col_ids: Set[int]
-    ) -> Tuple[Dict[str, Any], int]:
-        """Return Tuple[complete table row, # of exceptions] for update()"""
-        result = self._create_row(input_row, schema_col_info, idx_col_info, exc_col_ids)
-        # the input row is from this view
-        assert input_row.pk is not None and len(input_row.pk) == 3
-        result.update({
-            self.base_rowid_col.name: input_row.pk[0],
-            self.base_v_min_col.name: input_row.pk[1],
-            self.v_min_col.name: self.tbl_version.version,
-        })
-        return result
 
-    def mark_deleted(self, base_version: int, conn: sql.engine.Connection) -> None:
-        """Mark rows that were superseded by a new base table version as deleted"""
-        v = self.sa_tbl.alias('v')
-        # we use a self-join to find rows that were superseded by a new base table version:
-        # - new rows have base_v_min == base_version
-        # - old rows have base_v_min < base_version
-        # - old rows are visible (v_min <= self.version && v_max == MAX_VERSION)
-        stmt = sql.update(self.sa_tbl) \
-            .values({self.base_v_max_col: base_version}) \
-            .where(self.base_rowid_col == v.c.base_rowid) \
-            .where(v.c.base_v_min == base_version) \
-            .where(self.base_v_min_col < base_version) \
-            .where(self.base_v_max_col == schema.Table.MAX_VERSION) \
-            .where(self.v_min_col <= self.tbl_version.version) \
-            .where(self.v_max_col == schema.Table.MAX_VERSION)
-        conn.execute(stmt)
+class StoreComponentView(StoreView):
+    """A view that stores components of its base, as produced by a ComponentIterator
+
+    PK: now also includes pos, the position returned by the ComponentIterator for the base row identified by base_rowid
+    """
+    def __init__(self, catalog_view: catalog.TableVersion):
+        super().__init__(catalog_view)
+
+    def _create_rowid_columns(self) -> List[sql.Column]:
+        # each base row is expanded into n view rows
+        self.rowid_cols = [c.copy() for c in self.base.rowid_columns()]
+        # name of pos column: avoid collisions with bases' pos columns
+        self.pos_col = sql.Column(f'pos_{len(self.rowid_cols) - 1}', sql.BigInteger, nullable=False)
+        self.pos_col_idx = len(self.rowid_cols)
+        self.rowid_cols.append(self.pos_col)
+        return self.rowid_cols
+
+    def _create_sa_tbl(self) -> None:
+        super()._create_sa_tbl()
+        # we need to fix up the 'pos' column in TableVersion
+        self.tbl_version.cols_by_name['pos'].sa_col = self.pos_col

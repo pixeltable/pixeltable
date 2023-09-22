@@ -9,7 +9,7 @@ import time
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-from .table_base import TableBase
+from .table import Table
 from .table_version import TableVersion
 from pixeltable.env import Env
 from pixeltable.metadata import schema
@@ -17,7 +17,8 @@ from pixeltable.metadata import schema
 
 _logger = logging.getLogger('pixeltable')
 
-class TableSnapshot(TableBase):
+class TableSnapshot(Table):
+    """An immutable :py:class:`Table`."""
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version: TableVersion):
         super().__init__(id, dir_id, name, tbl_version)
 

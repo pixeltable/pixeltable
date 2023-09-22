@@ -9,13 +9,13 @@ from pgvector.sqlalchemy import Vector
 from pixeltable import exceptions as exc
 from pixeltable.metadata import schema
 from pixeltable.type_system import ColumnType, StringType
-from pixeltable.catalog.validation import is_valid_identifier
+from .globals import is_valid_identifier
 
 
 _logger = logging.getLogger('pixeltable')
 
 class Column:
-    """Representation of a column in the schema of a Table/DataFrame.
+    """Representation of a column in the schema of a MutableTable/DataFrame.
 
     A Column contains all the metadata necessary for executing queries and updates against a particular version of a
     table/view.
@@ -78,7 +78,7 @@ class Column:
                 if col_type is None:
                     raise exc.Error(f'Column {name}: col_type is required if computed_with is a Callable')
                 # we need to turn the computed_with function into an Expr, but this requires resolving
-                # column name references and for that we need to wait until we're assigned to a Table
+                # column name references and for that we need to wait until we're assigned to a MutableTable
                 self.compute_func = computed_with
             else:
                 self.value_expr = value_expr.copy()
@@ -89,7 +89,7 @@ class Column:
         assert self.col_type is not None
 
         self.stored = stored
-        self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us; set by Table
+        self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us; set by MutableTable
         self.id = col_id
         self.primary_key = primary_key
 
@@ -112,7 +112,7 @@ class Column:
     def from_md(cls, col_id: int, md: schema.SchemaColumn, tbl: 'TableVersion') -> Column:
         """Construct a Column from metadata.
 
-        Leaves out value_expr, because that requires Table.cols to be complete.
+        Leaves out value_expr, because that requires MutableTable.cols to be complete.
         """
         col = cls(
             md.name, col_type=ColumnType.from_dict(md.col_type), primary_key=md.is_pk,

@@ -26,13 +26,13 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
         return TimestampType()
     assert False
 
-def make_tbl(cl: pt.Client, name: str = 'test', col_names: List[str] = ['c1']) -> catalog.MutableTable:
+def make_tbl(cl: pt.Client, name: str = 'test', col_names: List[str] = ['c1']) -> catalog.InsertableTable:
     schema: List[catalog.Column] = []
     for i, col_name in enumerate(col_names):
         schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type(i % 5))))
     return cl.create_table(name, schema)
 
-def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int = 10) -> List[List[Any]]:
+def create_table_data(t: catalog.MutableTable, col_names: List[str] = [], num_rows: int = 10) -> List[List[Any]]:
     data: Dict[str, Any] = {}
 
     sample_dict = {
@@ -102,7 +102,7 @@ def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int
     rows = [[data[col_name][i] for col_name in col_names] for i in range(num_rows)]
     return rows
 
-def create_test_tbl(client: pt.Client) -> catalog.Table:
+def create_test_tbl(client: pt.Client) -> catalog.MutableTable:
     cols = [
         catalog.Column('c1', StringType(nullable=False)),
         catalog.Column('c1n', StringType(nullable=True)),

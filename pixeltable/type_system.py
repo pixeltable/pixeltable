@@ -5,7 +5,6 @@ import datetime
 import enum
 import io
 import json
-import os
 from pathlib import Path
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import urllib.parse
@@ -13,15 +12,10 @@ import urllib.parse
 import cv2
 import nos
 import numpy as np
-from PIL import Image
-
-from pixeltable import exceptions as exc
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-#import tensorflow as tf
 import PIL.Image
 import sqlalchemy as sql
 
+from pixeltable import exceptions as exc
 
 class ColumnType:
     @enum.unique
@@ -38,18 +32,6 @@ class ColumnType:
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 9
-
-        def to_tf(self) -> 'tf.dtypes.DType':
-            import tensorflow as tf
-            if self == self.STRING:
-                return tf.string
-            if self == self.INT:
-                return tf.int64
-            if self == self.FLOAT:
-                return tf.float32
-            if self == self.BOOL:
-                return tf.bool
-            raise TypeError(f'Cannot convert {self} to TensorFlow')
 
         @classmethod
         def supertype(
@@ -277,6 +259,11 @@ class ColumnType:
         """Raise TypeError if val is not a valid literal for this type"""
         pass
 
+    def create_literal(self, val: Any) -> Any:
+        """Try to create a literal of this type from val. Raise TypeError if not possible"""
+        self.validate_literal(val)
+        return val
+
     def print_value(self, val: Any) -> str:
         return str(val)
 
@@ -369,10 +356,6 @@ class ColumnType:
         """
         return None
 
-    @abc.abstractmethod
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        pass
-
 
 class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -386,9 +369,6 @@ class InvalidType(ColumnType):
 
     def to_arrow_type(self) -> 'pyarrow.DataType':
         assert False
-
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        raise TypeError(f'Invalid type cannot be converted to Tensorflow')
 
     def print_value(self, val: Any) -> str:
         assert False
@@ -421,16 +401,12 @@ class StringType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.string()
 
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        import tensorflow as tf
-        return tf.TensorSpec(shape=(), dtype=tf.string)
-
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
 
     def validate_literal(self, val: Any) -> None:
         if not isinstance(val, str):
-            raise TypeError(f'Expected string, got {val}')
+            raise TypeError(f'Expected string, got {val.__class__.__name__}')
 
 
 class IntType(ColumnType):
@@ -447,14 +423,9 @@ class IntType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.int64() # to be consistent with bigint above
 
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        # TODO: how to specify the correct int subtype?
-        import tensorflow as tf
-        return tf.TensorSpec(shape=(), dtype=tf.int64)
-
     def validate_literal(self, val: Any) -> None:
         if not isinstance(val, int):
-            raise TypeError(f'Expected int, got {val}')
+            raise TypeError(f'Expected int, got {val.__class__.__name__}')
 
 
 class FloatType(ColumnType):
@@ -471,14 +442,14 @@ class FloatType(ColumnType):
         import pyarrow as pa
         return pa.float32()
 
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        import tensorflow as tf
-        # TODO: how to specify the correct float subtype?
-        return tf.TensorSpec(shape=(), dtype=tf.float32)
-
     def validate_literal(self, val: Any) -> None:
         if not isinstance(val, float):
-            raise TypeError(f'Expected float, got {val}')
+            raise TypeError(f'Expected float, got {val.__class__.__name__}')
+
+    def create_literal(self, val: Any) -> Any:
+        if isinstance(val, int):
+            return float(val)
+        return super().create_literal(val)
 
 
 class BoolType(ColumnType):
@@ -495,14 +466,14 @@ class BoolType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.bool_()
 
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        import tensorflow as tf
-        # TODO: how to specify the correct int subtype?
-        return tf.TensorSpec(shape=(), dtype=tf.bool)
-
     def validate_literal(self, val: Any) -> None:
         if not isinstance(val, bool):
-            raise TypeError(f'Expected bool, got {val}')
+            raise TypeError(f'Expected bool, got {val.__class__.__name__}')
+
+    def create_literal(self, val: Any) -> Any:
+        if isinstance(val, int):
+            return bool(val)
+        return super().create_literal(val)
 
 
 class TimestampType(ColumnType):
@@ -519,12 +490,14 @@ class TimestampType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.timestamp('us') # postgres timestamp is microseconds
 
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        raise TypeError(f'Timestamp type cannot be converted to Tensorflow')
-
     def validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
-            raise TypeError(f'Expected datetime.datetime or datetime.date, got {val}')
+            raise TypeError(f'Expected datetime.datetime or datetime.date, got {val.__class__.__name__}')
+
+    def create_literal(self, val: Any) -> Any:
+        if isinstance(val, str):
+            return datetime.datetime.fromisoformat(val)
+        return super().create_literal(val)
 
 
 class JsonType(ColumnType):
@@ -559,11 +532,6 @@ class JsonType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.string() # TODO: weight advantage of pa.struct type.
 
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        if self.type_spec is None:
-            raise TypeError(f'Cannot convert {self.__class__.__name__} with missing type spec to TensorFlow')
-        return {k: v.to_tf() for k, v in self.type_spec.items()}
-
     def print_value(self, val: Any) -> str:
         val_type = self.infer_literal_type(val)
         if val_type == self:
@@ -572,11 +540,16 @@ class JsonType(ColumnType):
 
     def validate_literal(self, val: Any) -> None:
         if not isinstance(val, dict) and not isinstance(val, list):
-            raise TypeError(f'Expected dict or list, got {val}')
+            raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
         try:
             _ = json.dumps(val)
         except TypeError as e:
             raise TypeError(f'Expected JSON-serializable object, got {val}')
+
+    def create_literal(self, val: Any) -> Any:
+        if isinstance(val, tuple):
+            val = list(val)
+        return super().create_literal(val)
 
 
 class ArrayType(ColumnType):
@@ -646,11 +619,18 @@ class ArrayType(ColumnType):
 
     def validate_literal(self, val: Any) -> None:
         if not isinstance(val, np.ndarray):
-            raise TypeError(f'Expected numpy.ndarray, got {val}')
+            raise TypeError(f'Expected numpy.ndarray, got {val.__class__.__name__}')
         if not self.is_valid_literal(val):
             raise TypeError((
                 f'Expected ndarray({self.shape}, dtype={self.numpy_dtype()}), '
                 f'got ndarray({val.shape}, dtype={val.dtype})'))
+
+    def create_literal(self, val: Any) -> Any:
+        if isinstance(val, list):
+            val = np.array(val)
+        elif isinstance(val, tuple):
+            val = np.array(val)
+        return super().create_literal(val)
 
     def to_sql(self) -> str:
         return 'BYTEA'
@@ -664,13 +644,9 @@ class ArrayType(ColumnType):
             raise TypeError(f'Cannot convert array with unknown shape to Arrow')        
         return pa.fixed_shape_tensor(pa.from_numpy_dtype(self.numpy_dtype()), self.shape)
 
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        import tensorflow as tf
-        return tf.TensorSpec(shape=self.shape, dtype=self.dtype.to_tf())
-
     def numpy_dtype(self) -> np.dtype:
         if self.dtype == self.Type.INT:
-            return np.dtype(np.int32)
+            return np.dtype(np.int64)
         if self.dtype == self.Type.FLOAT:
             return np.dtype(np.float32)
         if self.dtype == self.Type.BOOL:
@@ -777,18 +753,17 @@ class ImageType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.binary()
 
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        import tensorflow as tf
-        return tf.TensorSpec(shape=(self.height, self.width, self.num_channels), dtype=tf.uint8)
-
     def validate_literal(self, val: Any) -> None:
+        if isinstance(val, PIL.Image.Image):
+            return
+
         # make sure file path points to a valid image file or binary is a valid image
         if not isinstance(val, (str, bytes)):
-            raise TypeError(f'Expected file path or bytes')
+            raise TypeError(f'Expected file path or bytes, got {val.__class__.__module__}.{val.__class__.__name__}')
 
         if isinstance(val, bytes):
             try:
-                _ = Image.open(io.BytesIO(val))
+                _ = PIL.Image.open(io.BytesIO(val))
             except PIL.UnidentifiedImageError:
                 raise TypeError(f'Bytes are not a valid image')
         # TODO:
@@ -800,7 +775,7 @@ class ImageType(ColumnType):
                 # skip validation for now
                 return
             try:
-                _ = Image.open(val)
+                _ = PIL.Image.open(val)
             except FileNotFoundError:
                 raise TypeError(f'File not found: {val}')
             except PIL.UnidentifiedImageError:
@@ -824,12 +799,9 @@ class VideoType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.string()
 
-    def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
-        assert False
-
     def validate_literal(self, val: Any) -> None:
         if not isinstance(val, str):
-            raise TypeError(f'Expected file path, got {val}')
+            raise TypeError(f'Expected file path, got {val.__class__.__name__}')
         # TODO: see ImageType.validate_literal()
         parsed = urllib.parse.urlparse(val)
         if parsed.scheme != '' and parsed.scheme != 'file':

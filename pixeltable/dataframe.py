@@ -45,6 +45,8 @@ def _format_video(video_file_path: str) -> str:
     root = Path(os.getcwd())
     try:
         rel_path = p.relative_to(root)
+        print(rel_path)
+        print(f'<video controls><source src="{rel_path}" type="video/mp4"></video>')
         return f'<video controls><source src="{rel_path}" type="video/mp4"></video>'
     except ValueError:
         # display path as string
@@ -94,6 +96,8 @@ class DataFrameResultSet:
             return False
         return self.to_pandas().equals(other.to_pandas())
 
+
+# TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
 class AnalysisInfo:
     def __init__(self, tbl: catalog.TableVersion):
         self.tbl = tbl
@@ -102,7 +106,7 @@ class AnalysisInfo:
         # output of the agg stage
         self.agg_output_exprs: List[exprs.Expr] = []
         # Where clause of the Select stmt of the SQL scan stage
-        self.sql_where_clause: Optional[sql.sql.expression.ClauseElement] = None
+        self.sql_where_clause: Optional[sql.ClauseElement] = None
         # filter predicate applied to input rows of the SQL scan stage
         self.filter: Optional[exprs.Predicate] = None
         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
@@ -132,8 +136,9 @@ class DataFrame:
             select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]] = None,
             where_clause: Optional[exprs.Predicate] = None,
             group_by_clause: Optional[List[exprs.Expr]] = None,
+            grouping_tbl: Optional[catalog.TableVersion] = None,
             order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None,  # List[(expr, asc)]
-            limit: Optional[int] = None,):
+            limit: Optional[int] = None):
         self.tbl = tbl
 
         # select list logic
@@ -149,7 +154,9 @@ class DataFrame:
         self.select_list = select_list
 
         self.where_clause = copy.deepcopy(where_clause)
+        assert group_by_clause is None or grouping_tbl is None
         self.group_by_clause = copy.deepcopy(group_by_clause)
+        self.grouping_tbl = grouping_tbl
         self.order_by_clause = copy.deepcopy(order_by_clause)
         self.limit_val = limit
 
@@ -182,12 +189,7 @@ class DataFrame:
             a pair composed of the list of expressions and the list of corresponding names
         """
         if select_list is None:
-            expanded_list = []
-            for col in tbl.columns():
-                if tbl.is_frame_col(col):
-                    expanded_list.append((exprs.FrameColumnRef(col), None))
-                else:
-                    expanded_list.append((exprs.ColumnRef(col), None))
+            expanded_list = [(exprs.ColumnRef(col), None) for col in tbl.columns()]
         else:
             expanded_list = select_list
 
@@ -220,27 +222,38 @@ class DataFrame:
 
     def _exec(self) -> Generator[exprs.DataRow, None, None]:
         """Returned value: list of select list values"""
-        if self.group_by_clause is None:
-            self.group_by_clause = []
+        # construct a group-by clause if we're grouping by a table
+        group_by_clause: List[exprs.Expr] = []
+        if self.grouping_tbl is not None:
+            num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
+            # the grouping table must be a base of self.tbl
+            assert num_rowid_cols <= len(self.tbl.store_tbl.rowid_columns())
+            group_by_clause = [exprs.RowidRef(self.tbl, idx) for idx in range(num_rowid_cols)]
+        elif self.group_by_clause is not None:
+            group_by_clause = self.group_by_clause
+
         if self.order_by_clause is None:
             self.order_by_clause = []
         for item in self._select_list_exprs:
             item.bind_rel_paths(None)
-        plan, self._select_list_exprs = Planner.create_query_plan(
-            self.tbl, self._select_list_exprs,
-            where_clause=self.where_clause,
-            group_by_clause=self.group_by_clause,
+        #select_list = self._select_list_exprs.copy()
+        plan = Planner.create_query_plan(
+            #self.tbl, select_list, where_clause=self.where_clause, group_by_clause=group_by_clause,
+            self.tbl, self._select_list_exprs, where_clause=self.where_clause, group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause,
             # limit_val == 0: no limit_val
             limit=self.limit_val if self.limit_val is not None else 0)
-        plan.open()
-        try:
-            result = next(plan)
-            for data_row in result:
-                yield data_row
-        finally:
-            plan.close()
-        return
+
+        with Env.get().engine.begin() as conn:
+            plan.ctx.conn = conn
+            plan.open()
+            try:
+                for row_batch in plan:
+                    for data_row in row_batch:
+                        yield data_row
+            finally:
+                plan.close()
+            return
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
@@ -317,8 +330,7 @@ class DataFrame:
             return result
 
     def _description(self) -> pd.DataFrame:
-        """ see DataFrame.describe()
-        """
+        """see DataFrame.describe()"""
         heading_vals: List[str] = []
         info_vals: List[str] = []
         if self.select_list is not None:
@@ -413,27 +425,41 @@ class DataFrame:
             seen.add(name)
 
         return DataFrame(
-            self.tbl, select_list=select_list,
-            where_clause=self.where_clause, group_by_clause=self.group_by_clause,
-            order_by_clause=self.order_by_clause, limit=self.limit_val)
+            self.tbl, select_list=select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl, order_by_clause=self.order_by_clause, limit=self.limit_val)
 
     def where(self, pred: exprs.Predicate) -> DataFrame:
         return DataFrame(
-            self.tbl, select_list=self.select_list,
-            where_clause=pred, group_by_clause=self.group_by_clause,
-            order_by_clause=self.order_by_clause, limit=self.limit_val)
+            self.tbl, select_list=self.select_list, where_clause=pred, group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl, order_by_clause=self.order_by_clause, limit=self.limit_val)
 
-    def group_by(self, *expr_list: exprs.Expr) -> DataFrame:
+    def group_by(self, *grouping_items: Any) -> DataFrame:
+        """Add a group-by clause to this DataFrame.
+        Variants:
+        - group_by(<base table>): group a component view by their respective base table rows
+        - group_by(<expr>, ...): group by the given expressions
+        """
         if self.group_by_clause is not None:
             raise exc.Error(f'Group-by already specified')
-        for e in expr_list:
-            if not isinstance(e, exprs.Expr):
-                raise exc.Error(f'Invalid expression in group_by(): {e}')
-        self.group_by_clause = [e.copy() for e in expr_list]
+        grouping_tbl: Optional[catalog.TableVersion] = None
+        group_by_clause: Optional[List[exprs.Expr]] = None
+        for item in grouping_items:
+            if isinstance(item, catalog.Table):
+                if len(grouping_items) > 1:
+                    raise exc.Error(f'group_by(): only one table can be specified')
+                # we need to make sure that the grouping table is a base of self.tbl
+                base = self.tbl.find_tbl(item.tbl_version.id)
+                if base is None or base is self.tbl:
+                    raise exc.Error(f'group_by(): {item.tbl_version.name} is not a base table of {self.tbl.name}')
+                grouping_tbl = item.tbl_version
+                break
+            if not isinstance(item, exprs.Expr):
+                raise exc.Error(f'Invalid expression in group_by(): {item}')
+        if grouping_tbl is None:
+            group_by_clause = list(grouping_items)
         return DataFrame(
-            self.tbl, select_list=self.select_list,
-            where_clause=self.where_clause, group_by_clause=expr_list,
-            order_by_clause=self.order_by_clause, limit=self.limit_val)
+            self.tbl, select_list=self.select_list, where_clause=self.where_clause, group_by_clause=group_by_clause,
+            grouping_tbl=grouping_tbl, order_by_clause=self.order_by_clause, limit=self.limit_val)
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
         for e in expr_list:
@@ -442,16 +468,16 @@ class DataFrame:
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend([(e.copy(), asc) for e in expr_list])
         return DataFrame(
-            self.tbl, select_list=self.select_list,
-            where_clause=self.where_clause, group_by_clause=self.group_by_clause,
-            order_by_clause=order_by_clause, limit=self.limit_val)
+            self.tbl, select_list=self.select_list, where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause, grouping_tbl=self.grouping_tbl, order_by_clause=order_by_clause,
+            limit=self.limit_val)
 
     def limit(self, n: int) -> DataFrame:
         assert n is not None and isinstance(n, int)
         return DataFrame(
-            self.tbl, select_list=self.select_list,
-            where_clause=self.where_clause, group_by_clause=self.group_by_clause,
-            order_by_clause=self.order_by_clause, limit=n)
+            self.tbl, select_list=self.select_list, where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause, grouping_tbl=self.grouping_tbl, order_by_clause=self.order_by_clause,
+            limit=n)
 
     def __getitem__(self, index: object) -> DataFrame:
         """
@@ -479,10 +505,13 @@ class DataFrame:
             '_classname': 'DataFrame',
             'tbl_id': str(self.tbl.id),
             'tbl_version': self.tbl.version,
-            'select_list': [(e.as_dict(), name) for (e, name) in self.select_list] if self.select_list is not None else None,
+            'select_list':
+                [(e.as_dict(), name) for (e, name) in self.select_list] if self.select_list is not None else None,
             'where_clause': self.where_clause.as_dict() if self.where_clause is not None else None,
-            'group_by_clause': [e.as_dict() for e in self.group_by_clause] if self.group_by_clause is not None else None,
-            'order_by_clause': [(e.as_dict(), asc) for (e,asc) in self.order_by_clause] if self.order_by_clause is not None else None,
+            'group_by_clause':
+                [e.as_dict() for e in self.group_by_clause] if self.group_by_clause is not None else None,
+            'order_by_clause':
+                [(e.as_dict(), asc) for (e,asc) in self.order_by_clause] if self.order_by_clause is not None else None,
             'limit_val': self.limit_val,
         }
         return d
@@ -510,9 +539,9 @@ class DataFrame:
                 The default collate_fn for torch.data.util.DataLoader cannot represent null values as part of a 
                 pytorch tensor when forming batches. These values will raise an exception while running the dataloader.
                 
-                If you have them, you can work around None values by providing your custom collate_fn to the DataLoader (and have your model handle it)
-                Or, if these are not meaningful values within a minibtach, you can modify or remove any such values 
-                through selections and filters prior to calling to_pytorch_dataset().
+                If you have them, you can work around None values by providing your custom collate_fn to the DataLoader
+                (and have your model handle it). Or, if these are not meaningful values within a minibtach, you can
+                modify or remove any such values through selections and filters prior to calling to_pytorch_dataset().
         """
         # check dependencies
         if importlib.util.find_spec('pyarrow') is None:

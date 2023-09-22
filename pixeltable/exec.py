@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import datetime
-from typing import List, Iterator, Set, Dict, Any, Optional, Tuple, Iterable
+from typing import List, Iterator, Set, Dict, Any, Optional, Tuple, Iterable, Generator
 from dataclasses import dataclass, field
 import logging
 import time
@@ -26,18 +25,11 @@ from pixeltable import catalog
 from pixeltable.utils.imgstore import ImageStore
 from pixeltable.function import Function, FunctionRegistry
 from pixeltable.env import Env
-from pixeltable.utils.video import FrameIterator
 from pixeltable import exceptions as exc
 from pixeltable.utils.filecache import FileCache
 
 
 _logger = logging.getLogger('pixeltable')
-
-@dataclass
-class ColumnInfo:
-    """info for how to locate materialized column in DataRow"""
-    col: catalog.Column
-    slot_idx: int
 
 
 class DataRowBatch:
@@ -45,23 +37,22 @@ class DataRowBatch:
 
     Contains the metadata needed to initialize DataRows.
     """
-    def __init__(self, table: catalog.TableVersion, evaluator: exprs.Evaluator, len: int = 0):
+    def __init__(self, table: catalog.TableVersion, row_builder: exprs.RowBuilder, len: int = 0):
         self.table_id = table.id
         self.table_version = table.version
-        self.evaluator = evaluator
-        self.img_slot_idxs = [e.slot_idx for e in evaluator.unique_exprs if e.col_type.is_image_type()]
-        self.video_slot_idxs = [e.slot_idx for e in evaluator.unique_exprs if e.col_type.is_video_type()]
-        self.media_slot_idxs = self.img_slot_idxs + self.video_slot_idxs
-        self.array_slot_idxs = [e.slot_idx for e in evaluator.unique_exprs if e.col_type.is_array_type()]
+        self.row_builder = row_builder
+        self.img_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_image_type()]
+        self.video_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_video_type()]
+        self.array_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_array_type()]
         self.rows = [
-            exprs.DataRow(evaluator.num_materialized, self.img_slot_idxs, self.video_slot_idxs, self.array_slot_idxs)
+            exprs.DataRow(row_builder.num_materialized, self.img_slot_idxs, self.video_slot_idxs, self.array_slot_idxs)
             for _ in range(len)
         ]
 
     def add_row(self, row: Optional[exprs.DataRow] = None) -> exprs.DataRow:
         if row is None:
             row = exprs.DataRow(
-                self.evaluator.num_materialized, self.img_slot_idxs, self.video_slot_idxs, self.array_slot_idxs)
+                self.row_builder.num_materialized, self.img_slot_idxs, self.video_slot_idxs, self.array_slot_idxs)
         self.rows.append(row)
         return row
 
@@ -81,7 +72,7 @@ class DataRowBatch:
         return self.rows[index]
 
     def flush_imgs(
-            self, idx_range: Optional[slice] = None, stored_img_info: List[ColumnInfo] = [],
+            self, idx_range: Optional[slice] = None, stored_img_info: List[exprs.ColumnSlotIdx] = [],
             flushed_slot_idxs: List[int] = []
     ) -> None:
         """Flushes images in the given range of rows."""
@@ -120,30 +111,38 @@ class DataRowBatchIterator:
 
 class ExecContext:
     """Class for execution runtime constants"""
-    def __init__(self, evaluator: exprs.Evaluator, *, show_pbar: bool = False, batch_size: int = 0):
+    def __init__(
+            self, row_builder: exprs.RowBuilder, *, show_pbar: bool = False, batch_size: int = 0,
+            pk_clause: Optional[List[sql.ClauseElement]] = None, num_computed_exprs: int = 0
+    ):
         self.show_pbar = show_pbar
         self.batch_size = batch_size
-        self.profile = exprs.ExecProfile(evaluator)
+        self.profile = exprs.ExecProfile(row_builder)
         # num_rows is used to compute the total number of computed cells used for the progress bar
         self.num_rows: Optional[int] = None
         self.conn: Optional[sql.engine.Connection] = None  # if present, use this to execute SQL queries
+        self.pk_clause = pk_clause
+        self.num_computed_exprs = num_computed_exprs
+
+    def set_pk_clause(self, pk_clause: List[sql.ClauseElement]) -> None:
+        self.pk_clause = pk_clause
 
 
 class ExecNode(abc.ABC):
     """Base class of all execution nodes"""
     def __init__(
-            self, evaluator: exprs.Evaluator, output_exprs: Iterable[exprs.Expr], input_exprs: Iterable[exprs.Expr],
-            input: Optional[ExecNode] = None):
-        self.evaluator = evaluator
+            self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr],
+            input_exprs: Iterable[exprs.Expr], input: Optional[ExecNode] = None):
+        self.row_builder = row_builder
         self.input = input
         # we flush all image slots that aren't part of our output but are needed to create our output
         output_slot_idxs = {e.slot_idx for e in output_exprs}
-        dependencies = evaluator.get_eval_ctx(output_exprs, exclude=input_exprs)
+        output_dependencies = row_builder.get_dependencies(output_exprs, exclude=input_exprs)
         self.flushed_img_slots = [
-            e.slot_idx for e in dependencies
+            e.slot_idx for e in output_dependencies
             if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
-        self.stored_img_cols: List[ColumnInfo] = []
+        self.stored_img_cols: List[exprs.ColumnSlotIdx] = []
         self.ctx: Optional[ExecContext] = None  # all nodes of a tree share the same context
 
     def set_ctx(self, ctx: ExecContext) -> None:
@@ -151,7 +150,7 @@ class ExecNode(abc.ABC):
         if self.input is not None:
             self.input.set_ctx(ctx)
 
-    def set_stored_img_cols(self, stored_img_cols: List[ColumnInfo]) -> None:
+    def set_stored_img_cols(self, stored_img_cols: List[exprs.ColumnSlotIdx]) -> None:
         self.stored_img_cols = stored_img_cols
         # propagate batch size to the source
         if self.input is not None:
@@ -185,17 +184,16 @@ class ExecNode(abc.ABC):
 
 class AggregationNode(ExecNode):
     def __init__(
-            self, tbl: catalog.TableVersion, evaluator: exprs.Evaluator, group_by: List[exprs.Expr],
+            self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder, group_by: List[exprs.Expr],
             agg_fn_calls: List[exprs.FunctionCall], input_exprs: List[exprs.Expr], input: ExecNode
     ):
-        super().__init__(evaluator, group_by + agg_fn_calls, input_exprs, input)
+        super().__init__(row_builder, group_by + agg_fn_calls, input_exprs, input)
         self.input = input
-        self.evaluator = evaluator
         self.group_by = group_by
         self.input_exprs = input_exprs
         self.agg_fn_calls = agg_fn_calls
-        self.agg_fn_eval_ctx = evaluator.get_eval_ctx(agg_fn_calls, exclude=input_exprs)
-        self.output_batch = DataRowBatch(tbl, evaluator, 0)
+        self.agg_fn_eval_ctx = row_builder.create_eval_ctx(agg_fn_calls, exclude=input_exprs)
+        self.output_batch = DataRowBatch(tbl, row_builder, 0)
 
     def _reset_agg_state(self, row_num: int) -> None:
         for fn_call in self.agg_fn_calls:
@@ -232,14 +230,14 @@ class AggregationNode(ExecNode):
                     self._reset_agg_state(0)
                 if group != current_group:
                     # we're entering a new group, emit a row for the previous one
-                    self.evaluator.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
+                    self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
                     self.output_batch.add_row(prev_row)
                     current_group = group
                     self._reset_agg_state(0)
                 self._update_agg_state(row, 0)
                 prev_row = row
         # emit the last group
-        self.evaluator.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
+        self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
         self.output_batch.add_row(prev_row)
 
         result = self.output_batch
@@ -253,115 +251,149 @@ class SqlScanNode(ExecNode):
     """Materializes data from the store via SQL
     """
     def __init__(
-            self, tbl: catalog.TableVersion, evaluator: exprs.Evaluator, sql_exprs: Iterable[exprs.Expr],
-            where_clause: Optional[sql.sql.expression.ClauseElement] = None, filter: Optional[exprs.Predicate] = None,
-            order_by_clause: List[sql.sql.expression.ClauseElement] = [],
+            self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder,
+            select_list: Iterable[exprs.Expr],
+            where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Predicate] = None,
+            order_by_clause: List[sql.ClauseElement] = [],
             similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None,
-            limit: int = 0, set_pk: bool = False, version: Optional[int] = None
-
+            limit: int = 0, set_pk: bool = False, exact_version_only: List[catalog.TableVersion] = []
     ):
         """
         Args:
-            sql_exprs: list of exprs for which sql_expr() is not None
-            sql_where_clause: SQL where clause
+            select_list: output of the query
+            sql_where_clause: SQL Where clause
             filter: additional Where-clause predicate that can't be evaluated via SQL
             limit: max number of rows to return: 0 = no limit
             set_pk: if True, sets the primary for each DataRow
-            version: if set, return only rows created for this exact version
+            exact_version_only: tables for which we only want to see rows created at the current version
         """
         # create Select stmt
-        super().__init__(evaluator, sql_exprs, [], None)
+        super().__init__(row_builder, [], [], None)
         self.tbl = tbl
-        self.evaluator = evaluator
-        self.sql_exprs = sql_exprs
+        self.sql_exprs = exprs.UniqueExprList(select_list)
+        # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
+        for iter_arg in row_builder.unstored_iter_args.values():
+            sql_subexprs = iter_arg.subexprs(filter=lambda e: e.sql_expr() is not None, traverse_matches=False)
+            [self.sql_exprs.append(e) for e in sql_subexprs]
         self.filter = filter
-        self.filter_eval_ctx = evaluator.get_eval_ctx([filter], exclude=sql_exprs) if filter is not None else []
+        self.filter_eval_ctx = row_builder.create_eval_ctx([filter], exclude=select_list) if filter is not None else []
         self.limit = limit
-        select_list = [e.sql_expr() for e in sql_exprs]
-        if set_pk:
-            pk_cols = tbl.store_tbl.pk_columns()
-            self.num_pk_cols = len(pk_cols)
-            select_list.extend(pk_cols)
-        else:
-            self.num_pk_cols = 0
+        all_col_refs = exprs.Expr.list_subexprs(self.sql_exprs, expr_class=exprs.ColumnRef)
+        select_list_tbl_ids = {col_ref.col.tbl.id for col_ref in all_col_refs}
+        where_clause_tbl_ids = where_clause.tbl_ids() if where_clause is not None else set()
+        refd_tbl_ids = select_list_tbl_ids | where_clause_tbl_ids
+        sql_select_list = [e.sql_expr() for e in self.sql_exprs]
+        assert len(sql_select_list) == len(self.sql_exprs)
+        assert all([e is not None for e in sql_select_list])
+        self.set_pk = set_pk
+        self.num_pk_cols = 0  # set in _open()
 
-        self.stmt = sql.select(*select_list)
-        self.stmt, base_tbl = self._create_from_clause(tbl, self.stmt)
-
-        # select base table rows
-        if version is not None:
-            # for a specific version
-            self.stmt = self.stmt \
-                .where(base_tbl.store_tbl.v_min_col == version)
-        else:
-            # for all rows visible at the current version
-            self.stmt = self.stmt \
-                .where(base_tbl.store_tbl.v_min_col <= base_tbl.version) \
-                .where(base_tbl.store_tbl.v_max_col > base_tbl.version)
+        self.stmt = sql.select(*sql_select_list)
+        self.stmt = self.create_from_clause(
+            tbl, self.stmt, refd_tbl_ids, exact_version_only={t.id for t in exact_version_only})
 
         if where_clause is not None:
-            self.stmt = self.stmt.where(where_clause)
+            sql_where_clause = where_clause.sql_expr()
+            assert sql_where_clause is not None
+            self.stmt = self.stmt.where(sql_where_clause)
         if similarity_clause is not None:
             self.stmt = self.stmt.order_by(
                 similarity_clause.img_col_ref.col.sa_idx_col.l2_distance(similarity_clause.embedding()))
         if len(order_by_clause) > 0:
             self.stmt = self.stmt.order_by(*order_by_clause)
+        elif tbl.id in row_builder.unstored_iter_args:
+            # we are referencing unstored iter columns from this view and try to order by our primary key,
+            # which ensures that iterators will see monotonically increasing pos values
+            self.stmt = self.stmt.order_by(*self.tbl.store_tbl.rowid_columns())
         if limit != 0 and self.filter is None:
             # if we need to do post-SQL filtering, we can't use LIMIT
             self.stmt = self.stmt.limit(limit)
 
-        self.conn: Optional[sql.engine.Connection] = None
         self.result_cursor: Optional[sql.engine.CursorResult] = None
 
-    def _create_from_clause(
-            self, tbl: catalog.TableVersion, stmt: sql.Select
-    ) -> Tuple[sql.Select, catalog.TableVersion]:
-        """Add From clause to stmt for only those tables referenced in exprs
+        try:
+            # log stmt, if possible
+            stmt_str = str(self.stmt.compile(compile_kwargs={'literal_binds': True}))
+            _logger.debug(f'SqlScanNode stmt:\n{stmt_str}')
+        except Exception as e:
+            pass
+
+    @classmethod
+    def create_from_clause(
+            cls, tbl: catalog.TableVersion, stmt: sql.Select, refd_tbl_ids: Set[UUID] = {},
+            exact_version_only: Set[UUID] = {}
+    ) -> sql.Select:
+        """Add From clause to stmt for tables/views referenced by materialized_exprs
+        Args:
+            tbl: root table of join chain
+            stmt: stmt to add From clause to
+            materialized_exprs: list of exprs that reference tables in the join chain; if empty, include only the root
+            exact_version_only: set of table ids for which we only want to see rows created at the current version
         Returns:
-            [augmented stmt, base table]
+            augmented stmt
         """
-        base_tbl = tbl
-        while base_tbl.base is not None:
-            base_tbl = base_tbl.base
-        stmt = stmt.select_from(base_tbl.store_tbl.sa_tbl)
-        # TODO: omit views that are not referenced in exprs and don't have filters
+        # we need to include at least the root
+        joined_tbls: List[catalog.TableVersion] = [tbl]
         while tbl.base is not None:
-            assert tbl.is_view()
-            # join with rows in tbl that are visible at the current version of base_tbl;
-            # we can ignore the view predicate here, it's indirectly applied via the join
-            stmt = stmt.join(tbl.store_tbl.sa_tbl, base_tbl.store_tbl.rowid_col == tbl.store_tbl.base_rowid_col) \
-                .where(tbl.store_tbl.base_v_min_col <= base_tbl.version) \
-                .where(tbl.store_tbl.base_v_max_col > base_tbl.version) \
-                .where(tbl.store_tbl.v_min_col <= tbl.version) \
-                .where(tbl.store_tbl.v_max_col > tbl.version)
             tbl = tbl.base
-        return stmt, base_tbl
+            if tbl.id in refd_tbl_ids:
+                joined_tbls.append(tbl)
+
+        first = True
+        for tbl in joined_tbls[::-1]:
+            if first:
+                stmt = stmt.select_from(tbl.store_tbl.sa_tbl)
+                first = False
+            else:
+                # join tbl to prev_tbl on prev_tbl's rowid cols
+                prev_tbl_rowid_cols = prev_tbl.store_tbl.rowid_columns()
+                tbl_rowid_cols = tbl.store_tbl.rowid_columns()
+                rowid_clauses = \
+                    [c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[:len(prev_tbl_rowid_cols)])]
+                stmt = stmt.join(tbl.store_tbl.sa_tbl, sql.and_(*rowid_clauses))
+            if tbl.id in exact_version_only:
+                stmt = stmt.where(tbl.store_tbl.v_min_col == tbl.version)
+            else:
+                stmt = stmt \
+                    .where(tbl.store_tbl.v_min_col <= tbl.version) \
+                    .where(tbl.store_tbl.v_max_col > tbl.version)
+            prev_tbl = tbl
+        return stmt
+
+    def _open(self) -> None:
+        """Add PK columns to self.stmt"""
+        if self.set_pk:
+            assert self.ctx.pk_clause is not None
+            pk_cols = self.ctx.pk_clause
+            self.num_pk_cols = len(pk_cols)
+            self.stmt = self.stmt.add_columns(*pk_cols)
+
+    def _log_explain(self, conn: sql.engine.Connection) -> None:
+        try:
+            # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y, which results in a syntax error
+            stmt_str = str(self.stmt.compile(compile_kwargs={'literal_binds': True}))
+            explain_result = self.ctx.conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
+            explain_str = '\n'.join([str(row) for row in explain_result])
+            _logger.debug(f'SqlScanNode explain:\n{explain_str}')
+        except Exception as e:
+            _logger.warning(f'EXPLAIN failed')
 
     def __next__(self) -> DataRowBatch:
         if self.result_cursor is None:
             # run the query; do this here rather than in _open(), exceptions are only expected during iteration
-            if self.ctx.conn is not None:
-                try:
-                    self.result_cursor = self.ctx.conn.execute(self.stmt)
-                    self.has_more_rows = True
-                except Exception as e:
-                    self.has_more_rows = False
-                    raise e
-            else:
-                self.conn = Env.get().engine.connect()
-                try:
-                    self.result_cursor = self.conn.execute(self.stmt)
-                    self.has_more_rows = True
-                except Exception as e:
-                    self.conn.close()
-                    self.conn = None
-                    self.has_more_rows = False
-                    raise e
+            assert self.ctx.conn is not None
+            try:
+                self._log_explain(self.ctx.conn)
+                self.result_cursor = self.ctx.conn.execute(self.stmt)
+                self.has_more_rows = True
+            except Exception as e:
+                self.has_more_rows = False
+                raise e
 
         if not self.has_more_rows:
             raise StopIteration
 
-        output_batch = DataRowBatch(self.tbl, self.evaluator)
+        output_batch = DataRowBatch(self.tbl, self.row_builder)
         needs_row = True
         while self.ctx.batch_size == 0 or len(output_batch) < self.ctx.batch_size:
             try:
@@ -379,7 +411,7 @@ class SqlScanNode(ExecNode):
                 slot_idx = e.slot_idx
                 output_row[slot_idx] = sql_row[i]
             if self.filter is not None:
-                self.evaluator.eval(output_row, self.filter_eval_ctx, profile=self.ctx.profile)
+                self.row_builder.eval(output_row, self.filter_eval_ctx, profile=self.ctx.profile)
                 if output_row[self.filter.slot_idx]:
                     needs_row = True
                     if self.limit is not None and len(output_batch) >= self.limit:
@@ -395,15 +427,14 @@ class SqlScanNode(ExecNode):
             assert self.filter is not None
             output_batch.pop_row()
 
-        output_batch.flush_imgs(None, self.stored_img_cols, self.flushed_img_slots)
         _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
+        if len(output_batch) == 0:
+            raise StopIteration
         return output_batch
 
     def _close(self) -> None:
         if self.result_cursor is not None:
             self.result_cursor.close()
-        if self.conn is not None:
-            self.conn.close()
 
 
 class ExprEvalNode(ExecNode):
@@ -414,7 +445,7 @@ class ExprEvalNode(ExecNode):
         """List of exprs that form an evaluation context and contain calls to at most one NOS function"""
         exprs: List[exprs.Expr]
         model_info: Optional[nos.common.ModelSpec]
-        segments: List[List[exprs.Expr]]
+        segment_ctxs: List[exprs.DataRowBuilder.EvalCtx]
         target_slot_idxs: List[int]
 
         # for NOS cohorts:
@@ -485,10 +516,10 @@ class ExprEvalNode(ExecNode):
                 return self.batch_size, self.img_size
 
     def __init__(
-            self, evaluator: exprs.Evaluator, output_exprs: List[exprs.Expr], input_exprs: List[exprs.Expr],
+            self, row_builder: exprs.RowBuilder, output_exprs: List[exprs.Expr], input_exprs: List[exprs.Expr],
             ignore_errors: bool, input: ExecNode
     ):
-        super().__init__(evaluator, output_exprs, input_exprs, input)
+        super().__init__(row_builder, output_exprs, input_exprs, input)
         self.input_exprs = input_exprs
         input_slot_idxs = {e.slot_idx for e in input_exprs}
         # we're only materializing exprs that are not already in the input
@@ -500,8 +531,6 @@ class ExprEvalNode(ExecNode):
 
     def __next__(self) -> DataRowBatch:
         input_batch = next(self.input)
-        if len(input_batch) == 0:
-            return input_batch
         # compute target exprs
         for cohort in self.cohorts:
             self._exec_cohort(cohort, input_batch)
@@ -526,7 +555,7 @@ class ExprEvalNode(ExecNode):
         return self._get_nos_info(expr) is not None
 
     def _create_cohorts(self) -> None:
-        all_exprs = self.evaluator.get_eval_ctx(self.target_exprs)
+        all_exprs = self.row_builder.get_dependencies(self.target_exprs)
         # break up all_exprs into cohorts such that each cohort contains calls to at most one NOS function;
         # seed the cohorts with only the nos calls
         cohorts: List[List[exprs.Expr]] = []
@@ -546,8 +575,8 @@ class ExprEvalNode(ExecNode):
         all_target_slot_idxs = set([e.slot_idx for e in self.target_exprs])
         target_slot_idxs: List[List[int]] = []  # the ones materialized by each cohort
         for i in range(len(cohorts)):
-            cohorts[i] = self.evaluator.get_eval_ctx(
-                cohorts[i], exclude = [self.evaluator.unique_exprs[slot_idx] for slot_idx in exclude])
+            cohorts[i] = self.row_builder.get_dependencies(
+                cohorts[i], exclude=[self.row_builder.unique_exprs[slot_idx] for slot_idx in exclude])
             target_slot_idxs.append(
                 [e.slot_idx for e in cohorts[i] if e.slot_idx in all_target_slot_idxs])
             exclude.update(target_slot_idxs[-1])
@@ -555,9 +584,9 @@ class ExprEvalNode(ExecNode):
         all_cohort_slot_idxs = set([e.slot_idx for cohort in cohorts for e in cohort])
         remaining_slot_idxs = set(all_target_slot_idxs) - all_cohort_slot_idxs
         if len(remaining_slot_idxs) > 0:
-            cohorts.append(self.evaluator.get_eval_ctx(
-                [self.evaluator.unique_exprs[slot_idx] for slot_idx in remaining_slot_idxs],
-                exclude=[self.evaluator.unique_exprs[slot_idx] for slot_idx in exclude]))
+            cohorts.append(self.row_builder.get_dependencies(
+                [self.row_builder.unique_exprs[slot_idx] for slot_idx in remaining_slot_idxs],
+                exclude=[self.row_builder.unique_exprs[slot_idx] for slot_idx in exclude]))
             target_slot_idxs.append(list(remaining_slot_idxs))
         # we need to have captured all target slots at this point
         assert all_target_slot_idxs == set().union(*target_slot_idxs)
@@ -582,7 +611,14 @@ class ExprEvalNode(ExecNode):
                         segments.append([])
                         is_nos_segment = False
                     segments[-1].append(e)
-            cohort_info = self.Cohort(cohort, model_info, segments, target_slot_idxs[i])
+
+            # we create the EvalCtxs manually because create_eval_ctx() would repeat the dependencies of each segment
+            segment_ctxs = [
+                exprs.RowBuilder.EvalCtx(
+                    slot_idxs=[e.slot_idx for e in s], exprs=s, target_slot_idxs=[], target_exprs=[])
+                for s in segments
+            ]
+            cohort_info = self.Cohort(cohort, model_info, segment_ctxs, target_slot_idxs[i])
             self.cohorts.append(cohort_info)
 
     def _exec_cohort(self, cohort: Cohort, rows: DataRowBatch) -> None:
@@ -592,13 +628,13 @@ class ExprEvalNode(ExecNode):
         verify_nos_batch_size = cohort.is_multi_res_model()
         while batch_start_idx < len(rows):
             num_batch_rows = min(cohort.batch_size, len(rows) - batch_start_idx)
-            for segment in cohort.segments:
-                if not self._is_nos_call(segment[0]):
+            for segment_ctx in cohort.segment_ctxs:
+                if not self._is_nos_call(segment_ctx.exprs[0]):
                     # compute batch row-wise
                     for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
-                        self.evaluator.eval(rows[row_idx], segment, self.ctx.profile, ignore_errors=self.ignore_errors)
+                        self.row_builder.eval(rows[row_idx], segment_ctx, self.ctx.profile, ignore_errors=self.ignore_errors)
                 else:
-                    fn_call = segment[0]
+                    fn_call = segment_ctx.exprs[0]
                     # make a batched NOS call
                     arg_batches = [[] for _ in range(len(fn_call.args))]
                     assert len(cohort.nos_param_names) == len(arg_batches)
@@ -711,16 +747,14 @@ class InsertDataNode(ExecNode):
     """Outputs in-memory data as a row batch of a particular table"""
     def __init__(
             self, tbl: catalog.TableVersion, rows: List[List[Any]], row_column_pos: Dict[str, int],
-            evaluator: exprs.Evaluator, input_cols: List[ColumnInfo], frame_idx_slot_idx: int, start_row_id: int,
+            row_builder: exprs.RowBuilder, input_cols: List[exprs.ColumnSlotIdx], start_row_id: int,
     ):
-        super().__init__(evaluator, [], [], None)
+        super().__init__(row_builder, [], [], None)
         assert tbl.is_insertable()
         self.tbl = tbl
         self.input_rows = rows
         self.row_column_pos = row_column_pos  # col name -> idx of col in self.input_rows
-        self.evaluator = evaluator
         self.input_cols = input_cols
-        self.frame_idx_slot_idx = frame_idx_slot_idx
         self.start_row_id = start_row_id
         self.has_returned_data = False
         self.output_rows: Optional[DataRowBatch] = None
@@ -750,50 +784,12 @@ class InsertDataNode(ExecNode):
 
         self.input_rows = _input_rows
 
-        if not self.tbl.extracts_frames():
-            self.output_rows = DataRowBatch(self.tbl, self.evaluator, len(self.input_rows))
-            for info in self.input_cols:
-                col_idx = self.row_column_pos[info.col.name]
-                for row_idx, input_row in enumerate(self.input_rows):
-                    self.output_rows[row_idx][info.slot_idx] = input_row[col_idx]
-        else:
-            # we're extracting frames: we replace each row with one row per frame, which has the frame_idx col set
-            video_col = self.tbl.frame_src_col()
-            assert video_col is not None and self.frame_idx_slot_idx is not None
-            # get the output row count per video
-            counts = [0] * len(self.input_rows)
-            assert video_col.name in self.row_column_pos
-            video_col_idx = self.row_column_pos[video_col.name]
+        self.output_rows = DataRowBatch(self.tbl, self.row_builder, len(self.input_rows))
+        for info in self.input_cols:
+            col_idx = self.row_column_pos[info.col.name]
             for row_idx, input_row in enumerate(self.input_rows):
-                video_path = self._get_local_path(input_row[video_col_idx])
-                if video_path is None:
-                    counts[row_idx] = 1  # this will occupy one row in output_rows
-                    continue
-                with FrameIterator(video_path, fps=self.tbl.parameters.extraction_fps) as frame_iter:
-                    counts[row_idx] = len(frame_iter)
+                self.output_rows[row_idx][info.slot_idx] = input_row[col_idx]
 
-            self.output_rows = DataRowBatch(self.tbl, self.evaluator, sum(counts))
-            # populate frame_idx_col
-            row_idx = 0
-            for input_row_idx, count in enumerate(counts):
-                if self.input_rows[input_row_idx][video_col_idx] is None:
-                    self.output_rows[row_idx][self.frame_idx_slot_idx] = None
-                    row_idx += 1
-                    continue
-                for i in range(count):
-                    self.output_rows[row_idx][self.frame_idx_slot_idx] = i
-                    row_idx += 1
-            # populate cols we get from the input df
-            for info in self.input_cols:
-                row_idx = 0
-                col_idx = self.row_column_pos[info.col.name]
-                for input_row_idx, input_row in enumerate(self.input_rows):
-                    val = input_row[col_idx]
-                    for i in range(counts[input_row_idx]):
-                        self.output_rows[row_idx][info.slot_idx] = val
-                        row_idx += 1
-
-        # assign row ids
         self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
         self.ctx.num_rows = len(self.output_rows)
 
@@ -829,9 +825,9 @@ class CachePrefetchNode(ExecNode):
     - maintain a queue of row batches, in order to overlap download and evaluation
     - adapting the number of download threads at runtime to maximize throughput
     """
-    def __init__(self, tbl_id: UUID, file_col_info: List[ColumnInfo], input: ExecNode):
+    def __init__(self, tbl_id: UUID, file_col_info: List[exprs.ColumnSlotIdx], input: ExecNode):
         # []: we don't have anything to evaluate
-        super().__init__(input.evaluator, [], [], input)
+        super().__init__(input.row_builder, [], [], input)
         self.tbl_id = tbl_id
         self.file_col_info = file_col_info
 
@@ -841,8 +837,6 @@ class CachePrefetchNode(ExecNode):
 
     def __next__(self) -> DataRowBatch:
         input_batch = next(self.input)
-        if len(input_batch) == 0:
-            return input_batch
 
         # collect external URLs that aren't already cached, and set DataRow.file_paths for those that are
         file_cache = FileCache.get()
@@ -866,7 +860,7 @@ class CachePrefetchNode(ExecNode):
 
         # download the cache misses in parallel
         # TODO: set max_workers to maximize throughput
-        futures: Dict[concurrent.futures.Future, Tuple[exprs.DataRow, ColumnInfo]] = {}
+        futures: Dict[concurrent.futures.Future, Tuple[exprs.DataRow, exprs.ColumnSlotIdx]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
             for row, info in cache_misses:
                 futures[executor.submit(self._fetch_url, row.file_urls[info.slot_idx])] = (row, info)
@@ -882,7 +876,6 @@ class CachePrefetchNode(ExecNode):
 
         return input_batch
 
-
     def _fetch_url(self, url: str) -> str:
         """Fetches a remote URL into Env.tmp_dir and returns its path"""
         parsed = urllib.parse.urlparse(url)
@@ -896,3 +889,73 @@ class CachePrefetchNode(ExecNode):
             self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
             return tmp_path
         assert False, f'Unsupported URL scheme: {parsed.scheme}'
+
+
+class ComponentIterationNode(ExecNode):
+    """Expands each row from a base table into one row per component returned by an iterator
+
+    Returns row batches of OUTPUT_BATCH_SIZE size.
+    """
+    OUTPUT_BATCH_SIZE = 1024
+
+    def __init__(self, view: catalog.TableVersion, input: ExecNode):
+        assert view.is_component_view()
+        super().__init__(input.row_builder, [], [], input)
+        self.view = view
+        iterator_args = [view.iterator_args.copy()]
+        self.row_builder.substitute_exprs(iterator_args)
+        self.iterator_args = iterator_args[0]
+        self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args])
+        self.iterator_output_schema, self.unstored_column_names = self.view.iterator_cls.output_schema()
+        self.iterator_output_fields = list(self.iterator_output_schema.keys())
+        self.iterator_output_cols = \
+            {field_name: self.view.cols_by_name[field_name] for field_name in self.iterator_output_fields}
+        # referenced iterator output fields
+        self.refd_output_slot_idxs = {
+            e.col.name: e.slot_idx for e in self.row_builder.unique_exprs
+            if isinstance(e, exprs.ColumnRef) and e.col.name in self.iterator_output_fields
+        }
+        self._output: Optional[Generator[DataRowBatch, None, None]] = None
+
+    def _output_batches(self) -> Generator[DataRowBatch, None, None]:
+        output_batch = DataRowBatch(self.view, self.row_builder)
+        for input_batch in self.input:
+            for input_row in input_batch:
+                self.row_builder.eval(input_row, self.iterator_args_ctx)
+                iterator_args = input_row[self.iterator_args.slot_idx]
+                iterator = self.view.iterator_cls(**iterator_args)
+                for pos, component_dict in enumerate(iterator):
+                    output_row = output_batch.add_row()
+                    input_row.copy(output_row)
+                    # we're expanding the input and need to add the iterator position to the pk
+                    pk = output_row.pk[:-1] + (pos,) + output_row.pk[-1:]
+                    output_row.set_pk(pk)
+
+                    # verify and copy component_dict fields to their respective slots in output_row
+                    for field_name, field_val in component_dict.items():
+                        if field_name not in self.iterator_output_fields:
+                            raise exc.Error(
+                                f'Invalid field name {field_name} in output of {self.view.iterator_cls.__name__}')
+                        if field_name not in self.refd_output_slot_idxs:
+                            # we can ignore this
+                            continue
+                        output_col = self.iterator_output_cols[field_name]
+                        output_col.col_type.validate_literal(field_val)
+                        output_row[self.refd_output_slot_idxs[field_name]] = field_val
+                    if len(component_dict) != len(self.iterator_output_fields):
+                        missing_fields = set(self.refd_output_slot_idxs.keys()) - set(component_dict.keys())
+                        raise exc.Error(
+                            f'Invalid output of {self.view.iterator_cls.__name__}: '
+                            f'missing fields {", ".join(missing_fields)}')
+
+                    if len(output_batch) == self.OUTPUT_BATCH_SIZE:
+                        yield output_batch
+                        output_batch = DataRowBatch(self.view, self.row_builder)
+
+        if len(output_batch) > 0:
+            yield output_batch
+
+    def __next__(self) -> DataRowBatch:
+        if self._output is None:
+            self._output = self._output_batches()
+        return next(self._output)

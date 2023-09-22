@@ -1,123 +1,200 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Union, Tuple
 from uuid import UUID
+import re
+import json
 
-import sqlalchemy.orm as orm
+import sqlalchemy as sql
 
+from .table import Table
 from .column import Column
 from .table_version import TableVersion
-from .table import Table
-from pixeltable.env import Env
 from pixeltable import exceptions as exc
+from ..env import Env
+from ..metadata import schema
+from .globals import is_valid_identifier
 
 
 _logger = logging.getLogger('pixeltable')
 
 class MutableTable(Table):
-    """A :py:class:`Table` that allows inserting and deleting rows.
-    """
-    def __init__(self, dir_id: UUID, tbl_version: TableVersion):
-        super().__init__(tbl_version.id, dir_id, tbl_version)
+    """Base class for tables that allow mutations, ie, InsertableTable and View"""
 
-    @classmethod
-    def display_name(cls) -> str:
-        return 'table'
+    @dataclasses.dataclass
+    class UpdateStatus:
+        num_rows: int = 0
+        # TODO: change to num_computed_columns (the number of computed slots isn't really meaningful to the user)
+        num_computed_values: int = 0
+        num_excs: int = 0
+        updated_cols: List[str] = dataclasses.field(default_factory=list)
+        cols_with_excs: List[str] = dataclasses.field(default_factory=list)
 
-    # MODULE-LOCAL, NOT PUBLIC
-    @classmethod
-    def create(
-            cls, dir_id: UUID, name: str, cols: List[Column],
-            num_retained_versions: int,
-            extract_frames_from: Optional[str], extracted_frame_col: Optional[str],
-            extracted_frame_idx_col: Optional[str], extracted_fps: Optional[int],
-    ) -> MutableTable:
-        with orm.Session(Env.get().engine, future=True) as session:
-            tbl_version = TableVersion.create(
-                dir_id, name, cols, None, None, num_retained_versions, extract_frames_from, extracted_frame_col,
-                extracted_frame_idx_col, extracted_fps, session)
-            tbl = cls(dir_id, tbl_version)
-            session.commit()
-            _logger.info(f'created table {name}, id={tbl_version.id}')
-            return tbl
+    def __init__(self, id: UUID, dir_id: UUID, tbl_version: TableVersion):
+        super().__init__(id, dir_id, tbl_version.name, tbl_version)
 
-    def insert(self, rows: List[List[Any]], columns: List[str] = [], print_stats: bool = False) -> Table.UpdateStatus:
-        """Insert rows into table.
+    def move(self, new_name: str, new_dir_id: UUID) -> None:
+        super().move(new_name, new_dir_id)
+        with Env.get().engine.begin() as conn:
+            stmt = sql.text((
+                f"UPDATE {schema.Table.__table__} "
+                f"SET {schema.Table.dir_id.name} = :new_dir_id, "
+                f"    {schema.Table.md.name}['name'] = :new_name "
+                f"WHERE {schema.Table.id.name} = :id"))
+            conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self.id})
+
+    def add_column(self, col: Column, print_stats: bool = False) -> MutableTable.UpdateStatus:
+        """Adds a column to the table.
 
         Args:
-            rows: A list of rows to insert. Each row is a list of values, one for each column.
-            columns: A list of column names that specify the columns present in ``rows``.
-                If ``columns`` is empty, all non-computed columns are present in ``rows``.
-            print_stats: If ``True``, print statistics about the cost of computed columns.
+            col: The column to add.
 
         Returns:
             execution status
 
         Raises:
-            Error: If the number of columns in ``rows`` does not match the number of columns in the table or in
-            ``columns``.
+            Error: If the column name is invalid or already exists.
 
         Examples:
-            Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Note that the ``columns``
-            argument is required here because ``rows`` only contain two columns.
+            Add an int column with ``None`` values:
 
-            >>> tbl.insert([[1, 1], [2, 2]], columns=['a', 'b'])
+            >>> tbl.add_column(Column('new_col', IntType()))
 
-            Assuming a table with columns ``video``, ``frame`` and ``frame_idx`` and set up for automatic frame extraction,
-            insert a single row containing a video file path (the video contains 100 frames). The row will be expanded
-            into 100 rows, one for each frame, and the ``frame`` and ``frame_idx`` columns will be populated accordingly.
-            Note that the ``columns`` argument is unnecessary here because only the ``video`` column is required.
+            For a table with int column ``x``, add a column that is the factorial of ``x``. Note that the names of
+            the parameters of the ``computed_with`` Callable must correspond to existing column names (the column
+            values are then passed as arguments to the Callable):
 
-            >>> tbl.insert([['/path/to/video.mp4']])
+            >>> tbl.add_column(Column('factorial', IntType(), computed_with=lambda x: math.factorial(x)))
 
+            For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
+            90 degrees (note that in this case, the column type is inferred from the ``computed_with`` expression):
+
+            >>> tbl.add_column(Column('rotated', computed_with=tkbl.frame.rotate(90)))
+            'added ...'
         """
-        if not isinstance(rows, list):
-            raise exc.Error('rows must be a list of lists')
-        if len(rows) == 0:
-            raise exc.Error('rows must not be empty')
-        for row in rows:
-            if not isinstance(row, list):
-                raise exc.Error('rows must be a list of lists')
-        if not isinstance(columns, list):
-            raise exc.Error('columns must be a list of column names')
-        for col_name in columns:
-            if not isinstance(col_name, str):
-                raise exc.Error('columns must be a list of column names')
+        self._check_is_dropped()
+        self._verify_column(col)
+        return self.tbl_version.add_column(col, print_stats=print_stats)
 
-        insertable_col_names = self.tbl_version.get_insertable_col_names()
-        if len(columns) == 0 and len(rows[0]) != len(insertable_col_names):
-            if len(rows[0]) < len(insertable_col_names):
-                raise exc.Error((
-                    f'Table {self.name} has {len(insertable_col_names)} user-supplied columns, but the data only '
-                    f'contains {len(rows[0])} columns. In this case, you need to specify the column names with the '
-                    f"'columns' parameter."))
-            else:
-                raise exc.Error((
-                    f'Table {self.name} has {len(insertable_col_names)} user-supplied columns, but the data '
-                    f'contains {len(rows[0])} columns. '))
-
-        # make sure that each row contains the same number of values
-        num_col_vals = len(rows[0])
-        for i in range(1, len(rows)):
-            if len(rows[i]) != num_col_vals:
-                raise exc.Error(
-                    f'Inconsistent number of column values in rows: row 0 has {len(rows[0])}, '
-                    f'row {i} has {len(rows[i])}')
-
-        if len(columns) == 0:
-            columns = insertable_col_names
-        if len(rows[0]) != len(columns):
+    @classmethod
+    def _verify_column(cls, col: Column) -> None:
+        """Check integrity of user-supplied Column and supply defaults"""
+        if not is_valid_identifier(col.name):
+            raise exc.Error(f"Invalid column name: '{col.name}'")
+        if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
+            raise exc.Error(f'Column {col.name}: stored={col.stored} only applies to computed image columns')
+        if col.stored is False and not (col.col_type.is_image_type() and not col.has_window_fn_call()):
             raise exc.Error(
-                f'The number of column values in rows ({len(rows[0])}) does not match the given number of column names '
-                f'({", ".join(columns)})')
+                f'Column {col.name}: stored={col.stored} is not valid for image columns computed with a streaming function')
+        if col.stored is None:
+            col.stored = not (col.is_computed and col.col_type.is_image_type() and not col.has_window_fn_call())
 
-        self.tbl_version.check_input_rows(rows, columns)
-        return self.tbl_version.insert(rows, columns, print_stats=print_stats)
+    @classmethod
+    def _verify_columns(cls, cols: List[Column]) -> None:
+        """Check integrity of user-supplied Columns and supply defaults"""
+        cols_by_name: Dict[str, Column] = {}
+        for col in cols:
+            cls._verify_column(col)
+            # make sure col names are unique (within the table)
+            if col.name in cols_by_name:
+                raise exc.Error(f'Duplicate column: {col.name}')
+            cols_by_name[col.name] = col
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> Table.UpdateStatus:
-        """Delete rows in this table.
+    def drop_column(self, name: str) -> None:
+        """Drop a column from the table.
+
         Args:
-            where: a Predicate to filter rows to delete.
+            name: The name of the column to drop.
+
+        Raises:
+            Error: If the column does not exist or if it is referenced by a computed column.
+
+        Example:
+            >>> tbl.drop_column('factorial')
         """
-        return self.tbl_version.delete(where)
+        self._check_is_dropped()
+        self.tbl_version.drop_column(name)
+
+    def rename_column(self, old_name: str, new_name: str) -> None:
+        """Rename a column.
+
+        Args:
+            old_name: The current name of the column.
+            new_name: The new name of the column.
+
+        Raises:
+            Error: If the column does not exist or if the new name is invalid or already exists.
+
+        Example:
+            >>> tbl.rename_column('factorial', 'fac')
+        """
+        self._check_is_dropped()
+        self.tbl_version.rename_column(old_name, new_name)
+
+    def update(
+            self, value_spec: Dict[str, Union['pixeltable.exprs.Expr', Any]],
+            where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
+    ) -> MutableTable.UpdateStatus:
+        """Update rows in this table.
+        Args:
+            value_spec: a dict mapping column names to literal values or Pixeltable expressions.
+            where: a Predicate to filter rows to update.
+            cascade: if True, also update all computed columns that transitively depend on the updated columns.
+        """
+        from pixeltable import exprs
+        update_targets: List[Tuple[Column, exprs.Expr]] = []
+        for col_name, val in value_spec.items():
+            if not isinstance(col_name, str):
+                raise exc.Error(f'Update specification: dict key must be column name, got {col_name!r}')
+            if col_name not in self.tbl_version.cols_by_name:
+                raise exc.Error(f'Column {col_name} unknown')
+            col = self.tbl_version.cols_by_name[col_name]
+            if col.is_computed:
+                raise exc.Error(f'Column {col_name} is computed and cannot be updated')
+            if col.primary_key:
+                raise exc.Error(f'Column {col_name} is a primary key column and cannot be updated')
+            if col.col_type.is_image_type():
+                raise exc.Error(f'Column {col_name} has type image and cannot be updated')
+            if col.col_type.is_video_type():
+                raise exc.Error(f'Column {col_name} has type video and cannot be updated')
+
+            # make sure that the value is compatible with the column type
+            # check if this is a literal
+            try:
+                value_expr = exprs.Literal(val, col_type=col.col_type)
+            except TypeError:
+                # it's not a literal, let's try to create an expr from it
+                value_expr = exprs.Expr.from_object(val)
+                if value_expr is None:
+                    raise exc.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
+                if not col.col_type.matches(value_expr.col_type):
+                    raise exc.Error((
+                        f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
+                        f'{col_name} ({col.col_type})'
+                    ))
+            update_targets.append((col, value_expr))
+
+        from pixeltable.plan import Planner
+        if where is not None:
+            if not isinstance(where, exprs.Predicate):
+                raise exc.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            analysis_info = Planner.analyze(self.tbl_version, where)
+            if analysis_info.similarity_clause is not None:
+                raise exc.Error('nearest() cannot be used with update()')
+            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+            if analysis_info.filter is not None:
+                raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+
+        return self.tbl_version.update(update_targets, where, cascade)
+
+    def revert(self) -> None:
+        """Reverts the table to the previous version.
+
+        .. warning::
+            This operation is irreversible.
+        """
+        self._check_is_dropped()
+        self.tbl_version.revert()
+

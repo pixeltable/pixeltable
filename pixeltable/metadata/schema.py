@@ -80,18 +80,6 @@ class TableParameters:
     # garbage-collect old versions beyond this point, unless they are referenced in a snapshot
     num_retained_versions: int = 10
 
-    # parameters for frame extraction
-    frame_src_col_id: int = -1 # column id
-    frame_col_id: int = -1 # column id
-    frame_idx_col_id: int = -1 # column id
-    extraction_fps: int = -1
-
-    def reset(self) -> None:
-        self.frame_src_col_id = -1
-        self.frame_col_id = -1
-        self.frame_idx_col_id = -1
-        self.extraction_fps = -1
-
 
 @dataclasses.dataclass
 class TableMd:
@@ -114,6 +102,12 @@ class TableMd:
 
     # filter predicate applied to the base table; view-only
     predicate: Optional[dict]
+
+    # ComponentIterator subclass; only for component views
+    iterator_class_fqn: Optional[str]
+
+    # args to pass to the iterator class constructor; only for component views
+    iterator_args: Optional[Dict[str, Any]]
 
 
 class Table(Base):

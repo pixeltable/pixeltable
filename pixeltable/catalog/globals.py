@@ -10,6 +10,9 @@ from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
 
+# name of the position column in a component view
+POS_COLUMN_NAME = 'pos'
+
 @dataclasses.dataclass
 class UpdateStatus:
     num_rows: int = 0
@@ -31,3 +34,15 @@ def init_catalog() -> None:
         session.flush()
         session.commit()
         _logger.info(f'Initialized catalog')
+
+def is_valid_identifier(name: str) -> bool:
+    return name.isidentifier() and not name.startswith('_')
+
+def is_valid_path(path: str, empty_is_valid : bool) -> bool:
+    if path == '':
+        return empty_is_valid
+
+    for part in path.split('.'):
+        if not is_valid_identifier(part):
+            return False
+    return True
