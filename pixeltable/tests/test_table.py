@@ -189,6 +189,7 @@ class TestTable:
     def test_create_video_table(self, test_client: pt.Client) -> None:
         cl = test_client
         cols = [
+            catalog.Column('payload', IntType(nullable=False)),
             catalog.Column('video', VideoType(nullable=False)),
             catalog.Column('frame', ImageType(nullable=False)),
             catalog.Column('frame_idx', IntType(nullable=False)),
@@ -240,7 +241,8 @@ class TestTable:
         cl = pt.Client()
         tbl = cl.get_table('test')
         assert tbl.parameters == params
-        tbl.insert([[get_video_files()[0]]], ['video'])
+        # we're inserting only a single row and the video column is not in position 0
+        tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
         # * 2: we have four stored img cols
         assert ImageStore.count(tbl.id) == tbl.count() * 2
         html_str = tbl.show(n=100)._repr_html_()
@@ -257,7 +259,7 @@ class TestTable:
             tbl.drop_column('frame_idx')
 
         # drop() clears stored images and the cache
-        tbl.insert([[get_video_files()[0]]], ['video'])
+        tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
         _ = tbl.show()
         tbl.drop()
         assert ImageStore.count(tbl.id) == 0

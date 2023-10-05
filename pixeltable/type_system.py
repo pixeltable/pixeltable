@@ -427,10 +427,10 @@ class IntType(ColumnType):
         super().__init__(self.Type.INT, nullable=nullable)
 
     def to_sql(self) -> str:
-        return 'INTEGER'
+        return 'BIGINT'
 
     def to_sa_type(self) -> str:
-        return sql.Integer
+        return sql.BigInteger
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         # TODO: how to specify the correct int subtype?

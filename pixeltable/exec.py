@@ -787,7 +787,7 @@ class InsertDataNode(ExecNode):
             # populate frame_idx_col
             row_idx = 0
             for input_row_idx, count in enumerate(counts):
-                if self.input_rows[video_col_idx] is None:
+                if self.input_rows[input_row_idx][video_col_idx] is None:
                     self.output_rows[row_idx, self.frame_idx_slot_idx] = None
                     row_idx += 1
                     continue
