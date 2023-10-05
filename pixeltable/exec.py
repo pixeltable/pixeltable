@@ -14,6 +14,7 @@ from uuid import UUID
 import concurrent.futures
 import threading
 import os
+from collections import defaultdict
 
 import numpy as np
 from tqdm.autonotebook import tqdm
@@ -40,19 +41,27 @@ class ColumnInfo:
 
 
 class DataRowBatch:
-    """
-    Set of DataRows, indexed by rowid. Keeps track of image memory consumption and can flush images.
+    """Set of DataRows, indexed by rowid.
+
+    Contains the metadata needed to initialize DataRows.
     """
     def __init__(self, table: catalog.TableVersion, evaluator: exprs.Evaluator, len: int = 0):
         self.table_id = table.id
         self.table_version = table.version
         self.evaluator = evaluator
-        self.rows = [evaluator.prepare() for _ in range(len)]
         self.img_slot_idxs = [e.slot_idx for e in evaluator.unique_exprs if e.col_type.is_image_type()]
+        self.video_slot_idxs = [e.slot_idx for e in evaluator.unique_exprs if e.col_type.is_video_type()]
+        self.media_slot_idxs = self.img_slot_idxs + self.video_slot_idxs
         self.array_slot_idxs = [e.slot_idx for e in evaluator.unique_exprs if e.col_type.is_array_type()]
+        self.rows = [
+            exprs.DataRow(evaluator.num_materialized, self.img_slot_idxs, self.video_slot_idxs, self.array_slot_idxs)
+            for _ in range(len)
+        ]
 
     def add_row(self, row: Optional[exprs.DataRow] = None) -> exprs.DataRow:
-        row = self.evaluator.prepare() if row is None else row
+        if row is None:
+            row = exprs.DataRow(
+                self.evaluator.num_materialized, self.img_slot_idxs, self.video_slot_idxs, self.array_slot_idxs)
         self.rows.append(row)
         return row
 
@@ -60,7 +69,7 @@ class DataRowBatch:
         return self.rows.pop()
 
     def set_row_ids(self, row_ids: List[int]) -> None:
-        """Sets pks for rows in batch, assuming they are table rows"""
+        """Sets pks for rows in batch"""
         assert len(row_ids) == len(self.rows)
         for row, row_id in zip(self.rows, row_ids):
             row.set_pk((row_id, self.table_version))
@@ -70,27 +79,6 @@ class DataRowBatch:
 
     def __getitem__(self, index: object) -> exprs.DataRow:
         return self.rows[index]
-
-    def __setitem__(self, index: object, val: Any) -> None:
-        row_idx, slot_idx = index
-        if slot_idx in self.img_slot_idxs and isinstance(val, str):
-            # this is either a local file path or a URL
-            row = self.rows[row_idx]
-            parsed = urllib.parse.urlparse(val)
-            if parsed.scheme == '' or parsed.scheme == 'file':
-                # local file path
-                assert row.file_urls[slot_idx] is None and row.file_paths[slot_idx] is None
-                row.file_urls[slot_idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(parsed.path))
-                row.file_paths[slot_idx] = parsed.path
-            else:
-                # URL
-                assert row.file_urls[slot_idx] is None
-                row.file_urls[slot_idx] = val
-            row.has_val[slot_idx] = True
-        elif slot_idx in self.array_slot_idxs and isinstance(val, bytes):
-            self.rows[row_idx][slot_idx] = np.load(io.BytesIO(val))
-        else:
-            self.rows[row_idx][slot_idx] = val
 
     def flush_imgs(
             self, idx_range: Optional[slice] = None, stored_img_info: List[ColumnInfo] = [],
@@ -383,18 +371,16 @@ class SqlScanNode(ExecNode):
                 break
 
             if needs_row:
-                output_batch.add_row()
+                output_row = output_batch.add_row()
             if self.num_pk_cols > 0:
-                row = output_batch[-1]
-                row.set_pk(tuple(sql_row[-self.num_pk_cols:]))
+                output_row.set_pk(tuple(sql_row[-self.num_pk_cols:]))
             # copy the output of the SQL query into the output row
             for i, e in enumerate(self.sql_exprs):
                 slot_idx = e.slot_idx
-                output_batch[-1, slot_idx] = sql_row[i]
+                output_row[slot_idx] = sql_row[i]
             if self.filter is not None:
-                row = output_batch[-1]
-                self.evaluator.eval(row, self.filter_eval_ctx, profile=self.ctx.profile)
-                if row[self.filter.slot_idx]:
+                self.evaluator.eval(output_row, self.filter_eval_ctx, profile=self.ctx.profile)
+                if output_row[self.filter.slot_idx]:
                     needs_row = True
                     if self.limit is not None and len(output_batch) >= self.limit:
                         self.has_more_rows = False
@@ -402,7 +388,7 @@ class SqlScanNode(ExecNode):
                 else:
                     # we re-use this row for the next sql row if it didn't pass the filter
                     needs_row = False
-                    row.clear()
+                    output_row.clear()
 
         if not needs_row:
             # the last row didn't pass the filter
@@ -739,6 +725,9 @@ class InsertDataNode(ExecNode):
         self.has_returned_data = False
         self.output_rows: Optional[DataRowBatch] = None
 
+        # TODO: remove this with component views
+        self.boto_client: Optional[Any] = None
+
     def _open(self) -> None:
         """Create row batch and populate with self.data"""
 
@@ -766,7 +755,7 @@ class InsertDataNode(ExecNode):
             for info in self.input_cols:
                 col_idx = self.row_column_pos[info.col.name]
                 for row_idx, input_row in enumerate(self.input_rows):
-                    self.output_rows[row_idx, info.slot_idx] = input_row[col_idx]
+                    self.output_rows[row_idx][info.slot_idx] = input_row[col_idx]
         else:
             # we're extracting frames: we replace each row with one row per frame, which has the frame_idx col set
             video_col = self.tbl.frame_src_col()
@@ -776,7 +765,7 @@ class InsertDataNode(ExecNode):
             assert video_col.name in self.row_column_pos
             video_col_idx = self.row_column_pos[video_col.name]
             for row_idx, input_row in enumerate(self.input_rows):
-                video_path = input_row[video_col_idx]
+                video_path = self._get_local_path(input_row[video_col_idx])
                 if video_path is None:
                     counts[row_idx] = 1  # this will occupy one row in output_rows
                     continue
@@ -788,11 +777,11 @@ class InsertDataNode(ExecNode):
             row_idx = 0
             for input_row_idx, count in enumerate(counts):
                 if self.input_rows[input_row_idx][video_col_idx] is None:
-                    self.output_rows[row_idx, self.frame_idx_slot_idx] = None
+                    self.output_rows[row_idx][self.frame_idx_slot_idx] = None
                     row_idx += 1
                     continue
                 for i in range(count):
-                    self.output_rows[row_idx, self.frame_idx_slot_idx] = i
+                    self.output_rows[row_idx][self.frame_idx_slot_idx] = i
                     row_idx += 1
             # populate cols we get from the input df
             for info in self.input_cols:
@@ -801,12 +790,29 @@ class InsertDataNode(ExecNode):
                 for input_row_idx, input_row in enumerate(self.input_rows):
                     val = input_row[col_idx]
                     for i in range(counts[input_row_idx]):
-                        self.output_rows[row_idx, info.slot_idx] = val
+                        self.output_rows[row_idx][info.slot_idx] = val
                         row_idx += 1
 
         # assign row ids
         self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
         self.ctx.num_rows = len(self.output_rows)
+
+    def _get_local_path(self, url: str) -> str:
+        """Returns local path for url"""
+        if url is None:
+            return None
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme == '' or parsed.scheme == 'file':
+            # local file path
+            return parsed.path
+        if parsed.scheme == 's3':
+            from pixeltable.utils.s3 import get_client
+            if self.boto_client is None:
+                self.boto_client = get_client()
+            tmp_path = str(Env.get().tmp_dir / os.path.basename(parsed.path))
+            self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), tmp_path)
+            return tmp_path
+        assert False, f'Unsupported URL scheme: {parsed.scheme}'
 
     def __next__(self) -> DataRowBatch:
         if self.has_returned_data:
@@ -841,14 +847,20 @@ class CachePrefetchNode(ExecNode):
         # collect external URLs that aren't already cached, and set DataRow.file_paths for those that are
         file_cache = FileCache.get()
         cache_misses: List[Tuple[exprs.DataRow, ColumnInfo]] = []
+        missing_url_rows: Dict[str, List[exprs.DataRow]] = defaultdict(list)
         for row in input_batch:
             for info in self.file_col_info:
-                if row.file_urls[info.slot_idx] is None or row.file_paths[info.slot_idx] is not None:
+                url = row.file_urls[info.slot_idx]
+                if url is None or row.file_paths[info.slot_idx] is not None:
                     # nothing to do
                     continue
-                local_path = file_cache.lookup(self.tbl_id, info.col.id, row.pk)
+                if url in missing_url_rows:
+                    missing_url_rows[url].append(row)
+                    continue
+                local_path = file_cache.lookup(url)
                 if local_path is None:
                     cache_misses.append((row, info))
+                    missing_url_rows[url].append(row)
                 else:
                     row.file_paths[info.slot_idx] = local_path
 
@@ -862,11 +874,14 @@ class CachePrefetchNode(ExecNode):
                 # TODO:  does this need to deal with recoverable errors (such as retry after throttling)?
                 tmp_path = future.result()
                 row, info = futures[future]
-                local_path = file_cache.add(self.tbl_id, info.col.id, row.pk, tmp_path)
-                row.file_paths[info.slot_idx] = local_path
-                _logger.debug(f'PrefetchNode: cached {row.file_urls[info.slot_idx]} as {local_path}')
+                url = row.file_urls[info.slot_idx]
+                local_path = file_cache.add(self.tbl_id, info.col.id, url, tmp_path)
+                _logger.debug(f'PrefetchNode: cached {url} as {local_path}')
+                for row in missing_url_rows[url]:
+                    row.file_paths[info.slot_idx] = str(local_path)
 
         return input_batch
+
 
     def _fetch_url(self, url: str) -> str:
         """Fetches a remote URL into Env.tmp_dir and returns its path"""

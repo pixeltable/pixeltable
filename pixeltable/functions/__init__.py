@@ -125,7 +125,7 @@ class VideoAggregator:
         self.video_writer.release()
         convert_to_h264(self.tmp_file, self.out_file)
         os.remove(self.tmp_file)
-        return self.out_file
+        return str(self.out_file)
 
 make_video = Function.make_library_aggregate_function(
     VideoType(), [ImageType()],  # params: frame

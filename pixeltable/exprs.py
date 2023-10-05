@@ -627,7 +627,8 @@ class FrameColumnRef(ColumnRef):
 
     def eval(self, data_row: DataRow, evaluator: Evaluator) -> None:
         # extract frame
-        video_path = data_row[self._video_ref.slot_idx]
+        assert data_row.file_paths[self._video_ref.slot_idx] is not None
+        video_path = data_row.file_paths[self._video_ref.slot_idx]  # we need the local path
         if self.frames is None or self.current_video != video_path:
             self.current_video = video_path
             if self.frames is not None:
@@ -1849,11 +1850,17 @@ class DataRow:
 
     This is not meant to be a black-box abstraction.
     """
-    def __init__(self, size: int):
+    def __init__(self, size: int, img_slot_idxs: List[int], video_slot_idxs: List[int], array_slot_idxs: List[int]):
         self.vals: List[Any] = [None] * size  # either cell values or exceptions
         self.has_val = [False] * size
         self.excs: List[Optional[Exception]] = [None] * size
-        # the primary key of a row is a sequence of ints (the number is different for table vs view)
+
+        # control structures that are shared across all DataRows in a batch
+        self.img_slot_idxs = img_slot_idxs
+        self.video_slot_idxs = video_slot_idxs
+        self.array_slot_idxs = array_slot_idxs
+
+        # the primary key of a store row is a sequence of ints (the number is different for table vs view)
         self.pk: Optional[Tuple[int, ...]] = None
 
         # file_urls:
@@ -1893,15 +1900,22 @@ class DataRow:
         self.excs[slot_idx] = exc
 
     def __getitem__(self, index: object) -> Any:
-        """Returns in-memory value"""
+        """Returns in-memory value, ie, what is needed for expr evaluation"""
         if not self.has_val[index]:
             # for debugging purposes
             pass
         assert self.has_val[index]
-        # if we need to load this from a file, it should have been materialized locally
-        assert not(self.file_urls[index] is not None and self.file_paths[index] is None)
-        if self.file_paths[index] is not None and self.vals[index] is None:
-            self.vals[index] = PIL.Image.open(self.file_paths[index])
+
+        if index in self.img_slot_idxs:
+            # if we need to load this from a file, it should have been materialized locally
+            assert not(self.file_urls[index] is not None and self.file_paths[index] is None)
+            if self.file_paths[index] is not None and self.vals[index] is None:
+                self.vals[index] = PIL.Image.open(self.file_paths[index])
+
+        if index in self.video_slot_idxs:
+            # the value of a video cell is the url
+            assert self.file_urls[index] is not None and self.file_urls[index] == self.vals[index]
+
         return self.vals[index]
 
     def get_stored_val(self, index: object) -> Any:
@@ -1922,11 +1936,33 @@ class DataRow:
             return buffer.getvalue()
         return self.vals[index]
 
-    def __setitem__(self, index: object, val: Any) -> None:
-        assert self.excs[index] is None
-        # we allow overwriting
-        self.vals[index] = val
-        self.has_val[index] = True
+    def __setitem__(self, idx: object, val: Any) -> None:
+        """Assign in-memory cell value
+        This allows overwriting
+        """
+        assert self.excs[idx] is None
+
+        if (idx in self.img_slot_idxs or idx in self.video_slot_idxs) and isinstance(val, str):
+            # this is either a local file path or a URL
+            parsed = urllib.parse.urlparse(val)
+            if parsed.scheme == '' or parsed.scheme == 'file':
+                # local file path
+                assert self.file_urls[idx] is None and self.file_paths[idx] is None
+                self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(parsed.path))
+                self.file_paths[idx] = urllib.parse.unquote(parsed.path)
+            else:
+                # URL
+                assert self.file_urls[idx] is None
+                self.file_urls[idx] = val
+            if idx in self.video_slot_idxs:
+                # the value of a video cell is the url
+                self.vals[idx] = self.file_urls[idx]
+        elif idx in self.array_slot_idxs and isinstance(val, bytes):
+            self.vals[idx] = np.load(io.BytesIO(val))
+        else:
+            self.vals[idx] = val
+        self.has_val[idx] = True
+
 
     def flush_img(self, index: object, filepath: Optional[str] = None) -> None:
         """Discard the in-memory value and save it to a local file, if filepath is not None"""
@@ -2063,14 +2099,6 @@ class Evaluator:
     @property
     def num_materialized(self) -> int:
         return self.next_slot_idx
-
-    def prepare(self) -> DataRow:
-        """
-        Prepare for evaluation by initializing data_row.
-        object is reused across multiple executions of the same query.
-        Returns data row.
-        """
-        return DataRow(self.num_materialized)
 
     def get_eval_ctx(self, targets: List[Expr], exclude: List[Expr] = []) -> List[Expr]:
         """

@@ -108,9 +108,11 @@ class Planner:
         computed_col_info = [c for c in stored_col_info if c.col.is_computed]
         if len(computed_col_info) > 0:
             uncomputed_col_info = [c for c in stored_col_info if not c.col.is_computed]
+            computed_col_exprs = [evaluator.unique_exprs[i.slot_idx] for i in computed_col_info]
+            # prefetch external files for media column types
+            plan = cls._insert_prefetch_node(tbl.id, computed_col_exprs, evaluator, plan)
             plan = ExprEvalNode(
-                evaluator, [evaluator.unique_exprs[i.slot_idx] for i in computed_col_info],
-                [evaluator.unique_exprs[i.slot_idx] for i in uncomputed_col_info],
+                evaluator, computed_col_exprs, [evaluator.unique_exprs[i.slot_idx] for i in uncomputed_col_info],
                 ignore_errors=True, input=plan)
         plan.set_stored_img_cols(stored_img_col_info)
         plan.set_ctx(ExecContext(evaluator, batch_size=0, show_pbar=True))

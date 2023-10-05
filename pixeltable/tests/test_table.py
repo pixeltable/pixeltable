@@ -4,8 +4,10 @@ import numpy as np
 import pandas as pd
 import datetime
 import random
+import os
 
 import PIL
+import cv2
 
 import pixeltable as pt
 from pixeltable import exceptions as exc
@@ -147,6 +149,8 @@ class TestTable:
     def test_create_s3_image_table(self, test_client: pt.Client) -> None:
         cl = test_client
         tbl = cl.create_table('test', [catalog.Column('img', ImageType(nullable=False))])
+        # add computed column to make sure that external files are cached locally during insert
+        tbl.add_column(catalog.Column('rotated', computed_with=tbl.img.rotate(30), stored=True))
         urls = [
             's3://open-images-dataset/validation/3c02ca9ec9b2b77b.jpg',
             's3://open-images-dataset/validation/3c13e0015b6c3bcf.jpg',
@@ -156,19 +160,20 @@ class TestTable:
         ]
 
         tbl.insert([[url] for url in urls], columns=['img'])
-        # first query: we need to download the images
-        _ = tbl.show(0)
+        # check that we populated the cache
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == 5
         assert cache_stats.num_hits == 0
         assert FileCache.get().num_files() == 5
         assert FileCache.get().num_files(tbl.id) == 5
         assert FileCache.get().avg_file_size() > 0
-        # second query: we read from the cache
+
+        # query: we read from the cache
         _ = tbl.show(0)
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == 10
         assert cache_stats.num_hits == 5
+
         # after clearing the cache, we need to re-fetch the files
         FileCache.get().clear()
         _ = tbl.show(0)
@@ -185,6 +190,25 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == 5
         assert cache_stats.num_hits == 5
+
+    def test_video_url(self, test_client: pt.Client) -> None:
+        cl = test_client
+        cols = [
+            catalog.Column('payload', IntType(nullable=False)),
+            catalog.Column('video', VideoType(nullable=False)),
+        ]
+        tbl = cl.create_table('test', cols)
+        url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
+        tbl.insert([[1, url]], columns=['payload', 'video'])
+        row = tbl.select(tbl.video.fileurl, tbl.video.localpath).show(0).rows[0]
+        assert row[0] == url
+        # row[1] contains valid path to an mp4 file
+        local_path = row[1]
+        assert os.path.exists(local_path) and os.path.isfile(local_path)
+        cap = cv2.VideoCapture(local_path)
+        # TODO: this isn't sufficient to determine that this is actually a video, rather than an image
+        assert cap.isOpened()
+        cap.release()
 
     def test_create_video_table(self, test_client: pt.Client) -> None:
         cl = test_client
@@ -242,12 +266,19 @@ class TestTable:
         tbl = cl.get_table('test')
         assert tbl.parameters == params
         # we're inserting only a single row and the video column is not in position 0
-        tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
-        # * 2: we have four stored img cols
+        url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
+        status = tbl.insert([[1, url]], columns=['payload', 'video'])
+        assert status.num_excs == 0
+        _ = tbl.count()
         assert ImageStore.count(tbl.id) == tbl.count() * 2
-        html_str = tbl.show(n=100)._repr_html_()
+        # also insert a local file
+        tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
+        # * 2: we have 2 stored img cols
+        _ = tbl.count()
+        assert ImageStore.count(tbl.id) == tbl.count() * 2
 
         # revert() clears stored images
+        tbl.revert()
         tbl.revert()
         assert ImageStore.count(tbl.id) == 0
 
