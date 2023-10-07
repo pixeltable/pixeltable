@@ -862,7 +862,7 @@ class CachePrefetchNode(ExecNode):
                     cache_misses.append((row, info))
                     missing_url_rows[url].append(row)
                 else:
-                    row.file_paths[info.slot_idx] = local_path
+                    row.set_file_path(info.slot_idx, local_path)
 
         # download the cache misses in parallel
         # TODO: set max_workers to maximize throughput
@@ -878,7 +878,7 @@ class CachePrefetchNode(ExecNode):
                 local_path = file_cache.add(self.tbl_id, info.col.id, url, tmp_path)
                 _logger.debug(f'PrefetchNode: cached {url} as {local_path}')
                 for row in missing_url_rows[url]:
-                    row.file_paths[info.slot_idx] = str(local_path)
+                    row.set_file_path(info.slot_idx, str(local_path))
 
         return input_batch
 

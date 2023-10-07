@@ -1847,8 +1847,18 @@ class DataRow:
     Encapsulates all data and execution state needed by Evaluator and DataRowBatch:
     - state for in-memory computation
     - state for storing the data
-
     This is not meant to be a black-box abstraction.
+
+    In-memory representations by column type:
+    - StringType: str
+    - IntType: int
+    - FloatType: float
+    - BoolType: bool
+    - TimestampType: datetime.datetime
+    - JsonType: json-serializable object
+    - ArrayType: numpy.ndarray
+    - ImageType: PIL.Image.Image
+    - VideoType: local path if available, otherwise url
     """
     def __init__(self, size: int, img_slot_idxs: List[int], video_slot_idxs: List[int], array_slot_idxs: List[int]):
         self.vals: List[Any] = [None] * size  # either cell values or exceptions
@@ -1913,8 +1923,8 @@ class DataRow:
                 self.vals[index] = PIL.Image.open(self.file_paths[index])
 
         if index in self.video_slot_idxs:
-            # the value of a video cell is the url
-            assert self.file_urls[index] is not None and self.file_urls[index] == self.vals[index]
+            assert self.file_paths[index] is not None and self.file_paths[index] == self.vals[index] \
+               or self.file_urls[index] is not None and self.file_urls[index] == self.vals[index]
 
         return self.vals[index]
 
@@ -1925,11 +1935,12 @@ class DataRow:
             # for debugging purposes
             pass
         assert self.has_val[index]
-        # if this is a file, we should have a url
-        assert not(self.file_paths[index] is not None and self.file_urls[index] is None)
-        if self.file_urls[index] is not None:
+        if index in self.img_slot_idxs or index in self.video_slot_idxs:
+            # if this is an image or video we want to store, we should have a url
+            assert self.file_urls[index] is not None
             return self.file_urls[index]
-        if isinstance(self.vals[index], np.ndarray):
+        if index in self.array_slot_idxs:
+            assert isinstance(self.vals[index], np.ndarray)
             np_array = self.vals[index]
             buffer = io.BytesIO()
             np.save(buffer, np_array)
@@ -1954,15 +1965,22 @@ class DataRow:
                 # URL
                 assert self.file_urls[idx] is None
                 self.file_urls[idx] = val
+
             if idx in self.video_slot_idxs:
-                # the value of a video cell is the url
-                self.vals[idx] = self.file_urls[idx]
+                self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
             self.vals[idx] = np.load(io.BytesIO(val))
         else:
             self.vals[idx] = val
         self.has_val[idx] = True
 
+    def set_file_path(self, idx: object, path: str) -> None:
+        """Augment an existing url with a local file path"""
+        assert self.has_val[idx]
+        assert idx in self.img_slot_idxs or idx in self.video_slot_idxs
+        self.file_paths[idx] = path
+        if idx in self.video_slot_idxs:
+            self.vals[idx] = path
 
     def flush_img(self, index: object, filepath: Optional[str] = None) -> None:
         """Discard the in-memory value and save it to a local file, if filepath is not None"""
