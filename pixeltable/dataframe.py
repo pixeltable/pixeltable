@@ -51,11 +51,15 @@ class DataFrameResultSet:
 
     def __len__(self) -> int:
         return len(self.rows)
+
     def column_names(self) -> List[str]:
         return self.col_names
 
     def column_types(self) -> List[ColumnType]:
         return self.col_types
+
+    def __repr__(self):
+        return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
         img_col_idxs = [i for i, col_type in enumerate(self.col_types) if col_type.is_image_type()]
@@ -73,15 +77,15 @@ class DataFrameResultSet:
         return pd.DataFrame.from_records(self.rows, columns=self.col_names)
 
     def __getitem__(self, index: Any) -> Any:
-        if isinstance(index, tuple):
-            if len(index) != 2 or not isinstance(index[0], int) or not isinstance(index[1], int):
-                raise exc.Error(f'Bad index: {index}')
-            return self.rows[index[0]][index[1]]
+        if not isinstance(index, tuple) or len(index) != 2 \
+                or not isinstance(index[0], int) or not isinstance(index[1], int):
+            raise exc.Error(f'Bad index, expected tuple (<row idx>, <col idx>): {index}')
+        return self.rows[index[0]][index[1]]
 
     def __eq__(self, other):
         if not isinstance(other, DataFrameResultSet):
             return False
-        return self.rows == other.rows and self.col_names == other.col_names and self.col_types == other.col_types
+        return self.to_pandas().equals(other.to_pandas())
 
 
 class AnalysisInfo:
@@ -121,15 +125,17 @@ class DataFrame:
             select_list: Optional[List[exprs.Expr]] = None,
             where_clause: Optional[exprs.Predicate] = None,
             group_by_clause: Optional[List[exprs.Expr]] = None,
-            order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None):  # List[(expr, asc)]
+            order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None,  # List[(expr, asc)]
+            limit: Optional[int] = None,):
         self.tbl = tbl
         # exprs contain execution state and therefore cannot be shared
         self.select_list = copy.deepcopy(select_list)  # None: implies all cols
         self.where_clause = copy.deepcopy(where_clause)
         self.group_by_clause = copy.deepcopy(group_by_clause)
         self.order_by_clause = copy.deepcopy(order_by_clause)
+        self.limit_val = limit
 
-    def exec(self, n: int = 20) -> Generator[exprs.DataRow, None, None]:
+    def _exec(self) -> Generator[exprs.DataRow, None, None]:
         """Returned value: list of select list values"""
         if self.select_list is None:
             # select all columns
@@ -145,7 +151,9 @@ class DataFrame:
             item.bind_rel_paths(None)
         plan, self.select_list = Planner.create_query_plan(
             self.tbl, self.select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause,
-            order_by_clause=self.order_by_clause, limit=n)
+            order_by_clause=self.order_by_clause,
+            # limit_val == 0: no limit_val
+            limit=self.limit_val if self.limit_val is not None else 0)
         plan.open()
         try:
             result = next(plan)
@@ -157,8 +165,15 @@ class DataFrame:
         return
 
     def show(self, n: int = 20) -> DataFrameResultSet:
+        assert n is not None
+        return self.limit(n).collect()
+
+    def head(self, n: int = 20) -> DataFrameResultSet:
+        return self.show(n)
+
+    def collect(self) -> DataFrameResultSet:
         try:
-            data_rows = [row for row in self.exec(n)]
+            data_rows = [row for row in self._exec()]
         except exc.ExprEvalError as e:
             msg = (f'In row {e.row_num} the {e.expr_msg} encountered exception '
                    f'{type(e.exc).__name__}:\n{str(e.exc)}')
@@ -216,6 +231,62 @@ class DataFrame:
             result = {row._data[0]: i for i, row in enumerate(conn.execute(stmt))}
             return result
 
+    def _description(self) -> pd.DataFrame:
+        """Return a description of this DataFrame as a pandas DataFrame.
+        The DataFrame has two columns, heading and info, which list the contents of each 'component'
+        (select list, where clause, ...) vertically when printed.
+        """
+        heading_vals: List[str] = []
+        info_vals: List[str] = []
+        if self.select_list is not None:
+            assert len(self.select_list) > 0
+            heading_vals.append('Select')
+            heading_vals.extend([''] * (len(self.select_list) - 1))
+            info_vals.extend([e.display_str(inline=False) for e in self.select_list])
+        if self.where_clause is not None:
+            heading_vals.append('Where')
+            info_vals.append(self.where_clause.display_str(inline=False))
+        if self.group_by_clause is not None:
+            heading_vals.append('Group By')
+            heading_vals.extend([''] * (len(self.group_by_clause) - 1))
+            info_vals.extend([e.display_str(inline=False) for e in self.group_by_clause])
+        if self.order_by_clause is not None:
+            heading_vals.append('Order By')
+            heading_vals.extend([''] * (len(self.order_by_clause) - 1))
+            info_vals.extend([
+                f'{e[0].display_str(inline=False)} {"asc" if e[1] else "desc"}' for e in self.order_by_clause
+            ])
+        if self.limit_val is not None:
+            heading_vals.append('Limit')
+            info_vals.append(str(self.limit_val))
+        assert len(heading_vals) > 0
+        assert len(info_vals) > 0
+        assert len(heading_vals) == len(info_vals)
+        return pd.DataFrame({'Heading': heading_vals, 'Info': info_vals})
+
+    def _description_html(self) -> pd.DataFrame:
+        """Return the description in an ipython-friendly manner."""
+        pd_df = self._description()
+        # white-space: pre-wrap: print \n as newline
+        # th: center-align headings
+        return pd_df.style.set_properties(**{'white-space': 'pre-wrap', 'text-align': 'left'}) \
+            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])]) \
+            .hide(axis='index').hide(axis='columns')
+
+    def describe(self) -> None:
+        try:
+            __IPYTHON__
+            from IPython.display import display
+            display(self._description_html())
+        except NameError:
+            print(self.__repr__())
+
+    def __repr__(self) -> str:
+        return self._description().to_string(header=False, index=False)
+
+    def _repr_html_(self) -> str:
+        return self._description_html()._repr_html_()
+
     def select(self, *items: exprs.Expr) -> DataFrame:
         if self.select_list is not None:
             raise exc.Error(f'Select list already specified')
@@ -235,12 +306,12 @@ class DataFrame:
             # TODO: check that ColumnRefs in expr refer to self.tbl
         return DataFrame(
             self.tbl, select_list=select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause,
-            order_by_clause=self.order_by_clause)
+            order_by_clause=self.order_by_clause, limit=self.limit_val)
 
     def where(self, pred: exprs.Predicate) -> DataFrame:
         return DataFrame(
             self.tbl, select_list=self.select_list, where_clause=pred, group_by_clause=self.group_by_clause,
-            order_by_clause=self.order_by_clause)
+            order_by_clause=self.order_by_clause, limit=self.limit_val)
 
     def group_by(self, *expr_list: exprs.Expr) -> DataFrame:
         if self.group_by_clause is not None:
@@ -251,7 +322,7 @@ class DataFrame:
         self.group_by_clause = [e.copy() for e in expr_list]
         return DataFrame(
             self.tbl, select_list=self.select_list, where_clause=self.where_clause, group_by_clause=expr_list,
-            order_by_clause=self.order_by_clause)
+            order_by_clause=self.order_by_clause, limit=self.limit_val)
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
         for e in expr_list:
@@ -261,7 +332,13 @@ class DataFrame:
         order_by_clause.extend([(e.copy(), asc) for e in expr_list])
         return DataFrame(
             self.tbl, select_list=self.select_list, where_clause=self.where_clause,
-            group_by_clause=self.group_by_clause, order_by_clause=order_by_clause)
+            group_by_clause=self.group_by_clause, order_by_clause=order_by_clause, limit=self.limit_val)
+
+    def limit(self, n: int) -> DataFrame:
+        assert n is not None and isinstance(n, int)
+        return DataFrame(
+            self.tbl, select_list=self.select_list, where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause, order_by_clause=self.order_by_clause, limit=n)
 
     def __getitem__(self, index: object) -> DataFrame:
         """

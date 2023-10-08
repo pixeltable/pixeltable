@@ -892,5 +892,8 @@ class TestTable:
         fn = lambda c2: np.full((3, 4), c2)
         t.add_column(
             catalog.Column('computed1', col_type=ArrayType((3, 4), dtype=IntType()), computed_with=fn))
-        _ = t.describe()
-        print(_)
+        t.describe()
+
+        # TODO: how to you check the output of these?
+        _ = t.__repr__()
+        _ = t._repr_html_()

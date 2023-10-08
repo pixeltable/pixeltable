@@ -34,6 +34,21 @@ class TestDataFrame:
             _ = t.order_by(datetime.datetime.now()).show(0)
         assert 'Invalid expression' in str(exc_info.value)
 
+    def test_head(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        assert t.head() == t.show()
+        assert t.head(10) == t.show(10)
+        assert t.head(10) == t.df().limit(10).collect()
+
+    def test_describe(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        df = t.select(t.c1).where(t.c2 < 10).limit(10)
+        df.describe()
+
+        # TODO: how to you check the output of these?
+        _ = df.__repr__()
+        _ = df._repr_html_()
+
     def test_count(self, test_tbl: catalog.Table, indexed_img_tbl: catalog.Table) -> None:
         t = test_tbl
         cnt = t.count()

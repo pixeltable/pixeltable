@@ -86,22 +86,47 @@ class TableBase(SchemaObject):
         """
         return self.df().show(*args, **kwargs)
 
+    def head(
+            self, *args, **kwargs
+    ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+        """Return rows from this table.
+        """
+        return self.df().head(*args, **kwargs)
+
     def count(self) -> int:
         """Return the number of rows in this table.
         """
         return self.df().count()
 
-    def describe(self) -> pd.DataFrame:
-        pd_df = pd.DataFrame({
+    def _description(self) -> pd.DataFrame:
+        return pd.DataFrame({
             'Column Name': [c.name for c in self.cols],
             'Type': [str(c.col_type) for c in self.cols],
             'Computed With':
                 [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in self.cols],
         })
+
+    def _description_html(self) -> pd.DataFrame:
+        pd_df = self._description()
         # white-space: pre-wrap: print \n as newline
-        pd_df = pd_df.style.set_properties(**{'white-space': 'pre-wrap', 'text-align': 'left'}) \
-            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])  # center-align headings
-        return pd_df.hide(axis='index')
+        # th: center-align headings
+        return pd_df.style.set_properties(**{'white-space': 'pre-wrap', 'text-align': 'left'}) \
+            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])]) \
+            .hide(axis='index')
+
+    def describe(self) -> None:
+        try:
+            __IPYTHON__
+            from IPython.display import display
+            display(self._description_html())
+        except NameError:
+            print(self.__repr__())
+
+    def __repr__(self) -> str:
+        return self._description().to_string(index=False)
+
+    def _repr_html_(self) -> str:
+        return self._description_html()._repr_html_()
 
     def drop(self) -> None:
         self._check_is_dropped()
