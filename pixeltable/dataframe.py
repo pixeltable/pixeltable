@@ -263,19 +263,3 @@ class DataFrame:
             self.tbl, select_list=self.select_list, where_clause=self.where_clause,
             group_by_clause=self.group_by_clause, order_by_clause=order_by_clause)
 
-    def __getitem__(self, index: object) -> DataFrame:
-        """
-        Allowed:
-        - [<Predicate>]: filter operation
-        - [List[Expr]]/[Tuple[Expr]]: setting the select list
-        - [Expr]: setting a single-col select list
-        """
-        if isinstance(index, exprs.Predicate):
-            return self.where(index)
-        if isinstance(index, tuple):
-            index = list(index)
-        if isinstance(index, exprs.Expr):
-            index = [index]
-        if isinstance(index, list):
-            return self.select(*index)
-        raise TypeError(f'Invalid index type: {type(index)}')
