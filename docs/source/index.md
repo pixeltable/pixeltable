@@ -46,6 +46,7 @@ through Pixeltable, take a look at {doc}`tutorials/Object Detection in Videos`.
 :hidden:
 
 Home <self>
+api_cheat_sheet
 tutorials/index
 api/index
 :::

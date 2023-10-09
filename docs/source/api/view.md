@@ -1,4 +1,4 @@
-# MutableTable
+# View
 
 ```{eval-rst}
 .. currentmodule:: pixeltable
@@ -6,14 +6,14 @@
     :nosignatures:
     :toctree: _autosummary
 
-    MutableTable
+    View
 ```
 
-Instances of class {py:class}`pixeltable.MutableTable` are handles to Pixeltable tables.
+Instances of class {py:class}`pixeltable.View` are handles to Pixeltable views.
 
-Use this handle to query and update the table and to add and drop columns.
+Use this handle to query and update the view and to add and drop columns.
 
-{py:class}`pixeltable.MutableTable` instances are created by calling {py:meth}`pixeltable.Db.create_table`
+{py:class}`pixeltable.View` instances are created by calling {py:meth}`pixeltable.Db.create_view`
 or {py:meth}`pixeltable.Db.get_table`.
 
 ## Column Operations
@@ -24,9 +24,9 @@ or {py:meth}`pixeltable.Db.get_table`.
     :nosignatures:
     :toctree: _autosummary
 
-    MutableTable.add_column
-    MutableTable.drop_column
-    MutableTable.rename_column
+    View.add_column
+    View.drop_column
+    View.rename_column
 ```
 
 ## Data Operations
@@ -37,9 +37,7 @@ or {py:meth}`pixeltable.Db.get_table`.
     :nosignatures:
     :toctree: _autosummary
 
-    MutableTable.insert
-    MutableTable.update
-    MutableTable.delete
+    View.update
 ```
 
 ## Versioning
@@ -50,6 +48,6 @@ or {py:meth}`pixeltable.Db.get_table`.
     :nosignatures:
     :toctree: _autosummary
 
-    MutableTable.revert
+    View.revert
 ```
 

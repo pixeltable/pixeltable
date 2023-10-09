@@ -24,6 +24,18 @@ in the database.
     Client.drop_table
     Client.get_table
     Client.list_tables
+    Client.move
+```
+
+## View Operations
+
+```{eval-rst}
+.. currentmodule:: pixeltable
+.. autosummary::
+    :nosignatures:
+    :toctree: _autosummary
+
+    Client.create_view
 ```
 
 ## Snapshot Operations

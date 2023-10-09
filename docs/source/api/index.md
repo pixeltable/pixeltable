@@ -8,4 +8,5 @@ function
 mutable_table
 table
 table_snapshot
+view
 ```

@@ -226,7 +226,7 @@ class Client:
             extract_frames_from: Optional[str] = None, extracted_frame_col: Optional[str] = None,
             extracted_frame_idx_col: Optional[str] = None, extracted_fps: Optional[int] = None,
     ) -> MutableTable:
-        """Create a new table in the database.
+        """Create a new :py:class:`MutableTable`.
 
         Args:
             path_str: Path to the table.
@@ -279,7 +279,7 @@ class Client:
         return tbl
 
     def create_snapshot(self, snapshot_path: str, tbl_path: str, ignore_errors: bool = False) -> TableSnapshot:
-        """Create a snapshot of a table.
+        """Create a :py:class:`TableSnapshot` of a table.
 
         Args:
             snapshot_path: Path to the snapshot.
@@ -333,7 +333,7 @@ class Client:
         return view
 
     def get_table(self, path: str) -> TableBase:
-        """Get a handle to a table (including views and snapshots) from the database.
+        """Get a handle to a table (including views and snapshots).
 
         Args:
             path: Path to the table.
@@ -419,7 +419,7 @@ class Client:
         return [str(p) for p in self.paths.get_children(path, child_type=TableBase, recursive=recursive)]
 
     def drop_table(self, path: str, force: bool = False, ignore_errors: bool = False) -> None:
-        """Drop a table from the database.
+        """Drop a table.
 
         Args:
             path: Path to the table.
