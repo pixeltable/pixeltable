@@ -793,19 +793,6 @@ protobuf = ">=4.21.3,<5.0dev"
 setuptools = "*"
 
 [[package]]
-name = "hnswlib"
-version = "0.6.2"
-description = "hnswlib"
-optional = false
-python-versions = "*"
-files = [
-    {file = "hnswlib-0.6.2.tar.gz", hash = "sha256:b696d13f3678aa6795d054a0e8c33b3a2c8e14908432aaf4ced7ebef8290a10c"},
-]
-
-[package.dependencies]
-numpy = "*"
-
-[[package]]
 name = "idna"
 version = "3.4"
 description = "Internationalized Domain Names in Applications (IDNA)"
@@ -2932,4 +2919,4 @@ s3 = ["boto3"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "8e8183c6b4eddd40163c418b86b8bc7f21d4ec4feff83219edf3679897c8e25f"
+content-hash = "277758a0545946d27c8cce6a5e6c9f53f9d3bbfa34cc6cd5392fc0b04d348348"
