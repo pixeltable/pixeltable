@@ -661,7 +661,7 @@ class ExprEvalNode(ExecNode):
                             f'Running NOS task {cohort.model_info.task}: '
                             f'batch_size={num_nos_batch_rows} target_res={target_res}')
                         result = Env.get().nos_client.Run(
-                            task=cohort.model_info.task, model_name=cohort.model_info.name, **kwargs)
+                            task=cohort.model_info.task, model_name=cohort.model_info.name, inputs=kwargs)
                         self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
                         self.ctx.profile.eval_count[fn_call.slot_idx] += num_nos_batch_rows
 
