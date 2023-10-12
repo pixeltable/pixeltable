@@ -5,6 +5,7 @@ import os
 from typing import List, Optional, Any, Dict, Generator, Tuple
 from pathlib import Path
 import pandas as pd
+from  pandas.io.formats.style import Styler
 import sqlalchemy as sql
 from PIL import Image
 import traceback
@@ -20,7 +21,6 @@ from pixeltable.plan import Planner
 __all__ = [
     'DataFrame'
 ]
-
 
 def _format_img(img: object) -> str:
     """
@@ -87,7 +87,6 @@ class DataFrameResultSet:
             return False
         return self.to_pandas().equals(other.to_pandas())
 
-
 class AnalysisInfo:
     def __init__(self, tbl: catalog.TableVersion):
         self.tbl = tbl
@@ -118,18 +117,59 @@ class AnalysisInfo:
         if self.filter is not None:
             self.filter.release()
 
+def _expand_select_list(tbl : catalog.TableVersion, 
+                        select_list : Optional[List[Tuple[exprs.Expr, Optional[str]]]],
+                        ) -> List[Tuple[exprs.Expr, str]]:
+    """
+    Return the expanded select list, i.e. the select list with all columns expanded.
+    """
+    if select_list is None:
+        expanded_list = []
+        for col in tbl.columns():
+            if tbl.is_frame_col(col):
+                expanded_list.append((exprs.FrameColumnRef(col), None))
+            else:
+                expanded_list.append((exprs.ColumnRef(col), None))
+    else:
+        expanded_list = select_list
+    out = []
+    for i, tup in enumerate(expanded_list):
+        (expr, alias) = tup
+        if alias is not None:
+            out.append((expr, alias)) # user provided alias
+        else:
+            name = expr.display_name()
+            if name != "":
+                out.append((expr, name)) # inferred name eg. from column
+            else:
+                out.append((expr, f"col_{i}")) # default name.
+    return out
+
+def _select_list_check_rep(select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]],
+                           ) -> None:
+    """ validate basic select list types. 
+    """
+    if select_list is not None: # basic check for valid select list
+        assert len(select_list) > 0
+        for ent in select_list:
+            assert isinstance(ent, tuple)
+            assert len(ent) == 2
+            assert isinstance(ent[0], exprs.Expr)
+            assert ent[1] is None or isinstance(ent[1], str)
+            if isinstance(ent[1], str):
+                assert ent[1].isidentifier()
 
 class DataFrame:
     def __init__(
             self, tbl: catalog.TableVersion,
-            select_list: Optional[List[exprs.Expr]] = None,
+            select_list:  Optional[List[Tuple[exprs.Expr, Optional[str]]]] = None,
             where_clause: Optional[exprs.Predicate] = None,
             group_by_clause: Optional[List[exprs.Expr]] = None,
             order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None,  # List[(expr, asc)]
             limit: Optional[int] = None,):
         self.tbl = tbl
-        # exprs contain execution state and therefore cannot be shared
-        self.select_list = copy.deepcopy(select_list)  # None: implies all cols
+        _select_list_check_rep(select_list)
+        self.select_list = copy.deepcopy(select_list)
         self.where_clause = copy.deepcopy(where_clause)
         self.group_by_clause = copy.deepcopy(group_by_clause)
         self.order_by_clause = copy.deepcopy(order_by_clause)
@@ -137,20 +177,18 @@ class DataFrame:
 
     def _exec(self) -> Generator[exprs.DataRow, None, None]:
         """Returned value: list of select list values"""
-        if self.select_list is None:
-            # select all columns
-            self.select_list = [
-                exprs.FrameColumnRef(col) if self.tbl.is_frame_col(col) else exprs.ColumnRef(col)
-                for col in self.tbl.columns()
-            ]
+        select_list = _expand_select_list(self.tbl, self.select_list)
         if self.group_by_clause is None:
             self.group_by_clause = []
         if self.order_by_clause is None:
             self.order_by_clause = []
-        for item in self.select_list:
+        for item, _ in select_list:
             item.bind_rel_paths(None)
-        plan, self.select_list = Planner.create_query_plan(
-            self.tbl, self.select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause,
+        select_list_exprs = [e for (e, _) in select_list]
+        plan, select_list_tmp = Planner.create_query_plan(
+            self.tbl, select_list_exprs, 
+            where_clause=self.where_clause, 
+            group_by_clause=self.group_by_clause,
             order_by_clause=self.order_by_clause,
             # limit_val == 0: no limit_val
             limit=self.limit_val if self.limit_val is not None else 0)
@@ -158,7 +196,7 @@ class DataFrame:
         try:
             result = next(plan)
             for data_row in result:
-                result_row = [data_row[e.slot_idx] for e in self.select_list]
+                result_row = [data_row[e.slot_idx] for e in select_list_tmp]
                 yield result_row
         finally:
             plan.close()
@@ -170,6 +208,9 @@ class DataFrame:
 
     def head(self, n: int = 20) -> DataFrameResultSet:
         return self.show(n)
+    
+    def _column_names(self):
+        return [alias for (_, alias) in _expand_select_list(self.tbl, self.select_list)]
 
     def collect(self) -> DataFrameResultSet:
         try:
@@ -195,10 +236,10 @@ class DataFrame:
         except sql.exc.DBAPIError as e:
             raise exc.Error(f'Error during SQL execution:\n{e}')
 
-        col_names = [expr.display_name() for expr in self.select_list]
-        # replace ''
-        col_names = [n if n != '' else f'col_{i}' for i, n in enumerate(col_names)]
-        return DataFrameResultSet(data_rows, col_names, [expr.col_type for expr in self.select_list])
+        expanded_select_list = _expand_select_list(self.tbl, self.select_list)
+        col_names = [alias for (_, alias) in expanded_select_list]
+        col_types = [expr.col_type for expr, _ in expanded_select_list]
+        return DataFrameResultSet(data_rows, col_names, col_types)
 
     def count(self) -> int:
         from pixeltable.plan import Planner
@@ -214,11 +255,11 @@ class DataFrame:
         TODO: implement as part of DataFrame.agg()
         """
         if self.select_list is None or len(self.select_list) != 1 \
-            or not isinstance(self.select_list[0], exprs.ColumnRef) \
-            or not self.select_list[0].col_type.is_string_type():
+            or not isinstance(self.select_list[0][0], exprs.ColumnRef) \
+            or not self.select_list[0][0].col_type.is_string_type():
             raise exc.Error(f'categoricals_map() can only be applied to an individual string column')
-        assert isinstance(self.select_list[0], exprs.ColumnRef)
-        col = self.select_list[0].col
+        assert isinstance(self.select_list[0][0], exprs.ColumnRef)
+        col = self.select_list[0][0].col
         stmt = sql.select(sql.distinct(col.sa_col)) \
             .where(self.tbl.store_tbl.v_min_col <= self.tbl.version) \
             .where(self.tbl.store_tbl.v_max_col > self.tbl.version) \
@@ -242,7 +283,7 @@ class DataFrame:
             assert len(self.select_list) > 0
             heading_vals.append('Select')
             heading_vals.extend([''] * (len(self.select_list) - 1))
-            info_vals.extend([e.display_str(inline=False) for e in self.select_list])
+            info_vals.extend(self._column_names())
         if self.where_clause is not None:
             heading_vals.append('Where')
             info_vals.append(self.where_clause.display_str(inline=False))
@@ -264,7 +305,7 @@ class DataFrame:
         assert len(heading_vals) == len(info_vals)
         return pd.DataFrame({'Heading': heading_vals, 'Info': info_vals})
 
-    def _description_html(self) -> pd.DataFrame:
+    def _description_html(self) -> Styler:
         """Return the description in an ipython-friendly manner."""
         pd_df = self._description()
         # white-space: pre-wrap: print \n as newline
@@ -287,30 +328,46 @@ class DataFrame:
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()
 
-    def select(self, *items: exprs.Expr) -> DataFrame:
+    def select(self, *items: exprs.Expr, **named_items : exprs.Expr) -> DataFrame:
         if self.select_list is not None:
             raise exc.Error(f'Select list already specified')
-
-        # analyze select list; wrap literals with the corresponding expressions and update it in place
-        select_list = list(items)
-        for i in range(len(select_list)):
-            expr = items[i]
-            if isinstance(expr, dict):
-                select_list[i] = expr = exprs.InlineDict(expr)
-            elif isinstance(expr, list):
-                select_list[i] = expr = exprs.InlineArray(tuple(expr))
-            elif not isinstance(expr, exprs.Expr):
-                select_list[i] = expr = exprs.Literal(expr)
+        for (alias, _) in named_items.items():
+            if not isinstance(alias, str) or not alias.isidentifier():
+                raise exc.Error(f'Invalid alias: {alias}')
+        base_list = [(expr, None) for expr in items] + [(expr, k) for (k,expr) in named_items.items()]
+        if len(base_list) == 0:
+            raise exc.Error(f'Empty select list')
+        # analyze select list; wrap literals with the corresponding expressions
+        select_list = []
+        for raw_expr, alias in base_list:
+            if isinstance(raw_expr, exprs.Expr):
+                select_list.append((raw_expr, alias))
+            elif isinstance(raw_expr, dict):
+                select_list.append((exprs.InlineDict(raw_expr), alias))
+            elif isinstance(raw_expr, list):
+                select_list.append((exprs.InlineArray(raw_expr), alias))
+            else:
+                select_list.append((exprs.Literal(raw_expr), alias))
+            expr = select_list[-1][0]
             if expr.col_type.is_invalid_type():
-                raise exc.Error(f'Invalid type: {expr}')
+                raise exc.Error(f'Invalid type: {raw_expr}')
             # TODO: check that ColumnRefs in expr refer to self.tbl
+        # check user provided aliases would not conflict among themselves 
+        # or with auto-generated ones
+        seen = set() 
+        for (_, alias) in _expand_select_list(self.tbl, select_list):
+            if alias in seen:
+                raise exc.Error(f'Repeated alias: {alias}')
+            seen.add(alias)
         return DataFrame(
-            self.tbl, select_list=select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause,
+            self.tbl, select_list=select_list,
+            where_clause=self.where_clause, group_by_clause=self.group_by_clause,
             order_by_clause=self.order_by_clause, limit=self.limit_val)
 
     def where(self, pred: exprs.Predicate) -> DataFrame:
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=pred, group_by_clause=self.group_by_clause,
+            self.tbl, select_list=self.select_list,
+            where_clause=pred, group_by_clause=self.group_by_clause,
             order_by_clause=self.order_by_clause, limit=self.limit_val)
 
     def group_by(self, *expr_list: exprs.Expr) -> DataFrame:
@@ -321,7 +378,8 @@ class DataFrame:
                 raise exc.Error(f'Invalid expression in group_by(): {e}')
         self.group_by_clause = [e.copy() for e in expr_list]
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=self.where_clause, group_by_clause=expr_list,
+            self.tbl, select_list=self.select_list,
+            where_clause=self.where_clause, group_by_clause=expr_list,
             order_by_clause=self.order_by_clause, limit=self.limit_val)
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
@@ -331,14 +389,16 @@ class DataFrame:
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend([(e.copy(), asc) for e in expr_list])
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=self.where_clause,
-            group_by_clause=self.group_by_clause, order_by_clause=order_by_clause, limit=self.limit_val)
+            self.tbl, select_list=self.select_list,
+            where_clause=self.where_clause, group_by_clause=self.group_by_clause,
+            order_by_clause=order_by_clause, limit=self.limit_val)
 
     def limit(self, n: int) -> DataFrame:
         assert n is not None and isinstance(n, int)
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=self.where_clause,
-            group_by_clause=self.group_by_clause, order_by_clause=self.order_by_clause, limit=n)
+            self.tbl, select_list=self.select_list,
+            where_clause=self.where_clause, group_by_clause=self.group_by_clause,
+            order_by_clause=self.order_by_clause, limit=n)
 
     def __getitem__(self, index: object) -> DataFrame:
         """

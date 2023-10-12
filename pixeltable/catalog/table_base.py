@@ -58,12 +58,12 @@ class TableBase(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self.tbl_version)
 
-    def select(self, *items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
+    def select(self, *items: 'exprs.Expr', **named_items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
-        return DataFrame(self.tbl_version).select(*items)
+        return DataFrame(self.tbl_version).select(*items, **named_items)
 
     def where(self, pred: 'exprs.Predicate') -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.

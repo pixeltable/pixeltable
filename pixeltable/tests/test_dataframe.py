@@ -15,6 +15,12 @@ class TestDataFrame:
         res2 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).show(0)
         assert res1 == res2
 
+        res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).show(0)
+        assert res1 == res3
+
+        res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).show(0)
+        assert res1 == res4
+
         # duplicate select list
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c1).select(t.c2).show(0)
@@ -24,6 +30,34 @@ class TestDataFrame:
         with pytest.raises(TypeError) as exc_info:
             _ = t.select(datetime.datetime.now).show(0)
         assert 'Not a valid literal' in str(exc_info.value)
+
+        # catch invalid alias in select list from user input
+        # only check stuff that's not caught by python kwargs checker
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(t.c1, **{'c2-1': t.c2}).show(0)
+        assert 'Invalid alias' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(t.c1, **{'': t.c2}).show(0)
+        assert 'Invalid alias' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(t.c1, **{'foo.bar': t.c2}).show(0)
+        assert 'Invalid alias' in str(exc_info.value)
+
+        # catch repeated alias from user input
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(t.c2, c2=t.c1).show(0)
+        assert 'Repeated alias' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(t.c2, t.c2).show(0)
+        assert 'Repeated alias' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(t.c2+1, col_0=t.c2).show(0)
+        assert 'Repeated alias' in str(exc_info.value)
+
 
     def test_order_by(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
