@@ -1,4 +1,5 @@
 from .column import Column
+from .validation import is_valid_identifier, is_valid_path
 from .table_version import TableVersion
 from .schema_object import SchemaObject
 from .named_function import NamedFunction

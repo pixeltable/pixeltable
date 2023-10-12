@@ -4,7 +4,6 @@ import copy
 import dataclasses
 import inspect
 import logging
-import re
 from typing import Optional, List, Dict, Any, Union, Tuple
 from uuid import UUID
 import time
@@ -20,9 +19,7 @@ from pixeltable.exec import ColumnInfo
 from pixeltable.function import Function
 from pixeltable.metadata import schema
 from pixeltable.utils.imgstore import ImageStore
-
-_ID_RE = r'[a-zA-Z]\w*'
-_PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
+from pixeltable.catalog import is_valid_identifier
 
 
 _logger = logging.getLogger('pixeltable')
@@ -271,7 +268,7 @@ class TableVersion:
         """Adds a column to the table.
         """
         assert self.next_col_id != -1
-        if re.fullmatch(_ID_RE, col.name) is None:
+        if not is_valid_identifier(col.name):
             raise exc.Error(f"Invalid column name: '{col.name}'")
         if col.name in self.cols_by_name:
             raise exc.Error(f'Column {col.name} already exists')
@@ -395,7 +392,7 @@ class TableVersion:
         """
         if old_name not in self.cols_by_name:
             raise exc.Error(f'Unknown column: {old_name}')
-        if re.fullmatch(_ID_RE, new_name) is None:
+        if not is_valid_identifier(new_name):
             raise exc.Error(f"Invalid column name: '{new_name}'")
         if new_name in self.cols_by_name:
             raise exc.Error(f'Column {new_name} already exists')

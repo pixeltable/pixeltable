@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Union
+from typing import Union, Any
 from uuid import UUID
 
 import pandas as pd
@@ -13,9 +13,6 @@ from .table_version import TableVersion
 from pixeltable import exceptions as exc
 from pixeltable.env import Env
 from pixeltable.metadata import schema
-
-_ID_RE = r'[a-zA-Z]\w*'
-_PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
 
 
 _logger = logging.getLogger('pixeltable')
@@ -58,12 +55,12 @@ class TableBase(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self.tbl_version)
 
-    def select(self, *items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
+    def select(self, *items: Any, **named_items : Any) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
-        return DataFrame(self.tbl_version).select(*items)
+        return DataFrame(self.tbl_version).select(*items, **named_items)
 
     def where(self, pred: 'exprs.Predicate') -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.

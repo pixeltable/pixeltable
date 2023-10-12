@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import logging
-import re
 
 from pixeltable import exceptions as exc
-
-
-_ID_RE = r'[a-zA-Z]\w*'
-_PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
+from pixeltable.catalog.validation import is_valid_path
 
 
 _logger = logging.getLogger('pixeltable')
 
 class Path:
     def __init__(self, path: str, empty_is_valid: bool = False):
-        if path == '' and not empty_is_valid or path != '' and re.fullmatch(_PATH_RE, path) is None:
+        if not is_valid_path(path, empty_is_valid):
             raise exc.Error(f"Invalid path format: '{path}'")
         self.components = path.split('.')
 

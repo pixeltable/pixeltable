@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Optional, List, Union, Callable
 
 import sqlalchemy as sql
@@ -10,9 +9,7 @@ from pgvector.sqlalchemy import Vector
 from pixeltable import exceptions as exc
 from pixeltable.metadata import schema
 from pixeltable.type_system import ColumnType, StringType
-
-_ID_RE = r'[a-zA-Z]\w*'
-_PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
+from pixeltable.catalog.validation import is_valid_identifier
 
 
 _logger = logging.getLogger('pixeltable')
@@ -61,7 +58,7 @@ class Column:
 
         indexed: only valid for image columns; if true, maintains an NN index for this column
         """
-        if re.fullmatch(_ID_RE, name) is None:
+        if not is_valid_identifier(name):
             raise exc.Error(f"Invalid column name: '{name}'")
         self.name = name
         if col_type is None and computed_with is None:

@@ -10,9 +10,6 @@ from .column import Column
 from .table_version import TableVersion
 from pixeltable import exceptions as exc
 
-_ID_RE = r'[a-zA-Z]\w*'
-_PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
-
 
 _logger = logging.getLogger('pixeltable')
 
