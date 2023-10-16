@@ -52,9 +52,11 @@ class TestNOS:
     @pytest.mark.skip(reason='too slow')
     def test_sd(self, test_client: pt.Client) -> None:
         """Test model that mixes batched with scalar parameters"""
-        t = test_client.create_table('sd_test', [pt.Column('prompt', pt.StringType())])
-        t.insert([['cat on a sofa']])
+        t = test_client.create_table('sd_test', [pt.Column('prompt', pt.StringType()), pt.Column('neg_prompt', pt.StringType())])
+        t.insert([['cat on a sofa', 'low quality']])
         from pixeltable.functions.image_generation import stabilityai_stable_diffusion_2 as sd2
-        t.add_column(pt.Column('img', computed_with=sd2(t.prompt, 1, 512, 512), stored=True))
+        num_images, num_inference_steps, guidance_scale, seed = 1, 50, 7.5, 1
+        height, width = 512, 512
+        t.add_column(pt.Column('img', computed_with=sd2(t.prompt, t.neg_prompt, num_images, num_inference_steps, height, width, seed), stored=True))
         img = t[t.img].show(1)[0, 0]
         assert img.size == (512, 512)

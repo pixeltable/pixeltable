@@ -436,12 +436,12 @@ class ExprEvalNode(ExecNode):
             nos_calls = [e for e in self.exprs if isinstance(e, exprs.FunctionCall) and e.is_nos_call()]
             assert len(nos_calls) <= 1
             nos_call = nos_calls[0] if len(nos_calls) > 0 else None
-            self.nos_param_names = self.model_info.signature.get_inputs_spec().keys()
+            self.nos_param_names = self.model_info.signature[self.model_info.default_method].get_inputs_spec().keys()
             self.scalar_nos_param_names = []
 
             # try to determine batch_size and img_size
             batch_size = sys.maxsize
-            for pos, (param_name, type_info) in enumerate(self.model_info.signature.get_inputs_spec().items()):
+            for pos, (param_name, type_info) in enumerate(self.model_info.signature[self.model_info.default_method].get_inputs_spec().items()):
                 if isinstance(type_info, list):
                     assert isinstance(type_info[0].base_spec(), nos.common.ImageSpec)
                     # this is a multi-resolution image model
@@ -660,8 +660,7 @@ class ExprEvalNode(ExecNode):
                         _logger.debug(
                             f'Running NOS task {cohort.model_info.task}: '
                             f'batch_size={num_nos_batch_rows} target_res={target_res}')
-                        result = Env.get().nos_client.Run(
-                            task=cohort.model_info.task, model_name=cohort.model_info.name, inputs=kwargs)
+                        result = Env.get().nos_client.Run(cohort.model_info.name, inputs=kwargs, method=cohort.model_info.default_method, shm=True)
                         self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
                         self.ctx.profile.eval_count[fn_call.slot_idx] += num_nos_batch_rows
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import copy
 import sys
 import types
 from typing import Optional, Callable, Dict, List, Any, Tuple, Union
@@ -290,15 +291,15 @@ class Function:
 
     @classmethod
     def make_nos_function(
-            cls, return_type: ColumnType, param_types: List[ColumnType], param_names: List[str], module_name: str
+            cls, return_type: ColumnType, param_types: List[ColumnType], param_names: List[str], param_defaults: List[Any], module_name: str
     ) -> Function:
-        assert len(param_names) == len(param_types)
+        assert len(param_names) == len(param_types) == len(param_defaults)
         signature = Signature(return_type, [(name, col_type) for name, col_type in zip(param_names, param_types)])
         md = cls.Metadata(signature, False, True)
         # construct inspect.Signature
         params = [
-            inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-            for name, col_type in zip(param_names, param_types)
+            inspect.Parameter(name, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD, default=default)
+            for name, col_type, default in zip(param_names, param_types, param_defaults)
         ]
         py_signature = inspect.Signature(params)
         # we pass module_name to indicate that it's a library function
@@ -473,47 +474,61 @@ class FunctionRegistry:
     def get_library_fn(self, fqn: str) -> Function:
         return self.library_fns[fqn]
 
-    def _convert_nos_signature(self, sig: nos.common.spec.FunctionSignature) -> Tuple[ColumnType, List[ColumnType]]:
+    def _convert_nos_signature(self, sig: nos.common.spec.FunctionSignature) -> Tuple[ColumnType, List[ColumnType], List[Any]]:
         if len(sig.get_outputs_spec()) > 1:
             return_type = JsonType()
         else:
             return_type = ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
         param_types: List[ColumnType] = []
+        param_defaults: List[Any] = []
         for _, type_info in sig.get_inputs_spec().items():
             # if there are multiple input shapes we leave them out of the ColumnType and deal with them in FunctionCall
             if isinstance(type_info, list):
                 param_types.append(ColumnType.from_nos(type_info[0], ignore_shape=True))
+                param_defaults.append(type_info[0].parameter_default())
             else:
                 param_types.append(ColumnType.from_nos(type_info, ignore_shape=False))
-        return return_type, param_types
+                param_defaults.append(type_info.parameter_default())
+        return return_type, param_types, param_defaults
 
     def register_nos_functions(self) -> None:
         """Register all models supported by the NOS backend as library functions"""
         if self.has_registered_nos_functions:
             return
         self.has_registered_nos_functions = True
-        models = Env.get().nos_client.ListModels()
-        model_info = [Env.get().nos_client.GetModelInfo(model) for model in models]
-        model_info.sort(key=lambda info: info.task.value)
+        models: List[str] = Env.get().nos_client.ListModels()
+        
+        model_info = []
+        for model in models:
+            info = Env.get().nos_client.GetModelInfo(model)
+            # Models have multiple signatures for different tasks.
+            # Here we register all of the model's methods as a separate function.
+            for method in info.signature:
+                minfo = copy.deepcopy(info)
+                minfo.set_default_method(method)
+                assert minfo.default_method == method
+                model_info.append((minfo, minfo.task(method)))
+        model_info.sort(key=lambda info_tup: info_tup[-1].value)
 
         prev_task = ''
         new_modules: List[types.ModuleType] = []
         pt_module: Optional[types.ModuleType] = None
-        for info in model_info:
-            if info.task.value != prev_task:
+        for (info, task) in model_info:
+            if task.value != prev_task:
                 # we construct one submodule of pixeltable.functions per task
-                module_name = f'pixeltable.functions.{info.task.name.lower()}'
+                module_name = f'pixeltable.functions.{task.name.lower()}'
                 pt_module = types.ModuleType(module_name)
                 pt_module.__package__ = 'pixeltable.functions'
                 new_modules.append(pt_module)
                 sys.modules[module_name] = pt_module
-                prev_task = info.task.value
+                prev_task = task.value
 
             # add a Function for this model to the module
-            model_id = info.name.replace("/", "_").replace("-", "_")
-            return_type, param_types = self._convert_nos_signature(info.signature)
+            model_id = info.name.replace("/", "_").replace("-", "_").replace(".", "_")
+            return_type, param_types, param_defaults = self._convert_nos_signature(info.signature[info.default_method])
+            param_names = list(info.signature[info.default_method].get_inputs_spec().keys())
             pt_func = Function.make_nos_function(
-                return_type, param_types, list(info.signature.get_inputs_spec().keys()), module_name)
+                return_type, param_types, param_names, param_defaults, module_name)
             setattr(pt_module, model_id, pt_func)
             fqn = f'{module_name}.{model_id}'
             self.nos_functions[fqn] = info
