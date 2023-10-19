@@ -58,7 +58,10 @@ class TableBase(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self.tbl_version)
 
-    def select(self, *items: 'exprs.Expr', **named_items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
+    def select(
+                self, *items: Union['exprs.Expr', dict[str,'exprs.Expr'], list['exprs.Expr']],
+               **named_items : Union['exprs.Expr', dict[str,'exprs.Expr'], list['exprs.Expr']],
+        ) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
