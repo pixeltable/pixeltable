@@ -48,15 +48,15 @@ class TestDataFrame:
         # catch repeated alias from user input
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c2, c2=t.c1).show(0)
-        assert 'Repeated alias' in str(exc_info.value)
+        assert 'Repeated column name' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c2, t.c2).show(0)
-        assert 'Repeated alias' in str(exc_info.value)
+        assert 'Repeated column name' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c2+1, col_0=t.c2).show(0)
-        assert 'Repeated alias' in str(exc_info.value)
+        assert 'Repeated column name' in str(exc_info.value)
 
 
     def test_order_by(self, test_tbl: catalog.Table) -> None:
