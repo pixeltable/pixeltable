@@ -155,8 +155,8 @@ class Expr(abc.ABC):
 
     def default_column_name(self) -> Optional[str]:
         """
-        Default column name in DataFrame
-        return None if this expr doesn't have a default column name, otherwise, string must be a valid python identifier
+        Returns: 
+            None if this expression lacks a default name, or a valid identifier (catalog.is_valid_identifer) otherwise
         """
         return None
 
