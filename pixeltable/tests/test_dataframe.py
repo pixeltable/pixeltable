@@ -33,25 +33,25 @@ class TestDataFrame:
             _ = t.select(datetime.datetime.now).show(0)
         assert 'Not a valid literal' in str(exc_info.value)
 
-        # catch invalid alias in select list from user input
+        # catch invalid name in select list from user input
         # only check stuff that's not caught by python kwargs checker
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c1, **{'c2-1': t.c2}).show(0)
-        assert 'Invalid alias' in str(exc_info.value)
+        assert 'Invalid name' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c1, **{'': t.c2}).show(0)
-        assert 'Invalid alias' in str(exc_info.value)
+        assert 'Invalid name' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c1, **{'foo.bar': t.c2}).show(0)
-        assert 'Invalid alias' in str(exc_info.value)
+        assert 'Invalid name' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c1, _c3=t.c2).show(0)
-        assert 'Invalid alias' in str(exc_info.value)
+        assert 'Invalid name' in str(exc_info.value)
 
-        # catch repeated alias from user input
+        # catch repeated name from user input
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c2, c2=t.c1).show(0)
         assert 'Repeated column name' in str(exc_info.value)

@@ -29,6 +29,7 @@ from pixeltable.exceptions import Error, ExprEvalError
 from pixeltable.utils.video import FrameIterator
 from pixeltable.utils import print_perf_counter_delta
 from pixeltable.utils.clip import embed_image, embed_text
+from pixeltable.catalog import is_valid_identifier
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -93,9 +94,6 @@ class ArithmeticOperator(enum.Enum):
             return '/'
         if self == self.MOD:
             return '%'
-
-def is_valid_column_name(name: str) -> bool:
-    return name.isidentifier() and not name.startswith('_')
 
 class ExprScope:
     """
@@ -506,8 +504,7 @@ class ColumnRef(Expr):
         return super().__getattr__(name)
 
     def default_column_name(self) -> str:
-        ret =  str(self)
-        return ret
+        return str(self)
 
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col
@@ -1082,7 +1079,7 @@ class JsonPath(Expr):
         if clean_name == '':
             clean_name = None
         
-        assert clean_name is None or is_valid_column_name(clean_name)
+        assert clean_name is None or is_valid_identifier(clean_name)
         return clean_name
 
     def _equals(self, other: JsonPath) -> bool:

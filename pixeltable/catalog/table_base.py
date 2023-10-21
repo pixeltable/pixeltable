@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Union
+from typing import Union, Any
 from uuid import UUID
 
 import pandas as pd
@@ -58,10 +58,7 @@ class TableBase(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self.tbl_version)
 
-    def select(
-                self, *items: Union['exprs.Expr', dict[str,'exprs.Expr'], list['exprs.Expr']],
-               **named_items : Union['exprs.Expr', dict[str,'exprs.Expr'], list['exprs.Expr']],
-        ) -> 'pixeltable.dataframe.DataFrame':
+    def select(self, *items: Any, **named_items : Any) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
