@@ -312,7 +312,7 @@ class DataFrame:
             assert len(self.select_list) > 0
             heading_vals.append('Select')
             heading_vals.extend([''] * (len(self.select_list) - 1))
-            info_vals.extend(self._column_names())
+            info_vals.extend(self.column_names())
         if self.where_clause is not None:
             heading_vals.append('Where')
             info_vals.append(self.where_clause.display_str(inline=False))
