@@ -21,6 +21,8 @@ class TestDataFrame:
         res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).show(0)
         assert res1 == res4
 
+        _ = t.where(t.c2 < 10).select(t.c2, t.c2).show(0) # repeated name no error
+        
         # duplicate select list
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c1).select(t.c2).show(0)
@@ -45,13 +47,13 @@ class TestDataFrame:
             _ = t.select(t.c1, **{'foo.bar': t.c2}).show(0)
         assert 'Invalid alias' in str(exc_info.value)
 
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(t.c1, _c3=t.c2).show(0)
+        assert 'Invalid alias' in str(exc_info.value)
+
         # catch repeated alias from user input
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c2, c2=t.c1).show(0)
-        assert 'Repeated column name' in str(exc_info.value)
-
-        with pytest.raises(exc.Error) as exc_info:
-            _ = t.select(t.c2, t.c2).show(0)
         assert 'Repeated column name' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:

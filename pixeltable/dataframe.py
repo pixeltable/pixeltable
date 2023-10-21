@@ -17,6 +17,7 @@ from pixeltable.type_system import ColumnType
 from pixeltable import exprs
 from pixeltable import exceptions as exc
 from pixeltable.plan import Planner
+from pixeltable.exprs import is_valid_column_name
 
 __all__ = [
     'DataFrame'
@@ -133,18 +134,33 @@ def _expand_select_list_resolve_names(
                 expanded_list.append((exprs.ColumnRef(col), None))
     else:
         expanded_list = select_list
-    out_exprs = []
-    out_names = []
+    out_exprs : List[exprs.Expr] = []
+    out_names : List[str] = [] # keep track of order
+    seen_out_names : set[str] = set() # use to check for duplicates in loop, avoid square complexity
     for i, (expr, alias) in enumerate(expanded_list):
+        if alias is None:
+             # no user provided alias: use default
+             # add suffix if needed so there are no duplicates
+            default_name = expr.default_column_name()
+            if default_name is not None:
+                column_name = default_name
+                if default_name in seen_out_names:
+                    # already used, then add suffix until unique name is found
+                    for j in range(1, len(out_names)+1):
+                        mod_name = f'{default_name}_{j}'
+                        if mod_name not in seen_out_names:
+                            column_name = mod_name
+                            break
+            else: # no default name, eg some expressions
+                column_name = f"col_{i}"
+        else: # user provided alias, no attempt to rename
+            column_name = alias
+
         out_exprs.append(expr)
-        if alias is not None:
-            out_names.append(alias) # user provided alias
-        else:
-            name = expr.display_name()
-            if name != "":
-                out_names.append(name) # inferred name from column
-            else:
-                out_names.append(f"col_{i}") # default name
+        out_names.append(column_name) # user provided alias
+        seen_out_names.add(column_name)
+    assert len(out_exprs) == len(out_names)
+    assert set(out_names) == seen_out_names
     return out_exprs, out_names
 
 def _select_list_check_rep(
@@ -160,7 +176,7 @@ def _select_list_check_rep(
             assert isinstance(ent[0], exprs.Expr)
             assert ent[1] is None or isinstance(ent[1], str)
             if isinstance(ent[1], str):
-                assert ent[1].isidentifier()
+                assert is_valid_column_name(ent[1])
 
 class DataFrame:
     def __init__(
@@ -171,7 +187,9 @@ class DataFrame:
             order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None,  # List[(expr, asc)]
             limit: Optional[int] = None,):
         self.tbl = tbl
-        _select_list_check_rep(select_list)
+        _select_list_check_rep(select_list) # check select list without expansion
+        exps, names = _expand_select_list_resolve_names(self.tbl, select_list)
+        _select_list_check_rep(list(zip(exps, names))) # check select list after expansion to catch early
         # exprs contain execution state and therefore cannot be shared
         self.select_list = copy.deepcopy(select_list) # # None: implies all cols
         self.where_clause = copy.deepcopy(where_clause)
@@ -338,7 +356,7 @@ class DataFrame:
         if self.select_list is not None:
             raise exc.Error(f'Select list already specified')
         for (alias, _) in named_items.items():
-            if not isinstance(alias, str) or not alias.isidentifier():
+            if not isinstance(alias, str) or not is_valid_column_name(alias):
                 raise exc.Error(f'Invalid alias: {alias}')
         base_list = [(expr, None) for expr in items] + [(expr, k) for (k,expr) in named_items.items()]
         if len(base_list) == 0:

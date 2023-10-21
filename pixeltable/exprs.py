@@ -94,6 +94,8 @@ class ArithmeticOperator(enum.Enum):
         if self == self.MOD:
             return '%'
 
+def is_valid_column_name(name: str) -> bool:
+    return name.isidentifier() and not name.startswith('_')
 
 class ExprScope:
     """
@@ -153,11 +155,12 @@ class Expr(abc.ABC):
         for c in self.components:
             c.bind_rel_paths(mapper)
 
-    def display_name(self) -> str:
+    def default_column_name(self) -> Optional[str]:
         """
-        Displayed column name in DataFrame. '': assigned by DataFrame
+        Default column name in DataFrame
+        return None if this expr doesn't have a default column name, otherwise, string must be a valid python identifier
         """
-        return ''
+        return None
 
     def equals(self, other: Expr) -> bool:
         """
@@ -502,8 +505,9 @@ class ColumnRef(Expr):
 
         return super().__getattr__(name)
 
-    def display_name(self) -> str:
-        return str(self)
+    def default_column_name(self) -> str:
+        ret =  str(self)
+        return ret
 
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col
@@ -555,8 +559,8 @@ class ColumnPropertyRef(Expr):
         self.components = [col_ref]
         self.prop = prop
 
-    def display_name(self) -> str:
-        return str(self)
+    def default_column_name(self) -> str:
+        return str(self).replace('.', '_')
 
     def _equals(self, other: ColumnRef) -> bool:
         return self.prop == other.prop
@@ -931,8 +935,8 @@ class ImageMemberAccess(Expr):
         self.member_name = member_name
         self.components = [caller]
 
-    def display_name(self) -> str:
-        return self.member_name
+    def default_column_name(self) -> str:
+        return self.member_name.replace('.', '_')
 
     @property
     def _caller(self) -> Expr:
@@ -1059,9 +1063,27 @@ class JsonPath(Expr):
             raise Error(f'>> requires an expression on the right-hand side, found {type(other)}')
         return JsonMapper(self, rhs_expr)
 
-    def display_name(self) -> str:
-        anchor_name = self._anchor.display_name() if self._anchor is not None else ''
-        return f'{anchor_name}.{self._json_path()}'
+    def default_column_name(self) -> Optional[str]:
+        anchor_name = self._anchor.default_column_name() if self._anchor is not None else ''
+        ret_name = f'{anchor_name}.{self._json_path()}'
+        
+        def cleanup_char(s : str) -> str:
+            if s == '.':
+                return '_'
+            elif s == '*':
+                return 'star'
+            elif s.isalnum():
+                return s
+            else:
+                return ''
+            
+        clean_name = ''.join(map(cleanup_char, ret_name))
+        clean_name = clean_name.lstrip('_') # remove leading underscore
+        if clean_name == '':
+            clean_name = None
+        
+        assert clean_name is None or is_valid_column_name(clean_name)
+        return clean_name
 
     def _equals(self, other: JsonPath) -> bool:
         return self.path_elements == other.path_elements
@@ -1113,7 +1135,7 @@ class Literal(Expr):
         super().__init__(col_type)
         self.val = val
 
-    def display_name(self) -> str:
+    def default_column_name(self) -> str:
         return 'Literal'
 
     def __str__(self) -> str:
