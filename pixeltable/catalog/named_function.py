@@ -10,9 +10,6 @@ from .schema_object import SchemaObject
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 
-_ID_RE = r'[a-zA-Z]\w*'
-_PATH_RE = f'{_ID_RE}(\\.{_ID_RE})*'
-
 
 _logger = logging.getLogger('pixeltable')
 
