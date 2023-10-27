@@ -677,7 +677,9 @@ class ExprEvalNode(ExecNode):
                                 result_bboxes.append(bboxes)
                             result['bboxes'] = result_bboxes
 
-                        if len(result) == 1:
+                        if isinstance(result, (list, set, tuple)):
+                            row_results = list(result)
+                        elif isinstance(result, dict) and len(result) == 1:
                             key = list(result.keys())[0]
                             row_results = result[key]
                         else:

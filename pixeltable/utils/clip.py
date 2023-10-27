@@ -14,7 +14,7 @@ def embed_image(img: PIL.Image.Image) -> np.ndarray:
 
 def embed_text(text: str) -> np.ndarray:
     from pixeltable.functions.text_embedding import openai_clip
-    model_info, method = FunctionRegistry.get().get_nos_info(openai_clip)
+    model_info = FunctionRegistry.get().get_nos_info(openai_clip)
     assert model_info.default_method == "encode_text"
     result = Env.get().nos_client.Run(model_info.name, inputs={"texts": [text]}, method=model_info.default_method, shm=True)
     return result['embedding'].squeeze(0)

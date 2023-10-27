@@ -475,10 +475,20 @@ class FunctionRegistry:
         return self.library_fns[fqn]
 
     def _convert_nos_signature(self, sig: nos.common.spec.FunctionSignature) -> Tuple[ColumnType, List[ColumnType], List[Any]]:
-        if len(sig.get_outputs_spec()) > 1:
-            return_type = JsonType()
+        # FunctionSignature.get_outputs_spec() now returns either a Dict[str, ObjectTypeInfo] or an ObjectTypeInfo
+        # based on whether the model has multiple outputs or not.
+        # See https://autonomi-ai.github.io/nos/docs/api/common/spec.html#nos.common.spec.FunctionSignature.get_outputs_spec
+        if isinstance(sig.get_outputs_spec(), nos.common.spec.ObjectTypeInfo):
+            return_type = ColumnType.from_nos(sig.get_outputs_spec())
+        elif isinstance(sig.get_outputs_spec(), dict):
+            assert len(sig.get_outputs_spec()), "Output signature must have at least one output"
+            if len(sig.get_outputs_spec()) > 1:
+                return_type = JsonType()
+            else:
+                return_type = ColumnType.from_nos([v for v in sig.get_outputs_spec().values()][0])
         else:
-            return_type = ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
+            raise exc.Error(f'Invalid return type: {sig.get_outputs_spec()}')
+
         param_types: List[ColumnType] = []
         param_defaults: List[Any] = []
         for _, type_info in sig.get_inputs_spec().items():
@@ -498,16 +508,18 @@ class FunctionRegistry:
         self.has_registered_nos_functions = True
         models: List[str] = Env.get().nos_client.ListModels()
         
-        model_info = []
+        model_info: List[nos.common.spec.ModelSpec] = []
         for model in models:
             info = Env.get().nos_client.GetModelInfo(model)
             # Models have multiple signatures for different tasks.
             # Here we register all of the model's methods as a separate function.
+            # See https://autonomi-ai.github.io/nos/docs/api/common/spec.html#nos.common.spec.FunctionSignature
             for method in info.signature:
-                minfo = copy.deepcopy(info)
-                minfo.set_default_method(method)
-                assert minfo.default_method == method
-                model_info.append((minfo, minfo.task(method)))
+                model_info_for_method = copy.deepcopy(info)
+                # This sets the default method for the specific method we want to wrap
+                model_info_for_method.set_default_method(method)
+                assert model_info_for_method.default_method == method
+                model_info.append((model_info_for_method, model_info_for_method.task(method)))
         model_info.sort(key=lambda info_tup: info_tup[-1].value)
 
         prev_task = ''
@@ -525,7 +537,11 @@ class FunctionRegistry:
 
             # add a Function for this model to the module
             model_id = info.name.replace("/", "_").replace("-", "_").replace(".", "_")
-            return_type, param_types, param_defaults = self._convert_nos_signature(info.signature[info.default_method])
+            try:
+                return_type, param_types, param_defaults = self._convert_nos_signature(info.signature[info.default_method])
+            except exc.Error as e:
+                _logger.warning(f'Could not register model {info}: {str(e)}')
+                continue
             param_names = list(info.signature[info.default_method].get_inputs_spec().keys())
             pt_func = Function.make_nos_function(
                 return_type, param_types, param_names, param_defaults, module_name)
