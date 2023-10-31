@@ -43,7 +43,7 @@ class Env:
         self._db_name: Optional[str] = None
         self._db_port: Optional[int] = None
         self._store_container: Optional[docker.models.containers.Container] = None
-        self._nos_client: Optional[nos.client.InferenceClient] = None
+        self._nos_client: Optional[nos.client.Client] = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -204,7 +204,7 @@ class Env:
 
         self._logger.info('connecting to NOS')
         nos.init(logging_level=logging.DEBUG)
-        self._nos_client = nos.client.InferenceClient()
+        self._nos_client = nos.client.Client()
         self._logger.info('waiting for NOS')
         self._nos_client.WaitForServer()
 
@@ -280,6 +280,6 @@ class Env:
         return self._sa_engine
 
     @property
-    def nos_client(self) -> nos.client.InferenceClient:
+    def nos_client(self) -> nos.client.Client:
         assert self._nos_client is not None
         return self._nos_client
