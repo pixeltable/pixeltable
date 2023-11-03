@@ -12,7 +12,7 @@ import logging
 import sys
 import platform
 import psutil
-
+import subprocess
 import nos
 
 from pixeltable import metadata
@@ -123,6 +123,7 @@ class Env:
         self._db_user = os.environ.get('PIXELTABLE_DB_USER', 'postgres')
         self._db_password = os.environ.get('PIXELTABLE_DB_PASSWORD', 'pgpassword')
         self._db_port = os.environ.get('PIXELTABLE_DB_PORT', '6543')
+        self._use_local_pg = os.environ.get('PIXELTABLE_USE_LOCAL_PG', None) is not None
 
         if not self._home.exists():
             msg = f'setting up Pixeltable at {self._home}, db at {self.db_url(hide_passwd=True)}'
@@ -177,7 +178,7 @@ class Env:
         """
         Start store and runtime containers.
         """
-        if not self._is_apple_cpu():
+        if not self._use_local_pg:
             cl = docker.from_env()
             try:
                 self._store_container = cl.containers.get('pixeltable-store')
@@ -200,8 +201,34 @@ class Env:
                     },
                     remove=True,
                 )
-                self._wait_for_postgres()
+        else: # assumes postgres/pg_vector binaries are available locally eg. conda.
+            pgdatadir = (self._home / 'pgdata')
+            pglog_path = (self._home / 'postgres.log')
 
+            # check if pgdata directory exists
+            if not (pgdatadir / 'PG_VERSION').exists():
+                self._logger.info('initializing postgres data directory at %s', str(pgdatadir))
+                result = subprocess.run(['initdb', '--auth', 'trust', '--auth-local', 'trust', '-U', self._db_user, '-D', str(pgdatadir)], check=True)
+                self._logger.info('stdout: %s', str(result.stdout))
+            
+            # check if postgres is already running at pgdatadir
+            result = subprocess.run(['pg_ctl', '-D', str(pgdatadir), 'status'], check=False)
+            if result.returncode == 3:
+                self._logger.info('starting postgres process at %s', pgdatadir)
+                result = subprocess.run(['pg_ctl', 
+                                        '-D', str(pgdatadir), 
+                                        '-o', f'"-p {self._db_port}"', # note the quotes
+                                        '-l', str(pglog_path), 
+                                        '-w', # wait for start
+                                        'start'], 
+                                        text=True, check=True)
+                self._logger.info('stdout %s', result.stdout)
+            elif result.returncode == 0:
+                self._logger.info('postgres process already running at %s', pgdatadir)
+            else:
+                raise RuntimeError('error starting postgres process at %s' % pgdatadir)
+            
+        self._wait_for_postgres()           
         self._logger.info('connecting to NOS')
         nos.init(logging_level=logging.DEBUG)
         self._nos_client = nos.client.InferenceClient()
@@ -249,7 +276,11 @@ class Env:
            return 'linuxserver/ffmpeg:arm64v8-latest'
        else:
            return 'linuxserver/ffmpeg:latest'
-
+       
+    def stop_pg(self) -> None:
+        if self._store_container is None: # locally run postgres
+            subprocess.run(['pg_ctl', '-w', '-D', str(self._home / 'pgdata'), 'stop'], check=True)
+        
     def tear_down(self) -> None:
         if database_exists(self.db_url()):
             drop_database(self.db_url())

@@ -15,7 +15,14 @@ from pixeltable.tests.utils import read_data_file, create_test_tbl
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
+import socket
 
+def _get_test_db_port() -> int:
+    # get an unused port for the test db
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        port = s.getsockname()[1]
+    return port
 
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory) -> None:
@@ -25,10 +32,14 @@ def init_env(tmp_path_factory) -> None:
     os.environ['PIXELTABLE_HOME'] = home_dir
     test_db = 'test'
     os.environ['PIXELTABLE_DB'] = test_db
+    os.environ['PIXELTABLE_DB_PORT'] =  str(_get_test_db_port())
     # this also runs create_all()
     Env.get().set_up(echo=True)
+    logging.info('TestDB url is: %s', Env.get().db_url())
     yield
     # leave db in place for debugging purposes
+    # but stop the server so the port is freed
+    Env.get().stop_pg()
 
 @pytest.fixture(scope='function')
 def test_client(init_env) -> pt.Client:

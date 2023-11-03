@@ -24,9 +24,13 @@ and to ensure reproducibility.
 
 ## Installation
 
-1. Install Docker
-
+1. Using docker (for pg server)
+    Install Docker
     On MacOS: follow [these](https://docs.docker.com/desktop/install/mac-install/) instructions.
+
+1b. Using conda or mamba to get pg server, instead of a docker container.
+    conda/mamba install postgresql pgvector
+    set PIXELTABLE_USE_LOCAL_PG=1 in your env.
 
 2. `pip install git+https://github.com/mkornacker/pixeltable`
 
