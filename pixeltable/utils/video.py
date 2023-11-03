@@ -7,27 +7,12 @@ import logging
 import cv2
 
 import PIL
-import docker
 
 from pixeltable.exceptions import Error
 from pixeltable.env import Env
 
 
 _logger = logging.getLogger('pixeltable')
-
-def convert_to_h264(input_path: Path, output_path: Path) -> None:
-    """Converts a video to H.264 format by running a docker image.
-    """
-    cl = docker.from_env()
-    command = ['-i', f'/input/{input_path.name}', '-vcodec', 'libx264', f'/output/{output_path.name}']
-    volumes = [f'{input_path.parent}:/input', f'{output_path.parent}:/output']
-    _ = cl.containers.run(
-        Env.get().ffmpeg_image(),
-        command,
-        detach=False,
-        stderr=True,
-        volumes=volumes,
-    )
 
 class FrameIterator:
     """

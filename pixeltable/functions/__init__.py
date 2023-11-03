@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 import tempfile
 
-import PIL, cv2
+import PIL.Image
 import numpy as np
 
 from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
@@ -15,7 +15,9 @@ import pixeltable.exceptions as exc
 # import all standard function modules here so they get registered with the FunctionRegistry
 import pixeltable.functions.pil
 import pixeltable.functions.pil.image
-from pixeltable.utils.video import convert_to_h264
+import av
+import av.container
+import av.stream
 
 
 # def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.Table]) -> exprs.FunctionCall:
@@ -40,7 +42,6 @@ def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
     return expr
 
 dict_map = Function.make_function(IntType(), [StringType(), JsonType()], lambda s, d: d[s])
-
 
 class SumAggregator:
     def __init__(self):
@@ -102,29 +103,32 @@ FunctionRegistry.get().register_function(__name__, 'mean', mean)
 
 class VideoAggregator:
     def __init__(self):
-        self.video_writer = None
-        self.size = None
+        """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
+        self.container : Optional[av.container.OutputContainer] = None
+        self.stream : Optional[av.stream.Stream] = None
+        self.fps : float = 25
 
     @classmethod
     def make_aggregator(cls) -> 'VideoAggregator':
         return cls()
 
     def update(self, frame: PIL.Image.Image) -> None:
-        if self.video_writer is None:
-            self.size = (frame.width, frame.height)
+        if self.container is None:
             self.out_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
-            self.tmp_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
-            # our target codec is H.264, but it's tainted by GPL and cv2 doesn't include it, so we use MP4V instead
-            self.video_writer = cv2.VideoWriter(str(self.tmp_file), cv2.VideoWriter_fourcc(*'mp4v'), 25, self.size)
+            self.container = av.open(str(self.out_file), mode="w")
+            self.stream = self.container.add_stream("mpeg4", rate=self.fps)
+            self.stream.pix_fmt = "yuv420p"
+            self.stream.width = frame.width
+            self.stream.height = frame.height
 
-        frame_array = np.array(frame)
-        frame_array = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
-        self.video_writer.write(frame_array)
-
+        av_frame = av.VideoFrame.from_ndarray(np.array(frame.convert('RGB')), format="rgb24")
+        for packet in self.stream.encode(av_frame):
+            self.container.mux(packet)
+        
     def value(self) -> str:
-        self.video_writer.release()
-        convert_to_h264(self.tmp_file, self.out_file)
-        os.remove(self.tmp_file)
+        for packet in self.stream.encode():
+            self.container.mux(packet)
+        self.container.close()
         return str(self.out_file)
 
 make_video = Function.make_library_aggregate_function(

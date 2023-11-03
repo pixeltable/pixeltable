@@ -248,12 +248,6 @@ class Env:
             #return 'postgres:15-alpine'
             return 'ankane/pgvector:latest'
 
-    def ffmpeg_image(self) -> str:
-       if self._is_apple_cpu():
-           return 'linuxserver/ffmpeg:arm64v8-latest'
-       else:
-           return 'linuxserver/ffmpeg:latest'
-
     def tear_down(self) -> None:
         if database_exists(self.db_url()):
             drop_database(self.db_url())
