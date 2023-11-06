@@ -68,17 +68,20 @@ class Planner:
         # we include embeddings for indices by constructing computed cols; we need to do that for all indexed cols,
         # not just the stored ones
         indexed_cols = [c for c in tbl.cols if c.is_indexed]
-        indexed_col_refs = \
-            [exprs.FrameColumnRef(c) if tbl.is_frame_col(c) else exprs.ColumnRef(c) for c in indexed_cols]
-        from pixeltable.functions.image_embedding import openai_clip
-        # explicitly resize images to the required size
-        target_img_type = next(iter(openai_clip.md.signature.parameters.values()))
-        index_cols = [
-            catalog.Column('dummy', computed_with=openai_clip(col_ref.resize(target_img_type.size)), stored=True)
-            for col_ref in indexed_col_refs
-        ]
-        stored_cols.extend(index_cols)
-        assert len(stored_cols) > 0
+        if len(indexed_cols) == 0:
+            index_cols: List[catalog.Column] = []
+        else:
+            indexed_col_refs = \
+                [exprs.FrameColumnRef(c) if tbl.is_frame_col(c) else exprs.ColumnRef(c) for c in indexed_cols]
+            from pixeltable.functions.image_embedding import openai_clip
+            # explicitly resize images to the required size
+            target_img_type = next(iter(openai_clip.md.signature.parameters.values()))
+            index_cols = [
+                catalog.Column('dummy', computed_with=openai_clip(col_ref.resize(target_img_type.size)), stored=True)
+                for col_ref in indexed_col_refs
+            ]
+            stored_cols.extend(index_cols)
+            assert len(stored_cols) > 0
 
         # create copies to avoid reusing past execution state; eval ctx and evaluator need to share these copies;
         # also, we need to get rid of references to computed cols
@@ -143,11 +146,13 @@ class Planner:
         # we include embeddings for indices by constructing computed cols; we need to do that for all indexed cols,
         # not just the stored ones
         indexed_cols = [c for c in view.cols if c.is_indexed]
-        indexed_col_refs = [exprs.ColumnRef(c) for c in indexed_cols]
-        from pixeltable.functions.image_embedding import openai_clip
-        # explicitly resize images to the required size
-        target_img_type = next(iter(openai_clip.md.signature.parameters.values()))
-        select_list.extend([openai_clip(col_ref.resize(target_img_type.size)) for col_ref in indexed_col_refs])
+        if len(indexed_cols) > 0:
+            indexed_col_refs = [exprs.ColumnRef(c) for c in indexed_cols]
+            from pixeltable.functions.image_embedding import openai_clip
+            # explicitly resize images to the required size
+            target_img_type = next(iter(openai_clip.md.signature.parameters.values()))
+            select_list.extend([openai_clip(col_ref.resize(target_img_type.size)) for col_ref in indexed_col_refs])
+
         plan, select_list = cls.create_query_plan(
             view.base, select_list=select_list, where_clause=view.predicate, with_pk=True, ignore_errors=False,
             version=base_version)

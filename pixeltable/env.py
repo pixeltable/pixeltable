@@ -3,7 +3,6 @@ import os
 import time
 from typing import Optional, Dict
 from pathlib import Path
-import shutil
 import sqlalchemy as sql
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 import psycopg2
@@ -11,7 +10,6 @@ import docker
 import logging
 import sys
 import platform
-import psutil
 
 import nos
 
@@ -43,6 +41,7 @@ class Env:
         self._db_name: Optional[str] = None
         self._db_port: Optional[int] = None
         self._store_container: Optional[docker.models.containers.Container] = None
+        self._has_nos_runtime = True
         self._nos_client: Optional[nos.client.InferenceClient] = None
 
         # logging-related state
@@ -123,6 +122,7 @@ class Env:
         self._db_user = os.environ.get('PIXELTABLE_DB_USER', 'postgres')
         self._db_password = os.environ.get('PIXELTABLE_DB_PASSWORD', 'pgpassword')
         self._db_port = os.environ.get('PIXELTABLE_DB_PORT', '6543')
+        self._has_nos_runtime = os.environ.get('PIXELTABLE_NOS', '1') == '1'
 
         if not self._home.exists():
             msg = f'setting up Pixeltable at {self._home}, db at {self.db_url(hide_passwd=True)}'
@@ -173,10 +173,7 @@ class Env:
 
         self.log_to_stdout(False)
 
-    def _set_up_runtime(self) -> None:
-        """
-        Start store and runtime containers.
-        """
+    def _set_up_postgres(self) -> None:
         if not self._is_apple_cpu():
             cl = docker.from_env()
             try:
@@ -196,17 +193,24 @@ class Env:
                         'PGDATA': '/var/lib/postgresql/data',
                     },
                     volumes={
-                        str(self._home / 'pgdata') : {'bind': '/var/lib/postgresql/data', 'mode': 'rw'},
+                        str(self._home / 'pgdata'): {'bind': '/var/lib/postgresql/data', 'mode': 'rw'},
                     },
                     remove=True,
                 )
                 self._wait_for_postgres()
 
+    def _set_up_nos(self) -> None:
         self._logger.info('connecting to NOS')
         nos.init(logging_level=logging.DEBUG)
         self._nos_client = nos.client.InferenceClient()
         self._logger.info('waiting for NOS')
         self._nos_client.WaitForServer()
+
+    def _set_up_runtime(self) -> None:
+        """Check for and start runtime services"""
+        self._set_up_postgres()
+        if self._has_nos_runtime:
+            self._set_up_nos()
 
     def _postgres_is_up(self) -> bool:
         """
@@ -281,5 +285,4 @@ class Env:
 
     @property
     def nos_client(self) -> nos.client.InferenceClient:
-        assert self._nos_client is not None
         return self._nos_client
