@@ -11,7 +11,7 @@ import pixeltable as pt
 import pixeltable.catalog as catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType
-from pixeltable.tests.utils import read_data_file, create_test_tbl
+from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatype_tbl
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
@@ -74,6 +74,10 @@ def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List
         ptf.sum(t.c2, group_by=t.c4, order_by=t.c3),
         test_stored_fn(t.c2),
     ]
+
+@pytest.fixture(scope='function')
+def all_datatype_tbl(test_client: pt.Client) -> catalog.Table:
+    return create_all_datatype_tbl(test_client)
 
 @pytest.fixture(scope='function')
 def img_tbl(test_client: pt.Client) -> catalog.Table:

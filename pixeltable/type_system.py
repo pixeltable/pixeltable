@@ -23,7 +23,6 @@ import PIL.Image
 import sqlalchemy as sql
 
 
-
 class ColumnType:
     @enum.unique
     class Type(enum.Enum):
@@ -350,6 +349,11 @@ class ColumnType:
             return sql.VARBINARY
         assert False
 
+    @abc.abstractmethod
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        assert False, f'Have not implemented {self.__class__.__name__} to Arrow'
+ 
     @staticmethod
     def no_conversion(v: Any) -> Any:
         """
@@ -378,6 +382,9 @@ class InvalidType(ColumnType):
         assert False
 
     def to_sa_type(self) -> Any:
+        assert False
+
+    def to_arrow_type(self) -> 'pyarrow.DataType':
         assert False
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
@@ -409,6 +416,10 @@ class StringType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.String
+    
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        return pa.string()
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         import tensorflow as tf
@@ -431,6 +442,10 @@ class IntType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.BigInteger
+    
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        return pa.int64() # to be consistent with bigint above
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         # TODO: how to specify the correct int subtype?
@@ -451,6 +466,10 @@ class FloatType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.Float
+    
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa
+        return pa.float32()
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         import tensorflow as tf
@@ -471,6 +490,10 @@ class BoolType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.Boolean
+    
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        return pa.bool_()
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         import tensorflow as tf
@@ -491,6 +514,10 @@ class TimestampType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.TIMESTAMP
+    
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        return pa.timestamp('us') # postgres timestamp is microseconds
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         raise TypeError(f'Timestamp type cannot be converted to Tensorflow')
@@ -527,6 +554,10 @@ class JsonType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.dialects.postgresql.JSONB
+    
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        return pa.string() # TODO: weight advantage of pa.struct type.
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         if self.type_spec is None:
@@ -626,6 +657,12 @@ class ArrayType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.LargeBinary
+    
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        if any([n is None for n in self.shape]):
+            raise TypeError(f'Cannot convert array with unknown shape to Arrow')        
+        return pa.fixed_shape_tensor(pa.from_numpy_dtype(self.numpy_dtype()), self.shape)
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         import tensorflow as tf
@@ -640,6 +677,7 @@ class ArrayType(ColumnType):
             return np.dtype(np.bool_)
         if self.dtype == self.Type.STRING:
             return np.dtype(np.str_)
+        assert False
 
 
 class ImageType(ColumnType):
@@ -734,6 +772,10 @@ class ImageType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.String
+    
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        return pa.binary()
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         import tensorflow as tf
@@ -777,6 +819,10 @@ class VideoType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.String
+    
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        return pa.string()
 
     def to_tf(self) -> Union['tf.TypeSpec', Dict[str, 'tf.TypeSpec']]:
         assert False

@@ -130,3 +130,10 @@ class TableBase(SchemaObject):
         self.is_dropped = True
         self.tbl_version.drop()
 
+    def to_pytorch_dataset(self, image_format : str = 'pt') -> 'torch.utils.data.IterableDataset':
+        """Return a PyTorch Dataset for this table.
+            See DataFrame.to_pytorch_dataset()
+        """
+        from pixeltable.dataframe import DataFrame
+        return DataFrame(self.tbl_version).to_pytorch_dataset(image_format=image_format)
+

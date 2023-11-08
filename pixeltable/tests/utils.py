@@ -9,7 +9,7 @@ import pandas as pd
 
 import pixeltable as pt
 from pixeltable import catalog
-from pixeltable.type_system import ColumnType, StringType, IntType, FloatType, BoolType, TimestampType, JsonType
+from pixeltable.type_system import ColumnType, StringType, IntType, FloatType, ArrayType, BoolType, TimestampType, JsonType, ImageType, VideoType
 from pixeltable.dataframe import DataFrameResultSet
 
 
@@ -34,6 +34,7 @@ def make_tbl(cl: pt.Client, name: str = 'test', col_names: List[str] = ['c1']) -
 
 def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int = 10) -> List[List[Any]]:
     data: Dict[str, Any] = {}
+
     sample_dict = {
         'detections': [{
             'id': '637e8e073b28441a453564cf',
@@ -158,6 +159,30 @@ def create_test_tbl(client: pt.Client) -> catalog.Table:
     t.insert(rows, columns=['c1', 'c1n', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'])
     return t
 
+def create_all_datatype_tbl(test_client: pt.Client) -> catalog.Table:
+    """ Creates a table with all supported datatypes.
+    """
+    cols = [
+        catalog.Column('row_id', IntType(nullable=False)), # used for row selection
+        catalog.Column('c_array', ArrayType(shape=(10,),  dtype=FloatType(), nullable=True)),
+        catalog.Column('c_bool', BoolType(nullable=True)),
+        catalog.Column('c_float', FloatType(nullable=True)),
+        catalog.Column('c_image', ImageType(nullable=True)),
+        catalog.Column('c_int', IntType(nullable=True)),
+        catalog.Column('c_json', JsonType(nullable=True)),
+        catalog.Column('c_string', StringType(nullable=True)),
+        catalog.Column('c_timestamp', TimestampType(nullable=True)),
+        catalog.Column('c_video', VideoType(nullable=True)),
+    ]
+    tbl = test_client.create_table('all_datatype_tbl', cols)
+    example_rows = create_table_data(tbl, num_rows=11)
+
+    for i,r in enumerate(example_rows):
+        r[0] = i # row_id
+
+    tbl.insert(example_rows)
+    return tbl
+
 def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []) -> Tuple[List[List[Any]], List[str]]:
     """
     Locate dir_name, create df out of file_name.
@@ -166,7 +191,8 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
     Returns:
         tuple of (list of rows, list of column names)
     """
-    glob_result = glob.glob(f'{os.getcwd()}/**/{dir_name}', recursive=True)
+    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    glob_result = glob.glob(f'{tests_dir}/**/{dir_name}', recursive=True)
     assert len(glob_result) == 1, f'Could not find {dir_name}'
     abs_path = Path(glob_result[0])
     data_file_path = abs_path / file_name
@@ -178,11 +204,13 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
     return df.values.tolist(), df.columns.tolist()
 
 def get_video_files() -> List[str]:
-    glob_result = glob.glob(f'{os.getcwd()}/**/videos/*', recursive=True)
+    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    glob_result = glob.glob(f'{tests_dir}/**/videos/*', recursive=True)
     return glob_result
 
 def get_image_files() -> List[str]:
-    glob_result = glob.glob(f'{os.getcwd()}/**/imagenette2-160/*', recursive=True)
+    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
     return glob_result
 
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:

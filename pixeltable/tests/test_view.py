@@ -76,6 +76,14 @@ class TestView:
             v.select(v.v1).order_by(v.c2).show(0),
             t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).show(0))
 
+        # test delete view
+        cl.drop_table('test_view')
+        cl = pt.Client()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = cl.get_table('test_view')
+        assert 'No such path:' in str(exc_info.value)
+
     def test_computed_cols(self, test_client: pt.Client) -> None:
         cl = test_client
         t = self.create_tbl(cl)

@@ -18,7 +18,6 @@ pandas = "^1.5.3"
 pillow = "^9.4.0"
 opencv-python-headless = "^4.7.0.68"
 tqdm = "^4.64.1"
-#torch = {version = "^1.13.1+cpu", source = "torchcpu"}
 jmespath = "^1.0.1"
 ftfy = "^6.1.1"
 regex = "^2022.10.31"
@@ -32,7 +31,10 @@ sqlalchemy-utils = "^0.41.1"
 autonomi-nos = "^0.0.9"
 pgvector = "^0.2.1"
 boto3 = {version = "^1.17", optional = true}
-av = "^10.0.0"
+av = ">=10.0.0"
+torch = {version = "^2.1.1", optional = true}
+torchvision = {version = "^0.16.1", optional = true}
+pyarrow = {version = ">=13.0.1", optional = true}
 
 [tool.poetry.group.test]
 optional = true
@@ -40,6 +42,9 @@ optional = true
 [tool.poetry.group.test.dependencies]
 pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
+torch = "^2.1.1"
+torchvision = "^0.16.1"
+pyarrow = ">=13.0.1"
 
 [tool.poetry.group.docs]
 optional = true

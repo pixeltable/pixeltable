@@ -10,6 +10,10 @@ import sqlalchemy as sql
 from PIL import Image
 import traceback
 import copy
+import json
+import hashlib
+import importlib.util
+import logging
 
 from pixeltable import catalog
 from pixeltable.env import Env
@@ -22,6 +26,8 @@ from pixeltable.catalog import is_valid_identifier
 __all__ = [
     'DataFrame'
 ]
+
+_logger = logging.getLogger('pixeltable')
 
 def _format_img(img: object) -> str:
     """
@@ -135,7 +141,8 @@ class DataFrame:
         # exprs contain execution state and therefore cannot be shared
         select_list = copy.deepcopy(select_list)
         select_list_exprs, column_names = DataFrame._normalize_select_list(tbl, select_list)
-        DataFrame._select_list_check_rep(list(zip(select_list_exprs, column_names))) # check select list after expansion to catch early
+        DataFrame._select_list_check_rep(list(zip(select_list_exprs, column_names)))
+        # check select list after expansion to catch early
         # the following two lists are always non empty, even if select list is None.
         self._select_list_exprs = select_list_exprs
         self._column_names = column_names
@@ -219,7 +226,7 @@ class DataFrame:
             self.order_by_clause = []
         for item in self._select_list_exprs:
             item.bind_rel_paths(None)
-        plan, select_list_tmp = Planner.create_query_plan(
+        plan, self._select_list_exprs = Planner.create_query_plan(
             self.tbl, self._select_list_exprs,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
@@ -230,8 +237,7 @@ class DataFrame:
         try:
             result = next(plan)
             for data_row in result:
-                result_row = [data_row[e.slot_idx] for e in select_list_tmp]
-                yield result_row
+                yield data_row
         finally:
             plan.close()
         return
@@ -243,12 +249,18 @@ class DataFrame:
     def head(self, n: int = 20) -> DataFrameResultSet:
         return self.show(n)
     
-    def column_names(self) -> List[str]:
+    def get_column_names(self) -> List[str]:
         return self._column_names
+    
+    def get_column_types(self) -> List[ColumnType]:
+        return [expr.col_type for expr in self._select_list_exprs]
 
     def collect(self) -> DataFrameResultSet:
         try:
-            data_rows = [row for row in self._exec()]
+            result_rows = []
+            for data_row in self._exec():
+                result_row = [data_row[e.slot_idx] for e in self._select_list_exprs]
+                result_rows.append(result_row)
         except exc.ExprEvalError as e:
             msg = (f'In row {e.row_num} the {e.expr_msg} encountered exception '
                    f'{type(e.exc).__name__}:\n{str(e.exc)}')
@@ -270,8 +282,8 @@ class DataFrame:
         except sql.exc.DBAPIError as e:
             raise exc.Error(f'Error during SQL execution:\n{e}')
 
-        col_types = [expr.col_type for expr in self._select_list_exprs]
-        return DataFrameResultSet(data_rows, self._column_names, col_types)
+        col_types = self.get_column_types()
+        return DataFrameResultSet(result_rows, self._column_names, col_types)
 
     def count(self) -> int:
         from pixeltable.plan import Planner
@@ -305,9 +317,7 @@ class DataFrame:
             return result
 
     def _description(self) -> pd.DataFrame:
-        """Return a description of this DataFrame as a pandas DataFrame.
-        The DataFrame has two columns, heading and info, which list the contents of each 'component'
-        (select list, where clause, ...) vertically when printed.
+        """ see DataFrame.describe()
         """
         heading_vals: List[str] = []
         info_vals: List[str] = []
@@ -315,7 +325,7 @@ class DataFrame:
             assert len(self.select_list) > 0
             heading_vals.append('Select')
             heading_vals.extend([''] * (len(self.select_list) - 1))
-            info_vals.extend(self.column_names())
+            info_vals.extend(self.get_column_names())
         if self.where_clause is not None:
             heading_vals.append('Where')
             info_vals.append(self.where_clause.display_str(inline=False))
@@ -347,6 +357,11 @@ class DataFrame:
             .hide(axis='index').hide(axis='columns')
 
     def describe(self) -> None:
+        """
+        Prints a tabular description of this DataFrame.
+        The description has two columns, heading and info, which list the contents of each 'component'
+                (select list, where clause, ...) vertically.
+        """
         try:
             __IPYTHON__
             from IPython.display import display
@@ -454,3 +469,75 @@ class DataFrame:
         if isinstance(index, list):
             return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
+    
+    def _as_dict(self) -> Dict[str, Any]:
+        """ 
+            Returns:
+                Dictionary representing this dataframe.
+        """
+        d = {
+            '_classname': 'DataFrame',
+            'tbl_id': str(self.tbl.id),
+            'tbl_version': self.tbl.version,
+            'select_list': [(e.as_dict(), name) for (e, name) in self.select_list] if self.select_list is not None else None,
+            'where_clause': self.where_clause.as_dict() if self.where_clause is not None else None,
+            'group_by_clause': [e.as_dict() for e in self.group_by_clause] if self.group_by_clause is not None else None,
+            'order_by_clause': [(e.as_dict(), asc) for (e,asc) in self.order_by_clause] if self.order_by_clause is not None else None,
+            'limit_val': self.limit_val,
+        }
+        return d
+
+    def to_pytorch_dataset(self, image_format : str = 'pt') -> 'torch.utils.data.IterableDataset':
+        """
+            Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
+             with torch.utils.data.DataLoader. 
+
+            This method requires pyarrow >= 13, torch and torchvision to work.
+
+            This method serializes data so it can be read from disk efficiently and repeatedly without 
+            re-executing the query. This data is cached to disk for future re-use.
+
+            Args:
+                image_format: format of the images. Can be 'pt' (pytorch tensor) or 'np' (numpy array).
+                        'np' means image columns return as an RGB uint8 array of shape HxWxC.
+                        'pt' means image columns return as a CxHxW tensor with values in [0,1] and type torch.float32.
+                            (the format output by torchvision.transforms.ToTensor())
+            Returns:
+                A pytorch IterableDataset: Columns become fields of the dataset, 
+                where rows are returned as a dictionary compatible with torch.utils.data.DataLoader default collation.
+
+            Constraints:
+                The default collate_fn for torch.data.util.DataLoader cannot represent null values as part of a 
+                pytorch tensor when forming batches. These values will raise an exception while running the dataloader.
+                
+                If you have them, you can work around None values by providing your custom collate_fn to the DataLoader (and have your model handle it)
+                Or, if these are not meaningful values within a minibtach, you can modify or remove any such values 
+                through selections and filters prior to calling to_pytorch_dataset().
+        """
+        # check dependencies
+        if importlib.util.find_spec('pyarrow') is None:
+            raise exc.Error('pyarrow >= 13 is not installed. Please install it, eg `pip install pyarrow`')
+        else:
+            import pyarrow as pa
+            if int(pa.__version__.split('.')[0]) < 13:
+                _logger.warning('pyarrow version %s is installed. pyarrow >= 13 is needed to handle array types',
+                                pa.__version__)
+
+        if importlib.util.find_spec('torch') is None:
+            raise exc.Error('torch is not installed. Please install it, eg `pip install torch`')
+        if importlib.util.find_spec('torchvision') is None:
+            raise exc.Error('torchvision is not installed. Please install it, eg `pip install torchvision`')
+
+        from pixeltable.utils.parquet import save_parquet # pylint: disable=import-outside-toplevel
+        from pixeltable.utils.pytorch import PixeltablePytorchDataset # pylint: disable=import-outside-toplevel
+
+        summary_string = json.dumps(self._as_dict()) 
+        cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
+    
+        dest_path = (Env.get()._cache_dir / f'df_{cache_key}').with_suffix('.parquet') # pylint: disable = protected-access
+        if dest_path.exists(): # fast path: use cache
+            assert dest_path.is_dir()
+        else:
+            save_parquet(self, dest_path)
+
+        return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
