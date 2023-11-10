@@ -115,13 +115,13 @@ class VideoAggregator:
     def update(self, frame: PIL.Image.Image) -> None:
         if self.container is None:
             self.out_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
-            self.container = av.open(str(self.out_file), mode="w")
-            self.stream = self.container.add_stream("mpeg4", rate=self.fps)
-            self.stream.pix_fmt = "yuv420p"
+            self.container = av.open(str(self.out_file), mode='w')
+            self.stream = self.container.add_stream('h264', rate=self.fps)
+            self.stream.pix_fmt = 'yuv420p'
             self.stream.width = frame.width
             self.stream.height = frame.height
 
-        av_frame = av.VideoFrame.from_ndarray(np.array(frame.convert('RGB')), format="rgb24")
+        av_frame = av.VideoFrame.from_ndarray(np.array(frame.convert('RGB')), format='rgb24')
         for packet in self.stream.encode(av_frame):
             self.container.mux(packet)
         
