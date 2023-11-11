@@ -147,6 +147,9 @@ class Env:
         fh = logging.FileHandler(self._log_dir / self._logfilename, mode='w')
         fh.setFormatter(logging.Formatter(self._log_fmt_str))
         self._logger.addHandler(fh)
+        sql_logger = logging.getLogger('sqlalchemy.engine')
+        sql_logger.setLevel(logging.INFO)
+        sql_logger.addHandler(fh)
 
         # we now have a home directory; start runtime containers
         self._set_up_runtime()
