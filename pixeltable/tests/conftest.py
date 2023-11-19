@@ -43,7 +43,7 @@ def test_tbl(test_client: pt.Client) -> catalog.MutableTable:
 
 @pytest.fixture(scope='function')
 def test_stored_fn(test_client: pt.Client) -> pt.Function:
-    @pt.function(return_type=pt.IntType(), param_types=[pt.IntType()])
+    @pt.udf(return_type=pt.IntType(), param_types=[pt.IntType()])
     def test_fn(x):
         return x + 1
     test_client.create_function('test_fn', test_fn)

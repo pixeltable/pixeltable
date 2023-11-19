@@ -5,8 +5,8 @@ import sys
 
 import numpy as np
 
-from pixeltable.type_system import JsonType
-from pixeltable.function import function, Function, FunctionRegistry
+import pixeltable.type_system as ts
+import pixeltable.function as func
 
 
 # the following function has been adapted from MMEval
@@ -169,10 +169,10 @@ def _eval_detections(
         })
     return result
 
-eval_detections = Function.make_library_function(
-    JsonType(nullable=False),
-    [JsonType(nullable=False), JsonType(nullable=False), JsonType(nullable=False), JsonType(nullable=False),
-     JsonType(nullable=False)],
+eval_detections = func.Function.make_library_function(
+    ts.JsonType(nullable=False),
+    [ts.JsonType(nullable=False), ts.JsonType(nullable=False), ts.JsonType(nullable=False), ts.JsonType(nullable=False),
+     ts.JsonType(nullable=False)],
     __name__, '_eval_detections')
 
 class MeanAPAggregator:
@@ -213,12 +213,12 @@ class MeanAPAggregator:
         return result
 
 
-mean_ap = Function.make_library_aggregate_function(
-    JsonType(), [JsonType()],  # params: output of eval_detections()
+mean_ap = func.Function.make_library_aggregate_function(
+    ts.JsonType(), [ts.JsonType()],  # params: output of eval_detections()
     module_name = __name__,
     init_symbol = 'MeanAPAggregator.make_aggregator',
     update_symbol = 'MeanAPAggregator.update',
     value_symbol = 'MeanAPAggregator.value',
     allows_std_agg=True, allows_window=False)
 
-FunctionRegistry.get().register_module(sys.modules[__name__])
+func.FunctionRegistry.get().register_module(sys.modules[__name__])

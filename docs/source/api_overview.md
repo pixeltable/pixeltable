@@ -2,13 +2,13 @@
 
 Import conventions:
 ```python
-import pixeltable as pt
-import pixeltable.functions as ptf
+import pixeltable as pxt
+import pixeltable.functions as pxtf
 ```
 
 ## Creating a client
 ```python
-cl = pt.Client()
+cl = pxt.Client()
 ```
 
 ## Client operations summary
@@ -17,7 +17,7 @@ cl = pt.Client()
 
 | Task                   | Code                                                                                                  |
 |--------------------------|-------------------------------------------------------------------------------------------------------|
-| Create a table           | t = cl.[create_table](pixeltable.Client.create_table)('table_name', [pt.Column('name', <type>), ...]) |
+| Create a table           | t = cl.[create_table](pixeltable.Client.create_table)('table_name', [pxt.Column('name', <type>), ...]) |
 | Use an existing table    | t = cl.[get_table](pixeltable.Client.get_table)('video_data')                                         |
 | Rename a table           | cl.[move](pixeltable.Client.move)('video_data', 'vd')                                 |
 | List tables              | cl.[list_tables](pixeltable.Client.list_tables)()                                                     |
@@ -171,8 +171,9 @@ Methods can be chained, for example: `t.frame.resize((224, 224)).rotate(90).conv
 ## Functions
 
 Functions can be used to transform data, both during querying as well as when data is added to a table.
+
 ```python
-@pt.function(return_type=pt.IntType(), param_types=[pt.IntType()])
+@pt.udf(return_type=pt.IntType(), param_types=[pt.IntType()])
 def add1(x):
     return x + 1
 ```

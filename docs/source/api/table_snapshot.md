@@ -14,5 +14,5 @@ Instances of class {py:class}`pixeltable.TableSnapshot` are handles to Pixeltabl
 Use this handle to query the snapshot
 (via the query-related functionality in the {py:class}`pixeltable.Table` base class).
 
-{py:class}`pixeltable.TableSnapshot` instances are created by calling {py:meth}`pixeltable.Db.get_table`.
+{py:class}`pixeltable.TableSnapshot` instances are created by calling {py:meth}`pixeltable.Client.create_snapshot`.
 

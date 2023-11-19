@@ -9,47 +9,8 @@
     MutableTable
 ```
 
-Instances of class {py:class}`pixeltable.MutableTable` are handles to Pixeltable tables.
+{py:class}`pixeltable.MutableTable` is the base class for Pixeltable tables and views.
 
-Use this handle to query and update the table and to add and drop columns.
-
-{py:class}`pixeltable.MutableTable` instances are created by calling {py:meth}`pixeltable.Db.create_table`
-or {py:meth}`pixeltable.Db.get_table`.
-
-## Column Operations
-
-```{eval-rst}
-.. currentmodule:: pixeltable
-.. autosummary::
-    :nosignatures:
-    :toctree: _autosummary
-
-    MutableTable.add_column
-    MutableTable.drop_column
-    MutableTable.rename_column
-```
-
-## Data Operations
-
-```{eval-rst}
-.. currentmodule:: pixeltable
-.. autosummary::
-    :nosignatures:
-    :toctree: _autosummary
-
-    MutableTable.insert
-    MutableTable.update
-    MutableTable.delete
-```
-
-## Versioning
-
-```{eval-rst}
-.. currentmodule:: pixeltable
-.. autosummary::
-    :nosignatures:
-    :toctree: _autosummary
-
-    MutableTable.revert
-```
-
+Use {py:meth}`pixeltable.Client.create_table`/{py:meth}`pixeltable.Client.create_view`
+or {py:meth}`pixeltable.Client.get_table`.
+to create instances of this class.

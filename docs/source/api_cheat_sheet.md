@@ -2,22 +2,22 @@
 
 Import conventions:
 ```python
-import pixeltable as pt
-import pixeltable.functions as ptf
+import pixeltable as pxt
+import pixeltable.functions as pxtf
 ```
 
 Creating a client
 ```python
-cl = pt.Client()
+cl = pxt.Client()
 ```
 
 ## Client operations summary
 
-| Task                   | Code                                                                                                  |
-|--------------------------|-------------------------------------------------------------------------------------------------------|
-| Create a (mutable) table           | t = cl.[create_table](pixeltable.Client.create_table)('table_name', [pt.Column('name', <type>), ...]) |
-| Create a view           | t = cl.[create_view](pixeltable.Client.create_view)('view_name', base_tbl, schema=[pt.Column('name', <type>), ...], filter=base_tbl.col > 10) |
-| Create a snapshot           | t = cl.[create_snapshot](pixeltable.Client.create_snapshot)('snapshot_name', 'tbl_name') |
+| Task                   | Code                                                                                                                                           |
+|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
+| Create a (mutable) table           | t = cl.[create_table](pixeltable.Client.create_table)('table_name', [pxt.Column('name', <type>), ...])                                         |
+| Create a view           | t = cl.[create_view](pixeltable.Client.create_view)('view_name', base_tbl, schema=[pxt.Column('name', <type>), ...], filter=base_tbl.col > 10) |
+| Create a snapshot           | t = cl.[create_snapshot](pixeltable.Client.create_snapshot)('snapshot_name', 'tbl_name')                                                       |
 
 The following functions apply to tables, views, and snapshots.
 
@@ -51,9 +51,9 @@ The following functions apply to tables, views, and snapshots.
 ## Frame extraction for video data
 Creating a table with video data and automatic frame extraction:
 ```python
-c1 = pt.Column('video', pt.VideoType())
-c2 = pt.Column('frame_idx', pt.IntType())
-c3 = pt.Column('frame', pt.ImageType())
+c1 = pxt.Column('video', pxt.VideoType())
+c2 = pxt.Column('frame_idx', pxt.IntType())
+c3 = pxt.Column('frame', pxt.ImageType())
 t = db.create_table(
     'video_table', [c1, c2, c3],
     extract_frames_from='video',
@@ -67,15 +67,15 @@ t = db.create_table(
 ## Pixeltable types
 |Pixeltable type|Python type|
 |----|----|
-| `pt.StringType()`| `str` |
-| `pt.IntType()`| `int` |
-| `pt.FloatType()`| `float` |
-| `pt.BoolType()`| `bool` |
-| `pt.TimestampType()`| `datetime.datetime` |
-| `pt.JsonType()`| lists and dicts that can be converted to JSON|
-| `pt.ArrayType()`| `numpy.ndarray`|
-| `pt.ImageType()`| `PIL.Image.Image`|
-| `pt.VideoType()`| `str` (the file path)|
+| `pxt.StringType()`| `str` |
+| `pxt.IntType()`| `int` |
+| `pxt.FloatType()`| `float` |
+| `pxt.BoolType()`| `bool` |
+| `pxt.TimestampType()`| `datetime.datetime` |
+| `pxt.JsonType()`| lists and dicts that can be converted to JSON|
+| `pxt.ArrayType()`| `numpy.ndarray`|
+| `pxt.ImageType()`| `PIL.Image.Image`|
+| `pxt.VideoType()`| `str` (the file path)|
 
 
 ## Table operations summary
@@ -84,7 +84,7 @@ t = db.create_table(
 | Print table schema | `t.describe()`|
 | Query a table | `t.select(<column selections>).where(<filter expression>).show()` |
 | Insert rows into a table| `t.insert([<list of column values for row 1>, <row 2>, ...], columns=<list of column names>)`|
-| Add a column| `t.add_column(pt.Column(...))`|
+| Add a column| `t.add_column(pxt.Column(...))`|
 | Rename a column| `t.rename_column('col_name', 'new_col_name')`|
 | Drop a column| `t.drop_column('col_name')`|
 | Undo the last update operation (add/rename/drop column or insert)| `t.revert()`|
@@ -112,13 +112,13 @@ or `~(t.frame.mode == 'RGB')`.
 |----|----|
 | Only retrieve the frame index and frame | `t.select(t.frame_idx, t.frame).show()` |
 | Look at frames rotated 90 degrees | `t.select(t.frame.rotate(90)).show()` |
-| Overlay frame with itself rotated 90 degrees | `t.select(pt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).show()` |
+| Overlay frame with itself rotated 90 degrees | `t.select(pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).show()` |
 
 ## Computed columns
 
 The values in a computed column are automatically filled when data is added:
 ```python
-t.add_column(pt.Column('c_added', computed_with=t.frame.rotate(30)))
+t.add_column(pxt.Column('c_added', computed_with=t.frame.rotate(30)))
 ```
 
 Computed columns have attributes `errortype` and `errormsg`, which contain the exception type and string
@@ -154,22 +154,23 @@ Methods can be chained, for example: `t.frame.resize((224, 224)).rotate(90).conv
 ## Functions
 
 Functions can be used to transform data, both during querying as well as when data is added to a table.
+
 ```python
-@pt.function(return_type=pt.IntType(), param_types=[pt.IntType()])
+@pxt.udf(return_type=pxt.IntType(), param_types=[pxt.IntType()])
 def add1(x):
     return x + 1
 ```
 
 For querying: `t.select(t.frame_idx, add1(t.frame_idx)).show()`
 
-As a computed column: `t.add_column(pt.Column('c', computed_with=add1(t.frame_idx)))`
+As a computed column: `t.add_column(pxt.Column('c', computed_with=add1(t.frame_idx)))`
 
 ## Image similarity search
 
 In order to enable similarity on specific image columns, create those columns with `indexed=True`.
 This will compute an embedding for every image and store it in a vector index.
 ```python
-c3 = pt.Column('frame', pt.ImageType(), indexed=True)
+c3 = pxt.Column('frame', pxt.ImageType(), indexed=True)
 ```
 
 Assuming `img = PIL.Image.open(...)`

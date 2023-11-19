@@ -45,8 +45,6 @@ def _format_video(video_file_path: str) -> str:
     root = Path(os.getcwd())
     try:
         rel_path = p.relative_to(root)
-        print(rel_path)
-        print(f'<video controls><source src="{rel_path}" type="video/mp4"></video>')
         return f'<video controls><source src="{rel_path}" type="video/mp4"></video>'
     except ValueError:
         # display path as string

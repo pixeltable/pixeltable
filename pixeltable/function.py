@@ -412,11 +412,11 @@ class Function:
             return FunctionRegistry.get().get_function(fqn=d['fqn'])
 
 
-def function(*, return_type: ColumnType, param_types: List[ColumnType]) -> Callable:
+def udf(*, return_type: ColumnType, param_types: List[ColumnType]) -> Callable:
     """Returns decorator to create a Function from a function definition.
 
     Example:
-        >>> @pt.function(param_types=[pt.IntType()], return_type=pt.IntType())
+        >>> @pt.udf(param_types=[pt.IntType()], return_type=pt.IntType())
         ... def my_function(x):
         ...    return x + 1
     """

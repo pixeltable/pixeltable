@@ -77,8 +77,7 @@ class Table(SchemaObject):
         return self.df().head(*args, **kwargs)
 
     def count(self) -> int:
-        """Return the number of rows in this table.
-        """
+        """Return the number of rows in this table."""
         return self.df().count()
 
     def _description(self) -> pd.DataFrame:

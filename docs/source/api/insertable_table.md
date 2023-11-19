@@ -1,4 +1,4 @@
-# View
+# InsertableTable
 
 ```{eval-rst}
 .. currentmodule:: pixeltable
@@ -6,14 +6,14 @@
     :nosignatures:
     :toctree: _autosummary
 
-    View
+    InsertableTable
 ```
 
-Instances of class {py:class}`pixeltable.View` are handles to Pixeltable views.
+Instances of class {py:class}`pixeltable.InsertableTable` are handles to Pixeltable tables.
 
-Use this handle to query and update the view and to add and drop columns.
+Use this handle to query and update the table and to add and drop columns.
 
-{py:class}`pixeltable.View` instances are created by calling {py:meth}`pixeltable.Client.create_view`
+{py:class}`pixeltable.InsertableTable` instances are created by calling {py:meth}`pixeltable.Client.create_table`
 or {py:meth}`pixeltable.Client.get_table`.
 
 ## Column Operations
@@ -24,9 +24,9 @@ or {py:meth}`pixeltable.Client.get_table`.
     :nosignatures:
     :toctree: _autosummary
 
-    View.add_column
-    View.drop_column
-    View.rename_column
+    InsertableTable.add_column
+    InsertableTable.drop_column
+    InsertableTable.rename_column
 ```
 
 ## Data Operations
@@ -37,7 +37,9 @@ or {py:meth}`pixeltable.Client.get_table`.
     :nosignatures:
     :toctree: _autosummary
 
-    View.update
+    InsertableTable.insert
+    InsertableTable.update
+    InsertableTable.delete
 ```
 
 ## Versioning
@@ -48,6 +50,6 @@ or {py:meth}`pixeltable.Client.get_table`.
     :nosignatures:
     :toctree: _autosummary
 
-    View.revert
+    InsertableTable.revert
 ```
 

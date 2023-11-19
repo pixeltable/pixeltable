@@ -12,7 +12,7 @@ def dummy_fn(i: int) -> int:
     return i
 
 class TestFunction:
-    @pt.function(return_type=IntType(), param_types=[IntType()])
+    @pt.udf(return_type=IntType(), param_types=[IntType()])
     def func(x: int) -> int:
         return x + 1
 
@@ -138,7 +138,7 @@ class TestFunction:
     def test_call(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
 
-        @pt.function(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])
+        @pt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])
         def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
             return a + b + c + d
 
@@ -166,7 +166,7 @@ class TestFunction:
         assert np.all(r5 == r6)
 
         # test handling of Nones
-        @pt.function(
+        @pt.udf(
             return_type=IntType(),
             param_types=[IntType(nullable=True), FloatType(nullable=False), FloatType(nullable=True)])
         def f2(a: int, b: float = 0.0, c: float = 1.0) -> float:
@@ -194,25 +194,25 @@ class TestFunction:
 
         # bad default value
         with pytest.raises(exc.Error) as exc_info:
-            @pt.function(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType()])
+            @pt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType()])
             def f1(a: int, b: float, c: str = '') -> float:
                 return a + b + c
         assert 'default value' in str(exc_info.value).lower()
         # missing param type
         with pytest.raises(exc.Error) as exc_info:
-            @pt.function(return_type=IntType(), param_types=[IntType(), FloatType()])
+            @pt.udf(return_type=IntType(), param_types=[IntType(), FloatType()])
             def f1(a: int, b: float, c: str = '') -> float:
                 return a + b + c
         assert 'number of parameters' in str(exc_info.value)
         # bad parameter name
         with pytest.raises(exc.Error) as exc_info:
-            @pt.function(return_type=IntType(), param_types=[IntType()])
+            @pt.udf(return_type=IntType(), param_types=[IntType()])
             def f1(group_by: int) -> int:
                 return group_by
         assert 'reserved' in str(exc_info.value)
         # bad parameter name
         with pytest.raises(exc.Error) as exc_info:
-            @pt.function(return_type=IntType(), param_types=[IntType()])
+            @pt.udf(return_type=IntType(), param_types=[IntType()])
             def f1(order_by: int) -> int:
                 return order_by
         assert 'reserved' in str(exc_info.value)

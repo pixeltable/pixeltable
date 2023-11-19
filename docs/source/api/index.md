@@ -5,6 +5,7 @@
 client
 column
 function
+insertable_table
 mutable_table
 table
 table_snapshot

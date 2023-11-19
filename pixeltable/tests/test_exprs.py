@@ -53,10 +53,10 @@ class TestExprs:
         assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         # compound predicates with Python functions
-        @pt.function(return_type=BoolType(), param_types=[StringType()])
+        @pt.udf(return_type=BoolType(), param_types=[StringType()])
         def udf(_: str) -> bool:
             return True
-        @pt.function(return_type=BoolType(), param_types=[IntType()])
+        @pt.udf(return_type=BoolType(), param_types=[IntType()])
         def udf2(_: int) -> bool:
             return True
 
@@ -110,7 +110,7 @@ class TestExprs:
             _ = t[(t.c6.f2 + 1) / (t.c2 - 10)].show()
 
         # the same, but with an inline function
-        @pt.function(return_type=FloatType(), param_types=[IntType(), IntType()])
+        @pt.udf(return_type=FloatType(), param_types=[IntType(), IntType()])
         def f(a: int, b: int) -> float:
             return a / b
         with pytest.raises(exc.Error):
@@ -219,8 +219,8 @@ class TestExprs:
         # computed column that doesn't allow nulls
         t.add_column(pt.Column('c3', FloatType(nullable=False), computed_with=lambda c1, c2: c1 + c2))
         # function that does allow nulls
-        @pt.function(return_type=FloatType(nullable=True),
-                     param_types=[FloatType(nullable=False), FloatType(nullable=True)])
+        @pt.udf(return_type=FloatType(nullable=True),
+                param_types=[FloatType(nullable=False), FloatType(nullable=True)])
         def f(a: int, b: int) -> int:
             if b is None:
                 return a

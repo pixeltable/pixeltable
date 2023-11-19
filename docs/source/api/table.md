@@ -9,7 +9,7 @@
     Table
 ```
 
-The {py:class}`pixeltable.Table` base class provides some convenience function for querying tables and snapshots
+The {py:class}`pixeltable.Table` base class provides convenience functions for querying tables and snapshots
 without having to construct {py:class}`pixeltable.DataFrame` instances explicitly.
 
 ## Query Operations
@@ -25,4 +25,5 @@ without having to construct {py:class}`pixeltable.DataFrame` instances explicitl
     Table.df
     Table.show
     Table.count
+    Table.describe
 ```

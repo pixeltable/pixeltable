@@ -23,12 +23,12 @@ from pixeltable.iterators import FrameIterator
 
 class TestTable:
     # exc for a % 10 == 0
-    @pt.function(return_type=FloatType(), param_types=[IntType()])
+    @pt.udf(return_type=FloatType(), param_types=[IntType()])
     def f1(a: int) -> float:
         return a / (a % 10)
 
     # exception for a == None; this should not get triggered
-    @pt.function(return_type=FloatType(), param_types=[FloatType()])
+    @pt.udf(return_type=FloatType(), param_types=[FloatType()])
     def f2(a: float) -> float:
         return a + 1
 
@@ -662,7 +662,7 @@ class TestTable:
 
         # computed img col with exceptions
         t = cl.create_table('test3', schema)
-        @pt.function(return_type=ImageType(), param_types=[ImageType()])
+        @pt.udf(return_type=ImageType(), param_types=[ImageType()])
         def f(img: PIL.Image.Image) -> PIL.Image.Image:
             raise RuntimeError
         t.add_column(catalog.Column('c3', computed_with=f(t.img), stored=True))

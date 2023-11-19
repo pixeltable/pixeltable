@@ -180,7 +180,8 @@ class TestDataFrame:
             assert arr_xformed.shape == (H, W, 3)
             assert arr_xformed.dtype == np.uint8
             # same as above, compare numpy array bc PIL.Image object itself is not using same file.
-            assert (arr_xformed == np.array(im_xformed)).all(), 'numpy image array for xformed image should be the same as the original'
+            assert (arr_xformed == np.array(im_xformed)).all(),\
+                'numpy image array for xformed image should be the same as the original'
 
             # now compare pytorch version
             arr_pt = elt_pt['c_image']
@@ -191,7 +192,8 @@ class TestDataFrame:
             assert arr_pt.dtype == torch.float32
             assert (0.0 <= arr_pt).all()
             assert (arr_pt <= 1.0).all()
-            assert torch.isclose(T.ToTensor()(arr_xformed), arr_pt).all(), 'pytorch image should be consistent with numpy image'
+            assert torch.isclose(T.ToTensor()(arr_xformed), arr_pt).all(),\
+                'pytorch image should be consistent with numpy image'
             elt_count += 1
         assert elt_count == 1
 
@@ -201,7 +203,7 @@ class TestDataFrame:
             2. compatibility of all types with default collate_fn
         """
         import torch.utils.data
-        @pt.function(param_types=[pt.JsonType()], return_type=pt.JsonType())
+        @pt.udf(param_types=[pt.JsonType()], return_type=pt.JsonType())
         def restrict_json_for_default_collate(obj):
             keys = ['id', 'label', 'iscrowd', 'bounding_box']
             return {k: obj[k] for k in keys}

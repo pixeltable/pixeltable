@@ -532,7 +532,7 @@ class Client:
         Examples:
             Create a function ``detect()`` that takes an image and returns a JSON object, and store it in ``my_dir``:
 
-            >>> pt.function(param_types=[ImageType()], return_type=JsonType())
+            >>> @pxt.udf(param_types=[ImageType()], return_type=JsonType())
             ... def detect(img):
             ... ...
             >>> cl.create_function('my_dir.detect', detect)
