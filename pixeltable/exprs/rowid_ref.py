@@ -12,17 +12,19 @@ import pixeltable.catalog as catalog
 
 
 class RowidRef(Expr):
-    """A reference to (a part of) a table rowid column
+    """A reference to a part of a table rowid
 
     This is used internally to support grouping by a base table and for references to the 'pos' column.
     """
     def __init__(self, tbl: catalog.TableVersion, idx: int):
         super().__init__(ts.IntType(nullable=False))
+        self.tbl = tbl
         # normalize to simplify comparisons: we refer to the lowest base table that has the requested rowid idx
         # (which has the same values as all its descendent views)
-        while tbl.base is not None and len(tbl.base.store_tbl.rowid_columns()) > idx:
-            tbl = tbl.base
-        self.tbl = tbl
+        normalized_base = tbl
+        while normalized_base.base is not None and len(normalized_base.base.store_tbl.rowid_columns()) > idx:
+            normalized_base = normalized_base.base
+        self.normalized_base = normalized_base
         self.rowid_component_idx = idx
         self.id = self._create_id()
 
@@ -30,16 +32,29 @@ class RowidRef(Expr):
         return str(self)
 
     def _equals(self, other: RowidRef) -> bool:
-        return self.tbl is other.tbl and self.rowid_component_idx == other.rowid_component_idx
+        return self.normalized_base is other.normalized_base and self.rowid_component_idx == other.rowid_component_idx
 
     def _id_attrs(self) -> List[Tuple[str, Any]]:
-        return super()._id_attrs() + [('tbl_id', self.tbl.id), ('idx', self.rowid_component_idx)]
+        return super()._id_attrs() +\
+            [('normalized_base_id', self.normalized_base.id), ('idx', self.rowid_component_idx)]
 
     def __str__(self) -> str:
         # check if this is the pos column of a component view
         if self.tbl.is_component_view() and self.rowid_component_idx == self.tbl.store_tbl.pos_col_idx:
             return catalog.globals.POS_COLUMN_NAME
         return None
+
+    def set_tbl(self, tbl: catalog.TableVersion) -> None:
+        """Change the table that is being referenced.
+        This can be necessary during query planning, because at that stage we try to minimize the total number of
+        tables that are referenced/need to be joined.
+        We can only change to a view of the original table (which shares the base's rowid columns).
+        """
+        if tbl is self.tbl:
+            return
+        bases = tbl.get_bases()
+        assert self.tbl in bases
+        self.tbl = tbl
 
     def sql_expr(self) -> Optional[sql.ClauseElement]:
         rowid_cols = self.tbl.store_tbl.rowid_columns()

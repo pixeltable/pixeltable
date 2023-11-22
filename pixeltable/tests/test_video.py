@@ -129,7 +129,7 @@ class TestVideo:
             value_fn=WindowAgg.value,
             requires_order_by=True, allows_std_agg=False, allows_window=True)
         # make sure it works
-        _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=view_t.video)).show()
+        _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
         cl.create_function('agg_fn', agg_fn)
         view_t.add_column(
             catalog.Column('agg', computed_with=agg_fn(view_t.pos, view_t.frame, group_by=base_t)))

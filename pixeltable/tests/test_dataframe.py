@@ -77,11 +77,26 @@ class TestDataFrame:
             _ = t.order_by(datetime.datetime.now()).show(0)
         assert 'Invalid expression' in str(exc_info.value)
 
-    def test_head(self, test_tbl: catalog.MutableTable) -> None:
+    def test_head_tail(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
-        assert t.head() == t.show()
-        assert t.head(10) == t.show(10)
-        assert t.head(10) == t.df().limit(10).collect()
+        res = t.head(10).to_pandas()
+        assert np.all(res.c2 == list(range(10)))
+        # Where is applied
+        res = t.where(t.c2 > 9).head(10).to_pandas()
+        assert np.all(res.c2 == list(range(10, 20)))
+        # order_by() is an error
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.order_by(t.c2).head(10)
+        assert 'cannot be used with order_by' in str(exc_info.value)
+
+        res = t.tail().to_pandas()
+        assert np.all(res.c2 == list(range(99, 89, -1)))
+        res = t.where(t.c2 < 90).tail().to_pandas()
+        assert np.all(res.c2 == list(range(89, 79, -1)))
+        # order_by() is an error
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.order_by(t.c2).tail(10)
+        assert 'cannot be used with order_by' in str(exc_info.value)
 
     def test_describe(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl

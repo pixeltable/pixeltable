@@ -14,14 +14,15 @@ import concurrent.futures
 import threading
 import os
 from collections import defaultdict
+import warnings
 
 import numpy as np
 from tqdm.autonotebook import tqdm
 import nos
 import sqlalchemy as sql
 
-from pixeltable import exprs
-from pixeltable import catalog
+import pixeltable.exprs as exprs
+import pixeltable.catalog as catalog
 from pixeltable.utils.imgstore import ImageStore
 from pixeltable.function import Function, FunctionRegistry
 from pixeltable.env import Env
@@ -278,10 +279,14 @@ class SqlScanNode(ExecNode):
         self.filter = filter
         self.filter_eval_ctx = row_builder.create_eval_ctx([filter], exclude=select_list) if filter is not None else []
         self.limit = limit
-        all_col_refs = exprs.Expr.list_subexprs(self.sql_exprs, expr_class=exprs.ColumnRef)
-        select_list_tbl_ids = {col_ref.col.tbl.id for col_ref in all_col_refs}
+
+        # change rowid refs against a base table to rowid refs against the target table, so that we minimize
+        # the number of tables that need to be joined to the target table
+        for rowid_ref in [e for e in self.sql_exprs if isinstance(e, exprs.RowidRef)]:
+            rowid_ref.set_tbl(tbl)
+
         where_clause_tbl_ids = where_clause.tbl_ids() if where_clause is not None else set()
-        refd_tbl_ids = select_list_tbl_ids | where_clause_tbl_ids
+        refd_tbl_ids = exprs.Expr.list_tbl_ids(self.sql_exprs) | where_clause_tbl_ids
         sql_select_list = [e.sql_expr() for e in self.sql_exprs]
         assert len(sql_select_list) == len(self.sql_exprs)
         assert all([e is not None for e in sql_select_list])
@@ -317,6 +322,18 @@ class SqlScanNode(ExecNode):
             _logger.debug(f'SqlScanNode stmt:\n{stmt_str}')
         except Exception as e:
             pass
+
+    # def _create_select_list(self, select_list: List[exprs.Expr], tbl: catalog.TableVersion) -> List[sql.ClauseElement]:
+    #     """Turn list of exprs into list of ClauseElements
+    #     This tries to minimize the total number of tables referenced.
+    #     """
+    #     refd_tbl_ids = exprs.Expr.list_tbl_ids([e for e in select_list if not isinstance(e, exprs.RowidRef)])
+    #     for e in select_list:
+    #         sql_expr = e.sql_expr()
+    #         if sql_expr is None:
+    #             raise exc.ExprError(e, f'expr {e} cannot be evaluated via SQL')
+    #         sql_select_list.append(sql_expr)
+    #     return sql_select_list
 
     @classmethod
     def create_from_clause(
@@ -364,6 +381,7 @@ class SqlScanNode(ExecNode):
         """Add PK columns to self.stmt"""
         if self.set_pk:
             assert self.ctx.pk_clause is not None
+            # TODO: don't add pk columns if we're already retrieving them via RowidRefs
             pk_cols = self.ctx.pk_clause
             self.num_pk_cols = len(pk_cols)
             self.stmt = self.stmt.add_columns(*pk_cols)
@@ -384,7 +402,10 @@ class SqlScanNode(ExecNode):
             assert self.ctx.conn is not None
             try:
                 self._log_explain(self.ctx.conn)
-                self.result_cursor = self.ctx.conn.execute(self.stmt)
+                with warnings.catch_warnings(record=True) as w:
+                    self.result_cursor = self.ctx.conn.execute(self.stmt)
+                    for warning in w:
+                        pass
                 self.has_more_rows = True
             except Exception as e:
                 self.has_more_rows = False

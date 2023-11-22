@@ -15,11 +15,11 @@ import hashlib
 import importlib.util
 import logging
 
-from pixeltable import catalog
+import pixeltable.catalog as catalog
 from pixeltable.env import Env
 from pixeltable.type_system import ColumnType
-from pixeltable import exprs
-from pixeltable import exceptions as exc
+import pixeltable.exprs as exprs
+import pixeltable.exceptions as exc
 from pixeltable.plan import Planner
 from pixeltable.catalog import is_valid_identifier
 
@@ -257,12 +257,23 @@ class DataFrame:
         assert n is not None
         return self.limit(n).collect()
 
-    def head(self, n: int = 20) -> DataFrameResultSet:
-        return self.show(n)
-    
+    def head(self, n: int = 10) -> DataFrameResultSet:
+        if self.order_by_clause is not None:
+            raise exc.Error(f'head() cannot be used with order_by()')
+        num_rowid_cols = len(self.tbl.store_tbl.rowid_columns())
+        order_by_clause = [exprs.RowidRef(self.tbl, idx) for idx in range(num_rowid_cols)]
+        return self.order_by(*order_by_clause, asc=True).limit(n).collect()
+
+    def tail(self, n: int = 10) -> DataFrameResultSet:
+        if self.order_by_clause is not None:
+            raise exc.Error(f'tail() cannot be used with order_by()')
+        num_rowid_cols = len(self.tbl.store_tbl.rowid_columns())
+        order_by_clause = [exprs.RowidRef(self.tbl, idx) for idx in range(num_rowid_cols)]
+        return self.order_by(*order_by_clause, asc=False).limit(n).collect()
+
     def get_column_names(self) -> List[str]:
         return self._column_names
-    
+
     def get_column_types(self) -> List[ColumnType]:
         return [expr.col_type for expr in self._select_list_exprs]
 

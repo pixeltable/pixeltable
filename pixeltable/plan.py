@@ -389,16 +389,18 @@ class Planner:
         order_by_items: List[Tuple[exprs.Expr, Optional[bool]]] = []
         order_by_origin: Optional[exprs.Expr] = None  # the expr that determines the ordering
 
-        # TODO: unify this with the same logic in RowBuilder
-        def refs_unstored_iter_col(col_ref: exprs.ColumnRef) -> bool:
-            tbl = col_ref.col.tbl
-            return tbl.is_component_view() and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
-        unstored_iter_col_refs = \
-            [e for e in analyzer.all_exprs if isinstance(e, exprs.ColumnRef) and refs_unstored_iter_col(e)]
+        # TODO: can this be unified with the same logic in RowBuilder
+        def refs_unstored_iter_col(e: exprs.Expr) -> bool:
+            if not isinstance(e, exprs.ColumnRef):
+                return False
+            tbl = e.col.tbl
+            return tbl.is_component_view() and tbl.is_iterator_column(e.col) and not e.col.is_stored
+        unstored_iter_col_refs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=refs_unstored_iter_col))
         if len(unstored_iter_col_refs) > 0:
+            component_views = {e.col.tbl for e in unstored_iter_col_refs}
             # TODO: generalize this to multi-level iteration
-            assert len(unstored_iter_col_refs) == 1
-            component_view = unstored_iter_col_refs[0].col.tbl
+            assert len(component_views) == 1
+            component_view = list(component_views)[0]
             order_by_items = [
                 (exprs.RowidRef(component_view, idx), None)
                 for idx in range(len(component_view.store_tbl.rowid_columns()))

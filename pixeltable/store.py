@@ -300,7 +300,7 @@ class StoreView(StoreBase):
 
     def _create_rowid_columns(self) -> List[sql.Column]:
         # a view row corresponds directly to a single base row, which means it needs to duplicate its rowid columns
-        self.rowid_cols = [c.copy() for c in self.base.rowid_columns()]
+        self.rowid_cols = [sql.Column(c.name, c.type) for c in self.base.rowid_columns()]
         return self.rowid_cols
 
     def _storage_name(self) -> str:
@@ -327,7 +327,7 @@ class StoreComponentView(StoreView):
 
     def _create_rowid_columns(self) -> List[sql.Column]:
         # each base row is expanded into n view rows
-        self.rowid_cols = [c.copy() for c in self.base.rowid_columns()]
+        self.rowid_cols = [sql.Column(c.name, c.type) for c in self.base.rowid_columns()]
         # name of pos column: avoid collisions with bases' pos columns
         self.pos_col = sql.Column(f'pos_{len(self.rowid_cols) - 1}', sql.BigInteger, nullable=False)
         self.pos_col_idx = len(self.rowid_cols)

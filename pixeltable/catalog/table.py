@@ -72,9 +72,14 @@ class Table(SchemaObject):
     def head(
             self, *args, **kwargs
     ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
-        """Return rows from this table.
-        """
+        """Return the first n rows inserted into this table."""
         return self.df().head(*args, **kwargs)
+
+    def tail(
+            self, *args, **kwargs
+    ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+        """Return the last n rows inserted into this table."""
+        return self.df().tail(*args, **kwargs)
 
     def count(self) -> int:
         """Return the number of rows in this table."""

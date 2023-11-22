@@ -85,6 +85,9 @@ class TableVersion:
         else:
             self.store_tbl = StoreTable(self)
 
+    def __hash__(self) -> int:
+        return hash(self.id)
+
     def create_snapshot_copy(self) -> TableVersion:
         """Create an immutable copy of this TableVersion for a particular snapshot"""
         result = TableVersion(
