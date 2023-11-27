@@ -293,8 +293,8 @@ class TestExprs:
 
     def test_inline_array(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
-        result = t[[ [[t.c2, 1], [t.c2, 2]] ]].show()
-        t = result.col_types[0]
+        result = t.select([[t.c2, 1], [t.c2, 2]]).show()
+        t = result.column_types()[0]
         assert t.is_array_type()
         assert isinstance(t, ArrayType)
         assert t.shape == (2, 2)
@@ -523,8 +523,8 @@ class TestExprs:
         new_t = cl.create_table('insert_test', [c2, c3, c4])
         new_t.add_column(catalog.Column(
             'c2_sum', computed_with=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3)))
-        rows = t[t.c2, t.c4, t.c3].show(0).rows
-        new_t.insert(rows, columns=['c2', 'c4', 'c3'])
+        dict_rows = list(t.select(t.c2, t.c4, t.c3).collect())
+        new_t.insert([list(r.values()) for r in dict_rows], columns=['c2', 'c4', 'c3'])
         _ = new_t.show(0)
         print(_)
 

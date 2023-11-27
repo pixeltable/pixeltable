@@ -201,10 +201,10 @@ class TestTable:
         tbl = cl.create_table('test', cols)
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         tbl.insert([[1, url]], columns=['payload', 'video'])
-        row = tbl.select(tbl.video.fileurl, tbl.video.localpath).show(0).rows[0]
-        assert row[0] == url
+        row = tbl.select(tbl.video.fileurl, tbl.video.localpath).collect()[0]
+        assert row['video_fileurl'] == url
         # row[1] contains valid path to an mp4 file
-        local_path = row[1]
+        local_path = row['video_localpath']
         assert os.path.exists(local_path) and os.path.isfile(local_path)
         cap = cv2.VideoCapture(local_path)
         # TODO: this isn't sufficient to determine that this is actually a video, rather than an image
@@ -599,7 +599,7 @@ class TestTable:
         # exception during insert()
         c2 = catalog.Column('c2', IntType(nullable=False))
         schema = [c2]
-        rows = test_tbl[test_tbl.c2].show(0).rows
+        rows = [list(r.values()) for r in list(test_tbl[test_tbl.c2].collect())]
         t = cl.create_table('test_insert', schema)
         _ = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
         status = t.insert(rows, columns=['c2'])
@@ -683,8 +683,8 @@ class TestTable:
         new_t.add_column(catalog.Column('c5', IntType(), computed_with=lambda c2: c2 * c2))
         new_t.add_column(catalog.Column(
             'c6', computed_with=sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3)))
-        rows = t[t.c2, t.c4, t.c3].show(0).rows
-        new_t.insert(rows, columns=['c2', 'c4', 'c3'])
+        rows = list(t.select(t.c2, t.c4, t.c3).collect())
+        new_t.insert([list(r.values()) for r in rows], columns=['c2', 'c4', 'c3'])
         _ = new_t.show(0)
         print(_)
 

@@ -52,27 +52,27 @@ def _format_video(video_file_path: str) -> str:
 
 class DataFrameResultSet:
     def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
-        self.rows = rows
-        self.col_names = col_names
-        self.col_types = col_types
+        self._rows = rows
+        self._col_names = col_names
+        self._col_types = col_types
 
     def __len__(self) -> int:
-        return len(self.rows)
+        return len(self._rows)
 
     def column_names(self) -> List[str]:
-        return self.col_names
+        return self._col_names
 
     def column_types(self) -> List[ColumnType]:
-        return self.col_types
+        return self._col_types
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
-        img_col_idxs = [i for i, col_type in enumerate(self.col_types) if col_type.is_image_type()]
-        video_col_idxs = [i for i, col_type in enumerate(self.col_types) if col_type.is_video_type()]
-        formatters = {self.col_names[i]: _format_img for i in img_col_idxs}
-        formatters.update({self.col_names[i]: _format_video for i in video_col_idxs})
+        img_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_image_type()]
+        video_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_video_type()]
+        formatters = {self._col_names[i]: _format_img for i in img_col_idxs}
+        formatters.update({self._col_names[i]: _format_video for i in video_col_idxs})
         # escape=False: make sure <img> tags stay intact
         # TODO: why does mypy complain about formatters having an incorrect type?
         return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)  # type: ignore[arg-type]
@@ -81,18 +81,48 @@ class DataFrameResultSet:
         return self.to_pandas().to_string()
 
     def to_pandas(self) -> pd.DataFrame:
-        return pd.DataFrame.from_records(self.rows, columns=self.col_names)
+        return pd.DataFrame.from_records(self._rows, columns=self._col_names)
+
+    def _row_to_dict(self, row_idx: int) -> Dict[str, Any]:
+        return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
 
     def __getitem__(self, index: Any) -> Any:
-        if not isinstance(index, tuple) or len(index) != 2 \
-                or not isinstance(index[0], int) or not isinstance(index[1], int):
-            raise exc.Error(f'Bad index, expected tuple (<row idx>, <col idx>): {index}')
-        return self.rows[index[0]][index[1]]
+        if isinstance(index, str):
+            if index not in self._col_names:
+                raise exc.Error(f'Invalid column name: {index}')
+            col_idx = self._col_names.index(index)
+            return [row[col_idx] for row in self._rows]
+        if isinstance(index, int):
+            return self._row_to_dict(index)
+        if isinstance(index, tuple) and len(index) == 2:
+            if not isinstance(index[0], int) or not (isinstance(index[1], str) or isinstance(index[1], int)):
+                raise exc.Error(f'Bad index, expected [<row idx>, <column name | column index>]: {index}')
+            if isinstance(index[1], str) and index[1] not in self._col_names:
+                raise exc.Error(f'Invalid column name: {index[1]}')
+            col_idx = self._col_names.index(index[1]) if isinstance(index[1], str) else index[1]
+            return self._rows[index[0]][col_idx]
+        raise exc.Error(f'Bad index: {index}')
+
+    def __iter__(self) -> DataFrameResultSetIterator:
+        return DataFrameResultSetIterator(self)
 
     def __eq__(self, other):
         if not isinstance(other, DataFrameResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())
+
+
+class DataFrameResultSetIterator:
+    def __init__(self, result_set: DataFrameResultSet):
+        self._result_set = result_set
+        self._idx = 0
+
+    def __next__(self) -> Dict[str, Any]:
+        if self._idx >= len(self._result_set):
+            raise StopIteration
+        row = self._result_set._row_to_dict(self._idx)
+        self._idx += 1
+        return row
 
 
 # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation

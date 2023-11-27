@@ -1,3 +1,4 @@
+from typing import Any
 import datetime
 import pytest
 import pickle
@@ -67,6 +68,51 @@ class TestDataFrame:
             _ = t.select(t.c2+1, col_0=t.c2).show(0)
         assert 'Repeated column name' in str(exc_info.value)
 
+    def test_result_set_iterator(self, test_tbl: catalog.MutableTable) -> None:
+        t = test_tbl
+        res = t.select(t.c1, t.c2, t.c3).collect()
+        pd_df = res.to_pandas()
+
+        def check_row(row: dict[str, Any], idx: int) -> None:
+            assert len(row) == 3
+            assert 'c1' in row
+            assert row['c1'] == pd_df['c1'][idx]
+            assert 'c2' in row
+            assert row['c2'] == pd_df['c2'][idx]
+            assert 'c3' in row
+            assert row['c3'] == pd_df['c3'][idx]
+
+        # row iteration
+        for idx, row in enumerate(res):
+            check_row(row, idx)
+
+        # row access
+        row = res[0]
+        check_row(row, 0)
+
+        # column access
+        col_values = res['c2']
+        assert col_values == pd_df['c2'].values.tolist()
+
+        # cell access
+        assert res[0, 'c2'] == pd_df['c2'][0]
+        assert res[0, 'c2'] == res[0, 1]
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = res['does_not_exist']
+        assert 'Invalid column name' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = res[0, 'does_not_exist']
+        assert 'Invalid column name' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = res[0, 0, 0]
+        assert 'Bad index' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = res['c2', 0]
+        assert 'Bad index' in str(exc_info.value)
 
     def test_order_by(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
@@ -130,8 +176,8 @@ class TestDataFrame:
 
     def test_select_literal(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
-        res = t.select(1.0).where(t.c2 < 10).show(0)
-        assert res.rows == [[1.0]] * 10
+        res = t.select(1.0).where(t.c2 < 10).collect()
+        assert res[res.column_names()[0]] == [1.0] * 10
 
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.MutableTable):
         """ tests all types are handled correctly in this conversion

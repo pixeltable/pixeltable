@@ -69,8 +69,8 @@ class TestView:
         base_query = t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2)
 
         # insert data: of 20 new rows, only 10 are reflected in the view
-        rows = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).show(0).rows
-        status = t.insert(rows)
+        rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        status = t.insert([list(r.values()) for r in rows])
         assert status.num_rows == 30
         assert t.count() == 120
         assert_resultset_eq(view_query.collect(), base_query.collect())
@@ -118,8 +118,8 @@ class TestView:
         v = cl.get_table('test_view')
 
         # insert data
-        rows = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).show(0).rows
-        t.insert(rows)
+        rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).collect())
+        t.insert([list(r.values()) for r in rows])
         assert t.count() == 200
         assert_resultset_eq(
             v.select(v.v1).order_by(v.c2).show(0),
@@ -155,8 +155,8 @@ class TestView:
         v = cl.get_table('test_view')
 
         # insert data: of 20 new rows, only 10 are reflected in the view
-        rows = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).where(t.c2 < 20).show(0).rows
-        t.insert(rows)
+        rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).where(t.c2 < 20).collect())
+        t.insert([list(r.values()) for r in rows])
         assert t.count() == 120
         assert_resultset_eq(
             v.order_by(v.c2).show(0),
@@ -205,8 +205,8 @@ class TestView:
         v = cl.get_table('test_view')
 
         # insert data: no changes to view
-        rows = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).show(0).rows
-        t.insert(rows)
+        rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        t.insert([list(r.values()) for r in rows])
         assert t.count() == 120
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).show(0), res)
 
@@ -254,8 +254,8 @@ class TestView:
         assert view_s.tbl_version.cols_by_name['v1'].value_expr == t.c3 * 2.0
 
         # insert data: no changes to snapshot
-        rows = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).show(0).rows
-        t.insert(rows)
+        rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        t.insert([list(r.values()) for r in rows])
         assert t.count() == 120
         assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
 

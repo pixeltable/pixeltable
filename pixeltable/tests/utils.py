@@ -216,10 +216,12 @@ def get_image_files() -> List[str]:
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
     assert len(r1.column_names()) == len(r2.column_names())  # we don't care about the actual column names
+    r1_pd = r1.to_pandas()
+    r2_pd = r2.to_pandas()
     for i in range(len(r1.column_names())):
         # only compare column values
-        s1 = r1.to_pandas().iloc[:, i]
-        s2 = r2.to_pandas().iloc[:, i]
+        s1 = r1_pd.iloc[:, i]
+        s2 = r2_pd.iloc[:, i]
         if s1.dtype == np.float64:
             assert np.allclose(s1, s2)
         else:
