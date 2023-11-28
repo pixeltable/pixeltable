@@ -1,25 +1,22 @@
-name: Generate / Deploy Docs
-
+name: Build and Deploy Docs
 on:
   push:
-    branches: [master]
-
+    branches: [ master ]
 permissions:
-  contents: write
-
+      contents: write
 jobs:
-  deploy:
+  install-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: 3.8
-      - uses: actions/cache@v2
-        with:
-          key: ${{ github.ref }}
-          path: .cache
-      - run: pip install '.[docs]'
-      - run: cp docs/CNAME .
-      - run: mkdocs gh-deploy --force
+    - uses: actions/checkout@v4
+    - name: Install poetry
+      run: pipx install poetry
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.8'
+        cache: 'poetry'
+    - name: Install
+      run: make install
+    - name: Build and Deploy
+      run: make deploy-docs

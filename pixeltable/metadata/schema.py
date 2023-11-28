@@ -97,11 +97,11 @@ class TableMd:
     # - every row is assigned a unique and immutable rowid on insertion
     next_row_id: int
 
-    column_history: dict[int, ColumnHistory]  # col_id -> ColumnHistory
+    column_history: Dict[int, ColumnHistory]  # col_id -> ColumnHistory
     parameters: TableParameters
 
     # filter predicate applied to the base table; view-only
-    predicate: Optional[dict]
+    predicate: Optional[Dict]
 
     # ComponentIterator subclass; only for component views
     iterator_class_fqn: Optional[str]

@@ -45,7 +45,7 @@ def _verify_input_dict(input_dict: Dict[str, Any]) -> None:
             raise excs.Error(f'Key "bbox" is not a list [x, y, w, h] of ints: {annotation}{format_msg}')
         if 'category' not in annotation:
             raise excs.Error(f'Missing key "category" in annotation: {annotation}{format_msg}')
-        if not isinstance(annotation['category'], str | int):
+        if not isinstance(annotation['category'], (str, int)):
             raise excs.Error(f'Value for "category" is not a str or int: {annotation}{format_msg}')
 
 def write_coco_dataset(df: 'pixeltable.DataFrame', dest_path: Path) -> Path:

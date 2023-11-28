@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict
 import datetime
 import pytest
 import pickle
@@ -74,7 +74,7 @@ class TestDataFrame:
         res = t.select(t.c1, t.c2, t.c3).collect()
         pd_df = res.to_pandas()
 
-        def check_row(row: dict[str, Any], idx: int) -> None:
+        def check_row(row: Dict[str, Any], idx: int) -> None:
             assert len(row) == 3
             assert 'c1' in row
             assert row['c1'] == pd_df['c1'][idx]
