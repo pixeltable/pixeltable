@@ -327,13 +327,8 @@ class RowBuilder:
                 table_row[col.errortype_storage_name()] = type(exc).__name__
                 table_row[col.errormsg_storage_name()] = str(exc)
             else:
-                if data_row.has_val[slot_idx]:
-                    val = data_row.get_stored_val(slot_idx)
-                    table_row[col.storage_name()] = val
-                else:
-                    assert False
-                    assert col.col_type.nullable
-                    table_row[col.storage_name()] = None
+                val = data_row.get_stored_val(slot_idx)
+                table_row[col.storage_name()] = val
                 # we unfortunately need to set these, even if there are no errors
                 table_row[col.errortype_storage_name()] = None
                 table_row[col.errormsg_storage_name()] = None

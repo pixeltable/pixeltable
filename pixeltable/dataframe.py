@@ -80,6 +80,10 @@ class DataFrameResultSet:
     def __str__(self) -> str:
         return self.to_pandas().to_string()
 
+    def _reverse(self) -> None:
+        """Reverse order of rows"""
+        self._rows.reverse()
+
     def to_pandas(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(self._rows, columns=self._col_names)
 
@@ -264,9 +268,7 @@ class DataFrame:
             self.order_by_clause = []
         for item in self._select_list_exprs:
             item.bind_rel_paths(None)
-        #select_list = self._select_list_exprs.copy()
         plan = Planner.create_query_plan(
-            #self.tbl, select_list, where_clause=self.where_clause, group_by_clause=group_by_clause,
             self.tbl, self._select_list_exprs, where_clause=self.where_clause, group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause,
             # limit_val == 0: no limit_val
@@ -299,7 +301,9 @@ class DataFrame:
             raise exc.Error(f'tail() cannot be used with order_by()')
         num_rowid_cols = len(self.tbl.store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self.tbl, idx) for idx in range(num_rowid_cols)]
-        return self.order_by(*order_by_clause, asc=False).limit(n).collect()
+        result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
+        result._reverse()
+        return result
 
     def get_column_names(self) -> List[str]:
         return self._column_names
@@ -343,29 +347,6 @@ class DataFrame:
         with Env.get().engine.connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
-            return result
-
-    def categorical_map(self) -> Dict[str, int]:
-        """
-        Return map of distinct values in string ColumnRef to increasing integers.
-        TODO: implement as part of DataFrame.agg()
-        """
-        if self.select_list is None or len(self.select_list) != 1 \
-            or not isinstance(self.select_list[0][0], exprs.ColumnRef) \
-            or not self.select_list[0][0].col_type.is_string_type():
-            raise exc.Error(f'categoricals_map() can only be applied to an individual string column')
-        assert isinstance(self.select_list[0][0], exprs.ColumnRef)
-        col = self.select_list[0][0].col
-        stmt = sql.select(sql.distinct(col.sa_col)) \
-            .where(self.tbl.store_tbl.v_min_col <= self.tbl.version) \
-            .where(self.tbl.store_tbl.v_max_col > self.tbl.version) \
-            .order_by(col.sa_col)
-        if self.where_clause is not None:
-            sql_where_clause = self.where_clause.sql_expr()
-            assert sql_where_clause is not None
-            stmt = stmt.where(sql_where_clause)
-        with Env.get().engine.connect() as conn:
-            result = {row._data[0]: i for i, row in enumerate(conn.execute(stmt))}
             return result
 
     def _description(self) -> pd.DataFrame:

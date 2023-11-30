@@ -396,12 +396,6 @@ class TestExprs:
         ][t.img, t.split].show()
         print(result)
 
-    def test_categoricals_map(self, img_tbl) -> None:
-        t = img_tbl
-        m = t[t.category].categorical_map()
-        _ = t[dict_map(t.category, m)].show()
-        print(_)
-
     def test_similarity(self, indexed_img_tbl: catalog.MutableTable) -> None:
         t = indexed_img_tbl
         _ = t.show(30)

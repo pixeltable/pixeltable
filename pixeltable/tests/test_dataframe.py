@@ -136,9 +136,9 @@ class TestDataFrame:
         assert 'cannot be used with order_by' in str(exc_info.value)
 
         res = t.tail().to_pandas()
-        assert np.all(res.c2 == list(range(99, 89, -1)))
+        assert np.all(res.c2 == list(range(90, 100)))
         res = t.where(t.c2 < 90).tail().to_pandas()
-        assert np.all(res.c2 == list(range(89, 79, -1)))
+        assert np.all(res.c2 == list(range(80, 90)))
         # order_by() is an error
         with pytest.raises(exc.Error) as exc_info:
             _ = t.order_by(t.c2).tail(10)
