@@ -213,7 +213,9 @@ class TestTable:
 
     def test_create_video_table(self, test_client: pt.Client) -> None:
         cl = test_client
-        tbl = cl.create_table('test_tbl', [catalog.Column('payload', IntType(nullable=False)), catalog.Column('video', VideoType(nullable=False))])
+        tbl = cl.create_table(
+            'test_tbl',
+            [catalog.Column('payload', IntType(nullable=False)), catalog.Column('video', VideoType(nullable=True))])
         args = {'video': tbl.video, 'fps': 0}
         view = cl.create_view('test_view', tbl, iterator_class=FrameIterator, iterator_args=args)
         view.add_column(catalog.Column('c1', computed_with=view.frame.rotate(30), stored=True))
@@ -257,6 +259,10 @@ class TestTable:
         # also insert a local file
         tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
         assert ImageStore.count(view.id) == view.count() * 2
+
+        # TODO: test inserting Nulls
+        #status = tbl.insert([[1, None]], columns=['payload', 'video'])
+        #assert status.num_excs == 0
 
         # revert() clears stored images
         tbl.revert()

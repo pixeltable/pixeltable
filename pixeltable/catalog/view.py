@@ -90,3 +90,8 @@ class View(MutableTable):
             msg = f'created view {name} with {num_rows} rows, {num_excs} exceptions'
             print(msg)
             return view
+
+    def add_column(self, col: Column, print_stats: bool = False) -> MutableTable.UpdateStatus:
+        if not col.col_type.nullable and not col.is_computed:
+            raise Error(f'Cannot add column {col.name}: non-computed columns in views must be nullable')
+        return super().add_column(col, print_stats)

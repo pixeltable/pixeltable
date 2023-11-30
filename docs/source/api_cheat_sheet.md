@@ -91,19 +91,20 @@ t = db.create_table(
 
 ## Querying a table
 
-|Action|Code|
-|----|----|
-| Look at 10 rows | `t.show(10)` |
-| Look at all rows | `t.show(0)` |
-| Look at row for frame 15 | `t.where(t.frame_idx == 15).show()` |
-| Look at rows before index 15 | `t.where(t.frame_idx < 15).show(0)` |
-| Look at rows before index 15 with RGB frames | `t.where((t.frame_idx < 15) & (t.frame.mode == 'RGB')).show(0)` |
+| Action                                       | Code                                                      |
+|----------------------------------------------|-----------------------------------------------------------|
+| Look at 10 rows                              | `t.show(10)`                                              |
+| Look at all rows                             | `t.collect()`                                             |
+| Iterate over all rows as dictionaries        | `for row in t.collect(): ...`                             |
+| Look at row for frame 15                     | `t.where(t.pos  == 15).show()`                            |
+| Look at rows before index 15                 | `t.where(t.pos < 15).show(0)`                             |
+| Look at rows before index 15 with RGB frames | `t.where((t.pos < 15) & (t.frame.mode == 'RGB')).show(0)` |
 
 Pixeltable supports the standard comparison operators (`>=`, `>`, `==`, `<=`, `<`).
 `== None` is the equivalent of `isna()/isnull()` in Pandas.
 
 Boolean operators are the same as in Pandas: `&` for `and`, `|` for `or`, `~` for `not`.
-They also require parentheses, for example: `(t.frame_idx < 15) & (t.frame.mode == 'RGB')`
+They also require parentheses, for example: `(t.pos < 15) & (t.frame.mode == 'RGB')`
 or `~(t.frame.mode == 'RGB')`.
 
 ## Selecting and transforming columns

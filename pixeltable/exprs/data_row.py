@@ -93,10 +93,10 @@ class DataRow:
             pass
         assert self.has_val[index], index
 
-        if index in self.img_slot_idxs:
+        if self.file_urls[index] is not None and index in self.img_slot_idxs:
             # if we need to load this from a file, it should have been materialized locally
-            assert not(self.file_urls[index] is not None and self.file_paths[index] is None)
-            if self.file_paths[index] is not None and self.vals[index] is None:
+            assert self.file_paths[index] is not None
+            if self.vals[index] is None:
                 self.vals[index] = PIL.Image.open(self.file_paths[index])
 
         if index in self.video_slot_idxs:
@@ -112,16 +112,18 @@ class DataRow:
             # for debugging purposes
             pass
         assert self.has_val[index]
-        if index in self.img_slot_idxs or index in self.video_slot_idxs:
+
+        if self.file_urls[index] is not None and (index in self.img_slot_idxs or index in self.video_slot_idxs):
             # if this is an image or video we want to store, we should have a url
-            assert self.file_urls[index] is not None
             return self.file_urls[index]
-        if index in self.array_slot_idxs:
+
+        if self.vals[index] is not None and index in self.array_slot_idxs:
             assert isinstance(self.vals[index], np.ndarray)
             np_array = self.vals[index]
             buffer = io.BytesIO()
             np.save(buffer, np_array)
             return buffer.getvalue()
+
         return self.vals[index]
 
     def __setitem__(self, idx: object, val: Any) -> None:

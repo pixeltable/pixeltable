@@ -309,8 +309,9 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0)
 
     def create_table_row(self, data_row: DataRow, exc_col_ids: Set[int]) -> Tuple[Dict[str, Any], int]:
-        """Create a table row from the slots that have an output column assigned"""
-        """Return Tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
+        """Create a table row from the slots that have an output column assigned
+
+        Return Tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
             This excludes system columns.
         """
         num_excs = 0
@@ -326,8 +327,13 @@ class RowBuilder:
                 table_row[col.errortype_storage_name()] = type(exc).__name__
                 table_row[col.errormsg_storage_name()] = str(exc)
             else:
-                val = data_row.get_stored_val(slot_idx)
-                table_row[col.storage_name()] = val
+                if data_row.has_val[slot_idx]:
+                    val = data_row.get_stored_val(slot_idx)
+                    table_row[col.storage_name()] = val
+                else:
+                    assert False
+                    assert col.col_type.nullable
+                    table_row[col.storage_name()] = None
                 # we unfortunately need to set these, even if there are no errors
                 table_row[col.errortype_storage_name()] = None
                 table_row[col.errormsg_storage_name()] = None

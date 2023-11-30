@@ -347,8 +347,11 @@ class Planner:
         """
         assert view.is_view()
         # things we need to materialize as DataRows:
-        # 1. stored cols
-        stored_cols = [c for c in view.cols if c.is_stored]
+        # 1. stored computed cols
+        # - iterator columns are effectively computed, just not with a value_expr
+        # - we can ignore stored non-computed columns because they have a default value that is supplied directly by
+        #   the store
+        stored_cols = [c for c in view.cols if c.is_stored and (c.is_computed or view.is_iterator_column(c))]
         # 2. index values
         from pixeltable.functions.image_embedding import openai_clip
         index_info = [(c, openai_clip) for c in view.cols if c.is_indexed]

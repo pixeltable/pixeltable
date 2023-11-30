@@ -39,7 +39,7 @@ class FrameIterator(ComponentIterator):
     @classmethod
     def input_schema(cls) -> Dict[str, ColumnType]:
         return {
-            'video': VideoType(),
+            'video': VideoType(nullable=False),
             'fps': IntType()
         }
 
