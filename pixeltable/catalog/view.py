@@ -91,7 +91,9 @@ class View(MutableTable):
             print(msg)
             return view
 
-    def add_column(self, col: Column, print_stats: bool = False) -> MutableTable.UpdateStatus:
+    @classmethod
+    def _verify_column(cls, col: Column) -> None:
+        # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
-            raise Error(f'Cannot add column {col.name}: non-computed columns in views must be nullable')
-        return super().add_column(col, print_stats)
+            raise Error(f'Column {col.name}: non-computed columns in views must be nullable')
+        super()._verify_column(col)

@@ -13,7 +13,7 @@ from pixeltable.type_system import StringType
 from pixeltable.exec import ExecNode
 from pixeltable import exprs
 from pixeltable.exprs import ColumnSlotIdx
-from pixeltable.utils.sql import log_stmt
+from pixeltable.utils.sql import log_stmt, log_explain
 
 
 _logger = logging.getLogger('pixeltable')
@@ -98,6 +98,11 @@ class StoreBase:
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using='brin'))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
+
+    @abc.abstractmethod
+    def _rowid_join_predicate(self) -> sql.ClauseElement:
+        """Return predicate for rowid joins to all bases"""
+        pass
 
     @abc.abstractmethod
     def _storage_name(self) -> str:
@@ -251,23 +256,46 @@ class StoreBase:
         finally:
             exec_plan.close()
 
-    @abc.abstractmethod
-    def _delete_rows_where_clause(self, version: int, where_clause: sql.ClauseElement) -> sql.ClauseElement:
-        """Return Where clause for delete_rows()"""
-        pass
+    def _versions_clause(self, versions: List[Optional[int]], match_on_vmin: bool) -> sql.ClauseElement:
+        """Return filter for base versions"""
+        v = versions[0]
+        if v is None:
+            # we're looking at live rows
+            clause = sql.and_(self.v_min_col <= self.tbl_version.version, self.v_max_col == schema.Table.MAX_VERSION)
+        else:
+            # we're looking at a specific version
+            clause = self.v_min_col == v if match_on_vmin else self.v_max_col == v
+        if len(versions) == 1:
+            return clause
+        return sql.and_(clause, self._versions_clause(versions[1:]))
 
     def delete_rows(
-            self, version: int, where_clause: Optional[sql.ClauseElement], conn: sql.engine.Connection) -> int:
-        """Mark rows that were live at version and satisfy where_clause as deleted.
+            self, current_version: int, base_versions: List[Optional[int]], match_on_vmin: bool,
+            where_clause: Optional[sql.ClauseElement], conn: sql.engine.Connection) -> int:
+        """Mark rows as deleted that are live and were created prior to current_version.
+        Args:
+            base_versions: if non-None, join only to base rows that were created at that version,
+                otherwise join to rows that are live in the base's current version (which is distinct from the
+                current_version parameter)
+            match_on_vmin: if True, match exact versions on v_min; if False, match on v_max
+            where_clause: if not None, also apply where_clause
         Returns:
             number of deleted rows
         """
-        where_clause = where_clause if where_clause is not None else sql.true()
-        delete_where_clause = self._delete_rows_where_clause(version, where_clause)
+        where_clause = sql.true() if where_clause is None else where_clause
+        where_clause = sql.and_(
+            self.v_min_col < current_version,
+            self.v_max_col == schema.Table.MAX_VERSION,
+            where_clause)
+        rowid_join_clause = self._rowid_join_predicate()
+        base_versions_clause = sql.true() if len(base_versions) == 0 \
+            else self.base._versions_clause(base_versions, match_on_vmin)
         stmt = sql.update(self.sa_tbl) \
             .values({self.v_max_col: self.tbl_version.version}) \
-            .where(delete_where_clause)
-        log_stmt(_logger, stmt)
+            .where(where_clause) \
+            .where(rowid_join_clause) \
+            .where(base_versions_clause)
+        log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
         return status.rowcount
 
@@ -284,12 +312,8 @@ class StoreTable(StoreBase):
     def _storage_name(self) -> str:
         return f'tbl_{self.tbl_version.id.hex}'
 
-    def _delete_rows_where_clause(self, version: int, where_clause: sql.ClauseElement) -> sql.ClauseElement:
-        """Return filter for live rows that match where_clause"""
-        return sql.and_(
-            self.v_min_col <= version,
-            self.v_max_col == schema.Table.MAX_VERSION,
-            where_clause)
+    def _rowid_join_predicate(self) -> sql.ClauseElement:
+        return sql.true()
 
 
 class StoreView(StoreBase):
@@ -306,16 +330,10 @@ class StoreView(StoreBase):
     def _storage_name(self) -> str:
         return f'view_{self.tbl_version.id.hex}'
 
-    def _delete_rows_where_clause(self, version: int, where_clause: sql.ClauseElement) -> sql.ClauseElement:
-        """Return filter for rows that belong to base table rows that got deleted in the current version"""
-        rowid_clauses = [c1 == c2 for c1, c2 in zip(self.rowid_columns(), self.base.rowid_columns())]
+    def _rowid_join_predicate(self) -> sql.ClauseElement:
         return sql.and_(
-            *rowid_clauses,
-            self.base.v_max_col == self.base.tbl_version.version,
-            self.v_min_col <= version,
-            self.v_max_col == schema.Table.MAX_VERSION,
-            where_clause)
-
+            self.base._rowid_join_predicate(),
+            *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), self.base.rowid_columns())])
 
 class StoreComponentView(StoreView):
     """A view that stores components of its base, as produced by a ComponentIterator
@@ -338,3 +356,8 @@ class StoreComponentView(StoreView):
         super()._create_sa_tbl()
         # we need to fix up the 'pos' column in TableVersion
         self.tbl_version.cols_by_name['pos'].sa_col = self.pos_col
+
+    def _rowid_join_predicate(self) -> sql.ClauseElement:
+        return sql.and_(
+            self.base._rowid_join_predicate(),
+            *[c1 == c2 for c1, c2 in zip(self.rowid_columns()[:-1], self.base.rowid_columns())])

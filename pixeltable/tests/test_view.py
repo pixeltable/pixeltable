@@ -43,6 +43,8 @@ class TestView:
             catalog.Column('v2', computed_with=t.c6.f5)
         ]
         v = cl.create_view('test_view', t, schema=cols, filter=t.c2 < 10)
+        # TODO: test repr more thoroughly
+        _ = v.__repr__()
         assert_resultset_eq(
             v.select(v.v1).order_by(v.c2).collect(),
             t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())

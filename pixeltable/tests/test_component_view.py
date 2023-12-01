@@ -88,3 +88,29 @@ class TestComponentView:
         with pytest.raises(exc.Error) as excinfo:
             view_t.add_column(catalog.Column('annotation', JsonType(nullable=False)))
         assert 'must be nullable' in str(excinfo.value)
+
+    def test_update(self, test_client: pt.Client) -> None:
+        cl = test_client
+        # create video table
+        video_t = cl.create_table('video_tbl', [catalog.Column('video', VideoType())])
+        # create frame view with manually updated column
+        args = {'video': video_t.video, 'fps': 1}
+        dict_col = catalog.Column('annotation', JsonType(nullable=True))
+        view_t = cl.create_view(
+            'test_view', video_t, schema=[dict_col], iterator_class=FrameIterator, iterator_args=args)
+
+        video_filepaths = get_video_files()
+        rows = [[p] for p in video_filepaths]
+        video_t.insert(rows)
+        import urllib
+        video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
+        view_t.update({'annotation': {'a': 1}}, where=view_t.video == video_url)
+        c1 = view_t.where(view_t.annotation != None).count()
+        c2 = view_t.where(view_t.video == video_url).count()
+        assert c1 == c2
+
+        with pytest.raises(exc.Error) as excinfo:
+            non_nullable_col = catalog.Column('annotation', JsonType(nullable=False))
+            _ = cl.create_view(
+                'bad_view', video_t, schema=[non_nullable_col], iterator_class=FrameIterator, iterator_args=args)
+        assert 'must be nullable' in str(excinfo.value)

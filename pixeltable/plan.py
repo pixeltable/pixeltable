@@ -199,7 +199,7 @@ class Planner:
             cls, tbl: catalog.TableVersion, where_clause: Optional[exprs.Predicate] = None
     ) -> sql.Select:
         stmt = sql.select(sql.func.count('*'))
-        stmt = SqlScanNode.create_from_clause(tbl, stmt)
+        refd_tbl_ids: Set[UUID] = set()
         if where_clause is not None:
             analyzer = cls.analyze(tbl, where_clause)
             if analyzer.similarity_clause is not None:
@@ -209,6 +209,8 @@ class Planner:
             clause_element = analyzer.sql_where_clause.sql_expr()
             assert clause_element is not None
             stmt = stmt.where(clause_element)
+            refd_tbl_ids = where_clause.tbl_ids()
+        stmt = SqlScanNode.create_from_clause(tbl, stmt, refd_tbl_ids)
         return stmt
 
     @classmethod

@@ -433,15 +433,15 @@ class TableVersion:
         with Env.get().engine.begin() as conn:
             ts = time.time()
             result = self._update(
-                plan, where_clause.sql_expr() if where_clause is not None else None, recomputed_cols, conn, ts, cascade)
+                plan, where_clause.sql_expr() if where_clause is not None else None, recomputed_cols,
+                base_versions=[], conn=conn, ts=ts, cascade=cascade)
             result.updated_cols = updated_cols
             return result
 
     def _update(
-            self, plan: Optional[exec.ExecNode],
-            where_clause: Optional[sql.ClauseElement],
-            recomputed_view_cols: List[Column],
-            conn: sql.engine.Connection, ts: float, cascade: bool
+            self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ClauseElement],
+            recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
+            ts: float, cascade: bool
     ) -> UpdateStatus:
         result = UpdateStatus()
         if plan is not None:
@@ -450,8 +450,12 @@ class TableVersion:
             result.num_rows, result.num_excs, cols_with_excs = \
                 self.store_tbl.insert_rows(plan, conn, v_min=self.version)
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
-            self.store_tbl.delete_rows(self.version - 1, where_clause, conn)
+            self.store_tbl.delete_rows(
+                self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause, conn=conn)
             self._update_md(ts, None, conn)
+            base_versions.insert(0, self.version)
+        else:
+            base_versions.insert(0, None)
 
         if cascade:
             # propagate to views
@@ -461,7 +465,8 @@ class TableVersion:
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner
                     plan = Planner.create_view_update_plan(view, recompute_targets=recomputed_cols)
-                status = view._update(plan, None, recomputed_view_cols, conn, ts, cascade=True)
+                status = view._update(
+                    plan, None, recomputed_view_cols, base_versions=base_versions, conn=conn, ts=ts, cascade=True)
                 result.num_rows += status.num_rows
                 result.num_excs += status.num_excs
                 result.cols_with_excs += status.cols_with_excs
@@ -479,26 +484,29 @@ class TableVersion:
         analysis_info = Planner.analyze(self, where)
         ts = time.time()
         with Env.get().engine.begin() as conn:
-            num_rows = self._delete(analysis_info.sql_where_clause, conn, ts)
+            num_rows = self._delete(analysis_info.sql_where_clause, base_versions=[], conn=conn, ts=ts)
 
         status = UpdateStatus(num_rows=num_rows)
         return status
 
-    def _delete(self, where: Optional['pixeltable.exprs.Predicate'], conn: sql.engine.Connection, ts: float) -> int:
+    def _delete(
+            self, where: Optional['pixeltable.exprs.Predicate'], base_versions: List[Optional[int]],
+            conn: sql.engine.Connection, ts: float) -> int:
         """Delete rows in this table and propagate to views.
-        Returns:
-            number of deleted rows
         Args:
             where: a Predicate to filter rows to delete.
+        Returns:
+            number of deleted rows
         """
         # we're creating a new version
-        old_version = self.version
         self.version += 1
         sql_where_clause = where.sql_expr() if where is not None else None
-        num_rows = self.store_tbl.delete_rows(old_version, sql_where_clause, conn)
+        num_rows = self.store_tbl.delete_rows(
+            self.version, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause, conn=conn)
         self._update_md(ts, None, conn)
+        base_versions.insert(0, self.version)
         for view in self.views:
-            num_rows += view._delete(where=None, conn=conn, ts=ts)
+            num_rows += view._delete(where=None, base_versions=base_versions, conn=conn, ts=ts)
         return num_rows
 
     def revert(self) -> None:

@@ -86,11 +86,11 @@ class Table(SchemaObject):
         return self.df().count()
 
     def _description(self) -> pd.DataFrame:
+        cols = self.tbl_version.columns()
         return pd.DataFrame({
-            'Column Name': [c.name for c in self.cols],
-            'Type': [str(c.col_type) for c in self.cols],
-            'Computed With':
-                [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in self.cols],
+            'Column Name': [c.name for c in cols],
+            'Type': [str(c.col_type) for c in cols],
+            'Computed With': [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in cols],
         })
 
     def _description_html(self) -> pd.DataFrame:

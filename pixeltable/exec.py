@@ -323,18 +323,6 @@ class SqlScanNode(ExecNode):
         except Exception as e:
             pass
 
-    # def _create_select_list(self, select_list: List[exprs.Expr], tbl: catalog.TableVersion) -> List[sql.ClauseElement]:
-    #     """Turn list of exprs into list of ClauseElements
-    #     This tries to minimize the total number of tables referenced.
-    #     """
-    #     refd_tbl_ids = exprs.Expr.list_tbl_ids([e for e in select_list if not isinstance(e, exprs.RowidRef)])
-    #     for e in select_list:
-    #         sql_expr = e.sql_expr()
-    #         if sql_expr is None:
-    #             raise exc.ExprError(e, f'expr {e} cannot be evaluated via SQL')
-    #         sql_select_list.append(sql_expr)
-    #     return sql_select_list
-
     @classmethod
     def create_from_clause(
             cls, tbl: catalog.TableVersion, stmt: sql.Select, refd_tbl_ids: Set[UUID] = {},
