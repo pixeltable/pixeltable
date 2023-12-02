@@ -34,6 +34,11 @@ class Table(SchemaObject):
         """
         return self.tbl_version.__getitem__(index)
 
+    def version(self) -> int:
+        """Return the version of this table.
+        """
+        return self.tbl_version.version
+
     def df(self) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """

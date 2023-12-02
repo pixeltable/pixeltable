@@ -97,6 +97,151 @@ class TestView:
             _ = cl.get_table('test_view')
         assert 'No such path:' in str(exc_info.value)
 
+    def test_parallel_views(self, test_client: pt.Client) -> None:
+        """Two views over the same base table, with non-overlapping filters"""
+        cl = test_client
+        t = self.create_tbl(cl)
+
+        # create view with filter and computed columns
+        v1 = cl.create_view('v1', t, schema=[catalog.Column('v1', computed_with=t.c3 * 2)], filter=t.c2 < 10)
+        # create another view with a non-overlapping filter and computed columns
+        v2 = cl.create_view(
+            'v2', t, schema=[catalog.Column('v1', computed_with=t.c3 * 3)], filter=(t.c2 < 20) & (t.c2 >= 10))
+
+        # sanity checks
+        v1_query = v1.select(v1.v1).order_by(v1.c2)
+        v2_query = v2.select(v2.v1).order_by(v2.c2)
+        b1_query = t.select(t.c3 * 2).where(t.c2 < 10).order_by(t.c2)
+        b2_query = t.select(t.c3 * 3).where((t.c2 >= 10) & (t.c2 < 20)).order_by(t.c2)
+        assert_resultset_eq(v1_query.collect(), b1_query.collect())
+        assert_resultset_eq(v2_query.collect(), b2_query.collect())
+
+        # insert data: of 20 new rows, only 10 show up in each view
+        rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        status = t.insert([list(r.values()) for r in rows])
+        assert status.num_rows == 40
+        assert t.count() == 120
+        assert v1.count() == 20
+        assert v2.count() == 20
+        assert_resultset_eq(v1_query.collect(), b1_query.collect())
+        assert_resultset_eq(v2_query.collect(), b2_query.collect())
+
+        # update data: cascade to views
+        status = t.update(
+            {'c4': True, 'c3': t.c3 + 1, 'c10': t.c10 - 1.0}, where=(t.c2 >= 5) & (t.c2 < 15), cascade=True)
+        assert status.num_rows == 20 * 2  # *2: rows affected in both base table and view
+        assert t.count() == 120
+        assert v1.count() == 20
+        assert v2.count() == 20
+        assert_resultset_eq(v1_query.collect(), b1_query.collect())
+        assert_resultset_eq(v2_query.collect(), b2_query.collect())
+
+
+        # base table delete is reflected in view
+        status = t.delete(where=(t.c2 >= 5) & (t.c2 < 15))
+        status.num_rows == 10 * 2  # *2: rows affected in both base table and view
+        assert t.count() == 100
+        assert v1.count() == 10
+        assert v2.count() == 10
+        assert_resultset_eq(v1_query.collect(), b1_query.collect())
+        assert_resultset_eq(v2_query.collect(), b2_query.collect())
+
+    def test_chained_views(self, test_client: pt.Client) -> None:
+        """Two views, the second one is a view over the first one"""
+        cl = test_client
+        t = self.create_tbl(cl)
+
+        # create view with filter and computed columns
+        v1 = cl.create_view('v1', t, schema=[catalog.Column('col1', computed_with=t.c3 * 2)], filter=t.c2 < 10)
+        # create a view on top of v1
+        v2_schema = [
+            catalog.Column('col2', computed_with=t.c3 * 3),  # only base
+            catalog.Column('col3', computed_with=v1.col1 / 2),  # only v1
+            catalog.Column('col4', computed_with=t.c10 + v1.col1),  # both base and v1
+        ]
+        v2 = cl.create_view('v2', v1, schema=v2_schema, filter=t.c2 < 5)
+
+        def check_views():
+            assert_resultset_eq(
+                v1.select(v1.col1).order_by(v1.c2).collect(),
+                t.select(t.c3 * 2).where(t.c2 < 10).order_by(t.c2).collect())
+            assert_resultset_eq(
+                v2.select(v2.col1).order_by(v2.c2).collect(),
+                v1.select(v1.col1).where(v1.c2 < 5).order_by(v1.c2).collect())
+            assert_resultset_eq(
+                v2.select(v2.col2).order_by(v2.c2).collect(),
+                t.select(t.c3 * 3).where(t.c2 < 5).order_by(t.c2).collect())
+            assert_resultset_eq(
+                v2.select(v2.col3).order_by(v2.c2).collect(),
+                v1.select(v1.col1 / 2).where(v1.c2 < 5).order_by(v2.c2).collect())
+            assert_resultset_eq(
+                v2.select(v2.col4).order_by(v2.c2).collect(),
+                v1.select(v1.c10 + v1.col1).where(v1.c2 < 5).order_by(v1.c2).collect())
+                #t.select(t.c10 * 2).where(t.c2 < 5).order_by(t.c2).collect())
+        check_views()
+
+        # insert data: of 20 new rows; 10 show up in v1, 5 in v2
+        base_version, v1_version, v2_version = t.version(), v1.version(), v2.version()
+        rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        status = t.insert([list(r.values()) for r in rows])
+        assert status.num_rows == 20 + 10 + 5
+        assert t.count() == 120
+        assert v1.count() == 20
+        assert v2.count() == 10
+        # all versions were incremented
+        assert t.version() == base_version + 1
+        assert v1.version() == v1_version + 1
+        assert v2.version() == v2_version + 1
+        check_views()
+
+        # update data: cascade to both views
+        base_version, v1_version, v2_version = t.version(), v1.version(), v2.version()
+        status = t.update({'c4': True, 'c3': t.c3 + 1}, where=t.c2 < 15, cascade=True)
+        assert status.num_rows == 30 + 20 + 10
+        assert t.count() == 120
+        # all versions were incremented
+        assert t.version() == base_version + 1
+        assert v1.version() == v1_version + 1
+        assert v2.version() == v2_version + 1
+        check_views()
+
+        # update data: cascade only to v2
+        base_version, v1_version, v2_version = t.version(), v1.version(), v2.version()
+        status = t.update({'c10': t.c10 - 1.0}, where=t.c2 < 15, cascade=True)
+        assert status.num_rows == 30 + 10
+        assert t.count() == 120
+        # v1 did not get updated
+        assert t.version() == base_version + 1
+        assert v1.version() == v1_version
+        assert v2.version() == v2_version + 1
+        check_views()
+
+        # base table delete is reflected in both views
+        base_version, v1_version, v2_version = t.version(), v1.version(), v2.version()
+        status = t.delete(where=t.c2 == 0)
+        status.num_rows == 1 + 1 + 1
+        assert t.count() == 118
+        assert v1.count() == 18
+        assert v2.count() == 8
+        # all versions were incremented
+        assert t.version() == base_version + 1
+        assert v1.version() == v1_version + 1
+        assert v2.version() == v2_version + 1
+        check_views()
+
+        # base table delete is reflected only in v1
+        base_version, v1_version, v2_version = t.version(), v1.version(), v2.version()
+        status = t.delete(where=t.c2 == 5)
+        status.num_rows == 1 + 1
+        assert t.count() == 116
+        assert v1.count() == 16
+        assert v2.count() == 8
+        # v2 was not updated
+        assert t.version() == base_version + 1
+        assert v1.version() == v1_version + 1
+        assert v2.version() == v2_version
+        check_views()
+
     def test_computed_cols(self, test_client: pt.Client) -> None:
         cl = test_client
         t = self.create_tbl(cl)

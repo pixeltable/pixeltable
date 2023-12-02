@@ -453,11 +453,9 @@ class TableVersion:
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause, conn=conn)
             self._update_md(ts, None, conn)
-            base_versions.insert(0, self.version)
-        else:
-            base_versions.insert(0, None)
 
         if cascade:
+            base_versions = [None if plan is None else self.version] + base_versions  # don't update in place
             # propagate to views
             for view in self.views:
                 recomputed_cols = [col for col in recomputed_view_cols if col.tbl == view]
@@ -498,15 +496,17 @@ class TableVersion:
         Returns:
             number of deleted rows
         """
-        # we're creating a new version
-        self.version += 1
         sql_where_clause = where.sql_expr() if where is not None else None
         num_rows = self.store_tbl.delete_rows(
-            self.version, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause, conn=conn)
-        self._update_md(ts, None, conn)
-        base_versions.insert(0, self.version)
+            self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause, conn=conn)
+        if num_rows > 0:
+            # we're creating a new version
+            self.version += 1
+            self._update_md(ts, None, conn)
+        else:
+            pass
         for view in self.views:
-            num_rows += view._delete(where=None, base_versions=base_versions, conn=conn, ts=ts)
+            num_rows += view._delete(where=None, base_versions=[self.version] + base_versions, conn=conn, ts=ts)
         return num_rows
 
     def revert(self) -> None:

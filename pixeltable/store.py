@@ -267,7 +267,7 @@ class StoreBase:
             clause = self.v_min_col == v if match_on_vmin else self.v_max_col == v
         if len(versions) == 1:
             return clause
-        return sql.and_(clause, self._versions_clause(versions[1:]))
+        return sql.and_(clause, self.base._versions_clause(versions[1:], match_on_vmin))
 
     def delete_rows(
             self, current_version: int, base_versions: List[Optional[int]], match_on_vmin: bool,
@@ -291,7 +291,7 @@ class StoreBase:
         base_versions_clause = sql.true() if len(base_versions) == 0 \
             else self.base._versions_clause(base_versions, match_on_vmin)
         stmt = sql.update(self.sa_tbl) \
-            .values({self.v_max_col: self.tbl_version.version}) \
+            .values({self.v_max_col: current_version}) \
             .where(where_clause) \
             .where(rowid_join_clause) \
             .where(base_versions_clause)
