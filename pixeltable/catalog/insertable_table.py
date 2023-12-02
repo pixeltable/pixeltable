@@ -31,7 +31,7 @@ class InsertableTable(MutableTable):
             cls, dir_id: UUID, name: str, cols: List[Column],
             num_retained_versions: int,
     ) -> InsertableTable:
-        cls._verify_columns(cols)
+        cls._verify_user_columns(cols)
         with orm.Session(Env.get().engine, future=True) as session:
             tbl_version = TableVersion.create(
                 dir_id, name, cols, None, None, num_retained_versions, None, None, session)
@@ -79,9 +79,12 @@ class InsertableTable(MutableTable):
                 raise exc.Error('rows must be a list of lists')
         if not isinstance(columns, list):
             raise exc.Error('columns must be a list of column names')
+        existing_col_names = self.column_names()
         for col_name in columns:
             if not isinstance(col_name, str):
                 raise exc.Error('columns must be a list of column names')
+            if col_name not in existing_col_names:
+                raise exc.Error(f'Unknown column: {col_name}')
 
         insertable_col_names = self.tbl_version.get_insertable_col_names()
         if len(columns) == 0 and len(rows[0]) != len(insertable_col_names):

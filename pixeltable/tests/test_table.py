@@ -341,6 +341,20 @@ class TestTable:
             t.insert([['test']], columns='c1')
         assert 'column names' in str(exc_info.value)
 
+        # unknown column
+        with pytest.raises(exc.Error) as exc_info:
+            cl.drop_table('test1', ignore_errors=True)
+            t = cl.create_table('test1', [c1])
+            t.insert([['test']], columns=['does_not_exist'])
+        assert 'unknown' in str(exc_info.value).lower()
+
+        # bad null value
+        with pytest.raises(exc.Error) as exc_info:
+            cl.drop_table('test1', ignore_errors=True)
+            t = cl.create_table('test1', [c1])
+            t.insert([[None]], columns=['c1'])
+        assert 'contains None' in str(exc_info.value)
+
         # bad array literal
         with pytest.raises(exc.Error) as exc_info:
             cl.drop_table('test1', ignore_errors=True)
@@ -697,16 +711,28 @@ class TestTable:
     def test_revert(self, test_client: pt.Client) -> None:
         cl = test_client
         t1 = make_tbl(cl, 'test1', ['c1', 'c2'])
+        assert t1.version() == 0
         rows1 = create_table_data(t1)
         t1.insert(rows1, columns=['c1', 'c2'])
         assert t1.count() == len(rows1)
+        assert t1.version() == 1
         rows2 = create_table_data(t1)
         t1.insert(rows2, columns=['c1', 'c2'])
         assert t1.count() == len(rows1) + len(rows2)
+        assert t1.version() == 2
         t1.revert()
         assert t1.count() == len(rows1)
+        assert t1.version() == 1
         t1.insert(rows2, columns=['c1', 'c2'])
         assert t1.count() == len(rows1) + len(rows2)
+        assert t1.version() == 2
+
+        # can't revert past version 0
+        t1.revert()
+        t1.revert()
+        with pytest.raises(exc.Error) as excinfo:
+            t1.revert()
+        assert 'version 0' in str(excinfo.value)
 
     def test_snapshot(self, test_client: pt.Client) -> None:
         cl = test_client
@@ -735,8 +761,14 @@ class TestTable:
 
         tbl.revert()
         # can't revert a version referenced by a snapshot
-        with pytest.raises(exc.Error):
+        with pytest.raises(exc.Error) as excinfo:
             tbl.revert()
+        assert 'version is needed' in str(excinfo.value)
+
+        # can't drop a table with snapshots
+        with pytest.raises(exc.Error) as excinfo:
+            cl.drop_table('main.test1')
+        assert 'snapshot' in str(excinfo.value)
 
     def test_add_column(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
@@ -745,11 +777,13 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols + 1
 
         # duplicate name
-        with pytest.raises(exc.Error):
+        with pytest.raises(exc.Error) as exc_info:
             t.add_column(catalog.Column('c1', pt.IntType()))
+        assert 'duplicate column name' in str(exc_info.value).lower()
         # bad name
-        with pytest.raises(exc.Error):
+        with pytest.raises(exc.Error) as exc_info:
             t.add_column(catalog.Column('bad name', pt.IntType()))
+        assert 'invalid column name' in str(exc_info.value).lower()
 
         # make sure this is still true after reloading the metadata
         cl = pt.Client()

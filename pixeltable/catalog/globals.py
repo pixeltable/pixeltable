@@ -46,3 +46,6 @@ def is_valid_path(path: str, empty_is_valid : bool) -> bool:
         if not is_valid_identifier(part):
             return False
     return True
+
+def is_system_column_name(name: str) -> bool:
+    return name == POS_COLUMN_NAME

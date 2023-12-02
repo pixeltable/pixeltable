@@ -1,7 +1,7 @@
 from __future__ import annotations
 import importlib
 import logging
-from typing import List, Optional, Type, Dict
+from typing import List, Optional, Type, Dict, Set
 from uuid import UUID
 import inspect
 
@@ -35,7 +35,7 @@ class View(MutableTable):
             cls, dir_id: UUID, name: str, base: TableVersion, cols: List[Column], predicate: 'exprs.Predicate',
             num_retained_versions: int, iterator_cls: Optional[Type[ComponentIterator]], iterator_args: Optional[Dict]
     ) -> View:
-        cls._verify_columns(cols)
+        cls._verify_user_columns(cols)
 
         if iterator_cls is not None:
             assert iterator_args is not None
@@ -92,8 +92,8 @@ class View(MutableTable):
             return view
 
     @classmethod
-    def _verify_column(cls, col: Column) -> None:
+    def _verify_column(cls, col: Column, existing_column_names: Set[str]) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
             raise Error(f'Column {col.name}: non-computed columns in views must be nullable')
-        super()._verify_column(col)
+        super()._verify_column(col, existing_column_names)

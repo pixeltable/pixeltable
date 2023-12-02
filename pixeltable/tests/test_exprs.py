@@ -34,6 +34,9 @@ class TestExprs:
         assert isinstance((t.c1 == 'a') & (t.c2 < 5), Expr)
         assert isinstance((t.c1 == 'a') | (t.c2 < 5), Expr)
         assert isinstance(~(t.c1 == 'a'), Expr)
+        with pytest.raises(AttributeError) as excinfo:
+            _ = t.does_not_exist
+        assert 'unknown' in str(excinfo.value).lower()
 
     def test_compound_predicates(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl

@@ -241,11 +241,9 @@ class TableVersion:
         """Adds a column to the table.
         """
         assert self.next_col_id != -1
-        if not is_valid_identifier(col.name):
-            raise exc.Error(f"Invalid column name: '{col.name}'")
+        assert is_valid_identifier(col.name)
         assert col.stored is not None
-        if col.name in self.cols_by_name:
-            raise exc.Error(f'Column {col.name} already exists')
+        assert col.name not in self.cols_by_name
         col.tbl = self
         col.id = self.next_col_id
         self.next_col_id += 1
@@ -274,7 +272,8 @@ class TableVersion:
             if col.is_stored:
                 self.store_tbl.add_column(col, conn)
 
-        row_count = self.count()
+        from pixeltable.dataframe import DataFrame
+        row_count = DataFrame(self).count()
         if row_count == 0:
             return UpdateStatus()
         if (not col.is_computed or not col.is_stored) and not col.is_indexed:
@@ -630,6 +629,16 @@ class TableVersion:
         # the iterator columns directly follow the pos column
         return self.is_component_view() and col.id > 0 and col.id < self.num_iterator_cols + 1
 
+    def is_system_column(self, col: Column) -> bool:
+        """Return True if column was created by Pixeltable"""
+        if col.name == POS_COLUMN_NAME and self.is_component_view():
+            return True
+        return False
+
+    def user_columns(self) -> List[Column]:
+        """Return all non-system columns"""
+        return [c for c in self.cols if not self.is_system_column(c)]
+
     def get_insertable_col_names(self, required_only: bool = False) -> List[str]:
         """Return the names of all columns for which values can be specified."""
         assert not self.is_view()
@@ -758,46 +767,6 @@ class TableVersion:
             return self.__getattr__(index)
         from pixeltable.dataframe import DataFrame
         return DataFrame(self).__getitem__(index)
-
-    def df(self) -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self)
-
-    def select(self, *items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self).select(*items)
-
-    def where(self, pred: 'exprs.Predicate') -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self).where(pred)
-
-    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self).order_by(*items, asc=asc)
-
-    def show(
-            self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
-        """Return rows from this table.
-        """
-        return self.df().show(*args, **kwargs)
-
-    def count(self) -> int:
-        """Return the number of rows in this table.
-        """
-        return self.df().count()
 
     def columns(self) -> List[Column]:
         """Return all columns visible in this table, including columns from bases"""

@@ -23,20 +23,25 @@ class TestComponentView:
         video_t = cl.create_table('video_tbl', cols)
         video_filepaths = get_video_files()
 
+        # cannot add 'pos' column
         with pytest.raises(exc.Error) as excinfo:
-            # parameter missing
+            video_t.add_column(catalog.Column('pos', IntType()))
+        assert 'reserved' in str(excinfo.value)
+
+        # parameter missing
+        with pytest.raises(exc.Error) as excinfo:
             args = {'fps': 1}
             _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
         assert 'missing a required argument' in str(excinfo.value)
 
+        # bad parameter type
         with pytest.raises(exc.Error) as excinfo:
-            # bad parameter type
             args = {'video': video_t.video, 'fps': '1'}
             _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
         assert 'expected int' in str(excinfo.value)
 
+        # bad parameter type
         with pytest.raises(exc.Error) as excinfo:
-            # bad parameter type
             args = {'video': 1, 'fps': 1}
             _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
         assert 'expected file path' in str(excinfo.value)

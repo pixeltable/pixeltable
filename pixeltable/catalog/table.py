@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Union, Any
+from typing import Union, Any, List
 from uuid import UUID
 
 import pandas as pd
@@ -89,6 +89,10 @@ class Table(SchemaObject):
     def count(self) -> int:
         """Return the number of rows in this table."""
         return self.df().count()
+
+    def column_names(self) -> List[str]:
+        """Return the names of the columns in this table."""
+        return [c.name for c in self.tbl_version.columns()]
 
     def _description(self) -> pd.DataFrame:
         cols = self.tbl_version.columns()

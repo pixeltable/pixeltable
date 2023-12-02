@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Optional, List, Dict, Any, Union, Tuple
+from typing import Optional, List, Dict, Any, Union, Tuple, Set
 from uuid import UUID
 import re
 import json
@@ -15,7 +15,7 @@ from .table_version import TableVersion
 from pixeltable import exceptions as exc
 from ..env import Env
 from ..metadata import schema
-from .globals import is_valid_identifier
+from .globals import is_valid_identifier, is_system_column_name
 
 
 _logger = logging.getLogger('pixeltable')
@@ -75,14 +75,18 @@ class MutableTable(Table):
             'added ...'
         """
         self._check_is_dropped()
-        self._verify_column(col)
+        self._verify_column(col, self.column_names())
         return self.tbl_version.add_column(col, print_stats=print_stats)
 
     @classmethod
-    def _verify_column(cls, col: Column) -> None:
+    def _verify_column(cls, col: Column, existing_column_names: Set[str]) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
+        if is_system_column_name(col.name):
+            raise exc.Error(f'Column name {col.name} is reserved')
         if not is_valid_identifier(col.name):
             raise exc.Error(f"Invalid column name: '{col.name}'")
+        if col.name in existing_column_names:
+            raise exc.Error(f'Duplicate column name: {col.name}')
         if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
             raise exc.Error(f'Column {col.name}: stored={col.stored} only applies to computed image columns')
         if col.stored is False and not (col.col_type.is_image_type() and not col.has_window_fn_call()):
@@ -92,15 +96,12 @@ class MutableTable(Table):
             col.stored = not (col.is_computed and col.col_type.is_image_type() and not col.has_window_fn_call())
 
     @classmethod
-    def _verify_columns(cls, cols: List[Column]) -> None:
+    def _verify_user_columns(cls, cols: List[Column]) -> None:
         """Check integrity of user-supplied Columns and supply defaults"""
-        cols_by_name: Dict[str, Column] = {}
+        column_names: Set[str] = set()
         for col in cols:
-            cls._verify_column(col)
-            # make sure col names are unique (within the table)
-            if col.name in cols_by_name:
-                raise exc.Error(f'Duplicate column: {col.name}')
-            cols_by_name[col.name] = col
+            cls._verify_column(col, column_names)
+            column_names.add(col.name)
 
     def drop_column(self, name: str) -> None:
         """Drop a column from the table.
