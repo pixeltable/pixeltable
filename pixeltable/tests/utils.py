@@ -175,7 +175,9 @@ def create_all_datatype_tbl(test_client: pt.Client) -> catalog.Table:
         catalog.Column('c_video', VideoType(nullable=True)),
     ]
     tbl = test_client.create_table('all_datatype_tbl', cols)
-    example_rows = create_table_data(tbl, num_rows=11)
+    # prime number of rows to avoid being multiple of batch size 
+    # large enough to check shuffling works w/o false positives. 29! is very large
+    example_rows = create_table_data(tbl, num_rows=29) 
 
     for i,r in enumerate(example_rows):
         r[0] = i # row_id

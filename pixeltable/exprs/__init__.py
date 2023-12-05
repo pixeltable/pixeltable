@@ -20,3 +20,4 @@ from .predicate import Predicate
 from .row_builder import RowBuilder, ColumnSlotIdx, ExecProfile
 from .rowid_ref import RowidRef
 from .unique_expr_list import UniqueExprList
+from .sql_random import SqlRandom

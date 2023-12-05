@@ -285,7 +285,8 @@ class TestDataFrame:
             c_image=t.c_image.resize([220, 224]).convert('RGB')
         )
         df_size = df.count()
-        ds = df.to_pytorch_dataset(image_format='pt')
+        assert df_size >= 23, 'want to test enough tuples'
+        ds = df.to_pytorch_dataset(image_format='pt')        
         # test serialization:
         #  - pickle.dumps() and pickle.loads() must work so that
         #   we can use num_workers > 0
@@ -295,18 +296,26 @@ class TestDataFrame:
         # test we get all rows
         def check_recover_all_rows(ds, size : int, **kwargs):
             dl = torch.utils.data.DataLoader(ds, **kwargs)
-            loaded_ids = set()
+            loaded_ids = []
             for batch in dl:
                 for row_id in batch['row_id']:
                     val = int(row_id) # np.int -> int or will fail set equality test below.
                     assert val not in loaded_ids, val
-                    loaded_ids.add(val)
+                    loaded_ids.append(val)
 
-            assert loaded_ids == set(range(size))
+            assert set(loaded_ids) == set(range(size))
+            return loaded_ids
+
+        loaded_ids = check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=0) # within this process
+        assert loaded_ids != list(range(df_size)) # check ordering is not preserved
+
+        ds_notshuffled = df.to_pytorch_dataset(image_format='pt', shuffle=False)
+        loaded_ids = check_recover_all_rows(ds_notshuffled, size=df_size, batch_size=3, num_workers=0)
+        assert loaded_ids == list(range(df_size)) # check ordering is preserved
 
         # check different number of workers
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=0) # within this process
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=2) # two separate processes
+        loaded_ids = check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=2) # two separate processes
+        assert loaded_ids != list(range(df_size)) # check ordering is not preserved
 
         # check edge case where some workers get no rows
         short_size = 1
