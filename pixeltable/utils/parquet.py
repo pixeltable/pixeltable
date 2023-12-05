@@ -1,14 +1,16 @@
-import json
-import PIL.Image
 import io
-import pyarrow.parquet as pq
-import pyarrow as pa
-import numpy as np
-from pathlib import Path
+import json
 from collections import deque
+from pathlib import Path
+from typing import Dict, List, Tuple
 
-from typing import List, Tuple, Any, Dict
+import numpy as np
+import PIL.Image
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 from pixeltable.utils.transactional_directory import transactional_directory
+
 
 def _write_batch(value_batch : Dict[str, deque], schema : pa.Schema, output_path : Path) -> None:
     pydict = {}
@@ -41,8 +43,8 @@ def save_parquet(df: 'pixeltable.DataFrame', dest_path: Path, partition_size_byt
     column_types = df.get_column_types()
 
     type_dict = {k: v.as_dict() for k, v in zip(column_names, column_types)}
-
     arrow_schema = pa.schema([pa.field(name, column_types[i].to_arrow_type()) for i, name in enumerate(column_names)])
+
     # store the changes atomically
     with transactional_directory(dest_path) as temp_path:
         # dump metadata json file so we can inspect what was the source of the parquet file later on.
@@ -123,4 +125,4 @@ def get_part_metadata(path : Path) -> List[Tuple[str, int]]:
         parquet_file = pq.ParquetFile(str(part))
         rows_per_file[part] = parquet_file.metadata.num_rows
 
-    return [(file, num_rows) for file, num_rows in rows_per_file.items()]
+    return [(str(file), num_rows) for file, num_rows in rows_per_file.items()]

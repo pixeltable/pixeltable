@@ -289,11 +289,15 @@ class TestDataFrame:
         """
         import torch.utils.data
         @pt.udf(param_types=[pt.JsonType()], return_type=pt.JsonType())
-        def restrict_json_for_default_collate(obj):
+        def restrict_json_for_default_collate(obj) -> Dict[str,Any]:
             keys = ['id', 'label', 'iscrowd', 'bounding_box']
             return {k: obj[k] for k in keys}
         
         t = all_datatypes_tbl
+        num_rows = 23
+        # using a large number so that shuffle is unlikely to result in same input order
+        # 1/ 23! chance of spurious failure
+        assert num_rows >= 23, 'too few rows cause high chance of spurious failure in shuffle test'
         df = t.select(
             t.row_id,
             t.c_int,
@@ -307,8 +311,11 @@ class TestDataFrame:
             c_json = restrict_json_for_default_collate(t.c_json.detections[0]),
             # images must be uniform shape for pytorch collate_fn to not fail
             c_image=t.c_image.resize([220, 224]).convert('RGB')
-        )
+        ).where(t.row_id < num_rows)
+        # using a prime number of rows to ensure not fully divisible by batch size
         df_size = df.count()
+        assert df_size == 23
+        # shuffle should be true by default
         ds = df.to_pytorch_dataset(image_format='pt')
         # test serialization:
         #  - pickle.dumps() and pickle.loads() must work so that
@@ -319,18 +326,31 @@ class TestDataFrame:
         # test we get all rows
         def check_recover_all_rows(ds, size : int, **kwargs):
             dl = torch.utils.data.DataLoader(ds, **kwargs)
-            loaded_ids = set()
+            loaded_ids = []
             for batch in dl:
                 for row_id in batch['row_id']:
                     val = int(row_id) # np.int -> int or will fail set equality test below.
                     assert val not in loaded_ids, val
-                    loaded_ids.add(val)
+                    loaded_ids.append(val)
 
-            assert loaded_ids == set(range(size))
+            assert set(loaded_ids) == set(range(size))
+            return loaded_ids
+
+        loaded_ids = check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=0) # within this process
+        assert loaded_ids != list(range(df_size)) # check ordering is not preserved, shuffle is true by default.
+
+        df_ordered = df.order_by(t.row_id).to_pytorch_dataset(image_format='pt', shuffle=False)
+        loaded_ids = check_recover_all_rows(df_ordered, size=df_size, batch_size=3, num_workers=0)
+        assert loaded_ids == list(range(df_size)) # check ordering is preserved
+
+        # check error when order by is used with shuffle
+        with pytest.raises(exc.Error) as exc_info:
+            _ = df.order_by(t.row_id).to_pytorch_dataset(image_format='pt')
+        assert 'order_by() cannot be used with shuffle' in str(exc_info.value)
 
         # check different number of workers
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=0) # within this process
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=2) # two separate processes
+        loaded_ids = check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=2) # two separate processes
+        assert loaded_ids != list(range(df_size)) # check ordering is not preserved
 
         # check edge case where some workers get no rows
         short_size = 1
