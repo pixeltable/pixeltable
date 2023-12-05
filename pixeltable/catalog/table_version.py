@@ -4,8 +4,7 @@ import copy
 import dataclasses
 import inspect
 import logging
-import re
-from typing import Optional, List, Dict, Any, Union, Tuple, Type
+from typing import Optional, List, Dict, Any, Union, Tuple, Type, Set
 from uuid import UUID
 import time
 import importlib
@@ -323,11 +322,7 @@ class TableVersion:
             for c in self.cols:
                 if c == col:
                     break
-                try:
-                    c.dependent_cols.remove(col)
-                except ValueError:
-                    # ignore
-                    pass
+                c.dependent_cols.discard(col)
 
         # we're creating a new schema version
         ts = time.time()
@@ -704,22 +699,19 @@ class TableVersion:
         from pixeltable.exprs import ColumnRef
         refd_cols = [e.col for e in col.value_expr.subexprs(expr_class=ColumnRef)]
         for refd_col in refd_cols:
-            refd_col.dependent_cols.append(col)
+            refd_col.dependent_cols.add(col)
 
-    def get_dependent_columns(self, cols: List[Column]) -> List[Column]:
+    def get_dependent_columns(self, cols: List[Column]) -> Set[Column]:
         """
-        Return the list of cols that transitively depend on any of the given cols.
+        Return the set of columns that transitively depend on any of the given ones.
         """
         if len(cols) == 0:
             return []
-        all_dependent_cols: List[Column] = []
+        result: Set[Column] = set()
         for col in cols:
-            all_dependent_cols.extend(col.dependent_cols)
-        # remove duplicates
-        unique_cols: Dict[int, Column] = {}  # key: id()
-        [unique_cols.setdefault(id(col), col) for col in all_dependent_cols]
-        result = list(unique_cols.values())
-        return result + self.get_dependent_columns(result)
+            result.update(col.dependent_cols)
+        result.update(self.get_dependent_columns(result))
+        return result
 
     def _create_md(self) -> schema.TableMd:
         iterator_class_fqn = \

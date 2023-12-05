@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Union, Callable
+from typing import Optional, Union, Callable, Set
 
 import sqlalchemy as sql
 from pgvector.sqlalchemy import Vector
@@ -89,7 +89,7 @@ class Column:
         assert self.col_type is not None
 
         self.stored = stored
-        self.dependent_cols: List[Column] = []  # cols with value_exprs that reference us; set by MutableTable
+        self.dependent_cols: Set[Column] = set()  # cols with value_exprs that reference us; set by MutableTable
         self.id = col_id
         self.primary_key = primary_key
 
@@ -119,6 +119,10 @@ class Column:
             stored=md.stored, indexed=md.is_indexed, col_id=col_id)
         col.tbl = tbl
         return col
+
+    def __hash__(self) -> int:
+        assert self.tbl is not None
+        return hash((self.tbl.id, self.id))
 
     def check_value_expr(self) -> None:
         assert self.value_expr is not None

@@ -7,6 +7,8 @@ import sqlalchemy as sql
 
 from .expr import Expr
 from .rowid_ref import RowidRef
+from .inline_dict import InlineDict
+from .inline_array import InlineArray
 from .data_row import DataRow
 from .row_builder import RowBuilder
 import pixeltable.function as func
@@ -103,6 +105,21 @@ class FunctionCall(Expr):
         Convert literals to the correct type and update bound_args in place, if necessary.
         """
         for param_name, arg in bound_args.items():
+            if isinstance(arg, dict):
+                try:
+                    arg = InlineDict(arg)
+                    bound_args[param_name] = arg
+                except excs.Error:
+                    # this didn't work, but it might be a literal
+                    pass
+            if isinstance(arg, list):
+                try:
+                    arg = InlineArray(arg)
+                    bound_args[param_name] = arg
+                except excs.Error:
+                    # this didn't work, but it might be a literal
+                    pass
+
             if not isinstance(arg, Expr):
                 # make sure that non-Expr args are json-serializable and are literals of the correct type
                 try:

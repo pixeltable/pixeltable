@@ -79,7 +79,7 @@ class TestVideo:
         cl = test_client
         base_t, view_t = self.create_tbls(cl)
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
-        view_t.add_column(catalog.Column('c1', computed_with=view_t.frame.resize((224, 224))))
+        view_t.add_column(catalog.Column('c1', computed_with=view_t.frame.resize([224, 224])))
         view_t.add_column(catalog.Column('c2', computed_with=view_t.c1.rotate(10)))
         view_t.add_column(catalog.Column('c3', computed_with=view_t.c2.rotate(20)))
         view_t.add_column(catalog.Column('c4', computed_with=view_t.c1.rotate(30)))

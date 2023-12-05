@@ -272,17 +272,17 @@ class Planner:
         if len(recompute_targets) > 0:
             recomputed_cols = recompute_targets.copy()
         else:
-            recomputed_cols = tbl.get_dependent_columns(updated_cols) if cascade else []
-        # remove duplicates
-        #recomputed_cols = list({id(c): c for c in recomputed_cols}.values())
-        recomputed_view_cols = [col for col in recomputed_cols if col.tbl != tbl]
-        recomputed_cols = [col for col in recomputed_cols if col.tbl == tbl]
+            recomputed_cols = list(tbl.get_dependent_columns(updated_cols)) if cascade else []
+            # we only need to recompute stored columns (unstored ones are substituted away)
+            recomputed_cols = [c for c in recomputed_cols if c.is_stored]
+        recomputed_base_cols = [col for col in recomputed_cols if col.tbl == tbl]
         copied_cols = \
-            [col for col in tbl.cols if col.is_stored and not col in updated_cols and not col in recomputed_cols]
+            [col for col in tbl.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols]
         select_list = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend([expr for _, expr in update_targets])
 
-        recomputed_exprs = [c.value_expr.copy().resolve_computed_cols(unstored_only=False) for c in recomputed_cols]
+        recomputed_exprs = \
+            [c.value_expr.copy().resolve_computed_cols(unstored_only=False) for c in recomputed_base_cols]
         # recomputed cols reference the new values of the updated cols
         for col, e in update_targets:
             exprs.Expr.list_substitute(recomputed_exprs, exprs.ColumnRef(col), e)
@@ -293,10 +293,9 @@ class Planner:
         plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
         [
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-            for i, col in enumerate(copied_cols + updated_cols + recomputed_cols)  # same order as select_list
+            for i, col in enumerate(copied_cols + updated_cols + recomputed_base_cols)  # same order as select_list
         ]
-        all_recomputed_cols = recomputed_cols + recomputed_view_cols
-        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + all_recomputed_cols], all_recomputed_cols
+        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_cols], recomputed_cols
 
     @classmethod
     def create_view_update_plan(
@@ -304,7 +303,7 @@ class Planner:
     ) -> ExecNode:
         """Creates a plan to materialize updated rows for a view, given that the base table has been updated.
         The plan:
-        - retrieves rows that are visible at the current version of the table
+        - retrieves rows that are visible at the current version of the table and satisfy the view predicate
         - materializes all stored columns and the update targets
         - if cascade is True, recomputes all computed columns that transitively depend on the updated columns
           and copies the values of all other stored columns
@@ -327,12 +326,17 @@ class Planner:
 
         # we need to retrieve the PK columns of the existing rows
         plan = cls.create_query_plan(
-            tbl, select_list, with_pk=True, ignore_errors=True, exact_version_only=tbl.get_bases())
+            tbl, select_list, where_clause=tbl.predicate, with_pk=True, ignore_errors=True,
+            exact_version_only=tbl.get_bases())
         plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
         [
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
             for i, col in enumerate(copied_cols + recomputed_cols)  # same order as select_list
         ]
+        # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
+        stored_img_col_info = \
+            [info for info in plan.row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
+        plan.set_stored_img_cols(stored_img_col_info)
         return plan
 
     @classmethod

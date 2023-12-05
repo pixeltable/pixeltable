@@ -21,7 +21,7 @@ class TestNOS:
             torchvision_fasterrcnn_mobilenet_v3_large_320_fpn as fasterrcnn
         v.add_column(catalog.Column('detections', computed_with=fasterrcnn(v.transform1)))
         from pixeltable.functions.image_embedding import openai_clip
-        v.add_column(catalog.Column('embed', computed_with=openai_clip(v.transform1.resize((224, 224)))))
+        v.add_column(catalog.Column('embed', computed_with=openai_clip(v.transform1.resize([224, 224]))))
         # add a stored column that isn't referenced in nos calls
         v.add_column(catalog.Column('transform2', computed_with=v.frame.rotate(60), stored=True))
 
@@ -36,7 +36,7 @@ class TestNOS:
         v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
         video_t.insert([[get_video_files()[0]]], ['video'])
 
-        v.add_column(catalog.Column('frame_s', computed_with=v.frame.resize((640, 480))))
+        v.add_column(catalog.Column('frame_s', computed_with=v.frame.resize([640, 480])))
         # 'rotated' has exceptions
         v.add_column(catalog.Column(
             'rotated', ImageType(), computed_with=lambda frame_s, frame_idx: frame_s.rotate(int(360 / frame_idx))))

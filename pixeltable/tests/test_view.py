@@ -1,8 +1,5 @@
 import pytest
-import math
-import numpy as np
-import pandas as pd
-import datetime
+import logging
 
 import PIL
 
@@ -14,6 +11,8 @@ from pixeltable.type_system import \
 from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq, get_video_files
 from pixeltable.iterators import FrameIterator
 
+
+logger = logging.getLogger('pixeltable')
 
 class TestView:
     """
@@ -240,6 +239,78 @@ class TestView:
         assert t.version() == base_version + 1
         assert v1.version() == v1_version + 1
         assert v2.version() == v2_version
+        check_views()
+
+    def test_unstored_columns(self, test_client: pt.Client) -> None:
+        """Test chained views with unstored columns"""
+        # create table with image column and two updateable int columns
+        cl = test_client
+        cols = [
+            catalog.Column('img', ImageType()),
+            catalog.Column('int1', IntType(nullable=False)),
+            catalog.Column('int2', IntType(nullable=False))
+        ]
+        t = cl.create_table('test_tbl', cols)
+        # populate table with images of a defined size
+        width, height = 100, 100
+        rows = [
+            [PIL.Image.new('RGB', (width, height), color=(0, 0, 0)).tobytes('jpeg', 'RGB') , i, i] for i in range(100)
+        ]
+        t.insert(rows)
+
+        # view with unstored column that depends on int1 and a manually updated column (int4)
+        v1_cols = [
+            catalog.Column('img2', computed_with=t.img.crop([t.int1, t.int1, width, height]), stored=False),
+            catalog.Column('int3', computed_with=t.int1 * 2),
+            catalog.Column('int4', IntType(nullable=True)),  # TODO: add default
+        ]
+        logger.debug('******************* CREATE V1')
+        v1 = cl.create_view('v1', t, schema=v1_cols)
+        v1.update({'int4': 1})
+        _ = v1.select(v1.img2.width, v1.img2.height).collect()
+
+        # view with stored column that depends on t and view1
+        v2_cols = [
+            catalog.Column(
+                'img3',
+                # use the actual width and height of the image (not 100, which will pad the image)
+                computed_with=v1.img2.crop([t.int1 + t.int2, v1.int3 + v1.int4, v1.img2.width, v1.img2.height]),
+                stored=True),
+        ]
+        logger.debug('******************* CREATE V2')
+        v2 = cl.create_view('v2', v1, schema=v2_cols, filter=v1.int1 < 10)
+
+        def check_views() -> None:
+            assert_resultset_eq(
+                v1.select(v1.img2.width, v1.img2.height).order_by(v1.int1).collect(),
+                t.select(t.img.width - t.int1, t.img.height - t.int1).order_by(t.int1).collect())
+            assert_resultset_eq(
+                v2.select(v2.img3.width, v2.img3.height).order_by(v2.int1).collect(),
+                v1.select(v1.img2.width - v1.int1 - v1.int2, v1.img2.height - v1.int3 - v1.int4)\
+                    .where(v1.int1 < 10).order_by(v1.int1).collect())
+        check_views()
+
+        logger.debug('******************* INSERT')
+        t.insert(rows)
+        v1.update({'int4': 1}, where=v1.int4 == None)
+        logger.debug('******************* POST INSERT')
+        check_views()
+
+        # update int1:
+        # - cascades to v1 and v2
+        # - removes a row from v2 (only 9 rows in t now qualify)
+        logger.debug('******************* UPDATE INT1')
+        t.update({'int1': t.int1 + 1})
+        logger.debug('******************* POST UPDATE INT1')
+        check_views()
+
+        # update int2:
+        # - cascades only to v2
+        # - but requires join against v1 to access int4
+        # TODO: but requires join against v1 to access int3 and int4
+        logger.debug('******************* UPDATE INT2')
+        t.update({'int2': t.int2 + 1})
+        logger.debug('******************* POST UPDATE INT2')
         check_views()
 
     def test_computed_cols(self, test_client: pt.Client) -> None:
