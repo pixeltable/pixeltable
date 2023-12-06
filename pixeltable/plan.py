@@ -46,11 +46,11 @@ class Analyzer:
         self.tbl = tbl
 
         # remove references to unstored computed cols
-        self.select_list = [e.resolve_computed_cols(unstored_only=True) for e in select_list]
+        self.select_list = [e.resolve_computed_cols() for e in select_list]
         if where_clause is not None:
-            where_clause = where_clause.resolve_computed_cols(unstored_only=True)
-        self.group_by_clause = [e.resolve_computed_cols(unstored_only=True) for e in group_by_clause]
-        self.order_by_clause = [(e.resolve_computed_cols(unstored_only=True), asc) for e, asc in order_by_clause]
+            where_clause = where_clause.resolve_computed_cols()
+        self.group_by_clause = [e.resolve_computed_cols() for e in group_by_clause]
+        self.order_by_clause = [(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
 
         # Where clause of the Select stmt of the SQL scan
         self.sql_where_clause: Optional[exprs.Expr] = None
@@ -227,7 +227,7 @@ class Planner:
         from pixeltable.functions.image_embedding import openai_clip
         index_info = [(c, openai_clip) for c in tbl.cols if c.is_indexed]
 
-        row_builder = exprs.RowBuilder([], stored_cols, index_info, [], resolve_unstored_only=False)
+        row_builder = exprs.RowBuilder([], stored_cols, index_info, [])
 
         # create InsertDataNode for 'rows'
         stored_col_info = row_builder.output_slot_idxs()
@@ -272,17 +272,17 @@ class Planner:
         if len(recompute_targets) > 0:
             recomputed_cols = recompute_targets.copy()
         else:
-            recomputed_cols = list(tbl.get_dependent_columns(updated_cols)) if cascade else []
+            recomputed_cols = tbl.get_dependent_columns(updated_cols) if cascade else {}
             # we only need to recompute stored columns (unstored ones are substituted away)
-            recomputed_cols = [c for c in recomputed_cols if c.is_stored]
-        recomputed_base_cols = [col for col in recomputed_cols if col.tbl == tbl]
+            recomputed_cols = {c for c in recomputed_cols if c.is_stored}
+        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == tbl}
         copied_cols = \
             [col for col in tbl.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols]
         select_list = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend([expr for _, expr in update_targets])
 
         recomputed_exprs = \
-            [c.value_expr.copy().resolve_computed_cols(unstored_only=False) for c in recomputed_base_cols]
+            [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
         # recomputed cols reference the new values of the updated cols
         for col, e in update_targets:
             exprs.Expr.list_substitute(recomputed_exprs, exprs.ColumnRef(col), e)
@@ -291,11 +291,10 @@ class Planner:
         # we need to retrieve the PK columns of the existing rows
         plan = cls.create_query_plan(tbl, select_list, where_clause=where_clause, with_pk=True, ignore_errors=True)
         plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
-        [
-            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-            for i, col in enumerate(copied_cols + updated_cols + recomputed_base_cols)  # same order as select_list
-        ]
-        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_cols], recomputed_cols
+        all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
+        # update row builder with column information
+        [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
+        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + list(recomputed_cols)], list(recomputed_cols)
 
     @classmethod
     def create_view_update_plan(
@@ -318,10 +317,12 @@ class Planner:
         """
         assert tbl.is_view()
         # retrieve all stored cols and all target exprs
-        recomputed_cols = recompute_targets.copy()
+        recomputed_cols = set(recompute_targets.copy())
         copied_cols = [col for col in tbl.cols if col.is_stored and not col in recomputed_cols]
         select_list = [exprs.ColumnRef(col) for col in copied_cols]
-        recomputed_exprs = [c.value_expr.copy().resolve_computed_cols(unstored_only=False) for c in recomputed_cols]
+        # resolve recomputed exprs to stored columns in the base
+        recomputed_exprs = \
+            [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_cols) for c in recomputed_cols]
         select_list.extend(recomputed_exprs)
 
         # we need to retrieve the PK columns of the existing rows
@@ -331,7 +332,7 @@ class Planner:
         plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
         [
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-            for i, col in enumerate(copied_cols + recomputed_cols)  # same order as select_list
+            for i, col in enumerate(copied_cols + list(recomputed_cols))  # same order as select_list
         ]
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
         stored_img_col_info = \
@@ -364,7 +365,7 @@ class Planner:
         # 3. for component views: iterator args
         iterator_args = [view.iterator_args] if view.iterator_args is not None else []
 
-        row_builder = exprs.RowBuilder(iterator_args, stored_cols, index_info, [], resolve_unstored_only=False)
+        row_builder = exprs.RowBuilder(iterator_args, stored_cols, index_info, [])
 
         # execution plan:
         # 1. materialize stored view columns that can be computed from the base
@@ -393,28 +394,10 @@ class Planner:
         return plan, len(row_builder.default_eval_ctx.target_exprs)
 
     @classmethod
-    def _determine_ordering(cls, analyzer: Analyzer) -> List[sql.ClauseElement]:
-        """Returns the ORDER BY clause of the SqlScanNode"""
+    def _determine_ordering(cls, analyzer: Analyzer) -> List[Tuple[exprs.Expr, bool]]:
+        """Returns the exprs for the ORDER BY clause of the SqlScanNode"""
         order_by_items: List[Tuple[exprs.Expr, Optional[bool]]] = []
         order_by_origin: Optional[exprs.Expr] = None  # the expr that determines the ordering
-
-        # TODO: can this be unified with the same logic in RowBuilder
-        def refs_unstored_iter_col(e: exprs.Expr) -> bool:
-            if not isinstance(e, exprs.ColumnRef):
-                return False
-            tbl = e.col.tbl
-            return tbl.is_component_view() and tbl.is_iterator_column(e.col) and not e.col.is_stored
-        unstored_iter_col_refs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=refs_unstored_iter_col))
-        if len(unstored_iter_col_refs) > 0:
-            component_views = {e.col.tbl for e in unstored_iter_col_refs}
-            # TODO: generalize this to multi-level iteration
-            assert len(component_views) == 1
-            component_view = list(component_views)[0]
-            order_by_items = [
-                (exprs.RowidRef(component_view, idx), None)
-                for idx in range(len(component_view.store_tbl.rowid_columns()))
-            ]
-            order_by_origin = unstored_iter_col_refs[0]
 
 
         # window functions require ordering by the group_by/order_by clauses
@@ -472,12 +455,32 @@ class Planner:
             else:
                 order_by_items = analyzer.order_by_clause
 
+        # TODO: can this be unified with the same logic in RowBuilder
+        def refs_unstored_iter_col(e: exprs.Expr) -> bool:
+            if not isinstance(e, exprs.ColumnRef):
+                return False
+            tbl = e.col.tbl
+            return tbl.is_component_view() and tbl.is_iterator_column(e.col) and not e.col.is_stored
+        unstored_iter_col_refs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=refs_unstored_iter_col))
+        if len(unstored_iter_col_refs) > 0 and len(order_by_items) == 0:
+            # we don't already have a user-requested ordering and we access unstored iterator columns:
+            # order by the primary key of the component view, which minimizes the number of iterator instantiations
+            component_views = {e.col.tbl for e in unstored_iter_col_refs}
+            # TODO: generalize this to multi-level iteration
+            assert len(component_views) == 1
+            component_view = list(component_views)[0]
+            order_by_items = [
+                (exprs.RowidRef(component_view, idx), None)
+                for idx in range(len(component_view.store_tbl.rowid_columns()))
+            ]
+            order_by_origin = unstored_iter_col_refs[0]
+
+        for e in [e for e, _ in order_by_items]:
+            if e.sql_expr() is None:
+                raise exc.Error(f'order_by element cannot be expressed in SQL: {e}')
         # we do ascending ordering by default, if not specified otherwise
-        order_by_clause = [e.sql_expr().desc() if asc == False else e.sql_expr() for e, asc in order_by_items]
-        for i in range(len(order_by_items)):
-            if order_by_clause[i] is None:
-                raise exc.Error(f'order_by element cannot be expressed in SQL: {order_by_items[i]}')
-        return order_by_clause
+        order_by_items = [(e, True) if asc is None else (e, asc) for e, asc in order_by_items]
+        return order_by_items
 
     @classmethod
     def _is_contained_in(cls, l1: List[exprs.Expr], l2: List[exprs.Expr]) -> bool:
@@ -515,7 +518,7 @@ class Planner:
         analyzer = Analyzer(
             tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
             order_by_clause=order_by_clause)
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], analyzer.sql_exprs, resolve_unstored_only=True)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], analyzer.sql_exprs)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -542,19 +545,19 @@ class Planner:
         is_agg_query = len(analyzer.group_by_clause) > 0 or len(analyzer.agg_fn_calls) > 0
         ctx = ExecContext(row_builder)
 
-        order_by_clause = cls._determine_ordering(analyzer)
+        order_by_items = cls._determine_ordering(analyzer)
         sql_limit = 0 if is_agg_query else limit  # if we're aggregating, the limit applies to the agg output
         sql_select_list = analyzer.sql_exprs.copy()
         plan = SqlScanNode(
             tbl, row_builder, select_list=sql_select_list, where_clause=analyzer.sql_where_clause,
-            filter=analyzer.filter, similarity_clause=analyzer.similarity_clause, order_by_clause=order_by_clause,
+            filter=analyzer.filter, similarity_clause=analyzer.similarity_clause, order_by_items=order_by_items,
             limit=sql_limit, set_pk=with_pk, exact_version_only=exact_version_only)
         plan = cls._insert_prefetch_node(tbl.id, analyzer.select_list, row_builder, plan)
 
         if len(analyzer.group_by_clause) > 0 or len(analyzer.agg_fn_calls) > 0:
             # we're doing aggregation; the input of the AggregateNode are the grouping exprs plus the
             # args of the agg fn calls
-            agg_input = exprs.UniqueExprList(analyzer.group_by_clause.copy())
+            agg_input = exprs.ExprSet(analyzer.group_by_clause.copy())
             for fn_call in analyzer.agg_fn_calls:
                 agg_input.extend(fn_call.components)
             if not cls._is_contained_in(agg_input, analyzer.sql_exprs):
@@ -602,8 +605,7 @@ class Planner:
         """
         from pixeltable.functions.image_embedding import openai_clip
         row_builder = exprs.RowBuilder(
-            output_exprs=[], columns=[col], indices=[(col, openai_clip)] if col.is_indexed else [],
-            input_exprs=[], resolve_unstored_only=True)
+            output_exprs=[], columns=[col], indices=[(col, openai_clip)] if col.is_indexed else [], input_exprs=[])
         analyzer = Analyzer(tbl, row_builder.default_eval_ctx.target_exprs)
         plan = cls._create_query_plan(tbl, row_builder=row_builder, analyzer=analyzer, with_pk=True, ignore_errors=True)
         plan.ctx.batch_size = 16

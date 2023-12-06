@@ -162,7 +162,7 @@ class FunctionCall(Expr):
 
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         return super()._id_attrs() + [
-            ('fn', self.fn.md.fqn),
+            ('fn', id(self.fn)),  # use the function pointer, not the fqn, which isn't set for lambdas
             ('args', self.args),
             ('kwargs', self.kwargs),
             ('group_by_start_idx', self.group_by_start_idx),

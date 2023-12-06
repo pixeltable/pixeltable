@@ -233,7 +233,7 @@ class TestExprs:
         # data that tests all combinations of nulls
         data = [[1.0, 1.0], [1.0, None], [None, 1.0], [None, None]]
         t.insert(data)
-        result = t[t.c3, t.c4].show(0)
+        result = t.select(t.c3, t.c4).collect()
         assert result[0, 0] == 2
         assert result[0, 1] == 2
         assert result[1, 0] == None

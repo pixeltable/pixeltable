@@ -255,7 +255,7 @@ class SqlScanNode(ExecNode):
             self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder,
             select_list: Iterable[exprs.Expr],
             where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Predicate] = None,
-            order_by_clause: List[sql.ClauseElement] = [],
+            order_by_items: List[Tuple[exprs.Expr, bool]] = [],
             similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None,
             limit: int = 0, set_pk: bool = False, exact_version_only: List[catalog.TableVersion] = []
     ):
@@ -271,7 +271,7 @@ class SqlScanNode(ExecNode):
         # create Select stmt
         super().__init__(row_builder, [], [], None)
         self.tbl = tbl
-        self.sql_exprs = exprs.UniqueExprList(select_list)
+        self.sql_exprs = exprs.ExprSet(select_list)
         # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
         for iter_arg in row_builder.unstored_iter_args.values():
             sql_subexprs = iter_arg.subexprs(filter=lambda e: e.sql_expr() is not None, traverse_matches=False)
@@ -296,6 +296,12 @@ class SqlScanNode(ExecNode):
         self.stmt = sql.select(*sql_select_list)
         self.stmt = self.create_from_clause(
             tbl, self.stmt, refd_tbl_ids, exact_version_only={t.id for t in exact_version_only})
+
+        # change rowid refs against a base table to rowid refs against the target table, so that we minimize
+        # the number of tables that need to be joined to the target table
+        for rowid_ref in [e for e, _ in order_by_items if isinstance(e, exprs.RowidRef)]:
+            rowid_ref.set_tbl(tbl)
+        order_by_clause = [e.sql_expr().desc() if not asc else e.sql_expr() for e, asc in order_by_items]
 
         if where_clause is not None:
             sql_where_clause = where_clause.sql_expr()

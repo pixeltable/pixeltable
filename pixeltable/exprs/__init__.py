@@ -19,4 +19,4 @@ from .object_ref import ObjectRef
 from .predicate import Predicate
 from .row_builder import RowBuilder, ColumnSlotIdx, ExecProfile
 from .rowid_ref import RowidRef
-from .unique_expr_list import UniqueExprList
+from .expr_set import ExprSet

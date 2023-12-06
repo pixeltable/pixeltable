@@ -106,10 +106,10 @@ class TestComponentView:
 
         video_filepaths = get_video_files()
         rows = [[p] for p in video_filepaths]
-        video_t.insert(rows)
+        status = video_t.insert(rows)
         import urllib
         video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
-        view_t.update({'annotation': {'a': 1}}, where=view_t.video == video_url)
+        status = view_t.update({'annotation': {'a': 1}}, where=view_t.video == video_url)
         c1 = view_t.where(view_t.annotation != None).count()
         c2 = view_t.where(view_t.video == video_url).count()
         assert c1 == c2
@@ -119,3 +119,121 @@ class TestComponentView:
             _ = cl.create_view(
                 'bad_view', video_t, schema=[non_nullable_col], iterator_class=FrameIterator, iterator_args=args)
         assert 'must be nullable' in str(excinfo.value)
+
+    def test_chained_views(self, test_client: pt.Client) -> None:
+        """Component view followed by a standard view"""
+        cl = test_client
+        # create video table
+        cols = [
+            catalog.Column('video', VideoType()), catalog.Column('int1', IntType()), catalog.Column('int2', IntType())
+        ]
+        video_t = cl.create_table('video_tbl', cols)
+        video_filepaths = get_video_files()
+
+        # create first view
+        args = {'video': video_t.video, 'fps': 1}
+        v1 = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
+        # computed column that references stored base column
+        v1.add_column(catalog.Column('int3', computed_with=v1.int1 + 1))
+        # stored computed column that references an unstored and a stored computed view column
+        v1.add_column(
+            catalog.Column(
+                'img1',
+                computed_with=v1.frame.crop([v1.int3, v1.int3, v1.frame.width, v1.frame.height]),
+                stored=True))
+        # computed column that references a stored computed view column
+        v1.add_column(catalog.Column('int4', computed_with=v1.frame_idx + 1))
+        # unstored computed column that references an unstored and a stored computed view column
+        v1.add_column(
+            catalog.Column(
+                'img2',
+                computed_with=v1.frame.crop([v1.int4, v1.int4, v1.frame.width, v1.frame.height]),
+                stored=False))
+
+        # create second view
+        v2 = cl.create_view('chained_view', v1)
+        # computed column that references stored video_t column
+        v2.add_column(catalog.Column('int5', computed_with=v2.int1 + 1))
+        v2.add_column(catalog.Column('int6', computed_with=v2.int2 + 1))
+        # stored computed column that references a stored base column and a stored computed view column;
+        # indirectly references int1
+        v2.add_column(
+            catalog.Column(
+                'img3',
+                computed_with=v2.img1.crop([v2.int5, v2.int5, v2.img1.width, v2.img1.height]),
+                stored=True))
+        # stored computed column that references an unstored base column and a manually updated column from video_t;
+        # indirectly references int2
+        v2.add_column(
+            catalog.Column(
+                'img4',
+                computed_with=v2.img2.crop([v2.int6, v2.int6, v2.img2.width, v2.img2.height]),
+                stored=True))
+        # comuted column that indirectly references int1 and int2
+        v2.add_column(catalog.Column('int7', computed_with=v2.img3.width + v2.img4.width))
+
+        def check_view():
+            assert_resultset_eq(
+                v1.select(v1.int3).order_by(v1.video, v1.pos).collect(),
+                v1.select(v1.int1 + 1).order_by(v1.video, v1.pos).collect())
+            assert_resultset_eq(
+                v1.select(v1.int4).order_by(v1.video, v1.pos).collect(),
+                v1.select(v1.frame_idx + 1).order_by(v1.video, v1.pos).collect())
+            assert_resultset_eq(
+                v1\
+                    .select(v1.video, v1.img1.width, v1.img1.height)\
+                    .order_by(v1.video, v1.pos).collect(),
+                v1\
+                    .select(v1.video, v1.frame.width - v1.int1 - 1, v1.frame.height - v1.int1 - 1)\
+                    .order_by(v1.video, v1.pos).collect())
+            assert_resultset_eq(
+                v2.select(v2.int5).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.int1 + 1).order_by(v2.video, v2.pos).collect())
+            assert_resultset_eq(
+                v2.select(v2.int6).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.int2 + 1).order_by(v2.video, v2.pos).collect())
+            assert_resultset_eq(
+                v2 \
+                    .select(v2.video, v2.img3.width, v2.img3.height) \
+                    .order_by(v2.video, v2.pos).collect(),
+                v2 \
+                    .select(v2.video, v2.frame.width - v2.int1 * 2 - 2, v2.frame.height - v2.int1 * 2 - 2) \
+                    .order_by(v2.video, v2.pos).collect())
+            assert_resultset_eq(
+                v2 \
+                    .select(v2.video, v2.img4.width, v2.img4.height) \
+                    .order_by(v2.video, v2.pos).collect(),
+                v2 \
+                    .select(
+                        v2.video, v2.frame.width - v2.frame_idx - v2.int2 - 2,
+                        v2.frame.height - v2.frame_idx - v2.int2 - 2) \
+                    .order_by(v2.video, v2.pos).collect())
+            assert_resultset_eq(
+                v2.select(v2.int7).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.img3.width + v2.img4.width).order_by(v2.video, v2.pos).collect())
+            assert_resultset_eq(
+                v2.select(v2.int7).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.frame.width - v2.int1 * 2 - 2 + v2.frame.width - v2.frame_idx - v2.int2 - 2)\
+                    .order_by(v2.video, v2.pos).collect())
+
+        # load data
+        rows = [[p, i, len(video_filepaths) - i] for i, p in enumerate(video_filepaths)]
+        status = video_t.insert(rows)
+        assert status.num_rows == video_t.count() + v1.count() + v2.count()
+        check_view()
+
+        # update int1: propagates to int3, img1, int5, img3, int7
+        # TODO: how to test that img4 doesn't get recomputed as part of the computation of int7?
+        # need to collect more runtime stats (eg, called functions)
+        import urllib
+        video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
+        status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
+        assert status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()
+        assert sorted('int1 int3 img1 int5 img3 int7'.split()) == sorted([str.split('.')[1] for str in status.updated_cols])
+        check_view()
+
+        # update int2: propagates to img4, int6, int7
+        status = video_t.update({'int2': video_t.int2 + 1}, where=video_t.video == video_url)
+        assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
+        assert sorted('int2 img4 int6 int7'.split()) == sorted([str.split('.')[1] for str in status.updated_cols])
+        check_view()

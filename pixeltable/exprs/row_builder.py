@@ -5,7 +5,7 @@ import time
 import sys
 
 from .expr import Expr
-from .unique_expr_list import UniqueExprList
+from .expr_set import ExprSet
 from .data_row import DataRow
 import pixeltable.utils as utils
 import pixeltable.function as func
@@ -55,8 +55,7 @@ class RowBuilder:
 
     def __init__(
             self, output_exprs: List[Expr], columns: List[catalog.Column],
-            indices: List[Tuple[catalog.Column, func.Function]], input_exprs: List[Expr],
-            resolve_unstored_only: bool
+            indices: List[Tuple[catalog.Column, func.Function]], input_exprs: List[Expr]
     ):
         """
         Args:
@@ -64,7 +63,7 @@ class RowBuilder:
             columns: list of columns to be materialized
             indices: list of embeddings to be materialized (Tuple[indexed column, embedding function])
         """
-        self.unique_exprs = UniqueExprList()  # dependencies precede their dependents
+        self.unique_exprs = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
 
         # record input and output exprs; make copies to avoid reusing execution state
@@ -75,8 +74,9 @@ class RowBuilder:
         # - explicitly requested output_exprs
         # - values for computed columns
         # - embedding values for indices
+        resolve_cols = set(columns)
         self.output_exprs = [
-            self._record_unique_expr(e.copy().resolve_computed_cols(resolve_unstored_only), recursive=True)
+            self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
             for e in output_exprs
         ]
 
@@ -87,7 +87,7 @@ class RowBuilder:
             if col.is_computed:
                 assert col.value_expr is not None
                 # create a copy here so we don't reuse execution state and resolve references to computed columns
-                expr = col.value_expr.copy().resolve_computed_cols(unstored_only=resolve_unstored_only)
+                expr = col.value_expr.copy().resolve_computed_cols(resolve_cols=resolve_cols)
                 expr = self._record_unique_expr(expr, recursive=True)
                 self.add_table_column(col, expr.slot_idx)
                 self.output_exprs.append(expr)
@@ -133,8 +133,8 @@ class RowBuilder:
             col_ref.set_iter_arg_ctx(iter_arg_ctx)
 
         # we guarantee that we can compute the expr DAG in a single front-to-back pass
-        for i in range(1, len(self.unique_exprs)):
-            assert self.unique_exprs.exprs[i].slot_idx > self.unique_exprs.exprs[i - 1].slot_idx
+        for i, expr in enumerate(self.unique_exprs):
+            assert expr.slot_idx == i
 
         # record transitive dependencies (list of set of slot_idxs, indexed by slot_idx)
         self.dependencies: List[Set[int]] = [set() for _ in range(self.num_materialized)]

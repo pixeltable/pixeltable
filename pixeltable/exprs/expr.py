@@ -106,7 +106,7 @@ class Expr(abc.ABC):
         return self._equals(other)
 
     def _id_attrs(self) -> List[Tuple[str, Any]]:
-        """Returns attribute/value pairs that are used to construct the instance id.
+        """Returns attribute name/value pairs that are used to construct the instance id.
 
         Attribute values must be immutable and have str() defined.
         """
@@ -121,6 +121,10 @@ class Expr(abc.ABC):
             hasher.update(str(expr.id).encode('utf-8'))
         # truncate to machine's word size
         return int(hasher.hexdigest(), 16) & sys.maxsize
+
+    def __hash__(self) -> int:
+        assert self.id is not None
+        return self.id
 
     @classmethod
     def list_equals(cls, a: List[Expr], b: List[Expr]) -> bool:
@@ -163,23 +167,22 @@ class Expr(abc.ABC):
             self.components[i] = self.components[i].substitute(old, new)
         return self
 
-    def resolve_computed_cols(self, unstored_only: bool) -> Expr:
+    def resolve_computed_cols(self, resolve_cols: Set[catalog.Column] = set()) -> Expr:
         """
-        Recursively replace ColRefs to computed columns with their value exprs.
-
-        Args:
-            unstored_only: if True, only replace references to unstored computed columns
+        Recursively replace ColRefs to unstored computed columns with their value exprs.
+        Also replaces references to stored computed columns in resolve_cols.
         """
+        from .expr_set import ExprSet
+        from .column_ref import ColumnRef
         result = self
         while True:
-            from .column_ref import ColumnRef
-            computed_col_refs = [
+            target_col_refs = ExprSet([
                 e for e in result.subexprs()
-                if isinstance(e, ColumnRef) and e.col.is_computed and (not e.col.is_stored or not unstored_only)
-            ]
-            if len(computed_col_refs) == 0:
+                if isinstance(e, ColumnRef) and e.col.is_computed and (not e.col.is_stored or e.col in resolve_cols)
+            ])
+            if len(target_col_refs) == 0:
                 return result
-            for ref in computed_col_refs:
+            for ref in target_col_refs:
                 assert ref.col.value_expr is not None
                 result = result.substitute(ref, ref.col.value_expr)
 
