@@ -11,7 +11,7 @@ from .inline_dict import InlineDict
 from .inline_array import InlineArray
 from .data_row import DataRow
 from .row_builder import RowBuilder
-import pixeltable.function as func
+import pixeltable.func as func
 import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
 import pixeltable.type_system as ts

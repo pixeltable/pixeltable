@@ -8,7 +8,7 @@ import PIL.Image
 import numpy as np
 
 from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
-from pixeltable.function import Function, FunctionRegistry
+import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable import exprs
 import pixeltable.exceptions as exc
@@ -41,7 +41,7 @@ def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
     expr.col_type = target_type
     return expr
 
-dict_map = Function.make_function(IntType(), [StringType(), JsonType()], lambda s, d: d[s])
+dict_map = func.Function.make_function(IntType(), [StringType(), JsonType()], lambda s, d: d[s])
 
 class SumAggregator:
     def __init__(self):
@@ -55,11 +55,11 @@ class SumAggregator:
     def value(self) -> Union[int, float]:
         return self.sum
 
-sum = Function.make_library_aggregate_function(
+sum = func.Function.make_library_aggregate_function(
     IntType(), [IntType()],
     'pixeltable.functions', 'SumAggregator.make_aggregator', 'SumAggregator.update', 'SumAggregator.value',
     allows_std_agg=True, allows_window=True)
-FunctionRegistry.get().register_function(__name__, 'sum', sum)
+func.FunctionRegistry.get().register_function(__name__, 'sum', sum)
 
 class CountAggregator:
     def __init__(self):
@@ -73,11 +73,11 @@ class CountAggregator:
     def value(self) -> int:
         return self.count
 
-count = Function.make_library_aggregate_function(
+count = func.Function.make_library_aggregate_function(
     IntType(), [IntType()],
     'pixeltable.functions', 'CountAggregator.make_aggregator', 'CountAggregator.update', 'CountAggregator.value',
     allows_std_agg = True, allows_window = True)
-FunctionRegistry.get().register_function(__name__, 'count', count)
+func.FunctionRegistry.get().register_function(__name__, 'count', count)
 
 class MeanAggregator:
     def __init__(self):
@@ -95,11 +95,11 @@ class MeanAggregator:
             return None
         return self.sum / self.count
 
-mean = Function.make_library_aggregate_function(
+mean = func.Function.make_library_aggregate_function(
     FloatType(), [IntType()],
     'pixeltable.functions', 'MeanAggregator.make_aggregator', 'MeanAggregator.update', 'MeanAggregator.value',
     allows_std_agg = True, allows_window = True)
-FunctionRegistry.get().register_function(__name__, 'mean', mean)
+func.FunctionRegistry.get().register_function(__name__, 'mean', mean)
 
 class VideoAggregator:
     def __init__(self):
@@ -131,14 +131,14 @@ class VideoAggregator:
         self.container.close()
         return str(self.out_file)
 
-make_video = Function.make_library_aggregate_function(
+make_video = func.Function.make_library_aggregate_function(
     VideoType(), [ImageType()],  # params: frame
     module_name = 'pixeltable.functions',
     init_symbol = 'VideoAggregator.make_aggregator',
     update_symbol = 'VideoAggregator.update',
     value_symbol = 'VideoAggregator.value',
     requires_order_by=True, allows_std_agg=True, allows_window=False)
-FunctionRegistry.get().register_function(__name__, 'make_video', make_video)
+func.FunctionRegistry.get().register_function(__name__, 'make_video', make_video)
 
 __all__ = [
     #udf_call,

@@ -24,7 +24,7 @@ import sqlalchemy as sql
 import pixeltable.exprs as exprs
 import pixeltable.catalog as catalog
 from pixeltable.utils.imgstore import ImageStore
-from pixeltable.function import Function, FunctionRegistry
+import pixeltable.func as func
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
 from pixeltable.utils.filecache import FileCache
@@ -564,7 +564,7 @@ class ExprEvalNode(ExecNode):
         """Get ModelSpec if expr is a call to a NOS function, else None."""
         if not isinstance(expr, exprs.FunctionCall):
             return None
-        return FunctionRegistry.get().get_nos_info(expr.fn)
+        return func.FunctionRegistry.get().get_nos_info(expr.fn)
 
     def _is_nos_call(self, expr: exprs.Expr) -> bool:
         return self._get_nos_info(expr) is not None
@@ -574,7 +574,7 @@ class ExprEvalNode(ExecNode):
         # break up all_exprs into cohorts such that each cohort contains calls to at most one NOS function;
         # seed the cohorts with only the nos calls
         cohorts: List[List[exprs.Expr]] = []
-        current_nos_function: Optional[Function] = None
+        current_nos_function: Optional[func.Function] = None
         for e in all_exprs:
             if not self._is_nos_call(e):
                 continue

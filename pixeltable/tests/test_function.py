@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from pixeltable.function import Function, FunctionRegistry
+from pixeltable.func import Function, FunctionRegistry
 from pixeltable.type_system import IntType, FloatType
 from pixeltable import catalog
 import pixeltable as pt

@@ -14,7 +14,7 @@ from .globals import POS_COLUMN_NAME
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.exceptions import Error
-from pixeltable.function import Signature
+import pixeltable.func as func
 from pixeltable.type_system import InvalidType, IntType
 
 
@@ -51,7 +51,7 @@ class View(MutableTable):
 
                 # construct Signature and type-check bound_args
                 params = [(param_name, param_type) for param_name, param_type in iterator_cls.input_schema().items()]
-                sig = Signature(InvalidType(), params)
+                sig = func.Signature(InvalidType(), params)
                 from pixeltable.exprs import FunctionCall
                 FunctionCall.check_args(sig, bound_args)
             except TypeError as e:

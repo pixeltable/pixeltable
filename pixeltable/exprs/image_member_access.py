@@ -11,7 +11,7 @@ from .image_similarity_predicate import ImageSimilarityPredicate
 from .data_row import DataRow
 from .row_builder import RowBuilder
 import pixeltable.catalog as catalog
-import pixeltable.function as func
+import pixeltable.func as func
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 

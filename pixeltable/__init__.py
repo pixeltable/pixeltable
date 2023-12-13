@@ -4,7 +4,7 @@ from .catalog import Column, Table, InsertableTable, TableSnapshot, MutableTable
 from .exceptions import Error, Error
 from .type_system import \
     ColumnType, StringType, IntType, FloatType, BoolType,  TimestampType, JsonType, ArrayType, ImageType, VideoType
-from .function import Function, udf
+from .func import Function, udf
 from .functions import make_video
 from .functions.pil import draw_boxes
 

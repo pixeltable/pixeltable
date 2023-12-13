@@ -6,7 +6,7 @@ import sys
 import numpy as np
 
 import pixeltable.type_system as ts
-import pixeltable.function as func
+import pixeltable.func as func
 
 
 # the following function has been adapted from MMEval

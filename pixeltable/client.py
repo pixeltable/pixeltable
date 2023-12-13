@@ -12,7 +12,7 @@ from pixeltable.catalog import \
     Path, PathDict, init_catalog
 from pixeltable.metadata import schema
 from pixeltable.env import Env
-from pixeltable.function import FunctionRegistry, Function
+import pixeltable.func as func
 from pixeltable import exceptions as exc
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
@@ -34,7 +34,7 @@ class Client:
         """
         Env.get().set_up()
         if Env.get().nos_client is not None:
-            FunctionRegistry.get().register_nos_functions()
+            func.FunctionRegistry.get().register_nos_functions()
         init_catalog()
         self.paths = PathDict()
         self._load_table_versions()
@@ -187,7 +187,7 @@ class Client:
         Returns:
             Pandas DataFrame with columns 'Path', 'Name', 'Parameters', 'Return Type', 'Is Agg', 'Library'
         """
-        func_info = FunctionRegistry.get().list_functions()
+        func_info = func.FunctionRegistry.get().list_functions()
         paths = ['.'.join(info.fqn.split('.')[:-1]) for info in func_info]
         names = [info.fqn.split('.')[-1] for info in func_info]
         pd_df = pd.DataFrame({
@@ -520,7 +520,7 @@ class Client:
         self.paths.check_is_valid(path, expected=Dir)
         return [str(p) for p in self.paths.get_children(path, child_type=Dir, recursive=recursive)]
 
-    def create_function(self, path_str: str, func: Function) -> None:
+    def create_function(self, path_str: str, fn: func.Function) -> None:
         """Create a stored function.
 
         Args:
@@ -537,18 +537,18 @@ class Client:
             ... ...
             >>> cl.create_function('my_dir.detect', detect)
         """
-        if func.is_library_function:
+        if fn.is_library_function:
             raise exc.Error(f'Cannot create a named function for a library function')
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None)
         dir = self.paths[path.parent]
 
-        FunctionRegistry.get().create_function(func, dir.id, path.name)
-        self.paths[path] = NamedFunction(func.id, dir.id, path.name)
-        func.md.fqn = str(path)
+        func.FunctionRegistry.get().create_function(fn, dir.id, path.name)
+        self.paths[path] = NamedFunction(fn.id, dir.id, path.name)
+        fn.md.fqn = str(path)
         _logger.info(f'Created function {path_str}')
 
-    def update_function(self, path_str: str, func: Function) -> None:
+    def update_function(self, path_str: str, fn: func.Function) -> None:
         """Update the implementation of a stored function.
 
         Args:
@@ -558,21 +558,21 @@ class Client:
         Raises:
             Error: if the path does not exist or ``func`` has a different signature than the stored function.
         """
-        if func.is_library_function:
+        if fn.is_library_function:
             raise exc.Error(f'Cannot update a named function to a library function')
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
-        f = FunctionRegistry.get().get_function(id=named_fn.id)
-        if f.md.signature != func.md.signature:
+        f = func.FunctionRegistry.get().get_function(id=named_fn.id)
+        if f.md.signature != fn.md.signature:
             raise exc.Error(
                 f'The function signature cannot be changed. The existing signature is {f.md.signature}')
-        if f.is_aggregate != func.is_aggregate:
+        if f.is_aggregate != fn.is_aggregate:
             raise exc.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
-        FunctionRegistry.get().update_function(named_fn.id, func)
+        func.FunctionRegistry.get().update_function(named_fn.id, fn)
         _logger.info(f'Updated function {path_str}')
 
-    def get_function(self, path_str: str) -> Function:
+    def get_function(self, path_str: str) -> func.Function:
         """Get a handle to a stored function.
 
         Args:
@@ -591,9 +591,9 @@ class Client:
         self.paths.check_is_valid(path, expected=NamedFunction)
         named_fn = self.paths[path]
         assert isinstance(named_fn, NamedFunction)
-        func = FunctionRegistry.get().get_function(id=named_fn.id)
-        func.md.fqn = str(path)
-        return func
+        fn = func.FunctionRegistry.get().get_function(id=named_fn.id)
+        fn.md.fqn = str(path)
+        return fn
 
     def drop_function(self, path_str: str, ignore_errors: bool = False) -> None:
         """Deletes stored function.
@@ -617,7 +617,7 @@ class Client:
             else:
                 raise e
         named_fn = self.paths[path]
-        FunctionRegistry.get().delete_function(named_fn.id)
+        func.FunctionRegistry.get().delete_function(named_fn.id)
         del self.paths[path]
         _logger.info(f'Dropped function {path_str}')
 

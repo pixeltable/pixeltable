@@ -8,7 +8,7 @@ from .expr import Expr
 from .expr_set import ExprSet
 from .data_row import DataRow
 import pixeltable.utils as utils
-import pixeltable.function as func
+import pixeltable.func as func
 import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
 
