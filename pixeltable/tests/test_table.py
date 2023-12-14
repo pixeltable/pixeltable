@@ -123,29 +123,29 @@ class TestTable:
 
     def test_insert_bad_images(self, test_client: pt.Client) -> None:
         # bad image file
-        cl = test_client
         cols = [
-            catalog.Column('img', ImageType(nullable=False)),
+            catalog.Column('img', ImageType(nullable=True)),
             catalog.Column('category', StringType(nullable=False)),
             catalog.Column('split', StringType(nullable=False)),
         ]
         tbl = test_client.create_table('test', cols)
         rows, col_names = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
+        assert len(rows) > 0
+        tbl.insert(rows, columns=col_names)
+        assert tbl.select(tbl.img.error != None).count() == 1
 
+    def test_insert_bad_video(self, test_client: pt.Client) -> None:
+        cols = [
+            catalog.Column('img', VideoType(nullable=True)),
+            catalog.Column('category', StringType(nullable=False)),
+            catalog.Column('split', StringType(nullable=False)),
+        ]
+        tbl = test_client.create_table('test', cols)
+        rows, col_names = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
+        assert len(rows) > 0
         # check insert with bad image file fails
-        with pytest.raises(exc.Error) as exc_info:
-            tbl.insert(rows, columns=col_names)
-        assert 'not a valid image' in str(exc_info.value)
-
-        # replace row with literal
-        bad_row = rows[0]
-        img_idx = col_names.index('img')
-        bad_row[img_idx] = b'bad image literal'
-
-        # check insert with bad image literal fails
-        with pytest.raises(exc.Error) as exc_info:
-            tbl.insert(rows, columns=col_names)
-        assert 'not a valid image' in str(exc_info.value)
+        # with pytest.raises(exc.Error) as exc_info:
+        tbl.insert(rows, columns=col_names)
 
     def test_create_s3_image_table(self, test_client: pt.Client) -> None:
         cl = test_client

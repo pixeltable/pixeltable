@@ -644,6 +644,7 @@ class TableVersion:
         """
         Make sure 'rows' conform to schema.
         """
+        #TODO(orm): need flag to skip the checking "media types".
         assert len(rows) > 0
         all_col_names = {col.name for col in self.cols}
         reqd_col_names = set(self.get_insertable_col_names(required_only=True))
@@ -667,7 +668,7 @@ class TableVersion:
                 val = row[col_idx]
                 if val is None:
                     continue
-                try:
+                try: # this will fail the insert.
                     row[col_idx] = col.col_type.create_literal(val)
                 except TypeError as e:
                     raise exc.Error(f'Column {col.name} in row {row_idx}: {e}')

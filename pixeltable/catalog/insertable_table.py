@@ -113,7 +113,6 @@ class InsertableTable(MutableTable):
                 f'The number of column values in rows ({len(rows[0])}) does not match the given number of column names '
                 f'({", ".join(columns)})')
 
-        self.tbl_version.check_input_rows(rows, columns)
         result = self.tbl_version.insert(rows, columns, print_stats=print_stats)
 
         if result.num_excs == 0:

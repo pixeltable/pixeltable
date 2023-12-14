@@ -15,6 +15,9 @@ from pixeltable import exprs
 from pixeltable.exprs import ColumnSlotIdx
 from pixeltable.utils.sql import log_stmt, log_explain
 
+import av
+import PIL
+
 
 _logger = logging.getLogger('pixeltable')
 
@@ -66,7 +69,8 @@ class StoreBase:
             # to the last sql.MutableTable version we created and cannot be reused
             col.create_sa_cols()
             all_cols.append(col.sa_col)
-            if col.is_computed:
+            # media columns can fail to load or be read, so we need error columns just like computed columns.
+            if col.is_computed or col.col_type.is_image_type() or col.col_type.is_video_type():
                 all_cols.append(col.sa_errormsg_col)
                 all_cols.append(col.sa_errortype_col)
             if col.is_indexed:
@@ -243,6 +247,25 @@ class StoreBase:
                     table_rows: List[Dict[str, Any]] = []
                     for row_idx in range(batch_start_idx, min(batch_start_idx + batch_size, len(row_batch))):
                         row = row_batch[row_idx]
+                        for slot_idx in row.img_slot_idxs:
+                            if row.file_paths[slot_idx] is not None:
+                                try:
+                                    PIL.Image.open(row.file_paths[slot_idx])
+                                except Exception as e:
+                                    # row.vals[slot_idx] = None
+                                    row.has_val[slot_idx] = False
+                                    row.set_exc(slot_idx, e)
+                        
+                        for slot_idx in row.video_slot_idxs:
+                            if row.file_paths[slot_idx] is not None:
+                                try:
+                                    with av.open(row.file_paths[slot_idx]) as container:
+                                         frm = next(container.decode(video=0))
+                                except Exception as e:
+                                    # row.vals[slot_idx] = None
+                                    row.has_val[slot_idx] = False
+                                    row.set_exc(slot_idx, e)
+
                         table_row, num_row_exc = self._create_table_row(row, row_builder, cols_with_excs, v_min=v_min)
                         num_excs += num_row_exc
                         table_rows.append(table_row)
