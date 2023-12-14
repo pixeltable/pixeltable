@@ -41,7 +41,7 @@ def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
     expr.col_type = target_type
     return expr
 
-dict_map = func.Function.make_function(IntType(), [StringType(), JsonType()], lambda s, d: d[s])
+dict_map = func.make_function(IntType(), [StringType(), JsonType()], lambda s, d: d[s])
 
 class SumAggregator:
     def __init__(self):
@@ -55,7 +55,7 @@ class SumAggregator:
     def value(self) -> Union[int, float]:
         return self.sum
 
-sum = func.Function.make_library_aggregate_function(
+sum = func.make_library_aggregate_function(
     IntType(), [IntType()],
     'pixeltable.functions', 'SumAggregator.make_aggregator', 'SumAggregator.update', 'SumAggregator.value',
     allows_std_agg=True, allows_window=True)
@@ -73,7 +73,7 @@ class CountAggregator:
     def value(self) -> int:
         return self.count
 
-count = func.Function.make_library_aggregate_function(
+count = func.make_library_aggregate_function(
     IntType(), [IntType()],
     'pixeltable.functions', 'CountAggregator.make_aggregator', 'CountAggregator.update', 'CountAggregator.value',
     allows_std_agg = True, allows_window = True)
@@ -95,7 +95,7 @@ class MeanAggregator:
             return None
         return self.sum / self.count
 
-mean = func.Function.make_library_aggregate_function(
+mean = func.make_library_aggregate_function(
     FloatType(), [IntType()],
     'pixeltable.functions', 'MeanAggregator.make_aggregator', 'MeanAggregator.update', 'MeanAggregator.value',
     allows_std_agg = True, allows_window = True)
@@ -131,7 +131,7 @@ class VideoAggregator:
         self.container.close()
         return str(self.out_file)
 
-make_video = func.Function.make_library_aggregate_function(
+make_video = func.make_library_aggregate_function(
     VideoType(), [ImageType()],  # params: frame
     module_name = 'pixeltable.functions',
     init_symbol = 'VideoAggregator.make_aggregator',

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from pixeltable.func import Function, FunctionRegistry
+from pixeltable.func import Function, FunctionRegistry, make_aggregate_function, make_library_function, make_function
 from pixeltable.type_system import IntType, FloatType
 from pixeltable import catalog
 import pixeltable as pt
@@ -27,7 +27,7 @@ class TestFunction:
                 self.sum += val
         def value(self):
             return self.sum
-    agg = Function.make_aggregate_function(
+    agg = make_aggregate_function(
         IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
 
     def test_serialize_anonymous(self, init_env) -> None:
@@ -52,7 +52,7 @@ class TestFunction:
         with pytest.raises(exc.Error):
             cl.create_function('dir1.test_fn', self.func)
         with pytest.raises(exc.Error):
-            library_fn = Function.make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
+            library_fn = make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
             cl.create_function('library_fn', library_fn)
 
     def test_update(self, test_client: pt.Client, test_tbl: catalog.MutableTable) -> None:
@@ -80,9 +80,9 @@ class TestFunction:
 
         # signature changes
         with pytest.raises(exc.Error):
-            cl.update_function('test_fn', Function.make_function(FloatType(), [IntType()], fn.eval_fn))
+            cl.update_function('test_fn', make_function(FloatType(), [IntType()], fn.eval_fn))
         with pytest.raises(exc.Error):
-            cl.update_function('test_fn', Function.make_function(IntType(), [FloatType()], fn.eval_fn))
+            cl.update_function('test_fn', make_function(IntType(), [FloatType()], fn.eval_fn))
         with pytest.raises(exc.Error):
             cl.update_function('test_fn', self.agg)
 

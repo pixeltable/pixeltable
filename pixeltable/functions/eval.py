@@ -169,7 +169,7 @@ def _eval_detections(
         })
     return result
 
-eval_detections = func.Function.make_library_function(
+eval_detections = func.make_library_function(
     ts.JsonType(nullable=False),
     [ts.JsonType(nullable=False), ts.JsonType(nullable=False), ts.JsonType(nullable=False), ts.JsonType(nullable=False),
      ts.JsonType(nullable=False)],
@@ -213,7 +213,7 @@ class MeanAPAggregator:
         return result
 
 
-mean_ap = func.Function.make_library_aggregate_function(
+mean_ap = func.make_library_aggregate_function(
     ts.JsonType(), [ts.JsonType()],  # params: output of eval_detections()
     module_name = __name__,
     init_symbol = 'MeanAPAggregator.make_aggregator',

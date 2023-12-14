@@ -14,7 +14,7 @@ def _draw_boxes(img: PIL.Image.Image, boxes: np.ndarray) -> PIL.Image.Image:
         d.rectangle(list(boxes[i]), width=3)
     return result
 
-draw_boxes = func.Function.make_library_function(
+draw_boxes = func.make_library_function(
     ImageType(), [ImageType(), ArrayType((None, 4), dtype=FloatType())], __name__, '_draw_boxes')
 func.FunctionRegistry.get().register_function(__name__, 'draw_boxes', draw_boxes)
 

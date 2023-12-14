@@ -1,13 +1,12 @@
 from __future__ import annotations
-from typing import Optional, Dict, Any, Callable, List, Union
+from typing import Optional, Dict, Any, Callable
 from uuid import UUID
 import inspect
 import importlib
 
 
-from .signature import Signature
+from .function_md import FunctionMd
 from .globals import resolve_symbol
-import pixeltable.type_system as ts
 import pixeltable.exceptions as excs
 
 class Function:
@@ -22,42 +21,9 @@ class Function:
     allows_std_agg: if True, the aggregate function can be used as a standard aggregate function w/o a window
     allows_window: if True, the aggregate function can be used with a window
     """
-    SPECIAL_PARAM_NAMES = ['group_by', 'order_by']
-
-    class Metadata:
-        def __init__(self, signature: Signature, is_agg: bool, is_library_fn: bool):
-            self.signature = signature
-            self.is_agg = is_agg
-            self.is_library_fn = is_library_fn
-            # the following are set externally
-            self.fqn: Optional[str] = None  # fully-qualified name
-            self.src: str = ''  # source code shown in list()
-            self.requires_order_by = False
-            self.allows_std_agg = False
-            self.allows_window = False
-
-        def as_dict(self) -> Dict[str, Any]:
-            # we leave out fqn, which is reconstructed externally
-            return {
-                'signature': self.signature.as_dict(),
-                'is_agg': self.is_agg, 'is_library_fn': self.is_library_fn, 'src': self.src,
-                'requires_order_by': self.requires_order_by, 'allows_std_agg': self.allows_std_agg,
-                'allows_window': self.allows_window,
-            }
-
-        @classmethod
-        def from_dict(cls, d: Dict[str, Any]) -> Function.Metadata:
-            result = cls(Signature.from_dict(d['signature']), d['is_agg'], d['is_library_fn'])
-            result.requires_order_by = d['requires_order_by']
-            result.allows_std_agg = d['allows_std_agg']
-            result.allows_window = d['allows_window']
-            if 'src' in d:
-                result.src = d['src']
-            return result
-
 
     def __init__(
-            self, md: Function.Metadata, id: Optional[UUID] = None,
+            self, md: FunctionMd, id: Optional[UUID] = None,
             module_name: Optional[str] = None, eval_symbol: Optional[str] = None,
             init_symbol: Optional[str] = None, update_symbol: Optional[str] = None, value_symbol: Optional[str] = None,
             eval_fn: Optional[Callable] = None,
@@ -117,115 +83,6 @@ class Function:
     @property
     def allows_window(self) -> bool:
         return self.md.allows_window
-
-    @classmethod
-    def _create_signature(
-            cls, c: Callable, is_agg: bool, param_types: List[ts.ColumnType],
-            return_type: Union[ts.ColumnType, Callable], check_params: bool = True
-    ) -> Signature:
-        if param_types is None:
-            return Signature(return_type, None)
-        sig = inspect.signature(c)
-        param_names = list(sig.parameters.keys())
-        if is_agg:
-            param_names = param_names[1:]  # the first parameter is the state returned by init()
-        if check_params and len(param_names) != len(param_types):
-            raise excs.Error(
-                f"The number of parameters of '{getattr(c, '__name__', 'anonymous')}' is not the same as "
-                f"the number of provided parameter types: "
-                f"{len(param_names)} ({', '.join(param_names)}) vs "
-                f"{len(param_types)} ({', '.join([str(t) for t in param_types])})")
-        # check parameters for name collisions and default value compatibility
-        for idx, param_name in enumerate(param_names):
-            if param_name in cls.SPECIAL_PARAM_NAMES:
-                raise excs.Error(f"'{param_name}' is a reserved parameter name")
-            default_val = sig.parameters[param_name].default
-            if default_val == inspect.Parameter.empty or default_val is None:
-                continue
-            try:
-                _ = param_types[idx].create_literal(default_val)
-            except TypeError as e:
-                raise excs.Error(f'Default value for parameter {param_name}: {str(e)}')
-
-        parameters = [(param_names[i], param_types[i]) for i in range(len(param_names))]
-        return Signature(return_type, parameters)
-
-    @classmethod
-    def make_function(cls, return_type: ts.ColumnType, param_types: List[ts.ColumnType], eval_fn: Callable) -> Function:
-        assert eval_fn is not None
-        signature = cls._create_signature(eval_fn, False, param_types, return_type)
-        md = cls.Metadata(signature, False, False)
-        try:
-            md.src = inspect.getsource(eval_fn)
-        except OSError as e:
-            pass
-        return Function(md, eval_fn=eval_fn)
-
-    @classmethod
-    def make_aggregate_function(
-            cls, return_type: ts.ColumnType, param_types: List[ts.ColumnType],
-            init_fn: Callable, update_fn: Callable, value_fn: Callable,
-            requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
-    ) -> Function:
-        assert init_fn is not None and update_fn is not None and value_fn is not None
-        signature = cls._create_signature(update_fn, True, param_types, return_type)
-        md = cls.Metadata(signature, True, False)
-        md.requires_order_by = requires_order_by
-        md.allows_std_agg = allows_std_agg
-        md.allows_window = allows_window
-        try:
-            md.src = (
-                f'init:\n{inspect.getsource(init_fn)}\n\n'
-                f'update:\n{inspect.getsource(update_fn)}\n\n'
-                f'value:\n{inspect.getsource(value_fn)}\n'
-            )
-        except OSError as e:
-            pass
-        return Function(md, init_fn=init_fn, update_fn=update_fn, value_fn=value_fn)
-
-    @classmethod
-    def make_library_function(
-            cls, return_type: Union[ts.ColumnType, Callable], param_types: List[ts.ColumnType], module_name: str, eval_symbol: str
-    ) -> Function:
-        assert module_name is not None and eval_symbol is not None
-        eval_fn = resolve_symbol(module_name, eval_symbol)
-        signature = cls._create_signature(eval_fn, False, param_types, return_type, check_params=True)
-        md = cls.Metadata(signature, False, True)
-        return Function(md, module_name=module_name, eval_symbol=eval_symbol)
-
-    @classmethod
-    def make_library_aggregate_function(
-            cls, return_type: ts.ColumnType, param_types: List[ts.ColumnType],
-            module_name: str, init_symbol: str, update_symbol: str, value_symbol: str,
-            requires_order_by: bool = False, allows_std_agg: bool = False, allows_window: bool = False
-    ) -> Function:
-        assert module_name is not None and init_symbol is not None and update_symbol is not None \
-               and value_symbol is not None
-        update_fn = resolve_symbol(module_name, update_symbol)
-        signature = cls._create_signature(update_fn, True, param_types, return_type)
-        md = cls.Metadata(signature, True, True)
-        md.requires_order_by = requires_order_by
-        md.allows_std_agg = allows_std_agg
-        md.allows_window = allows_window
-        return Function(
-            md, module_name=module_name, init_symbol=init_symbol, update_symbol=update_symbol,
-            value_symbol=value_symbol)
-
-    @classmethod
-    def make_nos_function(
-            cls, return_type: ts.ColumnType, param_types: List[ts.ColumnType], param_names: List[str], module_name: str
-    ) -> Function:
-        assert len(param_names) == len(param_types)
-        signature = Signature(return_type, [(name, col_type) for name, col_type in zip(param_names, param_types)])
-        md = cls.Metadata(signature, False, True)
-        # construct inspect.Signature
-        params = [
-            inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-            for name, col_type in zip(param_names, param_types)
-        ]
-        py_signature = inspect.Signature(params)
-        # we pass module_name to indicate that it's a library function
-        return Function(md, module_name=module_name, py_signature=py_signature)
 
     @property
     def is_aggregate(self) -> bool:

@@ -10,7 +10,9 @@ import dataclasses
 import sqlalchemy as sql
 import nos
 
+from .function_md import FunctionMd
 from .function import Function
+from .util import make_nos_function
 import pixeltable.type_system as ts
 from pixeltable.metadata import schema
 import pixeltable.env as env
@@ -101,8 +103,8 @@ class FunctionRegistry:
             # add a Function for this model to the module
             model_id = info.name.replace("/", "_").replace("-", "_")
             return_type, param_types = self._convert_nos_signature(info.signature)
-            pt_func = Function.make_nos_function(
-                return_type, param_types, list(info.signature.get_inputs_spec().keys()), module_name)
+            pt_func = make_nos_function(
+                info, return_type, param_types, list(info.signature.get_inputs_spec().keys()), module_name)
             setattr(pt_module, model_id, pt_func)
             fqn = f'{module_name}.{model_id}'
             self.nos_functions[fqn] = info
@@ -113,7 +115,7 @@ class FunctionRegistry:
     def get_nos_info(self, fn: Function) -> Optional[nos.common.ModelSpec]:
         return self.nos_functions.get(fn.md.fqn)
 
-    def list_functions(self) -> List[Function.Metadata]:
+    def list_functions(self) -> List[FunctionMd]:
         # retrieve Function.Metadata data for all existing stored functions from store directly
         # (self.stored_fns_by_id isn't guaranteed to contain all functions)
         # TODO: have the client do this, once the client takes over the Db functionality
@@ -144,7 +146,7 @@ class FunctionRegistry:
                     row = next(rows)
                     schema_md = schema.md_from_dict(schema.FunctionMd, row[0])
                     name = schema_md.name
-                    md = Function.Metadata.from_dict(schema_md.md)
+                    md = FunctionMd.from_dict(schema_md.md)
                     # md.fqn is set by caller
                     eval_fn = cloudpickle.loads(row[1]) if row[1] is not None else None
                     # TODO: are these checks needed?
