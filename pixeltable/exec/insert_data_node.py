@@ -8,7 +8,7 @@ from .exec_node import ExecNode
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
 import pixeltable.env as env
-from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils.media_store import MediaStore
 
 
 _logger = logging.getLogger('pixeltable')
@@ -48,7 +48,7 @@ class InsertDataNode(ExecNode):
                     val = input_row[col_idx]
                     if isinstance(val, bytes):
                         # we will save literal to a file here and use this path as the new value
-                        valpath = str(ImageStore.get_path(self.tbl.id, info.col.id, self.tbl.version))
+                        valpath = str(MediaStore.get_path(self.tbl.id, info.col.id, self.tbl.version))
                         open(valpath, 'wb').write(val)
                         input_row[col_idx] = valpath
 

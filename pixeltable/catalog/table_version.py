@@ -18,7 +18,7 @@ from pixeltable import exceptions as exc
 from pixeltable.env import Env
 import pixeltable.func as func
 from pixeltable.metadata import schema
-from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils.media_store import MediaStore
 from pixeltable.iterators import ComponentIterator
 
 
@@ -189,7 +189,7 @@ class TableVersion:
                 ))
 
             # delete this table and all associated data
-            ImageStore.delete(self.id)
+            MediaStore.delete(self.id)
             conn = session.connection()
             conn.execute(
                 sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == self.id))
@@ -526,7 +526,7 @@ class TableVersion:
 
         conn = session.connection()
         # delete newly-added data
-        ImageStore.delete(self.id, version=self.version)
+        MediaStore.delete(self.id, version=self.version)
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
         # revert new deletions
         conn.execute(

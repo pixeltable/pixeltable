@@ -7,7 +7,7 @@ from pixeltable.type_system import VideoType, IntType, ImageType
 from pixeltable.tests.utils import get_video_files
 from pixeltable import catalog
 from pixeltable import exceptions as exc
-from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils.media_store import MediaStore
 from pixeltable.iterators import FrameIterator
 
 
@@ -44,20 +44,20 @@ class TestVideo:
 
         # default case: computed images are not stored
         _, view = self.create_and_insert(cl, None, video_filepaths)
-        assert ImageStore.count(view.id) == 0
+        assert MediaStore.count(view.id) == 0
 
         # computed images are explicitly not stored
         _, view = self.create_and_insert(cl, False, video_filepaths)
-        assert ImageStore.count(view.id) == 0
+        assert MediaStore.count(view.id) == 0
 
         # computed images are stored
         tbl, view = self.create_and_insert(cl, True, video_filepaths)
-        assert ImageStore.count(view.id) == view.count()
+        assert MediaStore.count(view.id) == view.count()
 
         # revert() also removes computed images
         tbl.insert([[p] for p in video_filepaths], columns=['video'])
         tbl.revert()
-        assert ImageStore.count(view.id) == view.count()
+        assert MediaStore.count(view.id) == view.count()
 
         # column values mismatch in rows
         with pytest.raises(exc.Error):

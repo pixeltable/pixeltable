@@ -156,10 +156,8 @@ class MutableTable(Table):
                 raise exc.Error(f'Column {col_name} is computed and cannot be updated')
             if col.primary_key:
                 raise exc.Error(f'Column {col_name} is a primary key column and cannot be updated')
-            if col.col_type.is_image_type():
-                raise exc.Error(f'Column {col_name} has type image and cannot be updated')
-            if col.col_type.is_video_type():
-                raise exc.Error(f'Column {col_name} has type video and cannot be updated')
+            if col.col_type.is_media_type():
+                raise exc.Error(f'Column {col_name} has type image/video/audio and cannot be updated')
 
             # make sure that the value is compatible with the column type
             # check if this is a literal

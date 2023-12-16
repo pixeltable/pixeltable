@@ -10,6 +10,7 @@ from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import urllib.parse
 
 import cv2
+import av
 import nos
 import numpy as np
 import PIL.Image
@@ -29,9 +30,10 @@ class ColumnType:
         ARRAY = 6
         IMAGE = 7
         VIDEO = 8
+        AUDIO = 9
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
-        INVALID = 9
+        INVALID = 255
 
         @classmethod
         def supertype(
@@ -169,6 +171,8 @@ class ColumnType:
             return ImageType()
         if t == cls.Type.VIDEO:
             return VideoType()
+        if t == cls.Type.AUDIO:
+            return AudioType()
 
     def __str__(self) -> str:
         return self._type.name.lower()
@@ -304,6 +308,12 @@ class ColumnType:
 
     def is_video_type(self) -> bool:
         return self._type == self.Type.VIDEO
+
+    def is_audio_type(self) -> bool:
+        return self._type == self.Type.AUDIO
+
+    def is_media_type(self) -> bool:
+        return self.is_image_type() or self.is_video_type() or self.is_audio_type()
 
     @abc.abstractmethod
     def to_sql(self) -> str:
@@ -818,3 +828,46 @@ class VideoType(ColumnType):
         cap.release()
         if not success:
             raise TypeError(f'File is not a valid video: {val}')
+
+
+class AudioType(ColumnType):
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.AUDIO, nullable=nullable)
+
+    def to_sql(self) -> str:
+        # stored as a file path
+        return 'VARCHAR'
+
+    def to_sa_type(self) -> str:
+        return sql.String
+
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa  # pylint: disable=import-outside-toplevel
+        return pa.string()
+
+    def validate_literal(self, val: Any) -> None:
+        if not isinstance(val, str):
+            raise TypeError(f'Expected file path, got {val.__class__.__name__}')
+        # TODO: see ImageType.validate_literal()
+        parsed = urllib.parse.urlparse(val)
+        if parsed.scheme != '' and parsed.scheme != 'file':
+            # skip validation for now
+            return
+        path = Path(val)
+        if not path.is_file():
+            raise TypeError(f'File not found: {val}')
+
+        # TODO: is there some way to verify it's a playable audio file other than decoding all of it?
+        try:
+            with av.open(val) as container:
+                if len(container.streams.audio) == 0:
+                    raise TypeError(f'No audio stream in file: {val}')
+                audio_stream = container.streams.audio[0]
+
+                # decode everything to make sure it's playable
+                # TODO: only decode a few frames?
+                for packet in container.demux(audio_stream):
+                    for _ in packet.decode():
+                        pass
+        except av.error.InvalidDataError as e:
+            raise TypeError(f'Not a valid audio file: {val}\n{e}')

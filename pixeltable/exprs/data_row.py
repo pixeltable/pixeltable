@@ -25,28 +25,28 @@ class DataRow:
     - ImageType: PIL.Image.Image
     - VideoType: local path if available, otherwise url
     """
-    def __init__(self, size: int, img_slot_idxs: List[int], video_slot_idxs: List[int], array_slot_idxs: List[int]):
+    def __init__(self, size: int, img_slot_idxs: List[int], media_slot_idxs: List[int], array_slot_idxs: List[int]):
         self.vals: List[Any] = [None] * size  # either cell values or exceptions
         self.has_val = [False] * size
         self.excs: List[Optional[Exception]] = [None] * size
 
         # control structures that are shared across all DataRows in a batch
         self.img_slot_idxs = img_slot_idxs
-        self.video_slot_idxs = video_slot_idxs
+        self.media_slot_idxs = media_slot_idxs  # all media types aside from image
         self.array_slot_idxs = array_slot_idxs
 
         # the primary key of a store row is a sequence of ints (the number is different for table vs view)
         self.pk: Optional[Tuple[int, ...]] = None
 
         # file_urls:
-        # - stored url of file for image or video in vals[i]
-        # - None if vals[i] is not an image/video
+        # - stored url of file for media in vals[i]
+        # - None if vals[i] is not media type
         # - not None if file_paths[i] is not None
         self.file_urls: Optional[str] = [None] * size
 
         # file_paths:
-        # - local path of file for image or video in vals[i]; points to the file cache if file_urls[i] is remote
-        # - None if vals[i] is not an image/video or if there is no local file yet for file_urls[i]
+        # - local path of media file in vals[i]; points to the file cache if file_urls[i] is remote
+        # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
         self.file_paths: Optional[str] = [None] * size
 
     def clear(self) -> None:
@@ -99,10 +99,6 @@ class DataRow:
             if self.vals[index] is None:
                 self.vals[index] = PIL.Image.open(self.file_paths[index])
 
-        if index in self.video_slot_idxs:
-            assert self.file_paths[index] is not None and self.file_paths[index] == self.vals[index] \
-               or self.file_urls[index] is not None and self.file_urls[index] == self.vals[index]
-
         return self.vals[index]
 
     def get_stored_val(self, index: object) -> Any:
@@ -113,8 +109,8 @@ class DataRow:
             pass
         assert self.has_val[index]
 
-        if self.file_urls[index] is not None and (index in self.img_slot_idxs or index in self.video_slot_idxs):
-            # if this is an image or video we want to store, we should have a url
+        if self.file_urls[index] is not None and (index in self.img_slot_idxs or index in self.media_slot_idxs):
+            # if this is an image or other media type we want to store, we should have a url
             return self.file_urls[index]
 
         if self.vals[index] is not None and index in self.array_slot_idxs:
@@ -132,7 +128,7 @@ class DataRow:
         """
         assert self.excs[idx] is None
 
-        if (idx in self.img_slot_idxs or idx in self.video_slot_idxs) and isinstance(val, str):
+        if (idx in self.img_slot_idxs or idx in self.media_slot_idxs) and isinstance(val, str):
             # this is either a local file path or a URL
             parsed = urllib.parse.urlparse(val)
             if parsed.scheme == '' or parsed.scheme == 'file':
@@ -148,7 +144,7 @@ class DataRow:
                 assert self.file_urls[idx] is None
                 self.file_urls[idx] = val
 
-            if idx in self.video_slot_idxs:
+            if idx in self.media_slot_idxs:
                 self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
             self.vals[idx] = np.load(io.BytesIO(val))
@@ -159,9 +155,9 @@ class DataRow:
     def set_file_path(self, idx: object, path: str) -> None:
         """Augment an existing url with a local file path"""
         assert self.has_val[idx]
-        assert idx in self.img_slot_idxs or idx in self.video_slot_idxs
+        assert idx in self.img_slot_idxs or idx in self.media_slot_idxs
         self.file_paths[idx] = path
-        if idx in self.video_slot_idxs:
+        if idx in self.media_slot_idxs:
             self.vals[idx] = path
 
     def flush_img(self, index: object, filepath: Optional[str] = None) -> None:

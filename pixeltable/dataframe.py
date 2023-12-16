@@ -50,6 +50,10 @@ def _format_video(video_file_path: str) -> str:
         # display path as string
         return video_file_path
 
+def _format_audio(file_path: str) -> str:
+    # TODO: do we need to include type="audio/..." in <source>?
+    return f'<video controls><source src="{file_path}"></video>'
+
 class DataFrameResultSet:
     def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
         self._rows = rows
@@ -71,8 +75,10 @@ class DataFrameResultSet:
     def _repr_html_(self) -> str:
         img_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_image_type()]
         video_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_video_type()]
+        audio_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_audio_type()]
         formatters = {self._col_names[i]: _format_img for i in img_col_idxs}
         formatters.update({self._col_names[i]: _format_video for i in video_col_idxs})
+        formatters.update({self._col_names[i]: _format_audio for i in audio_col_idxs})
         # escape=False: make sure <img> tags stay intact
         # TODO: why does mypy complain about formatters having an incorrect type?
         return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)  # type: ignore[arg-type]

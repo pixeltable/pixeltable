@@ -10,6 +10,7 @@ import docker
 import logging
 import sys
 import platform
+import glob
 
 from pixeltable import metadata
 
@@ -29,7 +30,7 @@ class Env:
 
     def __init__(self):
         self._home: Optional[Path] = None
-        self._img_dir: Optional[Path] = None  # computed images
+        self._media_dir: Optional[Path] = None  # computed media files
         self._filecache_dir: Optional[Path] = None  # cached media files with external URL
         self._log_dir: Optional[Path] = None  # log files
         self._tmp_dir: Optional[Path] = None  # any tmp files
@@ -110,7 +111,7 @@ class Env:
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
         self._home = home
-        self._img_dir = self._home / 'images'
+        self._media_dir = self._home / 'media'
         self._filecache_dir = self._home / 'filecache'
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
@@ -133,8 +134,8 @@ class Env:
         else:
             init_home_dir = False
 
-        if not self._img_dir.exists():
-            self._img_dir.mkdir()
+        if not self._media_dir.exists():
+            self._media_dir.mkdir()
         if not self._filecache_dir.exists():
             self._filecache_dir.mkdir()
         if not self._log_dir.exists():
@@ -152,6 +153,10 @@ class Env:
         sql_logger = logging.getLogger('sqlalchemy.engine')
         sql_logger.setLevel(logging.INFO)
         sql_logger.addHandler(fh)
+
+        # empty tmp dir
+        for path in glob.glob(f'{self._tmp_dir}/*'):
+            os.remove(path)
 
         # we now have a home directory; start runtime containers
         self._set_up_runtime()
@@ -287,15 +292,18 @@ class Env:
         if database_exists(self.db_url()):
             drop_database(self.db_url())
 
+    def num_tmp_files(self) -> int:
+        return len(glob.glob(f'{self._tmp_dir}/*'))
+
     @property
     def home(self) -> Path:
         assert self._home is not None
         return self._home
 
     @property
-    def img_dir(self) -> Path:
-        assert self._img_dir is not None
-        return self._img_dir
+    def media_dir(self) -> Path:
+        assert self._media_dir is not None
+        return self._media_dir
 
     @property
     def filecache_dir(self) -> Path:

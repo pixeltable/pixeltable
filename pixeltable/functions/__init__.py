@@ -126,6 +126,8 @@ class VideoAggregator:
         return cls()
 
     def update(self, frame: PIL.Image.Image) -> None:
+        if frame is None:
+            return
         if self.container is None:
             self.out_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
             self.container = av.open(str(self.out_file), mode='w')

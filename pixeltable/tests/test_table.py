@@ -16,7 +16,7 @@ from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
 from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files, assert_resultset_eq
 from pixeltable.functions import make_video, sum
-from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.filecache import FileCache
 from pixeltable.iterators import FrameIterator
 
@@ -255,10 +255,10 @@ class TestTable:
         status = tbl.insert([[1, url]], columns=['payload', 'video'])
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        assert ImageStore.count(view.id) == view.count() * 2
+        assert MediaStore.count(view.id) == view.count() * 2
         # also insert a local file
         tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
-        assert ImageStore.count(view.id) == view.count() * 2
+        assert MediaStore.count(view.id) == view.count() * 2
 
         # TODO: test inserting Nulls
         #status = tbl.insert([[1, None]], columns=['payload', 'video'])
@@ -267,7 +267,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        assert ImageStore.count(view.id) == 0
+        assert MediaStore.count(view.id) == 0
 
         with pytest.raises(exc.Error):
             # can't drop frame col
@@ -283,7 +283,7 @@ class TestTable:
         assert '1 view' in str(exc_info.value)
         view.drop()
         tbl.drop()
-        assert ImageStore.count(view.id) == 0
+        assert MediaStore.count(view.id) == 0
 
     def test_insert(self, test_client: pt.Client) -> None:
         cl = test_client
@@ -643,7 +643,7 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        assert ImageStore.count(t.id) == t.count() * stores_img_col
+        assert MediaStore.count(t.id) == t.count() * stores_img_col
 
         # test loading from store
         cl = pt.Client()
@@ -655,14 +655,14 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert([[r[0]] for r in rows[:20]], columns=['img'])
-        assert ImageStore.count(t2.id) == t2.count() * stores_img_col
+        assert MediaStore.count(t2.id) == t2.count() * stores_img_col
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
         print(tbl_df)
 
         # revert also removes computed images
         t2.revert()
-        assert ImageStore.count(t2.id) == t2.count() * stores_img_col
+        assert MediaStore.count(t2.id) == t2.count() * stores_img_col
 
     def test_computed_img_cols(self, test_client: pt.Client) -> None:
         cl = test_client

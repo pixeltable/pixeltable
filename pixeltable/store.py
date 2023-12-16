@@ -1,19 +1,21 @@
 from __future__ import annotations
+
+import os
 from typing import Optional, Dict, Any, List, Tuple, Set
 import logging
-import dataclasses
-import abc
-
+import urllib
 import sqlalchemy as sql
 from tqdm.autonotebook import tqdm
+import abc
 
 from pixeltable import catalog
 from pixeltable.metadata import schema
 from pixeltable.type_system import StringType
 from pixeltable.exec import ExecNode
 from pixeltable import exprs
-from pixeltable.exprs import ColumnSlotIdx
 from pixeltable.utils.sql import log_stmt, log_explain
+import pixeltable.env as env
+from pixeltable.utils.media_store import MediaStore
 
 
 _logger = logging.getLogger('pixeltable')
@@ -76,8 +78,7 @@ class StoreBase:
             # - scalar columns
             # - non-computed video and image columns (they will contain external paths/urls that users might want to
             #   filter on)
-            if col.col_type.is_scalar_type() \
-                    or (col.col_type.is_video_type() or col.col_type.is_image_type()) and not col.is_computed:
+            if col.col_type.is_scalar_type() or col.col_type.is_media_type() and not col.is_computed:
                 idx_name = f'idx_{col.id}_{self.tbl_version.id.hex}'
                 idxs.append(sql.Index(idx_name, col.sa_col))
 
@@ -109,9 +110,37 @@ class StoreBase:
         """Return the name of the data store table"""
         pass
 
+    def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column, v_min: int) -> str:
+        """Move tmp media file with given url to Env.media_dir and return new url, or given url if not a tmp_dir file"""
+        pxt_tmp_dir = str(env.Env.get().tmp_dir)
+        if file_url is None:
+            return None
+        parsed = urllib.parse.urlparse(file_url)
+        if parsed.scheme != '' and parsed.scheme != 'file':
+            # remote url
+            return file_url
+        file_path = urllib.parse.unquote(parsed.path)
+        if not file_path.startswith(pxt_tmp_dir):
+            # not a tmp file
+            return file_url
+        _, ext = os.path.splitext(file_path)
+        new_path = str(MediaStore.get_path(self.tbl_version.id, col.id, v_min, ext=ext))
+        os.rename(file_path, new_path)
+        new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(new_path))
+        return new_file_url
+
+    def _move_tmp_media_files(
+            self, table_rows: List[Dict[str, Any]], media_cols: List[catalog.Column], v_min: int
+    ) -> None:
+        """Move tmp media files that we generated to a permanent location"""
+        for c in media_cols:
+            for table_row in table_rows:
+                file_url = table_row[c.storage_name()]
+                table_row[c.storage_name()] = self._move_tmp_media_file(file_url, c, v_min)
+
     def _create_table_row(
-            self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, exc_col_ids: Set[int],
-            v_min: Optional[int] = None
+            self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, media_cols: List[catalog.Column],
+            exc_col_ids: Set[int], v_min: int
     ) -> Tuple[Dict[str, Any], int]:
         """Return Tuple[complete table row, # of exceptions] for insert()
         Creates a row that includes the PK columns, with the values from input_row.pk.
@@ -119,12 +148,14 @@ class StoreBase:
             Tuple[complete table row, # of exceptions]
         """
         table_row, num_excs = row_builder.create_table_row(input_row, exc_col_ids)
+
         assert input_row.pk is not None and len(input_row.pk) == len(self._pk_columns)
         for pk_col, pk_val in zip(self._pk_columns, input_row.pk):
-            if pk_col == self.v_min_col and v_min is not None:
+            if pk_col == self.v_min_col:
                 table_row[pk_col.name] = v_min
             else:
                 table_row[pk_col.name] = pk_val
+
         return table_row, num_excs
 
     def create(self, conn: sql.engine.Connection) -> None:
@@ -202,6 +233,8 @@ class StoreBase:
                         }
                     else:
                         val = result_row.get_stored_val(value_expr_slot_idx)
+                        if col.col_type.is_media_type():
+                            val = self._move_tmp_media_file(val, col, result_row.pk[-1])
                         values_dict = {col.sa_col: val}
 
                 if col.is_indexed:
@@ -226,6 +259,7 @@ class StoreBase:
         Returns:
             number of inserted rows, number of exceptions, set of column ids that have exceptions
         """
+        assert v_min is not None
         exec_plan.ctx.conn = conn
         batch_size = 16  # TODO: is this a good batch size?
         # TODO: total?
@@ -234,6 +268,7 @@ class StoreBase:
         cols_with_excs: Set[int] = set()
         progress_bar: Optional[tqdm] = None  # create this only after we started executing
         row_builder = exec_plan.row_builder
+        media_cols = [info.col for info in row_builder.table_columns if info.col.col_type.is_media_type()]
         try:
             exec_plan.open()
             for row_batch in exec_plan:
@@ -243,12 +278,14 @@ class StoreBase:
                     table_rows: List[Dict[str, Any]] = []
                     for row_idx in range(batch_start_idx, min(batch_start_idx + batch_size, len(row_batch))):
                         row = row_batch[row_idx]
-                        table_row, num_row_exc = self._create_table_row(row, row_builder, cols_with_excs, v_min=v_min)
+                        table_row, num_row_exc = \
+                            self._create_table_row(row, row_builder, media_cols, cols_with_excs, v_min=v_min)
                         num_excs += num_row_exc
                         table_rows.append(table_row)
                         if progress_bar is None:
                             progress_bar = tqdm(desc='Inserting rows into table', unit='rows')
                         progress_bar.update(1)
+                    self._move_tmp_media_files(table_rows, media_cols, v_min)
                     conn.execute(sql.insert(self.sa_tbl), table_rows)
             if progress_bar is not None:
                 progress_bar.close()

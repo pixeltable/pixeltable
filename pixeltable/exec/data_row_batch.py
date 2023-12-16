@@ -4,7 +4,7 @@ import logging
 
 import pixeltable.exprs as exprs
 import pixeltable.catalog as catalog
-from pixeltable.utils.imgstore import ImageStore
+from pixeltable.utils.media_store import MediaStore
 
 
 _logger = logging.getLogger('pixeltable')
@@ -19,17 +19,21 @@ class DataRowBatch:
         self.table_version = table.version
         self.row_builder = row_builder
         self.img_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_image_type()]
-        self.video_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_video_type()]
+        # non-image media slots
+        self.media_slot_idxs = [
+            e.slot_idx for e in row_builder.unique_exprs
+            if e.col_type.is_media_type() and not e.col_type.is_image_type()
+        ]
         self.array_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_array_type()]
         self.rows = [
-            exprs.DataRow(row_builder.num_materialized, self.img_slot_idxs, self.video_slot_idxs, self.array_slot_idxs)
+            exprs.DataRow(row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
             for _ in range(len)
         ]
 
     def add_row(self, row: Optional[exprs.DataRow] = None) -> exprs.DataRow:
         if row is None:
             row = exprs.DataRow(
-                self.row_builder.num_materialized, self.img_slot_idxs, self.video_slot_idxs, self.array_slot_idxs)
+                self.row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
         self.rows.append(row)
         return row
 
@@ -59,7 +63,7 @@ class DataRowBatch:
             idx_range = slice(0, len(self.rows))
         for row in self.rows[idx_range]:
             for info in stored_img_info:
-                filepath = str(ImageStore.get_path(self.table_id, info.col.id, self.table_version))
+                filepath = str(MediaStore.get_path(self.table_id, info.col.id, self.table_version))
                 row.flush_img(info.slot_idx, filepath)
             for slot_idx in flushed_slot_idxs:
                 row.flush_img(slot_idx)

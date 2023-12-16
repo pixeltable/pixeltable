@@ -213,6 +213,11 @@ def get_image_files() -> List[str]:
     glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
     return glob_result
 
+def get_audio_files() -> List[str]:
+    tests_dir = os.path.dirname(__file__)
+    glob_result = glob.glob(f'{tests_dir}/**/audio/*', recursive=True)
+    return glob_result
+
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
     assert len(r1.column_names()) == len(r2.column_names())  # we don't care about the actual column names

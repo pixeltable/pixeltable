@@ -493,8 +493,7 @@ class Planner:
         """Returns a CachePrefetchNode into the plan if needed, otherwise returns input"""
         output_dependencies = row_builder.get_dependencies(output_exprs)
         media_col_refs = [
-            e for e in output_dependencies
-            if isinstance(e, exprs.ColumnRef) and (e.col_type.is_image_type() or e.col_type.is_video_type())
+            e for e in output_dependencies if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()
         ]
         if len(media_col_refs) == 0:
             return input
