@@ -203,7 +203,7 @@ class TestFunction:
             @pt.udf(return_type=IntType(), param_types=[IntType(), FloatType()])
             def f1(a: int, b: float, c: str = '') -> float:
                 return a + b + c
-        assert 'number of parameters' in str(exc_info.value)
+        assert 'missing type for parameter c' in str(exc_info.value).lower()
         # bad parameter name
         with pytest.raises(exc.Error) as exc_info:
             @pt.udf(return_type=IntType(), param_types=[IntType()])

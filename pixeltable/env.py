@@ -1,7 +1,7 @@
 import datetime
 import os
 import time
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from pathlib import Path
 import sqlalchemy as sql
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
@@ -11,9 +11,8 @@ import logging
 import sys
 import platform
 
-import nos
-
 from pixeltable import metadata
+
 
 class Env:
     """
@@ -41,8 +40,8 @@ class Env:
         self._db_name: Optional[str] = None
         self._db_port: Optional[int] = None
         self._store_container: Optional[docker.models.containers.Container] = None
-        self._has_nos_runtime = True
-        self._nos_client: Optional[nos.client.InferenceClient] = None
+        self._nos_client: Optional[Any] = None
+        self._openai_client: Optional[Any] = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -124,7 +123,6 @@ class Env:
         self._db_user = os.environ.get('PIXELTABLE_DB_USER', 'postgres')
         self._db_password = os.environ.get('PIXELTABLE_DB_PASSWORD', 'pgpassword')
         self._db_port = os.environ.get('PIXELTABLE_DB_PORT', '6543')
-        self._has_nos_runtime = os.environ.get('PIXELTABLE_NOS', '1') == '1'
 
         if not self._home.exists():
             msg = f'setting up Pixeltable at {self._home}, db at {self.db_url(hide_passwd=True)}'
@@ -205,18 +203,49 @@ class Env:
             )
             self._wait_for_postgres()
 
-    def _set_up_nos(self) -> None:
+    def _create_nos_client(self) -> None:
+        import nos
         self._logger.info('connecting to NOS')
         nos.init(logging_level=logging.DEBUG)
         self._nos_client = nos.client.InferenceClient()
         self._logger.info('waiting for NOS')
         self._nos_client.WaitForServer()
 
+        # now that we have a client, we can create the module
+        import importlib
+        try:
+            importlib.import_module('pixeltable.functions.nos')
+            # it's already been created
+            return
+        except ImportError:
+            pass
+        from pixeltable.functions.util import create_nos_modules
+        nos_modules = create_nos_modules()
+        import pixeltable.func as func
+        for mod in nos_modules:
+            func.FunctionRegistry.get().register_module(mod)
+
+    def _create_openai_client(self) -> None:
+        if not 'OPENAI_API_KEY' in os.environ:
+            return
+        import openai
+        self._logger.info('connecting to OpenAI')
+        self._openai_client = openai.OpenAI(api_key=os.environ['OPENAI_API_KEY'])
+
     def _set_up_runtime(self) -> None:
         """Check for and start runtime services"""
         self._set_up_postgres()
-        if self._has_nos_runtime:
-            self._set_up_nos()
+
+        try:
+            import nos
+            self._create_nos_client()
+        except ImportError:
+            pass
+        try:
+            import openai
+            self._create_openai_client()
+        except ImportError:
+            pass
 
     def _postgres_is_up(self) -> bool:
         """
@@ -284,5 +313,9 @@ class Env:
         return self._sa_engine
 
     @property
-    def nos_client(self) -> nos.client.InferenceClient:
+    def nos_client(self) -> Any:
         return self._nos_client
+
+    @property
+    def openai_client(self) -> Any:
+        return self._openai_client

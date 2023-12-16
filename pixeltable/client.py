@@ -33,8 +33,6 @@ class Client:
         """Constructs a client.
         """
         Env.get().set_up()
-        if Env.get().nos_client is not None:
-            func.FunctionRegistry.get().register_nos_functions()
         init_catalog()
         self.paths = PathDict()
         self._load_table_versions()

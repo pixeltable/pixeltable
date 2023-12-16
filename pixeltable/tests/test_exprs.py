@@ -380,7 +380,7 @@ class TestExprs:
         result = t[resize(t.img, (224, 224))].show(0)
         result = t[blend(t.img, t.img.rotate(90), 0.5)].show(100)
         print(result)
-        from pixeltable.functions.image_embedding import openai_clip
+        from pixeltable.functions.nos.image_embedding import openai_clip
         result = t[openai_clip(t.img.resize((224, 224)))].show(10)
         print(result)
         _ = result._repr_html_()
@@ -483,7 +483,7 @@ class TestExprs:
         assert len(subexprs) == 1
         e = t.img.rotate(90).resize((224, 224))
         subexprs = [s for s in e.subexprs()]
-        assert len(subexprs) == 3
+        assert len(subexprs) == 4
         subexprs = [s for s in e.subexprs(expr_class=ColumnRef)]
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])

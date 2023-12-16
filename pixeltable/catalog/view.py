@@ -50,7 +50,10 @@ class View(MutableTable):
                 del bound_args[first_param_name]
 
                 # construct Signature and type-check bound_args
-                params = [(param_name, param_type) for param_name, param_type in iterator_cls.input_schema().items()]
+                params = [
+                    func.Parameter(param_name, param_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                    for param_name, param_type in iterator_cls.input_schema().items()
+                ]
                 sig = func.Signature(InvalidType(), params)
                 from pixeltable.exprs import FunctionCall
                 FunctionCall.check_args(sig, bound_args)

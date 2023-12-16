@@ -222,7 +222,7 @@ class Planner:
         stored_cols = [c for c in tbl.cols if c.is_stored and (c.name in column_names or c.is_computed)]
         assert len(stored_cols) > 0
         # 2. values to insert into indices
-        from pixeltable.functions.image_embedding import openai_clip
+        from pixeltable.functions.nos.image_embedding import openai_clip
         index_info = [(c, openai_clip) for c in tbl.cols if c.is_indexed]
 
         row_builder = exprs.RowBuilder([], stored_cols, index_info, [])
@@ -358,7 +358,7 @@ class Planner:
         #   the store
         stored_cols = [c for c in view.cols if c.is_stored and (c.is_computed or view.is_iterator_column(c))]
         # 2. index values
-        from pixeltable.functions.image_embedding import openai_clip
+        from pixeltable.functions.nos.image_embedding import openai_clip
         index_info = [(c, openai_clip) for c in view.cols if c.is_indexed]
         # 3. for component views: iterator args
         iterator_args = [view.iterator_args] if view.iterator_args is not None else []
@@ -601,7 +601,7 @@ class Planner:
             value_expr slot idx for the plan output (for computed cols)
             embedding slot idx for the plan output (for indexed image cols)
         """
-        from pixeltable.functions.image_embedding import openai_clip
+        from pixeltable.functions.nos.image_embedding import openai_clip
         row_builder = exprs.RowBuilder(
             output_exprs=[], columns=[col], indices=[(col, openai_clip)] if col.is_indexed else [], input_exprs=[])
         analyzer = Analyzer(tbl, row_builder.default_eval_ctx.target_exprs)

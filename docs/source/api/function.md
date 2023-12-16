@@ -3,7 +3,7 @@
 Instances of class {py:class}`pixeltable.Function` are wrappers for Python functions that can be used in
 Pixeltable queries and computed columns.
 
-Use the {py:func}`pixeltable.function` decorator to create a {py:class}`pixeltable.Function` instance.
+Use the {py:func}`pixeltable.udf` decorator to create a {py:class}`pixeltable.Function` instance.
 
 ```{eval-rst}
 .. currentmodule:: pixeltable
@@ -11,6 +11,6 @@ Use the {py:func}`pixeltable.function` decorator to create a {py:class}`pixeltab
     :nosignatures:
     :toctree: _autosummary
 
-    function
+    udf
 ```
 

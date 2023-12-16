@@ -8,11 +8,9 @@ import logging
 import dataclasses
 
 import sqlalchemy as sql
-import nos
 
 from .function_md import FunctionMd
 from .function import Function
-from .util import make_nos_function
 import pixeltable.type_system as ts
 from pixeltable.metadata import schema
 import pixeltable.env as env
@@ -32,14 +30,11 @@ class FunctionRegistry:
     def get(cls) -> FunctionRegistry:
         if cls._instance is None:
             cls._instance = FunctionRegistry()
-            #cls._instance.register_nos_functions()
         return cls._instance
 
     def __init__(self):
         self.stored_fns_by_id: Dict[UUID, Function] = {}
         self.library_fns: Dict[str, Function] = {}  # fqn -> Function
-        self.has_registered_nos_functions = False
-        self.nos_functions: Dict[str, nos.common.ModelSpec] = {}
 
     def clear_cache(self) -> None:
         """
@@ -63,57 +58,6 @@ class FunctionRegistry:
 
     def get_library_fn(self, fqn: str) -> Function:
         return self.library_fns[fqn]
-
-    def _convert_nos_signature(self, sig: nos.common.spec.FunctionSignature) -> Tuple[ts.ColumnType, List[ts.ColumnType]]:
-        if len(sig.get_outputs_spec()) > 1:
-            return_type = ts.JsonType()
-        else:
-            return_type = ts.ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
-        param_types: List[ts.ColumnType] = []
-        for _, type_info in sig.get_inputs_spec().items():
-            # if there are multiple input shapes we leave them out of the ColumnType and deal with them in FunctionCall
-            if isinstance(type_info, list):
-                param_types.append(ts.ColumnType.from_nos(type_info[0], ignore_shape=True))
-            else:
-                param_types.append(ts.ColumnType.from_nos(type_info, ignore_shape=False))
-        return return_type, param_types
-
-    def register_nos_functions(self) -> None:
-        """Register all models supported by the NOS backend as library functions"""
-        if self.has_registered_nos_functions:
-            return
-        self.has_registered_nos_functions = True
-        models = env.Env.get().nos_client.ListModels()
-        model_info = [env.Env.get().nos_client.GetModelInfo(model) for model in models]
-        model_info.sort(key=lambda info: info.task.value)
-
-        prev_task = ''
-        new_modules: List[types.ModuleType] = []
-        pt_module: Optional[types.ModuleType] = None
-        for info in model_info:
-            if info.task.value != prev_task:
-                # we construct one submodule of pixeltable.functions per task
-                module_name = f'pixeltable.functions.{info.task.name.lower()}'
-                pt_module = types.ModuleType(module_name)
-                pt_module.__package__ = 'pixeltable.functions'
-                new_modules.append(pt_module)
-                sys.modules[module_name] = pt_module
-                prev_task = info.task.value
-
-            # add a Function for this model to the module
-            model_id = info.name.replace("/", "_").replace("-", "_")
-            return_type, param_types = self._convert_nos_signature(info.signature)
-            pt_func = make_nos_function(
-                info, return_type, param_types, list(info.signature.get_inputs_spec().keys()), module_name)
-            setattr(pt_module, model_id, pt_func)
-            fqn = f'{module_name}.{model_id}'
-            self.nos_functions[fqn] = info
-
-        for module in new_modules:
-            self.register_module(module)
-
-    def get_nos_info(self, fn: Function) -> Optional[nos.common.ModelSpec]:
-        return self.nos_functions.get(fn.md.fqn)
 
     def list_functions(self) -> List[FunctionMd]:
         # retrieve Function.Metadata data for all existing stored functions from store directly
@@ -178,7 +122,7 @@ class FunctionRegistry:
         return [
             fn for fn in self.library_fns.values()
             if fn.md.fqn.endswith('.' + name)
-               and fn.md.signature.parameter_types_by_pos[0].type_enum == base_type
+               and fn.md.signature.parameters_by_pos[0].col_type.type_enum == base_type
         ]
 
     def create_function(self, fn: Function, dir_id: Optional[UUID] = None, name: Optional[str] = None) -> None:

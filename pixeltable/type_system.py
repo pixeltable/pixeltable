@@ -189,6 +189,8 @@ class ColumnType:
 
     def matches(self, other: object) -> bool:
         """Two types match if they're equal, aside from nullability"""
+        if not isinstance(other, ColumnType):
+            pass
         assert isinstance(other, ColumnType)
         if type(self) != type(other):
             return False

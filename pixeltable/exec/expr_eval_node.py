@@ -1,18 +1,14 @@
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field
-import sys
 import logging
 import time
 
-import numpy as np
-import nos
 from tqdm.autonotebook import tqdm
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 import pixeltable.exprs as exprs
 import pixeltable.func as func
-import pixeltable.env as env
 
 
 _logger = logging.getLogger('pixeltable')
@@ -22,9 +18,9 @@ class ExprEvalNode(ExecNode):
     """
     @dataclass
     class Cohort:
-        """List of exprs that form an evaluation context and contain calls to at most one NOS function"""
+        """List of exprs that form an evaluation context and contain calls to at most one external function"""
         exprs: List[exprs.Expr]
-        nos_function: Optional[func.NOSFunction]
+        ext_function: Optional[func.ExternalFunction]
         segment_ctxs: List[exprs.RowBuilder.EvalCtx]
         target_slot_idxs: List[int]
         batch_size: int = 8
@@ -59,31 +55,30 @@ class ExprEvalNode(ExecNode):
         if self.pbar is not None:
             self.pbar.close()
 
-    def _get_nos_fn(self, expr: exprs.Expr) -> Optional[func.NOSFunction]:
-        """Get NOSFunction if expr is a call to a NOS function, else None."""
+    def _get_ext_fn(self, expr: exprs.Expr) -> Optional[func.ExternalFunction]:
         if not isinstance(expr, exprs.FunctionCall):
             return None
-        return expr.fn if isinstance(expr.fn, func.NOSFunction) else None
+        return expr.fn if isinstance(expr.fn, func.ExternalFunction) else None
 
-    def _is_nos_call(self, expr: exprs.Expr) -> bool:
-        return self._get_nos_fn(expr) is not None
+    def _is_ext_call(self, expr: exprs.Expr) -> bool:
+        return self._get_ext_fn(expr) is not None
 
     def _create_cohorts(self) -> None:
         all_exprs = self.row_builder.get_dependencies(self.target_exprs)
-        # break up all_exprs into cohorts such that each cohort contains calls to at most one NOS function;
-        # seed the cohorts with only the nos calls
+        # break up all_exprs into cohorts such that each cohort contains calls to at most one external function;
+        # seed the cohorts with only the ext fn calls
         cohorts: List[List[exprs.Expr]] = []
-        current_nos_function: Optional[func.NOSFunction] = None
+        current_ext_function: Optional[func.ExternalFunction] = None
         for e in all_exprs:
-            if not self._is_nos_call(e):
+            if not self._is_ext_call(e):
                 continue
-            if current_nos_function is None or current_nos_function != e.fn:
+            if current_ext_function is None or current_ext_function != e.fn:
                 # create a new cohort
                 cohorts.append([])
-                current_nos_function = e.fn
+                current_ext_function = e.fn
             cohorts[-1].append(e)
 
-        # expand the cohorts to include all exprs that are in the same evaluation context as the NOS calls;
+        # expand the cohorts to include all exprs that are in the same evaluation context as the external calls;
         # cohorts are evaluated in order, so we can exclude the target slots from preceding cohorts and input slots
         exclude = set([e.slot_idx for e in self.input_exprs])
         all_target_slot_idxs = set([e.slot_idx for e in self.target_exprs])
@@ -107,23 +102,23 @@ class ExprEvalNode(ExecNode):
 
         for i in range(len(cohorts)):
             cohort = cohorts[i]
-            # segment the cohort into sublists that contain either a single NOS function call or no NOS function calls
+            # segment the cohort into sublists that contain either a single ext. function call or no ext. function calls
             # (i.e., only computed cols)
             assert len(cohort) > 0
             # create the first segment here, so we can avoid checking for an empty list in the loop
             segments = [[cohort[0]]]
-            is_nos_segment = self._is_nos_call(cohort[0])
-            nos_fn: Optional[func.NOSFunction] = self._get_nos_fn(cohort[0])
+            is_ext_segment = self._is_ext_call(cohort[0])
+            ext_fn: Optional[func.ExternalFunction] = self._get_ext_fn(cohort[0])
             for e in cohort[1:]:
-                if self._is_nos_call(e):
+                if self._is_ext_call(e):
                     segments.append([e])
-                    is_nos_segment = True
-                    nos_fn = self._get_nos_fn(e)
+                    is_ext_segment = True
+                    ext_fn = self._get_ext_fn(e)
                 else:
-                    if is_nos_segment:
+                    if is_ext_segment:
                         # start a new segment
                         segments.append([])
-                        is_nos_segment = False
+                        is_ext_segment = False
                     segments[-1].append(e)
 
             # we create the EvalCtxs manually because create_eval_ctx() would repeat the dependencies of each segment
@@ -132,28 +127,28 @@ class ExprEvalNode(ExecNode):
                     slot_idxs=[e.slot_idx for e in s], exprs=s, target_slot_idxs=[], target_exprs=[])
                 for s in segments
             ]
-            cohort_info = self.Cohort(cohort, nos_fn, segment_ctxs, target_slot_idxs[i])
+            cohort_info = self.Cohort(cohort, ext_fn, segment_ctxs, target_slot_idxs[i])
             self.cohorts.append(cohort_info)
 
     def _exec_cohort(self, cohort: Cohort, rows: DataRowBatch) -> None:
         """Compute the cohort for the entire input batch by dividing it up into sub-batches"""
         batch_start_idx = 0  # start row of the current sub-batch
-        # for multi-resolution models, we re-assess the correct NOS batch size for each input batch
-        #verify_nos_batch_size = cohort.nos_function is not None and cohort.nos_function.is_multi_res_model()
-        nos_batch_size = cohort.nos_function.batch_size if cohort.nos_function is not None else None
+        # for multi-resolution models, we re-assess the correct ext fn batch size for each input batch
+        ext_batch_size = cohort.ext_function.get_batch_size() if cohort.ext_function is not None else None
 
         while batch_start_idx < len(rows):
             num_batch_rows = min(cohort.batch_size, len(rows) - batch_start_idx)
             for segment_ctx in cohort.segment_ctxs:
-                if not self._is_nos_call(segment_ctx.exprs[0]):
+                if not self._is_ext_call(segment_ctx.exprs[0]):
                     # compute batch row-wise
                     for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
                         self.row_builder.eval(
                             rows[row_idx], segment_ctx, self.ctx.profile, ignore_errors=self.ignore_errors)
                 else:
                     fn_call = segment_ctx.exprs[0]
-                    # make a batched NOS call
+                    # make a batched external function call
                     arg_batches = [[] for _ in range(len(fn_call.args))]
+                    kwarg_batches = {k: [] for k in fn_call.kwargs.keys()}
 
                     valid_batch_idxs: List[int] = []  # rows with exceptions are not valid
                     for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
@@ -163,42 +158,45 @@ class ExprEvalNode(ExecNode):
                             continue
                         valid_batch_idxs.append(row_idx)
                         args, kwargs = fn_call._make_args(row)
-                        assert len(kwargs) == 0
-                        for i in range(len(args)):
-                            arg_batches[i].append(args[i])
+                        [arg_batches[i].append(args[i]) for i in range(len(args))]
+                        [kwarg_batches[k].append(kwargs[k]) for k in kwargs.keys()]
                     num_valid_batch_rows = len(valid_batch_idxs)
 
-                    if nos_batch_size is None:
+                    if ext_batch_size is None:
                         # we need to choose a batch size based on the args
                         sample_args = [arg_batches[i][0] for i in range(len(arg_batches))]
-                        nos_batch_size = fn_call.fn.get_batch_size(*sample_args)
+                        ext_batch_size = fn_call.fn.get_batch_size(*sample_args)
 
                     num_remaining_batch_rows = num_valid_batch_rows
                     while num_remaining_batch_rows > 0:
-                        # we make NOS calls in batches of nos_batch_size
-                        if nos_batch_size is None:
+                        # we make ext. fn calls in batches of ext_batch_size
+                        if ext_batch_size is None:
                             pass
-                        num_nos_batch_rows = min(nos_batch_size, num_remaining_batch_rows)
-                        nos_batch_offset = num_valid_batch_rows - num_remaining_batch_rows  # offset into args, not rows
+                        num_ext_batch_rows = min(ext_batch_size, num_remaining_batch_rows)
+                        ext_batch_offset = num_valid_batch_rows - num_remaining_batch_rows  # offset into args, not rows
                         call_args = [
-                            arg_batches[i][nos_batch_offset:nos_batch_offset + num_nos_batch_rows]
+                            arg_batches[i][ext_batch_offset:ext_batch_offset + num_ext_batch_rows]
                             for i in range(len(arg_batches))
                         ]
+                        call_kwargs = {
+                            k: kwarg_batches[k][ext_batch_offset:ext_batch_offset + num_ext_batch_rows]
+                            for k in kwarg_batches.keys()
+                        }
                         start_ts = time.perf_counter()
-                        result_batch = fn_call.fn.invoke(call_args, {})
+                        result_batch = fn_call.fn.invoke(call_args, call_kwargs)
                         self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
-                        self.ctx.profile.eval_count[fn_call.slot_idx] += num_nos_batch_rows
+                        self.ctx.profile.eval_count[fn_call.slot_idx] += num_ext_batch_rows
 
                         # move the result into the row batch
                         for result_idx in range(len(result_batch)):
-                            row_idx = valid_batch_idxs[nos_batch_offset + result_idx]
+                            row_idx = valid_batch_idxs[ext_batch_offset + result_idx]
                             row = rows[row_idx]
                             row[fn_call.slot_idx] = result_batch[result_idx]
 
-                        num_remaining_batch_rows -= num_nos_batch_rows
+                        num_remaining_batch_rows -= num_ext_batch_rows
 
-                    # switch to the NOS-recommended batch size
-                    cohort.batch_size = nos_batch_size
+                    # switch to the ext fn batch size
+                    cohort.batch_size = ext_batch_size
 
             # make sure images for stored cols have been saved to files before moving on to the next batch
             rows.flush_imgs(

@@ -5,7 +5,7 @@ import inspect
 import nos
 
 from .globals import resolve_symbol
-from .signature import Signature
+from .signature import Signature, Parameter
 from .function_md import FunctionMd
 from .function import Function
 from .nos_function import NOSFunction
@@ -62,7 +62,7 @@ def make_library_function(
 ) -> Function:
     assert module_name is not None and eval_symbol is not None
     eval_fn = resolve_symbol(module_name, eval_symbol)
-    signature = Signature.create(eval_fn, False, param_types, return_type, check_params=True)
+    signature = Signature.create(eval_fn, False, param_types, return_type)
     md = FunctionMd(signature, False, True)
     return Function(md, module_name=module_name, eval_symbol=eval_symbol)
 
@@ -82,19 +82,3 @@ def make_library_aggregate_function(
     return Function(
         md, module_name=module_name, init_symbol=init_symbol, update_symbol=update_symbol,
         value_symbol=value_symbol)
-
-def make_nos_function(
-        model_spec: nos.common.ModelSpec, return_type: ts.ColumnType, param_types: List[ts.ColumnType], param_names: List[str], module_name: str
-) -> Function:
-    assert len(param_names) == len(param_types)
-    signature = Signature(return_type, [(name, col_type) for name, col_type in zip(param_names, param_types)])
-    md = FunctionMd(signature, False, True)
-    # construct inspect.Signature
-    params = [
-        inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        for name, col_type in zip(param_names, param_types)
-    ]
-    py_signature = inspect.Signature(params)
-    # we pass module_name to indicate that it's a library function
-    return NOSFunction(model_spec, md, module_name=module_name, py_signature=py_signature)
-

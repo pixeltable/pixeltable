@@ -1,5 +1,5 @@
 import os
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, Union, Any
 import inspect
 from pathlib import Path
 import tempfile
@@ -19,6 +19,19 @@ import av
 import av.container
 import av.stream
 
+
+try:
+    import openai
+    from .util import create_openai_module
+    mod = create_openai_module()
+    func.FunctionRegistry.get().register_module(mod)
+except ImportError:
+    pass
+
+def _str_format(format_str: str, *args, **kwargs: Any) -> str:
+    return format_str.format(*args, **kwargs)
+str_format = func.make_library_function(StringType(), [StringType()], __name__, '_str_format')
+func.FunctionRegistry.get().register_function(__name__, 'str_format', str_format)
 
 # def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.MutableTable]) -> exprs.FunctionCall:
 #     """

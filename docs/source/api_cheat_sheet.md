@@ -49,20 +49,15 @@ The following functions apply to tables, views, and snapshots.
 | Delete a stored function | cl.[drop_function](pixeltable.Client.drop_function)('func_name')                                      |
 
 ## Frame extraction for video data
-Creating a table with video data and automatic frame extraction:
+Creating a table with video data and view for the frames:
 ```python
-c1 = pxt.Column('video', pxt.VideoType())
-c2 = pxt.Column('frame_idx', pxt.IntType())
-c3 = pxt.Column('frame', pxt.ImageType())
-t = db.create_table(
-    'video_table', [c1, c2, c3],
-    extract_frames_from='video',
-    extracted_frame_col='frame',
-    extracted_frame_idx_col='frame_idx',
-    extracted_fps=1)
+v = cl.create_table('tbl_name', [pxt.Column('video', pxt.VideoType())])
+from pixeltable.iterators import FrameIterator
+args = {'video': v.video, 'fps': 0}
+f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_args=args)
 ```
 
-`extracted_fps=0` extracts frames at the original frame rate.
+`fps: 0` extracts frames at the original frame rate.
 
 ## Pixeltable types
 |Pixeltable type|Python type|

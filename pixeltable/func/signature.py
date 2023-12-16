@@ -2,11 +2,20 @@ from __future__ import annotations
 from typing import Optional, Callable, Dict, List, Any, Tuple, Union
 import inspect
 import logging
+import dataclasses
+import enum
 
 import pixeltable.type_system as ts
 import pixeltable.exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
+
+
+@dataclasses.dataclass
+class Parameter:
+    name: str
+    col_type: Optional[ts.ColumnType]  # None for variable parameters
+    kind: enum.Enum  # inspect.Parameter.kind; inspect._ParameterKind is private
 
 
 class Signature:
@@ -24,11 +33,11 @@ class Signature:
     def __init__(
             self,
             return_type: Union[ts.ColumnType, Callable[[Dict[str, Any]], ts.ColumnType]],
-            parameters: List[Tuple[str, ts.ColumnType]]):
+            parameters: List[Parameter]):
         self.return_type = return_type
         # we rely on the ordering guarantee of dicts in Python >=3.7
-        self.parameters = {param_name: param_type for param_name, param_type in parameters}
-        self.parameter_types_by_pos = [param_type for _, param_type in parameters]
+        self.parameters = {p.name: p for p in parameters}
+        self.parameters_by_pos = parameters.copy()
 
     def get_return_type(self, bound_args: Optional[Dict[str, Any]] = None) -> ts.ColumnType:
         if isinstance(self.return_type, ts.ColumnType):
@@ -38,64 +47,71 @@ class Signature:
     def as_dict(self) -> Dict[str, Any]:
         result = {
             'return_type': self.get_return_type().as_dict(),
+            'parameters': [
+                [p.name, p.col_type.as_dict() if p.col_type is not None else None, p.kind]
+                for p in self.parameters.values()
+            ]
         }
-        if self.parameters is not None:
-            result['parameters'] = [[name, col_type.as_dict()] for name, col_type in self.parameters.items()]
         return result
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> Signature:
-        parameters = [(p[0], ts.ColumnType.from_dict(p[1])) for p in d['parameters']]
+        parameters = [Parameter(p[0], ts.ColumnType.from_dict(p[1]), p[2]) for p in d['parameters']]
         return cls(ts.ColumnType.from_dict(d['return_type']), parameters)
 
     def __eq__(self, other: Signature) -> bool:
-        if self.get_return_type() != other.get_return_type() or (self.parameters is None) != (other.parameters is None):
+        if self.get_return_type() != other.get_return_type():
             return False
-        if self.parameters is None:
-            return True
         if len(self.parameters) != len(other.parameters):
             return False
         # ignore the parameter name
-        for param_type, other_param_type in zip(self.parameter_types_by_pos, other.parameter_types_by_pos):
-            if param_type != other_param_type:
+        for param, other_param in zip(self.parameters.values(), other.parameters.values()):
+            if param.col_type != other_param.col_type or param.kind != other_param.kind:
                 return False
         return True
 
     def __str__(self) -> str:
-        return (
-            f'({", ".join([name + ": " + str(col_type) for name, col_type in self.parameters.items()])})'
-            f'-> {str(self.get_return_type())}'
-        )
+        param_strs: List[str] = []
+        for p in self.parameters.values():
+            if p.kind == inspect.Parameter.VAR_POSITIONAL:
+                param_strs.append(f'*{p.name}')
+            elif p.kind == inspect.Parameter.VAR_KEYWORD:
+                param_strs.append(f'**{p.name}')
+            else:
+                param_strs.append(f'{p.name}: {str(p.col_type)}')
+        return f'({", ".join(param_strs)}) -> {str(self.get_return_type())}'
 
     @classmethod
     def create(
             cls, c: Callable, is_agg: bool, param_types: List[ts.ColumnType],
-            return_type: Union[ts.ColumnType, Callable], check_params: bool = True
+            return_type: Union[ts.ColumnType, Callable]
     ) -> Signature:
-        if param_types is None:
-            return Signature(return_type, None)
         sig = inspect.signature(c)
-        param_names = list(sig.parameters.keys())
+        py_parameters = list(sig.parameters.values())
         if is_agg:
-            param_names = param_names[1:]  # the first parameter is the state returned by init()
-        if check_params and len(param_names) != len(param_types):
-            raise excs.Error(
-                f"The number of parameters of '{getattr(c, '__name__', 'anonymous')}' is not the same as "
-                f"the number of provided parameter types: "
-                f"{len(param_names)} ({', '.join(param_names)}) vs "
-                f"{len(param_types)} ({', '.join([str(t) for t in param_types])})")
-        # check parameters for name collisions and default value compatibility
-        for idx, param_name in enumerate(param_names):
-            if param_name in cls.SPECIAL_PARAM_NAMES:
-                raise excs.Error(f"'{param_name}' is a reserved parameter name")
-            default_val = sig.parameters[param_name].default
-            if default_val == inspect.Parameter.empty or default_val is None:
+            py_parameters = py_parameters[1:]  # the first parameter is the state returned by init()
+        # check non-var parameters for name collisions and default value compatibility
+        num_nonvar_params = 0
+        parameters: List[Parameter] = []
+        for idx, param in enumerate(py_parameters):
+            if param.name in cls.SPECIAL_PARAM_NAMES:
+                raise excs.Error(f"'{param.name}' is a reserved parameter name")
+            if param.kind == inspect.Parameter.VAR_POSITIONAL or param.kind == inspect.Parameter.VAR_KEYWORD:
+                parameters.append(Parameter(param.name, None, param.kind))
                 continue
-            try:
-                _ = param_types[idx].create_literal(default_val)
-            except TypeError as e:
-                raise excs.Error(f'Default value for parameter {param_name}: {str(e)}')
+            if idx >= len(param_types):
+                raise excs.Error(f'Missing type for parameter {param.name}')
 
-        parameters = [(param_names[i], param_types[i]) for i in range(len(param_names))]
+            num_nonvar_params += 1
+            default_val = sig.parameters[param.name].default
+            if default_val != inspect.Parameter.empty and default_val is not None:
+                try:
+                    _ = param_types[idx].create_literal(default_val)
+                except TypeError as e:
+                    raise excs.Error(f'Default value for parameter {param.name}: {str(e)}')
+            parameters.append(Parameter(param.name, param_types[idx], param.kind))
+
+        if len(param_types) != num_nonvar_params:
+            raise excs.Error(f'Expected {num_nonvar_params} parameter types, got {len(param_types)}')
+
         return Signature(return_type, parameters)
-

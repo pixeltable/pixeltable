@@ -36,7 +36,8 @@ class FunctionCall(Expr):
         self.args: List[Tuple[int, Any]] = []
         self.kwargs: Dict[str, Tuple[int, Any]] = {}
 
-        self.arg_types: List[ts.ColumnType] = []  # needed for runtime type checks
+        # we record the types of non-variable parameters for runtime type checks
+        self.arg_types: List[ts.ColumnType] = []
         self.kwarg_types: Dict[str, ts.ColumnType] = {}
         # the prefix of parameters that are bound can be passed by position
         for param in fn.py_signature.parameters.values():
@@ -48,7 +49,8 @@ class FunctionCall(Expr):
                 self.components.append(arg.copy())
             else:
                 self.args.append((-1, arg))
-            self.arg_types.append(signature.parameters[param.name])
+            if param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD:
+                self.arg_types.append(signature.parameters[param.name].col_type)
 
         # the remaining args are passed as keywords
         kw_param_names = set(bound_args.keys()) - set(list(fn.py_signature.parameters.keys())[:len(self.args)])
@@ -60,7 +62,8 @@ class FunctionCall(Expr):
             else:
                 # TODO: make sure it's json-serializable
                 self.kwargs[param_name] = (-1, arg)
-            self.kwarg_types[param_name] = signature.parameters[param_name]
+            if fn.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
+                self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
@@ -85,7 +88,6 @@ class FunctionCall(Expr):
         self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_clause)
 
-        self.nos_info = func.FunctionRegistry.get().get_nos_info(self.fn)
         self.constant_args = {param_name for param_name, arg in bound_args.items() if not isinstance(arg, Expr)}
 
         # execution state for aggregate functions
@@ -112,7 +114,7 @@ class FunctionCall(Expr):
                 except excs.Error:
                     # this didn't work, but it might be a literal
                     pass
-            if isinstance(arg, list):
+            if isinstance(arg, list) or isinstance(arg, tuple):
                 try:
                     arg = InlineArray(arg)
                     bound_args[param_name] = arg
@@ -128,21 +130,31 @@ class FunctionCall(Expr):
                     raise excs.Error(f"Argument for parameter '{param_name}' is not json-serializable: {arg}")
                 if arg is not None:
                     try:
-                        param_type = signature.parameters[param_name]
+                        param_type = signature.parameters[param_name].col_type
                         bound_args[param_name] = param_type.create_literal(arg)
                     except TypeError as e:
                         msg = str(e)
                         raise excs.Error(f"Argument for parameter '{param_name}': {msg[0].lower() + msg[1:]}")
                 continue
 
-            param_type = signature.parameters[param_name]
+            # variable parameters don't get type-checked, but they both need to be json-typed
+            param = signature.parameters[param_name]
+            if param.kind == inspect.Parameter.VAR_POSITIONAL:
+                assert isinstance(arg, InlineArray)
+                arg.col_type = ts.JsonType()
+                continue
+            if param.kind == inspect.Parameter.VAR_KEYWORD:
+                assert isinstance(arg, InlineDict)
+                arg.col_type = ts.JsonType()
+            continue
+
             if not param_type.is_supertype_of(arg.col_type):
                 raise excs.Error((
                     f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
                     f'{param_type}'))
 
     def is_nos_call(self) -> bool:
-        return self.nos_info is not None
+        return isinstance(self.fn, func.NOSFunction)
 
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
@@ -248,11 +260,32 @@ class FunctionCall(Expr):
         self.fn.update_fn(*[self.aggregator, *args], **kwargs)
 
     def _make_args(self, data_row: DataRow) -> Tuple[List[Any], Dict[str, Any]]:
-        args = [arg if idx == -1 else data_row[self.components[idx].slot_idx] for idx, arg in self.args]
-        kwargs = {
-            param_name: val if idx == -1 else data_row[self.components[idx].slot_idx]
-            for param_name, (idx, val) in self.kwargs.items()
-        }
+        """Return args and kwargs, constructed for data_row"""
+        kwargs: Dict[str, Any] = {}
+        for param_name, (component_idx, arg) in self.kwargs.items():
+            val = arg if component_idx == -1 else data_row[self.components[component_idx].slot_idx]
+            param = self.fn.md.signature.parameters[param_name]
+            if param.kind == inspect.Parameter.VAR_KEYWORD:
+                # expand **kwargs parameter
+                kwargs.update(val)
+            else:
+                assert param.kind != inspect.Parameter.VAR_POSITIONAL
+                kwargs[param_name] = val
+
+        args: List[Any] = []
+        for param_idx, (component_idx, arg) in enumerate(self.args):
+            val = arg if component_idx == -1 else data_row[self.components[component_idx].slot_idx]
+            param = self.fn.md.signature.parameters_by_pos[param_idx]
+            if param.kind == inspect.Parameter.VAR_POSITIONAL:
+                # expand *args parameter
+                assert isinstance(val, list)
+                args.extend(val)
+            elif param.kind == inspect.Parameter.VAR_KEYWORD:
+                # expand **kwargs parameter
+                assert isinstance(val, dict)
+                kwargs.update(val)
+            else:
+                args.append(val)
         return args, kwargs
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -260,8 +293,8 @@ class FunctionCall(Expr):
         signature = self.fn.md.signature
         if signature.parameters is not None:
             # check for nulls
-            for arg, param_type in zip(args, self.arg_types):
-                if arg is None and not param_type.nullable:
+            for i in range(len(self.arg_types)):
+                if args[i] is None and not self.arg_types[i].nullable:
                     # we can't evaluate this function
                     data_row[self.slot_idx] = None
                     return

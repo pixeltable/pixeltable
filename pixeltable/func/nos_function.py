@@ -2,32 +2,45 @@ from typing import Optional, Any, Dict, List, Tuple
 import inspect
 import logging
 import sys
-import time
 
 import numpy as np
-import nos
 
 from .function_md import FunctionMd
-from .function import Function
+from .signature import Signature, Parameter
+from .external_function import ExternalFunction
 import pixeltable.env as env
+import pixeltable.type_system as ts
 
 
 _logger = logging.getLogger('pixeltable')
 
-class NOSFunction(Function):
-    def __init__(
-            self, model_spec: nos.common.ModelSpec, md: FunctionMd, module_name: Optional[str] = None,
-            py_signature: Optional[inspect.Signature] = None
-    ):
-        super().__init__(md, module_name=module_name, py_signature=py_signature)
-        self.model_spec = model_spec
+class NOSFunction(ExternalFunction):
+    def __init__(self, model_spec: 'nos.common.ModelSpec', module_name: Optional[str] = None):
+        return_type, param_types = self._convert_nos_signature(model_spec.signature)
+        param_names = list(model_spec.signature.get_inputs_spec().keys())
+        params = [
+            Parameter(name, col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            for name, col_type in zip(param_names, param_types)
+        ]
+        signature = Signature(return_type, params)
+        md = FunctionMd(signature, False, True)
 
+        # construct inspect.Signature
+        py_params = [
+            inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            for name, col_type in zip(param_names, param_types)
+        ]
+        py_signature = inspect.Signature(py_params)
+        super().__init__(md, module_name=module_name, py_signature=py_signature)
+
+        self.model_spec = model_spec
         self.nos_param_names = model_spec.signature.get_inputs_spec().keys()
         self.scalar_nos_param_names = []
 
         # for models on images
         self.img_param_pos: Optional[int] = None  # position of the image parameter in the function signature
         # for multi-resolution image models
+        import nos
         self.img_batch_params: List[nos.common.ObjectTypeInfo] = []
         self.img_resolutions: List[int] = []  # for multi-resolution models
         self.batch_size: Optional[int] = None
@@ -59,11 +72,26 @@ class NOSFunction(Function):
         if batch_size != sys.maxsize:
             self.batch_size = batch_size
 
+    def _convert_nos_signature(
+            self, sig: 'nos.common.spec.FunctionSignature') -> Tuple[ts.ColumnType, List[ts.ColumnType]]:
+        if len(sig.get_outputs_spec()) > 1:
+            return_type = ts.JsonType()
+        else:
+            return_type = ts.ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
+        param_types: List[ts.ColumnType] = []
+        for _, type_info in sig.get_inputs_spec().items():
+            # if there are multiple input shapes we leave them out of the ColumnType and deal with them in FunctionCall
+            if isinstance(type_info, list):
+                param_types.append(ts.ColumnType.from_nos(type_info[0], ignore_shape=True))
+            else:
+                param_types.append(ts.ColumnType.from_nos(type_info, ignore_shape=False))
+        return return_type, param_types
+
     def is_multi_res_model(self) -> bool:
         return self.img_param_pos is not None and len(self.img_batch_params) > 0
 
     def get_batch_size(self, *args: Any, **kwargs: Any) -> Optional[int]:
-        if self.batch_size is not None or len(self.img_batch_params) == 0:
+        if self.batch_size is not None or len(self.img_batch_params) == 0 or len(args) == 0:
             return self.batch_size
 
         # return batch size appropriate for the given image size
@@ -76,22 +104,15 @@ class NOSFunction(Function):
         """Select the model resolution that is closest to the input resolution
         Returns: batch size, image size
         """
-        if len(self.img_resolutions) == 0:
-            pass
         deltas = [abs(res - input_res) for res in self.img_resolutions]
         idx = deltas.index(min(deltas))
         type_info = self.img_batch_params[idx]
         return type_info.batch_size(), (type_info.base_spec().shape[1], type_info.base_spec().shape[0])
 
-    def get_default_batch_size(self) -> int:
-        return 8
-
     def invoke(self, arg_batches: List[List[Any]], kwarg_batches: Dict[str, List[Any]]) -> List[Any]:
         # check that scalar args are constant
 
         num_batch_rows = len(arg_batches[0])
-        if num_batch_rows == 0:
-            pass
         # if we need to rescale image args, and we're doing object detection, we need to rescale the
         # bounding boxes as well
         scale_factors = np.ndarray((num_batch_rows, 2), dtype=np.float32)
@@ -130,6 +151,7 @@ class NOSFunction(Function):
         result = env.Env.get().nos_client.Run(
             task=self.model_spec.task, model_name=self.model_spec.name, **kwargs)
 
+        import nos
         if self.model_spec.task == nos.common.TaskType.OBJECT_DETECTION_2D and target_res is not None:
             # we need to rescale the bounding boxes
             result_bboxes = []  # workaround: result['bboxes'][*] is immutable

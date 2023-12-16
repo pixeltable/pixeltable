@@ -29,6 +29,8 @@ class InlineArray(Expr):
             el = copy.deepcopy(el)
             if isinstance(el, list):
                 el = InlineArray(tuple(el))
+            if isinstance(el, dict):
+                el = InlineDict(el)
             if isinstance(el, Expr):
                 self.elements.append((len(self.components), None))
                 self.components.append(el)
@@ -78,7 +80,10 @@ class InlineArray(Expr):
                 result[i] = data_row[self.components[child_idx].slot_idx]
             else:
                 result[i] = copy.deepcopy(val)
-        data_row[self.slot_idx] = np.array(result)
+        if self.col_type.is_array_type():
+            data_row[self.slot_idx] = np.array(result)
+        else:
+            data_row[self.slot_idx] = result
 
     def _as_dict(self) -> Dict:
         return {'elements': self.elements, **super()._as_dict()}
