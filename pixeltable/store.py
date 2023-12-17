@@ -66,9 +66,9 @@ class StoreBase:
             # to the last sql.MutableTable version we created and cannot be reused
             col.create_sa_cols()
             all_cols.append(col.sa_col)
-            if col.is_computed:
-                all_cols.append(col.sa_errormsg_col)
-                all_cols.append(col.sa_errortype_col)
+            all_cols.append(col.sa_errormsg_col)
+            all_cols.append(col.sa_errortype_col)
+
             if col.is_indexed:
                 all_cols.append(col.sa_idx_col)
 

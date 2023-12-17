@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import time
 import sys
 
+from pixeltable import type_system as ts
 from .expr import Expr
 from .expr_set import ExprSet
 from .data_row import DataRow
@@ -276,6 +277,37 @@ class RowBuilder:
         return self.EvalCtx(
             slot_idxs=ctx_slot_idxs, exprs=[self.unique_exprs[slot_idx] for slot_idx in ctx_slot_idxs],
             target_slot_idxs=target_slot_idxs, target_exprs=targets)
+    
+    def validate(self, data_row: DataRow, ignore_errors: bool = False) -> None:
+        for slot_idx in data_row.img_slot_idxs:
+            file = data_row.file_paths[slot_idx]
+            if file is None: 
+                # only ok for nullable? or also possible for non null if the value hasnt been stored?
+                continue 
+            try:
+                ## need to get column type from column, not make my own.
+                ts.ImageType().validate_literal(file)
+            except Exception as exc:
+                data_row.set_exc(slot_idx, exc)
+                for slot_idx in self.dependents[slot_idx]:
+                    data_row.set_exc(slot_idx, exc)
+                if not ignore_errors:
+                    raise excs.DataValidationError(None, f'file path {file}', exc, None, [], 0)
+                
+        for slot_idx in data_row.video_slot_idxs:
+            file = data_row.file_paths[slot_idx]
+            if file is None:
+                continue
+            try:
+                ## need to get column type from column, not make my own.
+                ts.VideoType().validate_literal(file)
+            except Exception as exc:
+                data_row.set_exc(slot_idx, exc)
+                for slot_idx in self.dependents[slot_idx]:
+                    data_row.set_exc(slot_idx, exc)
+                if not ignore_errors:
+                    raise excs.DataValidationError(None, f'file path {file}', exc, None, [], 0)
+
 
     def eval(
             self, data_row: DataRow, ctx: EvalCtx, profile: Optional[ExecProfile] = None, ignore_errors: bool = False

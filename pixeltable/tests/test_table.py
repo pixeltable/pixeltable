@@ -121,31 +121,79 @@ class TestTable:
         for tup in pdf.itertuples():
             assert tup.img == tup.img_literal
 
-    def test_insert_bad_images(self, test_client: pt.Client) -> None:
-        # bad image file
-        cl = test_client
+    def test_insert_validate_image(self, test_client: pt.Client) -> None:
         cols = [
-            catalog.Column('img', ImageType(nullable=False)),
-            catalog.Column('category', StringType(nullable=False)),
-            catalog.Column('split', StringType(nullable=False)),
+            catalog.Column('img', ImageType(nullable=True)),
+            catalog.Column('is_bad_image', BoolType(nullable=False))
         ]
         tbl = test_client.create_table('test', cols)
         rows, col_names = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
+        assert len(rows) > 0
 
-        # check insert with bad image file fails
-        with pytest.raises(exc.Error) as exc_info:
+        ## Mode 1: Validation error on bad input (default)
+        with pytest.raises(exc.DataValidationError) as exc_info:
             tbl.insert(rows, columns=col_names)
-        assert 'not a valid image' in str(exc_info.value)
+        assert 'bad_image.JPEG' in str(exc_info.value)
 
-        # replace row with literal
-        bad_row = rows[0]
-        img_idx = col_names.index('img')
-        bad_row[img_idx] = b'bad image literal'
+        ## Mode 2: ignore_errors=True, store error information in table
+        tbl.insert(rows, columns=col_names, ignore_errors=True)
+        bad_rows = tbl.where(tbl.is_bad_image == True)
+        good_rows = tbl.where(tbl.is_bad_image == False)
 
-        # check insert with bad image literal fails
-        with pytest.raises(exc.Error) as exc_info:
+        # check that we have the right number of bad and good rows
+        assert bad_rows.count() == 1
+        assert good_rows.count() == 3
+
+        # check error type is set correctly
+        assert tbl.where((tbl.is_bad_image == True) & (tbl.img.errortype == None)).count() == 0
+        assert tbl.where((tbl.is_bad_image == False) & (tbl.img.errortype == None)).count() == 3
+
+        # check fileurl is set for valid images, and check no file url is set for bad images
+        # NB(orm) found no intuitive way to express this without getting data out
+        # (see https://www.notion.so/API-pain-points-60841135411c4c67bb422dc0179dc08a )
+        assert (tbl.where((tbl.is_bad_image == False)).select(tbl.img.fileurl).show()
+                .to_pandas()['img_fileurl'].isnull().sum()) == 0
+        
+        assert (tbl.where((tbl.is_bad_image == True)).select(tbl.img.fileurl).show()
+                .to_pandas()['img_fileurl'].isnull().sum()) == 1
+        
+    def test_insert_validate_video(self, test_client: pt.Client) -> None:
+        cols = [
+            catalog.Column('video', VideoType(nullable=True)),
+            catalog.Column('is_bad_video', BoolType(nullable=False))
+        ]
+        tbl = test_client.create_table('test_video_tab', cols)
+        files = get_video_files(include_bad_video=True)
+        rows = [[f, f.endswith('bad_video.mp4')] for f in files]
+        col_names = ['video', 'is_bad_video']
+        assert len(rows) > 0
+
+        ## Mode 1: Validation error on bad input (default)
+        with pytest.raises(exc.DataValidationError) as exc_info:
             tbl.insert(rows, columns=col_names)
-        assert 'not a valid image' in str(exc_info.value)
+        assert 'bad_video.mp4' in str(exc_info.value)
+
+        ## Mode 2: ignore_errors=True, store error information in table
+        tbl.insert(rows, columns=col_names, ignore_errors=True)
+        bad_rows = tbl.where(tbl.is_bad_video == True)
+        good_rows = tbl.where(tbl.is_bad_video == False)
+
+        # check that we have the right number of bad and good rows
+        assert bad_rows.count() == 1
+        assert good_rows.count() == 3
+
+        # check error type is set correctly
+        assert tbl.where((tbl.is_bad_video == True) & (tbl.video.errortype == None)).count() == 0
+        assert tbl.where((tbl.is_bad_video == False) & (tbl.video.errortype == None)).count() == 3
+
+        # check fileurl is set for valid images, and check no file url is set for bad images
+        # NB(orm) found no intuitive way to express this without getting data out
+        # (see https://www.notion.so/API-pain-points-60841135411c4c67bb422dc0179dc08a )
+        assert (tbl.where((tbl.is_bad_video == False)).select(tbl.video.fileurl).show()
+                .to_pandas()['video_fileurl'].isnull().sum()) == 0
+        
+        assert (tbl.where((tbl.is_bad_video == True)).select(tbl.video.fileurl).show()
+                .to_pandas()['video_fileurl'].isnull().sum()) == 1
 
     def test_create_s3_image_table(self, test_client: pt.Client) -> None:
         cl = test_client
