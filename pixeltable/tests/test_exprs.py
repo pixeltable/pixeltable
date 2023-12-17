@@ -189,14 +189,6 @@ class TestExprs:
         all_paths  = set(get_image_files())
         assert stored_paths <= all_paths
 
-        # non-computed columns don't have errortype/-msg
-        with pytest.raises(exc.Error) as excinfo:
-            _ = t.select(t.c1.errortype).show()
-        assert 'not valid for' in str(excinfo.value)
-        with pytest.raises(exc.Error) as excinfo:
-            _ = t.select(t.c1.errormsg).show()
-        assert 'not valid for' in str(excinfo.value)
-
         # fileurl/localpath only applies to image/video columns
         with pytest.raises(exc.Error) as excinfo:
             _ = t.select(t.c1.fileurl).show()

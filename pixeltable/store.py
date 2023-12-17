@@ -66,9 +66,9 @@ class StoreBase:
             # to the last sql.MutableTable version we created and cannot be reused
             col.create_sa_cols()
             all_cols.append(col.sa_col)
-            if col.is_computed:
-                all_cols.append(col.sa_errormsg_col)
-                all_cols.append(col.sa_errortype_col)
+            all_cols.append(col.sa_errormsg_col)
+            all_cols.append(col.sa_errortype_col)
+
             if col.is_indexed:
                 all_cols.append(col.sa_idx_col)
 
@@ -145,15 +145,14 @@ class StoreBase:
         log_stmt(_logger, stmt)
         conn.execute(stmt)
         added_storage_cols = [col.storage_name()]
-        if col.is_computed:
-            # we also need to create the errormsg and errortype storage cols
-            stmt = (f'ALTER TABLE {self._storage_name()} '
-                    f'ADD COLUMN {col.errormsg_storage_name()} {StringType().to_sql()} DEFAULT NULL')
-            conn.execute(sql.text(stmt))
-            stmt = (f'ALTER TABLE {self._storage_name()} '
-                    f'ADD COLUMN {col.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
-            conn.execute(sql.text(stmt))
-            added_storage_cols.extend([col.errormsg_storage_name(), col.errortype_storage_name()])
+        # we also need to create the errormsg and errortype storage cols
+        stmt = (f'ALTER TABLE {self._storage_name()} '
+                f'ADD COLUMN {col.errormsg_storage_name()} {StringType().to_sql()} DEFAULT NULL')
+        conn.execute(sql.text(stmt))
+        stmt = (f'ALTER TABLE {self._storage_name()} '
+                f'ADD COLUMN {col.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
+        conn.execute(sql.text(stmt))
+        added_storage_cols.extend([col.errormsg_storage_name(), col.errortype_storage_name()])
         self._create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 

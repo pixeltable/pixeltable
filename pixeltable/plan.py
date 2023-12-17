@@ -213,7 +213,7 @@ class Planner:
 
     @classmethod
     def create_insert_plan(
-            cls, tbl: catalog.TableVersion, rows: List[List[Any]], column_names: List[str]
+            cls, tbl: catalog.TableVersion, rows: List[List[Any]], column_names: List[str], ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
@@ -233,12 +233,14 @@ class Planner:
         input_col_info = [info for info in stored_col_info if not info.col.is_computed]
         row_column_pos = {name: i for i, name in enumerate(column_names)}
         plan = exec.InsertDataNode(tbl, rows, row_column_pos, row_builder, input_col_info, tbl.next_rowid)
-
-        # add an ExprEvalNode if there are exprs to compute
         computed_exprs = row_builder.default_eval_ctx.target_exprs
+
+        # prefetch external files for media column types for validation
+        plan = cls._insert_prefetch_node(tbl.id, computed_exprs, row_builder, plan)
+        plan = exec.ValidateDataNode(row_builder, ignore_errors=ignore_errors, input=plan)
+
         if len(computed_exprs) > 0:
-            # prefetch external files for media column types
-            plan = cls._insert_prefetch_node(tbl.id, computed_exprs, row_builder, plan)
+            # add an ExprEvalNode if there are exprs to compute
             # input_exprs=[]: our inputs are values in 'rows'
             plan = exec.ExprEvalNode(row_builder, computed_exprs, [], ignore_errors=True, input=plan)
 

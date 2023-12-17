@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import time
 import sys
 
+from pixeltable import type_system as ts
 from .expr import Expr
 from .expr_set import ExprSet
 from .data_row import DataRow
@@ -96,6 +97,10 @@ class RowBuilder:
                 ref = ColumnRef(col)
                 ref = self._record_unique_expr(ref, recursive=False)
                 self.add_table_column(col, ref.slot_idx)
+
+        self.table_columns_dict : Dict[int, ts.ColumnType] = {}
+        for entry in self.table_columns:
+            self.table_columns_dict[entry.slot_idx] = entry.col.col_type
 
         # record indices; indexed by slot_idx
         self.index_columns: List[catalog.Column] = []
@@ -276,6 +281,23 @@ class RowBuilder:
         return self.EvalCtx(
             slot_idxs=ctx_slot_idxs, exprs=[self.unique_exprs[slot_idx] for slot_idx in ctx_slot_idxs],
             target_slot_idxs=target_slot_idxs, target_exprs=targets)
+    
+    def validate(self, data_row: DataRow, ignore_errors: bool = False) -> None:
+        for slot_idx in data_row.img_slot_idxs + data_row.video_slot_idxs:
+            file = data_row.file_paths[slot_idx]
+            if file is None: 
+                continue
+            col_type = self.table_columns_dict[slot_idx]
+            try:
+                # Is nullity being tested here? or have we skipped it above.
+                col_type.validate_literal(file)
+            except Exception as exc:
+                data_row.set_exc(slot_idx, exc)
+                for slot_idx in self.dependents[slot_idx]:
+                    data_row.set_exc(slot_idx, exc)
+                if not ignore_errors:
+                    raise excs.DataValidationError(None, f'file path {file}', exc, None, [], 0)
+
 
     def eval(
             self, data_row: DataRow, ctx: EvalCtx, profile: Optional[ExecProfile] = None, ignore_errors: bool = False

@@ -15,3 +15,7 @@ class ExprEvalError(Exception):
     exc_tb: TracebackType
     input_vals: List[Any]
     row_num: int
+
+@dataclass
+class DataValidationError(ExprEvalError):
+    pass

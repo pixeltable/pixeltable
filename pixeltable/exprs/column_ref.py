@@ -11,7 +11,6 @@ import pixeltable.iterators as iters
 import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
 
-
 class ColumnRef(Expr):
     """A reference to a table column
 
@@ -46,8 +45,6 @@ class ColumnRef(Expr):
         # resolve column properties
         if name == ColumnPropertyRef.Property.ERRORTYPE.name.lower() \
                 or name == ColumnPropertyRef.Property.ERRORMSG.name.lower():
-            if not self.col.is_computed or not self.col.is_stored:
-                raise excs.Error(f'{name} not valid for a non-computed or unstored column: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
         if name == ColumnPropertyRef.Property.FILEURL.name.lower() \
                 or name == ColumnPropertyRef.Property.LOCALPATH.name.lower():

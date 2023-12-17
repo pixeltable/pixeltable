@@ -365,18 +365,18 @@ class TableVersion:
             self._update_md(ts, preceding_schema_version, conn)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
-    def insert(self, rows: List[List[Any]], column_names: List[str], print_stats: bool = False) -> UpdateStatus:
+    def insert(self, rows: List[List[Any]], column_names: List[str], print_stats: bool = False, ignore_errors : bool = False) -> UpdateStatus:
         """Insert rows into this table.
         """
         assert self.is_insertable()
         from pixeltable.plan import Planner
-        plan = Planner.create_insert_plan(self, rows, column_names)
+        plan = Planner.create_insert_plan(self, rows, column_names, ignore_errors=ignore_errors)
         ts = time.time()
         with Env.get().engine.begin() as conn:
             return self._insert(plan, conn, ts, print_stats)
 
     def _insert(
-            self, exec_plan: exec.ExecNode, conn: sql.engine.Connection, ts: float, print_stats: bool = False
+            self, exec_plan: exec.ExecNode, conn: sql.engine.Connection, ts: float, print_stats: bool = False, 
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         assert self.is_mutable()
