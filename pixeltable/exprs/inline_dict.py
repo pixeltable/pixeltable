@@ -48,12 +48,16 @@ class InlineDict(Expr):
     def __str__(self) -> str:
         item_strs: List[str] = []
         i = 0
+        def print_val(val: Any) -> str:
+            if isinstance(val, str):
+                return f"'{val}'"
+            return str(val)
         for key, idx, val in self.dict_items:
             if idx != -1:
                 item_strs.append(f"'{key}': {str(self.components[i])}")
                 i += 1
             else:
-                item_strs.append(f"'{key}': {str(val)}")
+                item_strs.append(f"'{key}': {print_val(val)}")
         return '{' + ', '.join(item_strs) + '}'
 
     def _equals(self, other: InlineDict) -> bool:

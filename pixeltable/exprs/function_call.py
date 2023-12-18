@@ -196,8 +196,10 @@ class FunctionCall(Expr):
         arg_strs = [
             str(arg) if idx == -1 else str(self.components[idx]) for idx, arg in self.args[start_idx:]
         ]
+        def print_arg(arg: Any) -> str:
+            return f"'{arg}'" if isinstance(arg, str) else str(arg)
         arg_strs.extend([
-            f'{param_name}={str(arg) if idx == -1 else str(self.components[idx])}'
+            f'{param_name}={print_arg(arg) if idx == -1 else str(self.components[idx])}'
             for param_name, (idx, arg) in self.kwargs.items()
         ])
         if len(self.order_by) > 0:

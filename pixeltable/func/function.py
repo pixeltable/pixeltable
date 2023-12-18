@@ -57,16 +57,16 @@ class Function:
         # NOS functions don't have an eval_fn and specify their Python signature directly
         if py_signature is not None:
             self.py_signature = py_signature
-            return
-        # for everything else, we infer the Python signature
-        assert (md.is_agg and self.update_fn is not None) or (not md.is_agg and self.eval_fn is not None)
-        if md.is_agg:
-            # the Python signature is the signature of 'update', but without self
-            sig = inspect.signature(self.update_fn)
-            self.py_signature = \
-                inspect.Signature(list(sig.parameters.values())[1:], return_annotation=sig.return_annotation)
-        else:
-            self.py_signature = inspect.signature(self.eval_fn)
+        else :
+            # for everything else, we infer the Python signature
+            assert (md.is_agg and self.update_fn is not None) or (not md.is_agg and self.eval_fn is not None)
+            if md.is_agg:
+                # the Python signature is the signature of 'update', but without self
+                sig = inspect.signature(self.update_fn)
+                self.py_signature = \
+                    inspect.Signature(list(sig.parameters.values())[1:], return_annotation=sig.return_annotation)
+            else:
+                self.py_signature = inspect.signature(self.eval_fn)
 
     @property
     def name(self) -> bool:
@@ -103,6 +103,14 @@ class Function:
         if self.md.fqn.startswith(ptf_prefix):
             return self.md.fqn[len(ptf_prefix):]
         return self.md.fqn
+
+    def help_str(self) -> str:
+        res = self.display_name + str(self.md.signature)
+        if self.eval_fn is not None:
+            res += '\n\n' + inspect.getdoc(self.eval_fn)
+        elif self.update_fn is not None:
+            res += '\n\n' + inspect.getdoc(self.update_fn)
+        return res
 
     def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs

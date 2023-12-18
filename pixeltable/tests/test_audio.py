@@ -43,6 +43,11 @@ class TestAudio:
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
         assert env.Env.get().num_tmp_files() == 0
 
+        # make sure everything works with a fresh client
+        cl = pxt.Client()
+        video_t = cl.get_table('videos')
+        assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
+
         # test generating different formats and codecs
         paths = video_t.select(output=extract_audio(video_t.video, format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir

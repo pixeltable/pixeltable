@@ -75,6 +75,9 @@ class TestFunctions:
         t.add_column(catalog.Column('input_msgs', computed_with=msgs))
         t.add_column(
             catalog.Column('chat_output', computed_with=chat_completion(model='gpt-3.5-turbo', messages=t.input_msgs)))
+        # with inlined messages
+        t.add_column(
+            catalog.Column('chat_output2', computed_with=chat_completion(model='gpt-3.5-turbo', messages=msgs)))
         t.add_column(catalog.Column('embedding', computed_with=embedding(model='text-embedding-ada-002', input=t.input)))
         t.add_column(catalog.Column('moderation', computed_with=moderation(input=t.input)))
         t.insert([['I find you really annoying']])

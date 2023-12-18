@@ -1,6 +1,7 @@
 from typing import Optional
 import uuid
 import av
+import sys
 
 import pixeltable.env as env
 import pixeltable.func as func
@@ -60,3 +61,5 @@ _extract_audio_param_types = [
 ]
 extract_audio = func.make_library_function(
     ts.AudioType(nullable=True), _extract_audio_param_types, __name__, '_extract_audio')
+
+func.FunctionRegistry.get().register_module(sys.modules[__name__])

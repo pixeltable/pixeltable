@@ -29,6 +29,8 @@ except ImportError:
     pass
 
 def _str_format(format_str: str, *args, **kwargs: Any) -> str:
+    """ Return a formatted version of S, using substitutions from args and kwargs.
+    The substitutions are identified by braces ('{' and '}')."""
     return format_str.format(*args, **kwargs)
 str_format = func.make_library_function(StringType(), [StringType()], __name__, '_str_format')
 func.FunctionRegistry.get().register_function(__name__, 'str_format', str_format)

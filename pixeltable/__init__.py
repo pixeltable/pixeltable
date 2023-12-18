@@ -8,6 +8,7 @@ from .type_system import \
 from .func import Function, udf, make_library_function, make_aggregate_function, make_library_aggregate_function
 from .functions import make_video
 from .functions.pil import draw_boxes
+from .utils.help import help
 
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     'VideoType',
     'AudioType',
     'Function',
+    'help',
     'udf',
     'make_aggregate_function',
     'make_library_function',
