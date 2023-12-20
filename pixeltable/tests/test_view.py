@@ -62,9 +62,9 @@ class TestView:
         t = cl.get_table('test_tbl')
         v_old = v
         v = cl.get_table('test_view')
-        assert v.predicate == v_old.predicate
+        assert v.predicate.equals(v_old.predicate)
         assert set(v_old.cols_by_name.keys()) == set(v.cols_by_name.keys())
-        assert v.cols_by_name['v1'].value_expr == v.c3 * 2.0
+        assert v.cols_by_name['v1'].value_expr.equals(v.c3 * 2.0)
 
         view_query = v.select(v.v1).order_by(v.c2)
         base_query = t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2)

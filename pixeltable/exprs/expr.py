@@ -392,6 +392,10 @@ class Expr(abc.ABC):
             return JsonPath(self).__getattr__(name)
         raise excs.Error(f'Member access not supported on type {self.col_type}: {name}')
 
+    def __bool__(self) -> bool:
+        raise TypeError(
+            'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)')
+
     def __lt__(self, other: object) -> 'Comparison':
         return self._make_comparison(ComparisonOperator.LT, other)
 

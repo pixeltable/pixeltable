@@ -55,6 +55,10 @@ class TestExprs:
         e = (~(t.c1 == 'test string')).sql_expr()
         assert isinstance(e, sql.sql.expression.BinaryExpression)
 
+        with pytest.raises(TypeError) as exc_info:
+            _ = t.where((t.c1 == 'test string') or (t.c6.f1 > 50)).collect()
+        assert 'cannot be used in conjunction with python boolean operators' in str(exc_info.value).lower()
+
         # compound predicates with Python functions
         @pt.udf(return_type=BoolType(), param_types=[StringType()])
         def udf(_: str) -> bool:
