@@ -1,3 +1,4 @@
+from __future__ import annotations
 import datetime
 import os
 import time
@@ -24,11 +25,11 @@ class Env:
     """
     Store for runtime globals.
     """
-    _instance: Optional['Env'] = None
+    _instance: Optional[Env] = None
     _log_fmt_str = '%(asctime)s %(levelname)s %(module)s %(filename)s:%(lineno)d: %(message)s'
 
     @classmethod
-    def get(cls) -> 'Env':
+    def get(cls) -> Env:
         if cls._instance is None:
             cls._instance = Env()
         return cls._instance

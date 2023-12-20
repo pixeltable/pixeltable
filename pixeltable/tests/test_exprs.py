@@ -19,7 +19,7 @@ from pixeltable.iterators import FrameIterator
 
 
 class TestExprs:
-    def test_basic(self, test_tbl: catalog.MutableTable) -> None:
+    def test_basic(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         assert t['c1'].equals(t.c1)
         assert t['c7']['*'].f5.equals(t.c7['*'].f5)
@@ -38,7 +38,7 @@ class TestExprs:
             _ = t.does_not_exist
         assert 'unknown' in str(excinfo.value).lower()
 
-    def test_compound_predicates(self, test_tbl: catalog.MutableTable) -> None:
+    def test_compound_predicates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # compound predicates that can be fully evaluated in SQL
         _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
@@ -94,7 +94,7 @@ class TestExprs:
         # assert sql_pred is None
         # assert isinstance(other_pred, CompoundPredicate)
 
-    def test_filters(self, test_tbl: catalog.MutableTable) -> None:
+    def test_filters(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         _ = t[t.c1 == 'test string'].show()
         print(_)
@@ -105,7 +105,7 @@ class TestExprs:
         _ = t[t.c1n != None].show(0)
         print(_)
 
-    def test_exception_handling(self, test_tbl: catalog.MutableTable) -> None:
+    def test_exception_handling(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
         # error in expr that's handled in SQL
@@ -171,7 +171,7 @@ class TestExprs:
         with pytest.raises(exc.Error):
             _ = t[t.c2 <= 2][agg(t.c2 - 1)].show()
 
-    def test_props(self, test_tbl: catalog.MutableTable, img_tbl: catalog.MutableTable) -> None:
+    def test_props(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
         t = test_tbl
         # errortype/-msg for computed column
         res = t.select(error=t.c8.errortype).collect()
@@ -248,7 +248,7 @@ class TestExprs:
         assert result['c3'] == [2.0, None, None, None]
         assert result['c4'] == [2.0, 1.0, None, None]
 
-    def test_arithmetic_exprs(self, test_tbl: catalog.MutableTable) -> None:
+    def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
         _ = t[t.c2, t.c6.f3, t.c2 + t.c6.f3, (t.c2 + t.c6.f3) / (t.c6.f3 + 1)].show()
@@ -293,13 +293,13 @@ class TestExprs:
                 _ = t[op1 * op2].show()
 
 
-    def test_inline_dict(self, test_tbl: catalog.MutableTable) -> None:
+    def test_inline_dict(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         df = t[[{'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}}]]
         result = df.show()
         print(result)
 
-    def test_inline_array(self, test_tbl: catalog.MutableTable) -> None:
+    def test_inline_array(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         result = t.select([[t.c2, 1], [t.c2, 2]]).show()
         t = result.column_types()[0]
@@ -308,7 +308,7 @@ class TestExprs:
         assert t.shape == (2, 2)
         assert t.dtype == ColumnType.Type.INT
 
-    def test_json_mapper(self, test_tbl: catalog.MutableTable) -> None:
+    def test_json_mapper(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # top-level is dict
         df = t[t.c6.f5['*'] >> (R + 1)]
@@ -324,7 +324,7 @@ class TestExprs:
         res = df.show()
         print(res)
 
-    def test_dicts(self, test_tbl: catalog.MutableTable) -> None:
+    def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # top-level is dict
         _ = t[t.c6.f1]
@@ -348,7 +348,7 @@ class TestExprs:
         _ = t[cast(t.c7['*'].f6.f8, ArrayType((2, 4), FloatType()))].show()
         print(_)
 
-    def test_arrays(self, test_tbl: catalog.MutableTable) -> None:
+    def test_arrays(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         t.add_column(array_col=[[t.c2, 1], [1, t.c2]])
         _ = t[t.array_col].show()
@@ -404,7 +404,7 @@ class TestExprs:
         ][t.img, t.split].show()
         print(result)
 
-    def test_similarity(self, indexed_img_tbl: catalog.MutableTable) -> None:
+    def test_similarity(self, indexed_img_tbl: catalog.Table) -> None:
         t = indexed_img_tbl
         _ = t.show(30)
         probe = t.select(t.img, t.category).show(1)
@@ -433,7 +433,7 @@ class TestExprs:
 
     # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
     # doesn't get created; why?
-    def test_similarity2(self, img_tbl: catalog.MutableTable) -> None:
+    def test_similarity2(self, img_tbl: catalog.Table) -> None:
         t = img_tbl
         probe = t[t.img].show(1)
         img = probe[0, 0]
@@ -444,8 +444,8 @@ class TestExprs:
             _ = t[t.img.nearest('musical instrument')].show(10)
 
     def test_ids(
-            self, test_tbl: catalog.MutableTable, test_tbl_exprs: List[exprs.Expr],
-            img_tbl: catalog.MutableTable, img_tbl_exprs: List[exprs.Expr]
+            self, test_tbl: catalog.Table, test_tbl_exprs: List[exprs.Expr],
+            img_tbl: catalog.Table, img_tbl_exprs: List[exprs.Expr]
     ) -> None:
         d: Dict[int, exprs.Expr] = {}
         for e in test_tbl_exprs:
@@ -457,19 +457,16 @@ class TestExprs:
         assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs)
 
     def test_serialization(
-            self, test_tbl: catalog.MutableTable, test_tbl_exprs: List[exprs.Expr],
-            img_tbl: catalog.MutableTable, img_tbl_exprs: List[exprs.Expr]
+            self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]
     ) -> None:
-        t = test_tbl
         for e in test_tbl_exprs:
             e_serialized = e.serialize()
-            e_deserialized = Expr.deserialize(e_serialized, t)
+            e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
-        img_t = img_tbl
         for e in img_tbl_exprs:
             e_serialized = e.serialize()
-            e_deserialized = Expr.deserialize(e_serialized, img_t)
+            e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
     def test_print(self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]) -> None:
@@ -481,7 +478,7 @@ class TestExprs:
             _ = str(e)
             print(_)
 
-    def test_subexprs(self, img_tbl: catalog.MutableTable) -> None:
+    def test_subexprs(self, img_tbl: catalog.Table) -> None:
         t = img_tbl
         e = t.img
         subexprs = [s for s in e.subexprs()]
@@ -493,7 +490,7 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, test_client: pt.Client, test_tbl: catalog.MutableTable) -> None:
+    def test_window_fns(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client
         t = test_tbl
         _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
@@ -529,7 +526,7 @@ class TestExprs:
         new_t.insert(rows)
         _ = new_t.show(0)
 
-    def test_aggregates(self, test_tbl: catalog.MutableTable) -> None:
+    def test_aggregates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         _ = t[t.c2 % 2, sum(t.c2), count(t.c2), sum(t.c2) + count(t.c2), sum(t.c2) + (t.c2 % 2)]\
             .group_by(t.c2 % 2).show()

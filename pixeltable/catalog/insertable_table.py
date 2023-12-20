@@ -6,9 +6,10 @@ from uuid import UUID
 
 import sqlalchemy.orm as orm
 
-from .column import Column
 from .table_version import TableVersion
-from .mutable_table import MutableTable
+from .table_version_path import TableVersionPath
+from .table import Table
+from .catalog import Catalog
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
 import pixeltable.type_system as ts
@@ -16,11 +17,11 @@ import pixeltable.type_system as ts
 
 _logger = logging.getLogger('pixeltable')
 
-class InsertableTable(MutableTable):
-    """A `MutableTable` that allows inserting and deleting rows.
-    """
+class InsertableTable(Table):
+    """A `Table` that allows inserting and deleting rows."""
     def __init__(self, dir_id: UUID, tbl_version: TableVersion):
-        super().__init__(tbl_version.id, dir_id, tbl_version)
+        tbl_version_path = TableVersionPath(tbl_version)
+        super().__init__(tbl_version.id, dir_id, tbl_version.name, tbl_version_path)
 
     @classmethod
     def display_name(cls) -> str:
@@ -44,16 +45,19 @@ class InsertableTable(MutableTable):
             col.primary_key = True
 
         with orm.Session(Env.get().engine, future=True) as session:
-            tbl_version = TableVersion.create(
-                dir_id, name, columns, None, None, num_retained_versions, None, None, session)
+            _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions)
             tbl = cls(dir_id, tbl_version)
             session.commit()
+            cat = Catalog.get()
+            cat.tbl_dependents[tbl.id] = []
+            cat.tbls[tbl.id] = tbl
+
             _logger.info(f'created table {name}, id={tbl_version.id}')
             return tbl
 
     def insert(
             self, rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception : bool = True
-    ) -> MutableTable.UpdateStatus:
+    ) -> Table.UpdateStatus:
         """Insert rows into table.
 
         Args:
@@ -104,8 +108,8 @@ class InsertableTable(MutableTable):
     def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
         valid_col_names = set(self.column_names())
-        reqd_col_names = set(self.tbl_version.get_required_col_names())
-        computed_col_names = set(self.tbl_version.get_computed_col_names())
+        reqd_col_names = set(self.tbl_version_path.tbl_version.get_required_col_names())
+        computed_col_names = set(self.tbl_version_path.tbl_version.get_computed_col_names())
         for row in rows:
             assert isinstance(row, dict)
             col_names = set(row.keys())
@@ -119,7 +123,7 @@ class InsertableTable(MutableTable):
                     raise exc.Error(f'Value for computed column {col_name} in row {row}')
 
                 # validate data
-                col = self.tbl_version.get_column(col_name)
+                col = self.tbl_version_path.get_column(col_name)
                 try:
                     # basic sanity checks here
                     checked_val = col.col_type.create_literal(val)
@@ -128,7 +132,7 @@ class InsertableTable(MutableTable):
                     msg = str(e)
                     raise exc.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> MutableTable.UpdateStatus:
+    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> Table.UpdateStatus:
         """Delete rows in this table.
 
         Args:

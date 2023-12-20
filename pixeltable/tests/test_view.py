@@ -54,17 +54,25 @@ class TestView:
         # computed columns that don't reference the base table
         v.add_column(v3=v.v1 * 2.0)
         v.add_column(v4=v.v2[0])
-        assert v.count() == t.where(t.c2 < 10).count()
-        _ = v.where(v.c2 > 4).show(0)
+
+        def check_view(t: pt.Table, v: pt.Table) -> None:
+            assert v.count() == t.where(t.c2 < 10).count()
+            assert_resultset_eq(
+                v.select(v.v1).order_by(v.c2).collect(),
+                t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())
+            assert_resultset_eq(
+                v.select(v.v3).order_by(v.c2).collect(),
+                t.select(t.c3 * 4.0).where(t.c2 < 10).order_by(t.c2).collect())
+            assert_resultset_eq(
+                v.select(v.v4).order_by(v.c2).collect(),
+                t.select(t.c6.f5[0]).where(t.c2 < 10).order_by(t.c2).collect())
+        check_view(t, v)
 
         # check view md after reload
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table('test_tbl')
-        v_old = v
         v = cl.get_table('test_view')
-        assert v.predicate.equals(v_old.predicate)
-        assert set(v_old.cols_by_name.keys()) == set(v.cols_by_name.keys())
-        assert v.cols_by_name['v1'].value_expr.equals(v.c3 * 2.0)
+        check_view(t, v)
 
         view_query = v.select(v.v1).order_by(v.c2)
         base_query = t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2)
@@ -74,27 +82,35 @@ class TestView:
         status = t.insert(rows)
         assert status.num_rows == 30
         assert t.count() == 120
-        assert_resultset_eq(view_query.collect(), base_query.collect())
+        check_view(t, v)
 
         # update data: cascade to view
         status = t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         assert status.num_rows == 10 * 2  # *2: rows affected in both base table and view
         assert t.count() == 120
-        assert_resultset_eq(view_query.collect(), base_query.collect())
+        check_view(t, v)
 
         # base table delete is reflected in view
         status = t.delete(where=t.c2 < 5)
         status.num_rows == 10 * 2  # *2: rows affected in both base table and view
         assert t.count() == 110
-        assert_resultset_eq(view_query.collect(), base_query.collect())
+        check_view(t, v)
 
         # test delete view
         cl.drop_table('test_view')
-        cl = pt.Client()
-
         with pytest.raises(exc.Error) as exc_info:
             _ = cl.get_table('test_view')
         assert 'No such path:' in str(exc_info.value)
+        cl = pt.Client(reload=True)
+        # still true after reload
+        with pytest.raises(exc.Error) as exc_info:
+            _ = cl.get_table('test_view')
+        assert 'No such path:' in str(exc_info.value)
+
+        t = cl.get_table('test_tbl')
+        with pytest.raises(exc.Error) as exc_info:
+            _ = cl.create_view('lambda_view', t, schema={'v1': lambda c3: c3 * 2.0})
+        assert 'computed with a callable' in str(exc_info.value).lower()
 
     def test_parallel_views(self, test_client: pt.Client) -> None:
         """Two views over the same base table, with non-overlapping filters"""
@@ -338,7 +354,7 @@ class TestView:
         v.add_column(v4=v.v2[0])
 
         # use view md after reload
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table('test_tbl')
         v = cl.get_table('test_view')
 
@@ -375,7 +391,7 @@ class TestView:
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
         # use view md after reload
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table('test_tbl')
         v = cl.get_table('test_view')
 
@@ -401,12 +417,11 @@ class TestView:
             v.order_by(v.c2).show(0),
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
-    @pytest.mark.skip(reason='revise view snapshots')
-    def test_snapshot_view(self, test_client: pt.Client) -> None:
+    def test_view_of_snapshot(self, test_client: pt.Client) -> None:
         """Test view over a snapshot"""
         cl = test_client
         t = self.create_tbl(cl)
-        snap = cl.create_snapshot('test_snap', 'test_tbl')
+        snap = cl.create_view('test_snap', t, is_snapshot=True)
 
         # create view with filter and computed columns
         schema = {
@@ -414,82 +429,105 @@ class TestView:
             'v2': snap.c6.f5,
         }
         v = cl.create_view('test_view', snap, schema=schema, filter=snap.c2 < 10)
-        res = v.select(v.v1).order_by(v.c2).show(0)
-        assert_resultset_eq(
-            res,
-            t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).show(0))
+
+        def check_view(s: pt.Table, v: pt.Table) -> None:
+            assert v.count() == s.where(s.c2 < 10).count()
+            assert_resultset_eq(
+                v.select(v.v1).order_by(v.c2).collect(),
+                s.select(s.c3 * 2.0).where(s.c2 < 10).order_by(s.c2).collect())
+            assert_resultset_eq(
+                v.select(v.v2).order_by(v.c2).collect(),
+                s.select(s.c6.f5).where(s.c2 < 10).order_by(s.c2).collect())
+
+        check_view(snap, v)
         # computed columns that don't reference the base table
         v.add_column(v3=v.v1 * 2.0)
         v.add_column(v4=v.v2[0])
         assert v.count() == t.where(t.c2 < 10).count()
-        _ = v.where(v.c2 > 4).show(0)
 
         # use view md after reload
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table('test_tbl')
+        snap = cl.get_table('test_snap')
         v = cl.get_table('test_view')
 
         # insert data: no changes to view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
         t.insert(rows)
         assert t.count() == 120
-        assert_resultset_eq(v.select(v.v1).order_by(v.c2).show(0), res)
+        check_view(snap, v)
 
         # update data: no changes to view
         t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         assert t.count() == 120
-        assert_resultset_eq(v.select(v.v1).order_by(v.c2).show(0), res)
+        check_view(snap, v)
 
         # base table delete: no change to view
         t.delete(where=t.c2 < 5)
         assert t.count() == 110
-        assert_resultset_eq(v.select(v.v1).order_by(v.c2).show(0), res)
+        check_view(snap, v)
 
-    @pytest.mark.skip(reason='revise view snapshots')
     def test_snapshots(self, test_client: pt.Client) -> None:
         """Test snapshot of a view of a snapshot"""
         cl = test_client
         t = self.create_tbl(cl)
-        s = cl.create_snapshot('test_snap', 'test_tbl')
+        s = cl.create_view('test_snap', t, is_snapshot=True)
+        assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
+
+        with pytest.raises(exc.Error) as exc_info:
+            v = cl.create_view('test_view', s, schema={'v1': t.c3 * 2.0})
+        assert 'value expression cannot be computed in the context of the base test_snap' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            v = cl.create_view('test_view', s, filter=t.c2 < 10)
+        assert 'filter cannot be computed in the context of the base test_snap' in str(exc_info.value).lower()
 
         # create view with filter and computed columns
         schema = {
-            'v1': t.c3 * 2.0,
-            'v2': t.c6.f5,
+            'v1': s.c3 * 2.0,
+            'v2': s.c6.f5,
         }
-        v = cl.create_view('test_view', s, schema=schema, filter=t.c2 < 10)
-        view_s = cl.create_snapshot('test_view_snap', 'test_view')
-        snapshot_query = view_s.order_by(view_s.c2)
-        table_snapshot_query = \
-            s.select(s.c3 * 2.0, s.c6.f5, s.c1, s.c1n, s.c2, s.c3, s.c4, s.c5, s.c6, s.c7, s.c8, s.d1, s.c10, s.d2) \
-                .where(s.c2 < 10).order_by(s.c2)
-        assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
+        v = cl.create_view('test_view', s, schema=schema, filter=s.c2 < 10)
+        orig_view_cols = v.column_names()
+        view_s = cl.create_view('test_view_snap', v, is_snapshot=True)
+        assert set(view_s.column_names()) == set(orig_view_cols)
+
+        def check(s1: pt.Table, v: pt.Table, s2: pt.Table) -> None:
+            assert s1.where(s1.c2 < 10).count() == v.count()
+            assert v.count() == s2.count()
+            assert_resultset_eq(
+                s1.select(s1.c3 * 2.0, s1.c6.f5).where(s1.c2 < 10).order_by(s1.c2).collect(),
+                v.select(v.v1, v.v2).order_by(v.c2).collect())
+            assert_resultset_eq(
+                v.select(v.c3, v.c6, v.v1, v.v2).order_by(v.c2).collect(),
+                s2.select(s2.c3, s2.c6, s2.v1, s2.v2).order_by(s2.c2).collect())
+        check(s, v, view_s)
+
         # add more columns
         v.add_column(v3=v.v1 * 2.0)
         v.add_column(v4=v.v2[0])
-        assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
+        check(s, v, view_s)
+        assert set(view_s.column_names()) == set(orig_view_cols)
 
         # check md after reload
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table('test_tbl')
-        view_s_old = view_s
         view_s = cl.get_table('test_view_snap')
-        assert view_s.tbl_version.predicate == view_s_old.tbl_version.predicate
-        assert set(view_s_old.tbl_version.cols_by_name.keys()) == set(view_s.tbl_version.cols_by_name.keys())
-        assert view_s.tbl_version.cols_by_name['v1'].value_expr == t.c3 * 2.0
+        check(s, v, view_s)
+        assert set(view_s.column_names()) == set(orig_view_cols)
 
         # insert data: no changes to snapshot
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
         t.insert(rows)
         assert t.count() == 120
-        assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
+        check(s, v, view_s)
 
         # update data: no changes to snapshot
         t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         assert t.count() == 120
-        assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
+        check(s, v, view_s)
 
         # base table delete: no changes to snapshot
         t.delete(where=t.c2 < 5)
         assert t.count() == 110
-        assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
+        check(s, v, view_s)

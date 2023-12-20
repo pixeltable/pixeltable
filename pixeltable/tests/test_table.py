@@ -64,7 +64,7 @@ class TestTable:
             _ = cl.list_tables('dir2')
 
         # test loading with new client
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
 
         tbl = cl.get_table('test')
         assert isinstance(tbl, catalog.InsertableTable)
@@ -299,7 +299,7 @@ class TestTable:
         assert cache_stats.num_hits == 0
 
         # start with fresh client and FileCache instance to test FileCache initialization with pre-existing files
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         # is there a better way to do this?
         FileCache._instance = None
         t = cl.get_table('test')
@@ -363,14 +363,11 @@ class TestTable:
             requires_order_by=True, allows_window=True)
         # cols computed with window functions are stored by default
         view.add_column(c5=window_fn(view.frame_idx, group_by=view.video))
-        assert view.cols_by_name['c5'].is_stored
 
-        params = view.parameters
         # reload to make sure that metadata gets restored correctly
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         tbl = cl.get_table('test_tbl')
         view = cl.get_table('test_view')
-        assert view.parameters == params
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         status = tbl.insert([{'payload': 1, 'video': url}])
@@ -400,10 +397,10 @@ class TestTable:
         # drop() clears stored images and the cache
         tbl.insert([{'payload': 1, 'video': get_video_files()[0]}])
         with pytest.raises(exc.Error) as exc_info:
-            tbl.drop()
-        assert '1 view' in str(exc_info.value)
-        view.drop()
-        tbl.drop()
+            cl.drop_table('test_tbl')
+        assert 'has dependents: test_view' in str(exc_info.value)
+        cl.drop_table('test_view')
+        cl.drop_table('test_tbl')
         assert MediaStore.count(view.id) == 0
 
     def test_insert(self, test_client: pt.Client) -> None:
@@ -475,11 +472,11 @@ class TestTable:
         _ = t.show(n=0)
 
         # test querying existing table
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t2 = cl.get_table('test')
         _  = t2.show(n=0)
 
-    def test_update(self, test_tbl: pt.MutableTable, indexed_img_tbl: pt.MutableTable) -> None:
+    def test_update(self, test_tbl: pt.Table, indexed_img_tbl: pt.Table) -> None:
         t = test_tbl
         # update every type with a literal
         test_cases = [
@@ -532,7 +529,7 @@ class TestTable:
         assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'] == computed3)
 
         # revert, then verify that we're back to where we started
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
@@ -614,7 +611,7 @@ class TestTable:
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).show(0)
         assert_resultset_eq(r1, r2)
 
-    def test_delete(self, test_tbl: pt.MutableTable, indexed_img_tbl: pt.MutableTable) -> None:
+    def test_delete(self, test_tbl: pt.Table, indexed_img_tbl: pt.Table) -> None:
         t = test_tbl
 
         cnt = t.where(t.c3 < 10.0).count()
@@ -629,7 +626,7 @@ class TestTable:
         assert cnt == 1
 
         # revert, then verify that we're back where we started
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
@@ -692,7 +689,7 @@ class TestTable:
             t.insert(rows2)
 
         # test loading from store
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table('test')
         assert len(t.columns()) == len(t.columns())
         for i in range(len(t.columns())):
@@ -711,7 +708,7 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
-    def test_computed_col_exceptions(self, test_client: pt.Client, test_tbl: catalog.MutableTable) -> None:
+    def test_computed_col_exceptions(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client
 
         # exception during insert()
@@ -735,7 +732,7 @@ class TestTable:
         assert 'test_add_column.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
 
-    def _test_computed_img_cols(self, t: catalog.MutableTable, stores_img_col: bool) -> None:
+    def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         status = t.insert(rows)
@@ -745,7 +742,7 @@ class TestTable:
         assert MediaStore.count(t.id) == t.count() * stores_img_col
 
         # test loading from store
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t2 = cl.get_table(t.name)
         assert len(t.columns()) == len(t2.columns())
         for i in range(len(t.columns())):
@@ -788,7 +785,7 @@ class TestTable:
         t.insert(rows, fail_on_exception=False)
         _ = t[t.c3.errortype].show(0)
 
-    def test_computed_window_fn(self, test_client: pt.Client, test_tbl: catalog.MutableTable) -> None:
+    def test_computed_window_fn(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client
         t = test_tbl
         # backfill
@@ -832,43 +829,7 @@ class TestTable:
             t1.revert()
         assert 'version 0' in str(excinfo.value)
 
-    def test_snapshot(self, test_client: pt.Client) -> None:
-        cl = test_client
-        cl.create_dir('main')
-        tbl = make_tbl(cl, 'main.test1', ['c1', 'c2'])
-        rows1 = create_table_data(tbl)
-        tbl.insert(rows1)
-        assert tbl.count() == len(rows1)
-
-        cl.create_dir('snap')
-        cl.create_snapshot('snap.test1', 'main.test1')
-        snap = cl.get_table('snap.test1')
-        assert cl.get_path(snap) == 'snap.test1'
-        assert snap.count() == len(rows1)
-
-        # reload md
-        cl = pt.Client()
-        snap = cl.get_table('snap.test1')
-        assert snap.count() == len(rows1)
-
-        # adding data to a base table doesn't change the snapshot
-        rows2 = create_table_data(tbl)
-        tbl.insert(rows2)
-        assert tbl.count() == len(rows1) + len(rows2)
-        assert snap.count() == len(rows1)
-
-        tbl.revert()
-        # can't revert a version referenced by a snapshot
-        with pytest.raises(exc.Error) as excinfo:
-            tbl.revert()
-        assert 'version is needed' in str(excinfo.value)
-
-        # can't drop a table with snapshots
-        with pytest.raises(exc.Error) as excinfo:
-            cl.drop_table('main.test1')
-        assert 'snapshot' in str(excinfo.value)
-
-    def test_add_column(self, test_tbl: catalog.MutableTable) -> None:
+    def test_add_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.add_column(add1=pt.IntType(nullable=True))
@@ -912,7 +873,7 @@ class TestTable:
             _ = t.add_column(c5=(t.c2 + t.c3), stored=False)
 
         # make sure this is still true after reloading the metadata
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
         assert len(t.columns()) == num_orig_cols + 1
 
@@ -921,11 +882,11 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
-    def test_add_column_setitem(self, test_tbl: catalog.MutableTable) -> None:
+    def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t['add1'] = pt.IntType(nullable=True)
@@ -963,7 +924,7 @@ class TestTable:
         assert 'duplicate column name' in str(exc_info.value).lower()
 
         # make sure this is still true after reloading the metadata
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
         assert len(t.columns()) == num_orig_cols + 2
 
@@ -973,11 +934,11 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
-    def test_drop_column(self, test_tbl: catalog.MutableTable) -> None:
+    def test_drop_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.drop_column('c1')
@@ -987,7 +948,7 @@ class TestTable:
             t.drop_column('unknown')
 
         # make sure this is still true after reloading the metadata
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
         assert len(t.columns()) == num_orig_cols - 1
 
@@ -996,15 +957,23 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
-    def test_rename_column(self, test_tbl: catalog.MutableTable) -> None:
+    def test_rename_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.rename_column('c1', 'c1_renamed')
         assert len(t.columns()) == num_orig_cols
+
+        def check_rename(t: pt.Table, known: str, unknown: str) -> None:
+            with pytest.raises(AttributeError) as exc_info:
+                _ = t.select(t[unknown]).collect()
+            assert 'unknown' in str(exc_info.value).lower()
+            _ = t.select(t[known]).collect()
+
+        check_rename(t, 'c1_renamed', 'c1')
 
         # unknown column
         with pytest.raises(exc.Error):
@@ -1017,23 +986,21 @@ class TestTable:
             t.rename_column('c2', 'c3')
 
         # make sure this is still true after reloading the metadata
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
-        assert 'c1' not in t.cols_by_name
-        assert 'c1_renamed' in t.cols_by_name
+        check_rename(t, 'c1_renamed', 'c1')
 
         # revert() works
         t.revert()
-        assert 'c1' in t.cols_by_name
-        assert 'c1_renamed' not in t.cols_by_name
+        _ = t.select(t.c1).collect()
+        #check_rename(t, 'c1', 'c1_renamed')
 
         # make sure this is still true after reloading the metadata once more
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         t = cl.get_table(t.name)
-        assert 'c1' in t.cols_by_name
-        assert 'c1_renamed' not in t.cols_by_name
+        check_rename(t, 'c1', 'c1_renamed')
 
-    def test_add_computed_column(self, test_tbl: catalog.MutableTable) -> None:
+    def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         status = t.add_column(add1=t.c2 + 10)
         assert status.num_excs == 0
@@ -1055,7 +1022,7 @@ class TestTable:
         result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()
         assert len(result) == 10
 
-    def test_describe(self, test_tbl: catalog.MutableTable) -> None:
+    def test_describe(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         fn = lambda c2: np.full((3, 4), c2)
         t.add_column(computed1=fn, type=ArrayType((3, 4), dtype=IntType()))

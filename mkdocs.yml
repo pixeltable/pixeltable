@@ -23,9 +23,7 @@ nav:
   - Client: api/client.md
   - DataFrame: api/data_frame.md
   - InsertableTable: api/insertable_table.md
-  - MutableTable: api/mutable_table.md
   - Table: api/table.md
-  - TableSnapshot: api/table_snapshot.md
   - View: api/view.md
 
 theme:

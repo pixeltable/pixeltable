@@ -41,7 +41,7 @@ class TestFunction:
         cl.create_function('test_fn', self.func)
         assert self.func.md.fqn == 'test_fn'
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         _ = cl.list_functions()
         fn2 = cl.get_function('test_fn')
         assert fn2.md.fqn == 'test_fn'
@@ -55,7 +55,7 @@ class TestFunction:
             library_fn = make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
             cl.create_function('library_fn', library_fn)
 
-    def test_update(self, test_client: pt.Client, test_tbl: catalog.MutableTable) -> None:
+    def test_update(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client
         t = test_tbl
         cl.create_function('test_fn', self.func)
@@ -63,7 +63,7 @@ class TestFunction:
 
         # load function from db and make sure it computes the same thing as before
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         fn = cl.get_function('test_fn')
         res2 = t[fn(t.c2)].show(0).to_pandas()
         assert res1.col_0.equals(res2.col_0)
@@ -72,7 +72,7 @@ class TestFunction:
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
 
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         fn = cl.get_function('test_fn')
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
         res3 = t[fn(t.c2)].show(0).to_pandas()
@@ -91,7 +91,7 @@ class TestFunction:
         cl.create_function('test_fn', self.func)
 
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         with pytest.raises(exc.Error):
             cl.move('test_fn2', 'test_fn')
         cl.move('test_fn', 'test_fn2')
@@ -114,7 +114,7 @@ class TestFunction:
 
 
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         func = cl.get_function('functions2.func1')
         assert func.eval_fn(1) == 2
         assert func.md.fqn == 'functions2.func1'
@@ -125,7 +125,7 @@ class TestFunction:
         cl = test_client
         cl.create_function('test_fn', self.func)
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         cl.drop_function('test_fn')
 
         with pytest.raises(exc.Error):
@@ -135,7 +135,7 @@ class TestFunction:
         _ = FunctionRegistry.get().list_functions()
         print(_)
 
-    def test_call(self, test_tbl: catalog.MutableTable) -> None:
+    def test_call(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
         @pt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])

@@ -115,7 +115,7 @@ class JsonMapper(Expr):
         return {'components': [c.as_dict() for c in self.components[0:2]]}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert len(components) == 2
         return cls(components[0], components[1])
 

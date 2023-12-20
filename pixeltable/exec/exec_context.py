@@ -20,7 +20,3 @@ class ExecContext:
         self.pk_clause = pk_clause
         self.num_computed_exprs = num_computed_exprs
         self.ignore_errors = ignore_errors
-
-    def set_pk_clause(self, pk_clause: List[sql.ClauseElement]) -> None:
-        self.pk_clause = pk_clause
-

@@ -17,7 +17,7 @@ cl = pxt.Client()
 |--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | Create a (mutable) table           | t = cl.[create_table][pixeltable.Client.create_table]('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})               |
 | Create a view           | t = cl.[create_view][pixeltable.Client.create_view]('view_name', base_tbl, schema={'col_1': pxt.StringType, ...}, filter=base_tbl.col > 10) |
-| Create a snapshot           | t = cl.[create_snapshot][pixeltable.Client.create_snapshot]('snapshot_name', 'tbl_name')                                                    |
+| Create a snapshot           | t = cl.[create_view][pixeltable.Client.create_view]('snapshot_name', t, is_snapshot=True)                                                   |
 
 The following functions apply to tables, views, and snapshots.
 

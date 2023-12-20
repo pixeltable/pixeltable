@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import dataclasses
 import inspect
 import logging
@@ -27,117 +26,121 @@ _logger = logging.getLogger('pixeltable')
 
 class TableVersion:
     """
-    TableVersion contains all metadata needed to execute queries and updates against a particular version of a
-    table/view (ie, what is recorded in schema.Table):
-    - schema information
-    - for views, the full chain of base tables
-
-    If this version is not the current version, updates are disabled.
+    TableVersion represents a particular version of a table/view along with its store table:
+    - the version can be mutable or a snapshot
+    - tables and their recursive views form a tree, and a mutable TableVersion also records its own
+      mutable views in order to propagate updates
+    - each view TableVersion records its base:
+      * the base is correct only for mutable views (snapshot versions form a DAG, not a tree)
+      * the base is useful for getting access to the StoreTable and the base id
+      * TODO: create a separate hierarchy of objects that records the version-independent tree of tables/views, and
+        have TableVersions reference those
+    - mutable TableVersions record their TableVersionPath, which is needed for expr evaluation in updates
     """
 
     def __init__(
-            self, id: UUID, base: Optional[TableVersion], tbl_md: schema.TableMd, version: int,
-            schema_version_md: schema.TableSchemaVersionMd
+            self, id: UUID, tbl_md: schema.TableMd, version: int, schema_version_md: schema.TableSchemaVersionMd,
+            base: Optional[TableVersion] = None, base_path: Optional['TableVersionPath'] = None,
+            is_snapshot: Optional[bool] = None
     ):
+        # only one of base and base_path can be non-None
+        assert base is None or base_path is None
         self.id = id
         self.name = tbl_md.name
-        self.base = base
         self.version = version
         self.schema_version = schema_version_md.schema_version
-        if tbl_md.current_version == self.version:
-            self.next_col_id = tbl_md.next_col_id
-            self.next_rowid = tbl_md.next_row_id
+        self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
+        is_view = tbl_md.view_md is not None
+        self.is_snapshot = (is_view and tbl_md.view_md.is_snapshot) or bool(is_snapshot)
+        # a mutable TableVersion doesn't have a static version
+        self.effective_version = self.version if self.is_snapshot else None
+
+        # mutable tables need their TableVersionPath for expr eval during updates
+        from .table_version_path import TableVersionPath
+        if self.is_snapshot:
+            self.path = None
         else:
-            # disable schema changes and updates
+            self.path = TableVersionPath(self, base=base_path) if base_path is not None else TableVersionPath(self)
+
+        self.base = base_path.tbl_version if base_path is not None else base
+        if self.is_snapshot:
             self.next_col_id = -1
             self.next_rowid = -1
+        else:
+            assert tbl_md.current_version == self.version
+            self.next_col_id = tbl_md.next_col_id
+            self.next_rowid = tbl_md.next_row_id
         self.column_history = tbl_md.column_history
         self.parameters = tbl_md.parameters
 
         # view-specific initialization
         from pixeltable import exprs
-        self.predicate = exprs.Expr.from_dict(tbl_md.predicate, self) if tbl_md.predicate is not None else None
-        self.views: List[TableVersion] = []  # views that reference us
-        if self.base is not None:
-            self.base.views.append(self)
+        predicate_dict = None if not is_view or tbl_md.view_md.predicate is None else tbl_md.view_md.predicate
+        self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None
+        self.mutable_views: List[TableVersion] = []  # targets for update propagation
+        if self.base is not None and not self.base.is_snapshot and not self.is_snapshot:
+            self.base.mutable_views.append(self)
 
         # component view-specific initialization
         self.iterator_cls: Optional[Type[ComponentIterator]] = None
+        self.iterator_args: Optional[exprs.InlineDict] = None
         self.num_iterator_cols = 0
-        if tbl_md.iterator_class_fqn is not None:
-            module_name, class_name = tbl_md.iterator_class_fqn.rsplit('.', 1)
+        if is_view and tbl_md.view_md.iterator_class_fqn is not None:
+            module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
             module = importlib.import_module(module_name)
             self.iterator_cls = getattr(module, class_name)
             output_schema, _ = self.iterator_cls.output_schema()
             self.num_iterator_cols = len(output_schema)
-        self.iterator_args: Optional[exprs.InlineDict] = None
-        if tbl_md.iterator_args is not None:
-            self.iterator_args = exprs.Expr.from_dict(tbl_md.iterator_args, self)
+            assert tbl_md.view_md.iterator_args is not None
+            self.iterator_args = exprs.Expr.from_dict(tbl_md.view_md.iterator_args)
+
+        # register this table version now so that it's available when we're re-creating value exprs
+        import pixeltable.catalog as catalog
+        cat = catalog.Catalog.get()
+        cat.tbl_versions[(self.id, self.effective_version)] = self
 
         # do this after we determined whether we're a component view, and before we create the store table
-        self._set_cols(schema_version_md)
-
-        from pixeltable.store import StoreTable, StoreView, StoreComponentView
-        if self.is_component_view():
-            self.store_tbl = StoreComponentView(self)
-        elif self.is_view():
-            self.store_tbl = StoreView(self)
-        else:
-            self.store_tbl = StoreTable(self)
+        self._init_schema(schema_version_md)
 
     def __hash__(self) -> int:
         return hash(self.id)
 
     def create_snapshot_copy(self) -> TableVersion:
-        """Create an immutable copy of this TableVersion for a particular snapshot"""
-        result = TableVersion(
-            self.id, self.base, self._create_md(), self.version,
-            self._create_schema_version_md(preceding_schema_version=0))  # preceding_schema_version: dummy value
-        result.next_col_id = -1
-        result.next_rowid = -1
-        return result
+        """Create a snapshot copy of this TableVersion"""
+        assert not self.is_snapshot
+        return TableVersion(
+            self.id, self._create_md(), self.version,
+            self._create_schema_version_md(preceding_schema_version=0),  # preceding_schema_version: dummy value
+            is_snapshot=True, base=self.base)
 
     @classmethod
     def create(
-            cls, dir_id: UUID, name: str, cols: List[Column],
-            base: Optional[TableVersion], predicate: Optional['exprs.Predicate'], num_retained_versions: int,
-            iterator_cls: Optional[Type[ComponentIterator]],
-            iterator_args: Optional['exprs.InlineDict'],
-            session: orm.Session
-    ) -> TableVersion:
-        # create a copy here so we can modify it
-        cols = [copy.copy(c) for c in cols]
+            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int,
+            base_path: Optional['TableVersionPath'] = None, view_md: Optional[schema.ViewMd] = None
+    ) -> Tuple[UUID, Optional[TableVersion]]:
         # assign ids
         cols_by_name: Dict[str, Column] = {}
         for pos, col in enumerate(cols):
             col.id = pos
             cols_by_name[col.name] = col
             if col.value_expr is None and col.compute_func is not None:
-                cls._create_value_expr(col, cols_by_name)
+                cls._create_value_expr(col, base_path)
             if col.is_computed:
                 col.check_value_expr()
 
         params = schema.TableParameters(num_retained_versions)
 
         ts = time.time()
-        # create schema.MutableTable
+        # create schema.Table
         column_history = {
             col.id: schema.ColumnHistory(col_id=col.id, schema_version_add=0, schema_version_drop=None)
             for col in cols
         }
-        iterator_class_fqn = f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None else None
         table_md = schema.TableMd(
             name=name, parameters=params, current_version=0, current_schema_version=0,
             next_col_id=len(cols), next_row_id=0, column_history=column_history,
-            predicate=predicate.as_dict() if predicate is not None else None,
-            iterator_class_fqn=iterator_class_fqn,
-            iterator_args=iterator_args.as_dict() if iterator_args is not None else None,
-        )
-        # base version: if we're referencing a live table, the base version is None
-        base_version = None if base is None or base.next_rowid != -1 else base.version
-        tbl_record = schema.Table(
-            dir_id=dir_id, base_id=base.id if base is not None else None, base_version=base_version,
-            md=dataclasses.asdict(table_md))
+            view_md=view_md)
+        tbl_record = schema.Table(dir_id=dir_id, md=dataclasses.asdict(table_md))
         session.add(tbl_record)
         session.flush()  # sets tbl_record.id
         assert tbl_record.id is not None
@@ -151,7 +154,7 @@ class TableVersion:
         # create schema.TableSchemaVersion
         column_md: Dict[int, schema.SchemaColumn] = {}
         for pos, col in enumerate(cols):
-            # Column.dependent_cols for existing cols is wrong at this point, but MutableTable.init() will set it correctly
+            # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
             value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
             column_md[col.id] = schema.SchemaColumn(
                 pos=pos, name=col.name, col_type=col.col_type.as_dict(),
@@ -163,45 +166,43 @@ class TableVersion:
             tbl_id=tbl_record.id, schema_version=0, md=dataclasses.asdict(schema_version_md))
         session.add(schema_version_record)
 
-        tbl_version = cls(tbl_record.id, base, table_md, 0, schema_version_md)
+        # if this is purely a snapshot (it doesn't require any additional storage for columns and it # doesn't have a
+        # predicate to apply at runtime), we don't create a physical table and simply use the base's table version path
+        if view_md is not None and view_md.is_snapshot and view_md.predicate is None and len(cols) == 0:
+            return tbl_record.id, None
+
+        assert (base_path is not None) == (view_md is not None)
+        base = base_path.tbl_version if base_path is not None and view_md.is_snapshot else None
+        base_path = base_path if base_path is not None and not view_md.is_snapshot else None
+        tbl_version = cls(tbl_record.id, table_md, 0, schema_version_md, base=base, base_path=base_path)
         tbl_version.store_tbl.create(session.connection())
         # TODO: create pgvector indices
-        return tbl_version
+        return tbl_record.id, tbl_version
+
+    @classmethod
+    def delete_md(cls, tbl_id: UUID, conn: sql.Connection) -> None:
+        conn.execute(
+            sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == tbl_id))
+        conn.execute(
+            sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
+        conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
 
     def drop(self) -> None:
-        with orm.Session(Env.get().engine, future=True) as session:
-            # check if we have snapshots
-            num_references = session.query(sql.func.count(schema.TableSnapshot.id)) \
-                .where(schema.TableSnapshot.tbl_id == self.id) \
-                .scalar()
-            if num_references > 0:
-                raise exc.Error((
-                    f'Cannot drop table {self.name}, which has {num_references} snapshot'
-                    f'{"s" if num_references > 1 else ""}'
-                ))
-            # check if we have views
-            num_references = session.query(sql.func.count(schema.Table.id)) \
-                .where(schema.Table.base_id == self.id) \
-                .scalar()
-            if num_references > 0:
-                raise exc.Error((
-                    f'Cannot drop table {self.name}, which has {num_references} views'
-                    f'{"s" if num_references > 1 else ""}'
-                ))
-
+        with Env.get().engine.begin() as conn:
             # delete this table and all associated data
             MediaStore.delete(self.id)
             FileCache.get().clear(tbl_id=self.id)
-            conn = session.connection()
-            conn.execute(
-                sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == self.id))
-            conn.execute(
-                sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == self.id))
-            conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == self.id))
+            self.delete_md(self.id, conn)
             self.store_tbl.drop(conn)
-            session.commit()
 
-    def _set_cols(self, schema_version_md: schema.TableSchemaVersionMd) -> None:
+        # de-register table version from catalog
+        from .catalog import Catalog
+        cat = Catalog.get()
+        del cat.tbl_versions[(self.id, self.effective_version)]
+        # TODO: remove from tbl_dependents
+
+    def _init_schema(self, schema_version_md: schema.TableSchemaVersionMd) -> None:
+        """Initialize self.cols as well as self.store_tbl"""
         self.cols = [Column.from_md(col_id, col_md, self) for col_id, col_md in schema_version_md.columns.items()]
         self.cols_by_name = {col.name: col for col in self.cols}
         self.cols_by_id = {col.id: col for col in self.cols}
@@ -212,8 +213,18 @@ class TableVersion:
         for col, col_md in zip(self.cols, schema_version_md.columns.values()):
             col.tbl = self
             if col_md.value_expr is not None:
-                col.value_expr = exprs.Expr.from_dict(col_md.value_expr, self)
+                col.value_expr = exprs.Expr.from_dict(col_md.value_expr)
                 self._record_value_expr(col)
+
+        # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
+        # need to record errors
+        from pixeltable.store import StoreBase, StoreTable, StoreView, StoreComponentView
+        if self.is_component_view():
+            self.store_tbl: StoreBase = StoreComponentView(self)
+        elif self.is_view():
+            self.store_tbl: StoreBase = StoreView(self)
+        else:
+            self.store_tbl: StoreBase = StoreTable(self)
 
     def _update_md(
             self, ts: float, preceding_schema_version: Optional[int], conn: sql.engine.Connection) -> None:
@@ -241,7 +252,7 @@ class TableVersion:
     def add_column(self, col: Column, print_stats: bool = False) -> UpdateStatus:
         """Adds a column to the table.
         """
-        assert self.next_col_id != -1
+        assert not self.is_snapshot
         assert is_valid_identifier(col.name)
         assert col.stored is not None
         assert col.name not in self.cols_by_name
@@ -251,13 +262,12 @@ class TableVersion:
 
         if col.compute_func is not None:
             # create value_expr from compute_func
-            self._create_value_expr(col, self.cols_by_name)
+            self._create_value_expr(col, self.path)
         if col.value_expr is not None:
             col.check_value_expr()
             self._record_value_expr(col)
 
-        from pixeltable.dataframe import DataFrame
-        row_count = DataFrame(self).count()
+        row_count = self.store_tbl.count()
         if row_count > 0 and not col.col_type.nullable and not col.is_computed:
             raise exc.Error(f'Cannot add non-nullable column "{col.name}" to table {self.name} with existing rows')
 
@@ -286,7 +296,7 @@ class TableVersion:
         # for some reason, it's not possible to run the following updates in the same transaction as the one
         # that we just used to create the metadata (sqlalchemy hangs when exec() tries to run the query)
         from pixeltable.plan import Planner
-        plan, value_expr_slot_idx, embedding_slot_idx = Planner.create_add_column_plan(self, col)
+        plan, value_expr_slot_idx, embedding_slot_idx = Planner.create_add_column_plan(self.path, col)
         plan.ctx.num_rows = row_count
         # TODO: create pgvector index, if col is indexed
 
@@ -314,6 +324,7 @@ class TableVersion:
     def drop_column(self, name: str) -> None:
         """Drop a column from the table.
         """
+        assert not self.is_snapshot
         if name not in self.cols_by_name:
             raise exc.Error(f'Unknown column: {name}')
         col = self.cols_by_name[name]
@@ -349,6 +360,7 @@ class TableVersion:
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
         """
+        assert not self.is_snapshot
         if old_name not in self.cols_by_name:
             raise exc.Error(f'Unknown column: {old_name}')
         if not is_valid_identifier(new_name):
@@ -386,7 +398,6 @@ class TableVersion:
             self, exec_plan: exec.ExecNode, conn: sql.engine.Connection, ts: float, print_stats: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
-        assert self.is_mutable()
         # we're creating a new version
         self.version += 1
         from pixeltable.plan import Planner
@@ -400,9 +411,9 @@ class TableVersion:
         self._update_md(ts, None, conn)
 
         # update views
-        for view in self.views:
+        for view in self.mutable_views:
             from pixeltable.plan import Planner
-            plan, _ = Planner.create_view_load_plan(view, propagates_insert=True)
+            plan, _ = Planner.create_view_load_plan(view.path, propagates_insert=True)
             status = view._insert(plan, conn, ts, print_stats)
             result.num_rows += status.num_rows
             result.num_excs += status.num_excs
@@ -417,7 +428,7 @@ class TableVersion:
 
     def update(
             self, update_targets: List[Tuple[Column, 'pixeltable.exprs.Expr']] = [],
-        where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
+            where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
         Args:
@@ -426,11 +437,10 @@ class TableVersion:
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
         """
-        assert self.is_mutable()
+        assert not self.is_snapshot
         from pixeltable.plan import Planner
         plan, updated_cols, recomputed_cols = \
-            Planner.create_update_plan(self, update_targets, [], where_clause, cascade)
-        plan.ctx.set_pk_clause(self.store_tbl.pk_columns())
+            Planner.create_update_plan(self.path, update_targets, [], where_clause, cascade)
         with Env.get().engine.begin() as conn:
             ts = time.time()
             result = self._update(
@@ -458,12 +468,12 @@ class TableVersion:
         if cascade:
             base_versions = [None if plan is None else self.version] + base_versions  # don't update in place
             # propagate to views
-            for view in self.views:
-                recomputed_cols = [col for col in recomputed_view_cols if col.tbl == view]
+            for view in self.mutable_views:
+                recomputed_cols = [col for col in recomputed_view_cols if col.tbl is view]
                 plan: Optional[exec.ExecNode] = None
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner
-                    plan = Planner.create_view_update_plan(view, recompute_targets=recomputed_cols)
+                    plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
                 status = view._update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, conn=conn, ts=ts, cascade=True)
                 result.num_rows += status.num_rows
@@ -499,21 +509,22 @@ class TableVersion:
         """
         sql_where_clause = where.sql_expr() if where is not None else None
         num_rows = self.store_tbl.delete_rows(
-            self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause, conn=conn)
+            self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause,
+            conn=conn)
         if num_rows > 0:
             # we're creating a new version
             self.version += 1
             self._update_md(ts, None, conn)
         else:
             pass
-        for view in self.views:
+        for view in self.mutable_views:
             num_rows += view._delete(where=None, base_versions=[self.version] + base_versions, conn=conn, ts=ts)
         return num_rows
 
     def revert(self) -> None:
         """Reverts the table to the previous version.
         """
-        assert self.is_mutable()
+        assert not self.is_snapshot
         if self.version == 0:
             raise exc.Error('Cannot revert version 0')
         with orm.Session(Env.get().engine, future=True) as session:
@@ -522,14 +533,22 @@ class TableVersion:
 
     def _revert(self, session: orm.Session) -> None:
         """Reverts this table version and propagates to views"""
+        conn = session.connection()
         # make sure we don't have a snapshot referencing this version
-        num_references = session.query(sql.func.count(schema.TableSnapshot.id)) \
-            .where(schema.TableSnapshot.tbl_id == self.id) \
-            .where(schema.TableSnapshot.tbl_version == self.version) \
-            .scalar()
-        if num_references > 0:
-            raise exc.Error(
-                f'Current version is needed for {num_references} snapshot{"s" if num_references > 1 else ""}')
+        # (unclear how to express this with sqlalchemy)
+        query = (
+            f"select ts.dir_id, ts.md->'name' "
+            f"from {schema.Table.__tablename__} ts "
+            f"cross join lateral jsonb_path_query(md, '$.view_md.base_versions[*]') as tbl_version "
+            f"where tbl_version->>0 = '{self.id.hex}' and (tbl_version->>1)::int = {self.version}"
+        )
+        result = list(conn.execute(sql.text(query)))
+        if len(result) > 0:
+            names = [row[1] for row in result]
+            raise exc.Error((
+                f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""} '
+                f'({", ".join(names)})'
+            ))
 
         conn = session.connection()
         # delete newly-added data
@@ -570,7 +589,7 @@ class TableVersion:
                 .scalar()
             preceding_schema_version_md = schema.md_from_dict(
                 schema.TableSchemaVersionMd, preceding_schema_version_md_dict)
-            self._set_cols(preceding_schema_version_md)
+            self._init_schema(preceding_schema_version_md)
 
             # physically drop the column, but only after we have re-created the schema
             if added_col is not None:
@@ -594,7 +613,7 @@ class TableVersion:
                 .where(schema.Table.id == self.id))
 
         # propagate to views
-        for view in self.views:
+        for view in self.mutable_views:
             view._revert(session)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
@@ -602,29 +621,11 @@ class TableVersion:
         return self.base is not None
 
     def is_component_view(self) -> bool:
-        return self.is_view() and self.iterator_cls is not None
+        return self.iterator_cls is not None
 
     def is_insertable(self) -> bool:
         """Returns True if this corresponds to an InsertableTable"""
-        return self.next_rowid != -1 and not self.is_view()
-
-    def is_mutable(self) -> bool:
-        """Returns True if this corresponds to a MutableTable"""
-        return self.next_rowid != -1
-
-    def get_bases(self) -> List[TableVersion]:
-        """Return all bases"""
-        if self.base is None:
-            return []
-        return [self.base] + self.base.get_bases()
-
-    def find_tbl(self, id: UUID) -> Optional[TableVersion]:
-        """Return the matching TableVersion in the chain of TableVersions, starting with this one"""
-        if self.id == id:
-            return self
-        if self.base is None:
-            return None
-        return self.base.find_tbl(id)
+        return not self.is_snapshot and not self.is_view()
 
     def is_iterator_column(self, col: Column) -> bool:
         """Returns True if col is produced by an iterator"""
@@ -649,50 +650,11 @@ class TableVersion:
 
     def get_computed_col_names(self) -> List[str]:
         """Return the names of all computed columns"""
-        assert not self.is_view()
         names = [c.name for c in self.cols if c.is_computed]
         return names
 
-    def check_input_rows(self, rows: List[List[Any]], column_names: List[str]) -> None:
-        """
-        Verify the integrity of 'rows':
-        1. the number of columns matches the number of values provided
-        2. all required table columns are present
-        3. all columns provided are insertable (ie not computed)
-        4. all provided values for a column are of a compatible python type
-        """
-        assert len(rows) > 0
-        all_col_names = {col.name for col in self.cols}
-        reqd_col_names = set(self.get_required_col_names(required_only=True))
-        given_col_names = set(column_names)
-        if not(reqd_col_names <= given_col_names):
-            raise exc.Error(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')
-        if not(given_col_names <= all_col_names):
-            raise exc.Error(f'Unknown columns: {", ".join(given_col_names - all_col_names)}')
-        computed_col_names = {col.name for col in self.cols if col.value_expr is not None}
-        if len(computed_col_names & given_col_names) > 0:
-            raise exc.Error(
-                f'Provided values for computed columns: {", ".join(computed_col_names & given_col_names)}')
-
-        # check data
-        row_cols = [self.cols_by_name[name] for name in column_names]
-        for col_idx, col in enumerate(row_cols):
-            for row_idx, row in enumerate(rows):
-                if not col.col_type.nullable and row[col_idx] is None:
-                    raise exc.Error(
-                        f'Column {col.name}: row {row_idx} contains None for a non-nullable column')
-                val = row[col_idx]
-                if val is None:
-                    continue
-                try:
-                    # basic sanity checks here
-                    checked_val = col.col_type.create_literal(val)
-                    row[col_idx] = checked_val
-                except TypeError as e:
-                    raise exc.Error(f'Column {col.name} in row {row_idx}: {e}')
-
     @classmethod
-    def _create_value_expr(cls, col: Column, existing_cols: Dict[str, Column]) -> None:
+    def _create_value_expr(cls, col: Column, path: 'TableVersionPath') -> None:
         """
         Create col.value_expr, given col.compute_func.
         Interprets compute_func's parameters to be references to columns and construct ColumnRefs as args.
@@ -704,10 +666,11 @@ class TableVersion:
         params = inspect.signature(col.compute_func).parameters
         args: List[exprs.ColumnRef] = []
         for param_name in params:
-            if param_name not in existing_cols:
+            param = path.get_column(param_name)
+            if param is None:
                 raise exc.Error(
-                    f'Column {col.name}: compute_with parameter refers to an unknown column: {param_name}')
-            args.append(exprs.ColumnRef(existing_cols[param_name]))
+                    f'Column {col.name}: Callable parameter refers to an unknown column: {param_name}')
+            args.append(exprs.ColumnRef(param))
         fn = func.make_function(col.col_type, [arg.col_type for arg in args], col.compute_func)
         col.value_expr = fn(*args)
 
@@ -732,16 +695,17 @@ class TableVersion:
         result.update(self.get_dependent_columns(result))
         return result
 
+    def num_rowid_columns(self) -> int:
+        """Return the number of columns of the rowids, without accessing store_tbl"""
+        if self.is_component_view():
+            return 1 + self.base.num_rowid_columns()
+        return 1
+
     def _create_md(self) -> schema.TableMd:
-        iterator_class_fqn = \
-            f'{self.iterator_cls.__module__}.{self.iterator_cls.__name__}' if self.iterator_cls is not None else None
         return schema.TableMd(
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
             next_col_id=self.next_col_id, next_row_id=self.next_rowid, column_history=self.column_history,
-            parameters=self.parameters, predicate=self.predicate.as_dict() if self.predicate is not None else None,
-            iterator_class_fqn=iterator_class_fqn,
-            iterator_args = self.iterator_args.as_dict() if self.iterator_args is not None else None,
-        )
+            parameters=self.parameters, view_md=self.view_md)
 
     def _create_version_md(self, ts: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(created_at=ts, version=self.version, schema_version=self.schema_version)
@@ -757,55 +721,3 @@ class TableVersion:
         return schema.TableSchemaVersionMd(
             schema_version=self.schema_version, preceding_schema_version=preceding_schema_version,
             columns=column_md)
-
-    def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
-        """Return a ColumnRef for the given column name."""
-        from pixeltable.exprs import ColumnRef, RowidRef
-        if col_name == POS_COLUMN_NAME and self.is_component_view():
-            return RowidRef(self, self.store_tbl.pos_col_idx)
-        if col_name not in self.cols_by_name:
-            if self.base is None:
-                raise AttributeError(f'Column {col_name} unknown')
-            return getattr(self.base, col_name)
-        col = self.cols_by_name[col_name]
-        return ColumnRef(col)
-
-    def __getitem__(self, index: object) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame']:
-        """Return a ColumnRef for the given column name, or a DataFrame for the given slice.
-        """
-        if isinstance(index, str):
-            # basically <tbl>.<colname>
-            return self.__getattr__(index)
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self).__getitem__(index)
-
-    def columns(self) -> List[Column]:
-        """Return all columns visible in this table, including columns from bases"""
-        result = self.cols.copy()
-        if self.base is not None:
-            base_cols = self.base.columns()
-            # we only include base columns that don't conflict with one of our column names
-            result.extend([c for c in base_cols if c.name not in self.cols_by_name])
-        return result
-
-    def get_column(self, name: str) -> Optional[Column]:
-        """Return the column with the given name, or None if not found"""
-        col = self.cols_by_name.get(name)
-        if col is not None:
-            return col
-        elif self.base is not None:
-            return self.base.get_column(name)
-        else:
-            return None
-
-    def has_column(self, col: Column) -> bool:
-        """Return True if this table has the given column.
-        """
-        assert col.tbl is not None
-        if col.tbl == self:
-            return True
-        elif self.base is not None:
-            return self.base.has_column(col)
-        else:
-            return False
-

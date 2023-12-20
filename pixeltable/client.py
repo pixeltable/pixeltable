@@ -3,18 +3,16 @@ import pandas as pd
 import logging
 import dataclasses
 from uuid import UUID
+from collections import defaultdict
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-from pixeltable.catalog import \
-    TableVersion, SchemaObject, InsertableTable, TableSnapshot, View, MutableTable, Table, Dir, Column, NamedFunction,\
-    Path, PathDict, init_catalog
 from pixeltable.metadata import schema
 from pixeltable.env import Env
 import pixeltable.func as func
-import pixeltable.type_system as ts
-from pixeltable import exceptions as exc
+import pixeltable.catalog as catalog
+from pixeltable import exceptions as excs
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
 
@@ -30,130 +28,13 @@ class Client:
     Client for interacting with a Pixeltable environment.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, reload: bool = False) -> None:
         """Constructs a client.
         """
         Env.get().set_up()
-        init_catalog()
-        self.paths = PathDict()
-        self._load_table_versions()
-        self._load_functions()
-
-    def _load_table_versions(self) -> None:
-        # key: [id, version]
-        # - for the current/live version of a table, version is None
-        # - however, TableVersion.version will be set correctly
-        self.tbl_versions: Dict[Tuple[UUID, int], TableVersion] = {}
-        # load TableVersions
-        with orm.Session(Env.get().engine, future=True) as session:
-            # load current versions of all non-view tables
-            q = session.query(schema.Table, schema.TableSchemaVersion) \
-                .select_from(schema.Table) \
-                .join(schema.TableSchemaVersion) \
-                .where(schema.Table.base_id == None) \
-                .where(sql.text((
-                f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
-                f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}")))
-            for tbl_record, schema_version_record in q.all():
-                tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-                schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
-                instance = TableVersion(tbl_record.id, None, tbl_md, tbl_md.current_version, schema_version_md)
-                self.tbl_versions[(tbl_record.id, None)] = instance
-                tbl = InsertableTable(tbl_record.dir_id, instance)
-                self.paths.add_schema_obj(tbl.dir_id, instance.name, tbl)
-
-            # load bases for views over snapshots;
-            # do this ordered by creation ts so that we can resolve base references in one pass
-            ViewAlias = orm.aliased(schema.Table)
-            q = session.query(schema.Table, ViewAlias.base_version, schema.TableSchemaVersion) \
-                .select_from(schema.Table) \
-                .join(ViewAlias, schema.Table.id == ViewAlias.base_id) \
-                .join(
-                schema.TableVersion,
-                sql.and_(
-                    schema.TableVersion.tbl_id == schema.Table.id,
-                    schema.TableVersion.version == ViewAlias.base_version)) \
-                .join(schema.TableSchemaVersion, schema.TableSchemaVersion.tbl_id == schema.Table.id) \
-                .where(sql.text((
-                f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
-                f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}"))) \
-                .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float"))
-            for tbl_record, tbl_version, schema_version_record in q.all():
-                assert tbl_version is not None
-                assert (tbl_record.id, tbl_version) not in self.tbl_versions
-                schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
-                if tbl_record.base_id is not None:
-                    base = self.tbl_versions[(tbl_record.base_id, tbl_record.base_version)]
-                else:
-                    base = None
-                tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-                instance = TableVersion(tbl_record.id, base, tbl_md, tbl_version, schema_version_md)
-                self.tbl_versions[(tbl_record.id, tbl_version)] = instance
-
-            # load views
-            q = session.query(schema.Table, schema.TableSchemaVersion) \
-                .select_from(schema.Table) \
-                .join(schema.TableVersion, schema.Table.id == schema.TableVersion.tbl_id) \
-                .join(schema.TableSchemaVersion) \
-                .where(schema.Table.base_id != None) \
-                .where(sql.text((
-                    f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
-                    f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}"))) \
-                .where(sql.text((
-                    f"({schema.Table.__table__}.md->>'current_version')::int = "
-                    f"{schema.TableVersion.__table__}.{schema.TableVersion.version.name}"))) \
-                .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float"))
-            for tbl_record, schema_version_record in q.all():
-                base_id, base_version = tbl_record.base_id, tbl_record.base_version
-                assert (base_id, tbl_record.base_version) in self.tbl_versions
-                base = self.tbl_versions[(base_id, base_version)]
-                tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-                schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
-                instance = TableVersion(tbl_record.id, base, tbl_md, tbl_md.current_version, schema_version_md)
-                self.tbl_versions[(tbl_record.id, None)] = instance
-                view = View(tbl_record.dir_id, instance)
-                self.paths.add_schema_obj(view.dir_id, instance.name, view)
-
-            # load table versions referenced by snapshots; do this ordered by creation ts so that we can resolve base
-            # references in one pass
-            q = session.query(schema.TableSnapshot, schema.Table, schema.TableSchemaVersion) \
-                .select_from(schema.TableSnapshot) \
-                .join(schema.Table) \
-                .join(schema.TableVersion,
-                      sql.and_(
-                          schema.TableSnapshot.tbl_id == schema.TableVersion.tbl_id,
-                          schema.TableSnapshot.tbl_version == schema.TableVersion.version)) \
-                .join(schema.TableSchemaVersion, schema.TableSchemaVersion.tbl_id == schema.TableSnapshot.tbl_id) \
-                .where(sql.text((
-                    f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
-                    f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}"))) \
-                .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float"))
-            for snapshot_record, tbl_record, schema_version_record in q.all():
-                tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-                schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
-                if tbl_record.base_id is not None:
-                    base = self.tbl_versions[(tbl_record.base_id, tbl_record.base_version)]
-                else:
-                    base = None
-                instance = TableVersion(
-                    tbl_record.id, base, tbl_md, snapshot_record.tbl_version, schema_version_md)
-                self.tbl_versions[(snapshot_record.tbl_id, snapshot_record.tbl_version)] = instance
-                snapshot_md = schema.md_from_dict(schema.TableSnapshotMd, snapshot_record.md)
-                snapshot = TableSnapshot(snapshot_record.id, snapshot_record.dir_id, snapshot_md.name, instance)
-                self.paths.add_schema_obj(snapshot_record.dir_id, snapshot_md.name, snapshot)
-
-    def _load_functions(self) -> None:
-        # load Function metadata; doesn't load the actual callable, which can be large and is only done on-demand by the
-        # FunctionRegistry
-        with orm.Session(Env.get().engine, future=True) as session:
-            q = session.query(schema.Function.id, schema.Function.dir_id, schema.Function.md) \
-                .where(sql.text(f"({schema.Function.__table__}.md->>'name')::text IS NOT NULL"))
-            for id, dir_id, md in q.all():
-                assert 'name' in md
-                name = md['name']
-                assert name is not None
-                named_fn = NamedFunction(id, dir_id, name)
-                self.paths.add_schema_obj(dir_id, name, named_fn)
+        if reload:
+            catalog.Catalog.clear()
+        self.catalog = catalog.Catalog.get()
 
     def logging(
             self, *, to_stdout: Optional[bool] = None, level: Optional[int] = None,
@@ -201,7 +82,7 @@ class Client:
             .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])  # center-align headings
         return pd_df.hide(axis='index')
 
-    def get_path(self, schema_obj: SchemaObject) -> str:
+    def get_path(self, schema_obj: catalog.SchemaObject) -> str:
         """Returns the path to a SchemaObject.
 
         Args:
@@ -213,7 +94,7 @@ class Client:
         path_elements: List[str] = []
         dir_id = schema_obj.dir_id
         while dir_id is not None:
-            dir = self.paths.get_schema_obj(dir_id)
+            dir = self.catalog.paths.get_schema_obj(dir_id)
             if dir.dir_id is None:
                 # this is the root dir with name '', which we don't want to include in the path
                 break
@@ -223,8 +104,9 @@ class Client:
         return '.'.join(path_elements)
 
     def create_table(
-            self, path_str: str, schema: Dict[str, Any], primary_key: Union[str, List[str]] = [], num_retained_versions: int = 10,
-    ) -> InsertableTable:
+            self, path_str: str, schema: Dict[str, Any], primary_key: Union[str, List[str]] = [],
+            num_retained_versions: int = 10,
+    ) -> catalog.InsertableTable:
         """Create a new :py:class:`InsertableTable`.
 
         Args:
@@ -247,63 +129,27 @@ class Client:
 
             >>> table = cl.create_table('my_table', schema={'col1': {'type': ImageType(), 'indexed': True}})
         """
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=None)
-        dir = self.paths[path.parent]
+        path = catalog.Path(path_str)
+        self.catalog.paths.check_is_valid(path, expected=None)
+        dir = self.catalog.paths[path.parent]
 
         if isinstance(primary_key, str):
             primary_key = [primary_key]
         else:
             if not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
-                raise exc.Error('primary_key must be a single column name or a list of column names')
+                raise excs.Error('primary_key must be a single column name or a list of column names')
 
-        tbl = InsertableTable.create(
+        tbl = catalog.InsertableTable.create(
             dir.id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions)
-        self.tbl_versions[(tbl.id, None)] = tbl.tbl_version
-        self.paths[path] = tbl
+        self.catalog.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
         return tbl
 
-    def create_snapshot(self, snapshot_path: str, tbl_path: str, ignore_errors: bool = False) -> TableSnapshot:
-        """Create a :py:class:`TableSnapshot` of a table.
-
-        Args:
-            snapshot_path: Path to the snapshot.
-            tbl_path: Path to the table.
-            ignore_errors: Whether to ignore errors if the snapshot already exists.
-
-        Raises:
-            Error: If snapshot_path already exists or the parent does not exist.
-        """
-        try:
-            snapshot_path_obj = Path(snapshot_path)
-            self.paths.check_is_valid(snapshot_path_obj, expected=None)
-            tbl_path_obj = Path(tbl_path)
-            #self.paths.check_is_valid(tbl_path_obj, expected=MutableTable)
-            self.paths.check_is_valid(tbl_path_obj, expected=InsertableTable)
-        except Exception as e:
-            if ignore_errors:
-                return
-            else:
-                raise e
-        tbl = self.paths[tbl_path_obj]
-        assert isinstance(tbl, MutableTable)
-        # tbl.tbl_version is the live/mutable version of the table, but we need a snapshot of it
-        tbl_version = tbl.tbl_version
-        if (tbl_version.id, tbl_version.version) not in self.tbl_versions:
-            # create an immutable copy
-            tbl_version = tbl_version.create_snapshot_copy()
-            self.tbl_versions[(tbl_version.id, tbl_version.version)] = tbl_version
-        dir = self.paths[snapshot_path_obj.parent]
-        snapshot = TableSnapshot.create(dir.id, snapshot_path_obj.name, tbl_version)
-        self.paths[snapshot_path_obj] = snapshot
-        _logger.info(f'Created snapshot {snapshot_path}')
-        return snapshot
-
     def create_view(
-            self, path_str: str, base: Table, schema: Dict[str, Any] = {}, filter: Optional[Predicate] = None,
-            iterator_class: Optional[Type[ComponentIterator]] = None, iterator_args: Optional[Dict[str, Any]] = None,
-            num_retained_versions: int = 10, ignore_errors: bool = False) -> View:
+            self, path_str: str, base: catalog.Table, schema: Dict[str, Any] = {}, filter: Optional[Predicate] = None,
+            is_snapshot: bool = False, iterator_class: Optional[Type[ComponentIterator]] = None,
+            iterator_args: Optional[Dict[str, Any]] = None, num_retained_versions: int = 10,
+            ignore_errors: bool = False) -> catalog.View:
         """Create a new :py:class:`View`.
 
         Args:
@@ -311,13 +157,14 @@ class Client:
             base: Table (ie, table or view or snapshot) to base the view on.
             schema: dictionary mapping column names to column types, value expressions, or to column specifications.
             filter: Predicate to filter rows of the base table.
+            is_snapshot: Whether the view is a snapshot.
             iterator_class: Class of the iterator to use for the view.
             iterator_args: Arguments to pass to the iterator class.
             num_retained_versions: Number of versions of the view to retain.
             ignore_errors: if True, fail silently if the path already exists or is invalid.
 
         Returns:
-            The newly created table.
+            The newly created view.
 
         Raises:
             Error: if the path already exists or is invalid.
@@ -325,36 +172,45 @@ class Client:
         Examples:
             Create a view with an additional int and a string column and a filter:
 
-            >>> table = cl.create_table(
-                'my_table', base, schema={'col3': IntType(), 'col4': StringType()}, filter=base.col1 > 10)
+            >>> view = cl.create_table(
+                'my_view', base, schema={'col3': IntType(), 'col4': StringType()}, filter=base.col1 > 10)
+
+            Create a table snapshot:
+
+            >>> snapshot_view = cl.create_table('my_snapshot_view', base, is_snapshot=True)
+
+            Create an immutable view with additional computed columns and a filter:
+
+            >>> snapshot_view = cl.create_table(
+                'my_snapshot', base, schema={'col3': base.col2 + 1}, filter=base.col1 > 10)
         """
         assert (iterator_class is None) == (iterator_args is None)
-        path = Path(path_str)
+        assert isinstance(base, catalog.Table)
+        path = catalog.Path(path_str)
         try:
-            self.paths.check_is_valid(path, expected=None)
+            self.catalog.paths.check_is_valid(path, expected=None)
         except Exception as e:
             if ignore_errors:
                 return
             else:
                 raise e
-        dir = self.paths[path.parent]
+        dir = self.catalog.paths[path.parent]
 
-        view = View.create(
-            dir.id, path.name, base.tbl_version, schema, predicate=filter, iterator_cls=iterator_class,
-            iterator_args=iterator_args, num_retained_versions=num_retained_versions)
-        self.tbl_versions[(view.id, None)] = view.tbl_version
-        self.paths[path] = view
+        view = catalog.View.create(
+            dir.id, path.name, base=base, schema=schema, predicate=filter, is_snapshot=is_snapshot,
+            iterator_cls=iterator_class, iterator_args=iterator_args, num_retained_versions=num_retained_versions)
+        self.catalog.paths[path] = view
         _logger.info(f'Created view {path_str}')
         return view
 
-    def get_table(self, path: str) -> Table:
+    def get_table(self, path: str) -> catalog.Table:
         """Get a handle to a table (including views and snapshots).
 
         Args:
             path: Path to the table.
 
         Returns:
-            A :py:class:`InsertableTable` or :py:class:`View` or :py:class:`TableSnapshot` object.
+            A :py:class:`InsertableTable` or :py:class:`View` object.
 
         Raises:
             Error: If the path does not exist or does not designate a table.
@@ -372,9 +228,9 @@ class Client:
 
             >>> table = cl.get_table('my_snapshot')
         """
-        p = Path(path)
-        self.paths.check_is_valid(p, expected=Table)
-        obj = self.paths[p]
+        p = catalog.Path(path)
+        self.catalog.paths.check_is_valid(p, expected=catalog.Table)
+        obj = self.catalog.paths[p]
         return obj
 
     def move(self, path: str, new_path: str) -> None:
@@ -395,13 +251,13 @@ class Client:
 
             >>>> cl.move('dir1.my_table', 'dir1.new_name')
         """
-        p = Path(path)
-        self.paths.check_is_valid(p, expected=SchemaObject)
-        new_p = Path(new_path)
-        self.paths.check_is_valid(new_p, expected=None)
-        obj = self.paths[p]
-        self.paths.move(p, new_p)
-        new_dir = self.paths[new_p.parent]
+        p = catalog.Path(path)
+        self.catalog.paths.check_is_valid(p, expected=catalog.SchemaObject)
+        new_p = catalog.Path(new_path)
+        self.catalog.paths.check_is_valid(new_p, expected=None)
+        obj = self.catalog.paths[p]
+        self.catalog.paths.move(p, new_p)
+        new_dir = self.catalog.paths[new_p.parent]
         obj.move(new_p.name, new_dir.id)
 
     def list_tables(self, dir_path: str = '', recursive: bool = True) -> List[str]:
@@ -429,9 +285,9 @@ class Client:
             [...]
         """
         assert dir_path is not None
-        path = Path(dir_path, empty_is_valid=True)
-        self.paths.check_is_valid(path, expected=Dir)
-        return [str(p) for p in self.paths.get_children(path, child_type=Table, recursive=recursive)]
+        path = catalog.Path(dir_path, empty_is_valid=True)
+        self.catalog.paths.check_is_valid(path, expected=catalog.Dir)
+        return [str(p) for p in self.catalog.paths.get_children(path, child_type=catalog.Table, recursive=recursive)]
 
     def drop_table(self, path: str, force: bool = False, ignore_errors: bool = False) -> None:
         """Drop a table.
@@ -447,17 +303,20 @@ class Client:
         Example:
             >>> cl.drop_table('my_table')
         """
-        path_obj = Path(path)
+        path_obj = catalog.Path(path)
         try:
-            self.paths.check_is_valid(path_obj, expected=Table)
+            self.catalog.paths.check_is_valid(path_obj, expected=catalog.Table)
         except Exception as e:
             if ignore_errors:
                 return
             else:
                 raise e
-        tbl = self.paths[path_obj]
-        tbl.drop()
-        del self.paths[path_obj]
+        tbl = self.catalog.paths[path_obj]
+        if len(self.catalog.tbl_dependents[tbl.id]) > 0:
+            dependent_paths = [self.get_path(dep) for dep in self.catalog.tbl_dependents[tbl.id]]
+            raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
+        tbl._drop()
+        del self.catalog.paths[path_obj]
         _logger.info(f'Dropped table {path}')
 
     def create_dir(self, path_str: str, ignore_errors: bool = False) -> None:
@@ -478,9 +337,9 @@ class Client:
             >>> cl.create_dir('my_dir.sub_dir')
         """
         try:
-            path = Path(path_str)
-            self.paths.check_is_valid(path, expected=None)
-            parent = self.paths[path.parent]
+            path = catalog.Path(path_str)
+            self.catalog.paths.check_is_valid(path, expected=None)
+            parent = self.catalog.paths[path.parent]
             assert parent is not None
             with orm.Session(Env.get().engine, future=True) as session:
                 dir_md = schema.DirMd(name=path.name)
@@ -488,10 +347,10 @@ class Client:
                 session.add(dir_record)
                 session.flush()
                 assert dir_record.id is not None
-                self.paths[path] = Dir(dir_record.id, parent.id, path.name)
+                self.catalog.paths[path] = catalog.Dir(dir_record.id, parent.id, path.name)
                 session.commit()
                 _logger.info(f'Created directory {path_str}')
-        except exc.Error as e:
+        except excs.Error as e:
             if ignore_errors:
                 return
             else:
@@ -513,12 +372,12 @@ class Client:
 
             >>> cl.rm_dir('my_dir.sub_dir')
         """
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=Dir)
+        path = catalog.Path(path_str)
+        self.catalog.paths.check_is_valid(path, expected=catalog.Dir)
 
         # make sure it's empty
-        if len(self.paths.get_children(path, child_type=None, recursive=True)) > 0:
-            raise exc.Error(f'Directory {path_str} is not empty')
+        if len(self.catalog.paths.get_children(path, child_type=None, recursive=True)) > 0:
+            raise excs.Error(f'Directory {path_str} is not empty')
         # TODO: figure out how to make force=True work in the presence of snapshots
         #        # delete tables
         #        for tbl_path in self.paths.get_children(path, child_type=MutableTable, recursive=True):
@@ -528,9 +387,9 @@ class Client:
         #            self.rm_dir(str(dir_path), force=True)
 
         with Env.get().engine.begin() as conn:
-            dir = self.paths[path]
+            dir = self.catalog.paths[path]
             conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir.id))
-        del self.paths[path]
+        del self.catalog.paths[path]
         _logger.info(f'Removed directory {path_str}')
 
     def list_dirs(self, path_str: str = '', recursive: bool = True) -> List[str]:
@@ -550,9 +409,9 @@ class Client:
             >>> cl.list_dirs('my_dir', recursive=True)
             ['my_dir', 'my_dir.sub_dir1']
         """
-        path = Path(path_str, empty_is_valid=True)
-        self.paths.check_is_valid(path, expected=Dir)
-        return [str(p) for p in self.paths.get_children(path, child_type=Dir, recursive=recursive)]
+        path = catalog.Path(path_str, empty_is_valid=True)
+        self.catalog.paths.check_is_valid(path, expected=catalog.Dir)
+        return [str(p) for p in self.catalog.paths.get_children(path, child_type=catalog.Dir, recursive=recursive)]
 
     def create_function(self, path_str: str, fn: func.Function) -> None:
         """Create a stored function.
@@ -572,13 +431,13 @@ class Client:
             >>> cl.create_function('my_dir.detect', detect)
         """
         if fn.is_library_function:
-            raise exc.Error(f'Cannot create a named function for a library function')
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=None)
-        dir = self.paths[path.parent]
+            raise excs.Error(f'Cannot create a named function for a library function')
+        path = catalog.Path(path_str)
+        self.catalog.paths.check_is_valid(path, expected=None)
+        dir = self.catalog.paths[path.parent]
 
         func.FunctionRegistry.get().create_function(fn, dir.id, path.name)
-        self.paths[path] = NamedFunction(fn.id, dir.id, path.name)
+        self.catalog.paths[path] = catalog.NamedFunction(fn.id, dir.id, path.name)
         fn.md.fqn = str(path)
         _logger.info(f'Created function {path_str}')
 
@@ -593,16 +452,16 @@ class Client:
             Error: if the path does not exist or ``func`` has a different signature than the stored function.
         """
         if fn.is_library_function:
-            raise exc.Error(f'Cannot update a named function to a library function')
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=NamedFunction)
-        named_fn = self.paths[path]
+            raise excs.Error(f'Cannot update a named function to a library function')
+        path = catalog.Path(path_str)
+        self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
+        named_fn = self.catalog.paths[path]
         f = func.FunctionRegistry.get().get_function(id=named_fn.id)
         if f.md.signature != fn.md.signature:
-            raise exc.Error(
+            raise excs.Error(
                 f'The function signature cannot be changed. The existing signature is {f.md.signature}')
         if f.is_aggregate != fn.is_aggregate:
-            raise exc.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
+            raise excs.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
         func.FunctionRegistry.get().update_function(named_fn.id, fn)
         _logger.info(f'Updated function {path_str}')
 
@@ -621,10 +480,10 @@ class Client:
         Example:
             >>> detect = cl.get_function('my_dir.detect')
         """
-        path = Path(path_str)
-        self.paths.check_is_valid(path, expected=NamedFunction)
-        named_fn = self.paths[path]
-        assert isinstance(named_fn, NamedFunction)
+        path = catalog.Path(path_str)
+        self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
+        named_fn = self.catalog.paths[path]
+        assert isinstance(named_fn, catalog.NamedFunction)
         fn = func.FunctionRegistry.get().get_function(id=named_fn.id)
         fn.md.fqn = str(path)
         return fn
@@ -642,17 +501,17 @@ class Client:
         Example:
             >>> cl.drop_function('my_dir.detect')
         """
-        path = Path(path_str)
+        path = catalog.Path(path_str)
         try:
-            self.paths.check_is_valid(path, expected=NamedFunction)
-        except exc.Error as e:
+            self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
+        except excs.Error as e:
             if ignore_errors:
                 return
             else:
                 raise e
-        named_fn = self.paths[path]
+        named_fn = self.catalog.paths[path]
         func.FunctionRegistry.get().delete_function(named_fn.id)
-        del self.paths[path]
+        del self.catalog.paths[path]
         _logger.info(f'Dropped function {path_str}')
 
     def reset_catalog(self) -> None:
@@ -661,17 +520,17 @@ class Client:
         :meta private:
         """
         with Env.get().engine.begin() as conn:
-            conn.execute(sql.delete(schema.TableSnapshot.__table__))
             conn.execute(sql.delete(schema.TableSchemaVersion.__table__))
             conn.execute(sql.delete(schema.TableVersion.__table__))
             conn.execute(sql.delete(schema.Table.__table__))
             conn.execute(sql.delete(schema.Function.__table__))
             conn.execute(sql.delete(schema.Dir.__table__))
-            # delete all data tables
-            # TODO: also deleted generated images
-            tbl_paths = [
-                p for p in self.paths.get_children(Path('', empty_is_valid=True), InsertableTable, recursive=True)
-            ]
-            for tbl_path in tbl_paths:
-                tbl = self.paths[tbl_path]
-                tbl.store_tbl.drop(conn)
+
+        # delete all data tables
+        tbl_paths = [
+            p for p in self.catalog.paths.get_children(
+                catalog.Path('', empty_is_valid=True), catalog.InsertableTable, recursive=True)
+        ]
+        for tbl_path in tbl_paths:
+            tbl = self.catalog.paths[tbl_path]
+            #tbl._drop()

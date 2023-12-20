@@ -83,7 +83,7 @@ class InlineDict(Expr):
         return {'dict_items': self.dict_items, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'dict_items' in d
         arg: Dict[str, Any] = {}
         for key, idx, val in d['dict_items']:

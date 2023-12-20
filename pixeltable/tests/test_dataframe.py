@@ -16,7 +16,7 @@ from pixeltable.iterators import FrameIterator
 from pixeltable.tests.utils import get_video_files, get_audio_files
 
 class TestDataFrame:
-    def test_select_where(self, test_tbl: catalog.MutableTable) -> None:
+    def test_select_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res1 = t[t.c1, t.c2, t.c3].show(0)
         res2 = t.select(t.c1, t.c2, t.c3).show(0)
@@ -71,7 +71,7 @@ class TestDataFrame:
             _ = t.select(t.c2+1, col_0=t.c2).show(0)
         assert 'Repeated column name' in str(exc_info.value)
 
-    def test_result_set_iterator(self, test_tbl: catalog.MutableTable) -> None:
+    def test_result_set_iterator(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.select(t.c1, t.c2, t.c3).collect()
         pd_df = res.to_pandas()
@@ -117,7 +117,7 @@ class TestDataFrame:
             _ = res['c2', 0]
         assert 'Bad index' in str(exc_info.value)
 
-    def test_order_by(self, test_tbl: catalog.MutableTable) -> None:
+    def test_order_by(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).show(0)
 
@@ -126,7 +126,7 @@ class TestDataFrame:
             _ = t.order_by(datetime.datetime.now()).show(0)
         assert 'Invalid expression' in str(exc_info.value)
 
-    def test_head_tail(self, test_tbl: catalog.MutableTable) -> None:
+    def test_head_tail(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.head(10).to_pandas()
         assert np.all(res.c2 == list(range(10)))
@@ -147,7 +147,7 @@ class TestDataFrame:
             _ = t.order_by(t.c2).tail(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
 
-    def test_describe(self, test_tbl: catalog.MutableTable) -> None:
+    def test_describe(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         df = t.select(t.c1).where(t.c2 < 10).limit(10)
         df.describe()
@@ -156,7 +156,7 @@ class TestDataFrame:
         _ = df.__repr__()
         _ = df._repr_html_()
 
-    def test_count(self, test_tbl: catalog.MutableTable, indexed_img_tbl: catalog.MutableTable) -> None:
+    def test_count(self, test_tbl: catalog.Table, indexed_img_tbl: catalog.Table) -> None:
         t = test_tbl
         cnt = t.count()
         assert cnt == 100
@@ -177,7 +177,7 @@ class TestDataFrame:
         with pytest.raises(exc.Error):
             _ = t.where(t.img.width > 100).count()
 
-    def test_select_literal(self, test_tbl: catalog.MutableTable) -> None:
+    def test_select_literal(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[res.column_names()[0]] == [1.0] * 10
@@ -203,7 +203,7 @@ class TestDataFrame:
                 response = requests.get(src['src'])
                 assert response.status_code == 200
 
-    def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.MutableTable):
+    def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table):
         """ tests all types are handled correctly in this conversion
         """
         import torch
@@ -233,7 +233,7 @@ class TestDataFrame:
             assert isinstance(tup['c_video'], str)
             assert isinstance(tup['c_json'], dict)
 
-    def test_to_pytorch_image_format(self, all_datatypes_tbl: catalog.MutableTable) -> None:
+    def test_to_pytorch_image_format(self, all_datatypes_tbl: catalog.Table) -> None:
         """ tests the image_format parameter is honored
         """
         import torch
@@ -287,7 +287,7 @@ class TestDataFrame:
             elt_count += 1
         assert elt_count == 1
 
-    def test_to_pytorch_dataloader(self, all_datatypes_tbl: catalog.MutableTable) -> None:
+    def test_to_pytorch_dataloader(self, all_datatypes_tbl: catalog.Table) -> None:
         """ Tests the dataset works well with pytorch dataloader:
             1. compatibility with multiprocessing
             2. compatibility of all types with default collate_fn
@@ -343,7 +343,7 @@ class TestDataFrame:
         ds_short = df_short.to_pytorch_dataset(image_format='pt')
         check_recover_all_rows(ds_short, size=short_size, batch_size=13, num_workers=short_size+1)
 
-    def test_pytorch_dataset_caching(self, all_datatypes_tbl: catalog.MutableTable) -> None:
+    def test_pytorch_dataset_caching(self, all_datatypes_tbl: catalog.Table) -> None:
         """ Tests that dataset caching works
             1. using the same dataset twice in a row uses the cache
             2. adding a row to the table invalidates the cached version
