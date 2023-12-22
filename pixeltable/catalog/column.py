@@ -168,9 +168,8 @@ class Column:
         # computed cols store a NULL value when the computation has an error
         nullable = True if self.is_computed else self.col_type.nullable
         self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=nullable)
-        if self.is_computed:
-            self.sa_errormsg_col = sql.Column(self.errormsg_storage_name(), StringType().to_sa_type(), nullable=True)
-            self.sa_errortype_col = sql.Column(self.errortype_storage_name(), StringType().to_sa_type(), nullable=True)
+        self.sa_errormsg_col = sql.Column(self.errormsg_storage_name(), StringType().to_sa_type(), nullable=True)
+        self.sa_errortype_col = sql.Column(self.errortype_storage_name(), StringType().to_sa_type(), nullable=True)
         if self.is_indexed:
             self.sa_idx_col = sql.Column(self.index_storage_name(), Vector(512), nullable=True)
 

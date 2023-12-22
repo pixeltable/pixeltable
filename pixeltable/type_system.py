@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import urllib.parse
 
-import cv2
+import contextlib
+from typing import Generator
 import av
 import nos
 import numpy as np
@@ -260,16 +261,34 @@ class ColumnType:
                 return None
         return None
 
+    def validate_literal(self, val: Any, full_validation : bool = True) -> None:
+        """Raise TypeError if val is not a valid literal for this type"""
+        if val is None:
+            if not self.nullable:
+                raise TypeError('Expected non-None value')
+            else:
+                return
+        self._validate_literal(val, full_validation)
+
     @abc.abstractmethod
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
         pass
 
-    def create_literal(self, val: Any) -> Any:
-        """Try to create a literal of this type from val. Raise TypeError if not possible"""
-        self.validate_literal(val)
+    @abc.abstractmethod
+    def _create_literal(self, val : Any) -> Any:
+        """Create a literal of this type from val, including any needed conversions.
+             val is guaranteed to be non-None"""
         return val
 
+    def create_literal(self, val: Any, full_validation : bool = True) -> Any:
+        """Try to create a literal of this type from val. Raise TypeError if not possible"""
+        if val is not None:
+            val = self._create_literal(val)
+
+        self.validate_literal(val, full_validation=full_validation)
+        return val
+    
     def print_value(self, val: Any) -> str:
         return str(val)
 
@@ -385,7 +404,7 @@ class InvalidType(ColumnType):
     def print_value(self, val: Any) -> str:
         assert False
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         assert False
 
 class StringType(ColumnType):
@@ -416,7 +435,7 @@ class StringType(ColumnType):
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         if not isinstance(val, str):
             raise TypeError(f'Expected string, got {val.__class__.__name__}')
 
@@ -435,7 +454,7 @@ class IntType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.int64() # to be consistent with bigint above
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         if not isinstance(val, int):
             raise TypeError(f'Expected int, got {val.__class__.__name__}')
 
@@ -454,15 +473,14 @@ class FloatType(ColumnType):
         import pyarrow as pa
         return pa.float32()
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         if not isinstance(val, float):
             raise TypeError(f'Expected float, got {val.__class__.__name__}')
 
-    def create_literal(self, val: Any) -> Any:
+    def _create_literal(self, val: Any) -> Any:
         if isinstance(val, int):
             return float(val)
-        return super().create_literal(val)
-
+        return val
 
 class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -478,15 +496,14 @@ class BoolType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.bool_()
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         if not isinstance(val, bool):
             raise TypeError(f'Expected bool, got {val.__class__.__name__}')
 
-    def create_literal(self, val: Any) -> Any:
+    def _create_literal(self, val: Any) -> Any:
         if isinstance(val, int):
             return bool(val)
-        return super().create_literal(val)
-
+        return val
 
 class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -502,15 +519,14 @@ class TimestampType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.timestamp('us') # postgres timestamp is microseconds
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
             raise TypeError(f'Expected datetime.datetime or datetime.date, got {val.__class__.__name__}')
 
-    def create_literal(self, val: Any) -> Any:
+    def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
-        return super().create_literal(val)
-
+        return val
 
 class JsonType(ColumnType):
     # TODO: type_spec also needs to be able to express lists
@@ -550,7 +566,7 @@ class JsonType(ColumnType):
             return str(val)
         return val_type.print_value(val)
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         if not isinstance(val, dict) and not isinstance(val, list):
             raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
         try:
@@ -558,11 +574,10 @@ class JsonType(ColumnType):
         except TypeError as e:
             raise TypeError(f'Expected JSON-serializable object, got {val}')
 
-    def create_literal(self, val: Any) -> Any:
+    def _create_literal(self, val: Any) -> Any:
         if isinstance(val, tuple):
             val = list(val)
-        return super().create_literal(val)
-
+        return val
 
 class ArrayType(ColumnType):
     def __init__(
@@ -629,7 +644,7 @@ class ArrayType(ColumnType):
                 return False
         return val.dtype == self.numpy_dtype()
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         if not isinstance(val, np.ndarray):
             raise TypeError(f'Expected numpy.ndarray, got {val.__class__.__name__}')
         if not self.is_valid_literal(val):
@@ -637,13 +652,11 @@ class ArrayType(ColumnType):
                 f'Expected ndarray({self.shape}, dtype={self.numpy_dtype()}), '
                 f'got ndarray({val.shape}, dtype={val.dtype})'))
 
-    def create_literal(self, val: Any) -> Any:
-        if isinstance(val, list):
-            val = np.array(val)
-        elif isinstance(val, tuple):
-            val = np.array(val)
-        return super().create_literal(val)
-
+    def _create_literal(self, val: Any) -> Any:
+        if isinstance(val, (list,tuple)):
+            return np.array(val)
+        return val
+    
     def to_sql(self) -> str:
         return 'BYTEA'
 
@@ -667,6 +680,31 @@ class ArrayType(ColumnType):
             return np.dtype(np.str_)
         assert False
 
+@contextlib.contextmanager
+def validate_pointer(val : Any) -> Generator[Tuple[io.BinaryIO, str], None, None]:
+    """ type agnostic validation of pointer. raises exception if not valid, returns file-like object if valid and local
+    (urls are not resolved) (use as context manager)
+    """
+    if isinstance(val, str):
+        parsed = urllib.parse.urlparse(val)
+        if parsed.scheme != '' and parsed.scheme != 'file':
+            yield None, val
+            return
+        
+        path = Path(urllib.parse.unquote(parsed.path))
+        if not path.is_file():
+            raise exc.Error(f'File not found: {str(path)}')
+        try:
+            with open(path, 'rb') as fp:
+                yield fp, str(path)
+                return
+        except FileNotFoundError:
+            raise exc.Error(f'File not found: {str(path)}') 
+    elif isinstance(val, bytes):
+            yield io.BytesIO(val), '<bytes>'
+            return
+    else:
+        raise exc.Error(f'expected file path string, or bytes got {val.__class__.__module__}.{val.__class__.__name__}') 
 
 class ImageType(ColumnType):
     def __init__(
@@ -765,36 +803,18 @@ class ImageType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.binary()
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
         if isinstance(val, PIL.Image.Image):
             return
 
-        # make sure file path points to a valid image file or binary is a valid image
-        if not isinstance(val, (str, bytes)):
-            raise TypeError(f'Expected file path or bytes, got {val.__class__.__module__}.{val.__class__.__name__}')
-
-        if isinstance(val, bytes):
-            try:
-                _ = PIL.Image.open(io.BytesIO(val))
-            except PIL.UnidentifiedImageError:
-                raise TypeError(f'Bytes are not a valid image')
-        # TODO:
-        # - unify file validation for ImageType and VideoType
-        # - turn it into an ExecNode, so it can be done in parallel for external URLs
-        elif isinstance(val, str):
-            parsed = urllib.parse.urlparse(val)
-            if parsed.scheme != '' and parsed.scheme != 'file':
-                # skip validation for now
+        with validate_pointer(val) as (fp, path):
+            if fp is None or not full_validation:
                 return
+            
             try:
-                _ = PIL.Image.open(val)
-            except FileNotFoundError:
-                raise TypeError(f'File not found: {val}')
+                _ = PIL.Image.open(fp)
             except PIL.UnidentifiedImageError:
-                raise TypeError(f'File is not a valid image: {val}')
-        else:
-            assert False
-
+                raise exc.Error(f'Not a valid image: {path}')
 
 class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -810,25 +830,20 @@ class VideoType(ColumnType):
     def to_arrow_type(self) -> 'pyarrow.DataType':
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.string()
-
-    def validate_literal(self, val: Any) -> None:
-        if not isinstance(val, str):
-            raise TypeError(f'Expected file path, got {val.__class__.__name__}')
-        # TODO: see ImageType.validate_literal()
-        parsed = urllib.parse.urlparse(val)
-        if parsed.scheme != '' and parsed.scheme != 'file':
-            # skip validation for now
-            return
-        path = Path(val)
-        if not path.is_file():
-            raise TypeError(f'File not found: {val}')
-        cap = cv2.VideoCapture(val)
-        # TODO: this succeeds for image files; figure out how to verify it's a video
-        success = cap.isOpened()
-        cap.release()
-        if not success:
-            raise TypeError(f'File is not a valid video: {val}')
-
+    
+    def _validate_literal(self, val: Any, full_validation: bool) -> None:
+        with validate_pointer(val) as (fp, path):
+            if fp is None or not full_validation:
+                return
+            
+            try:
+                with av.open(fp, 'r') as fh:
+                    if len(fh.streams.video) == 0:
+                        raise exc.Error(f'Not a valid video: {path}')
+                    for frame in fh.decode(video=0):
+                        _ = frame.to_image()
+            except av.AVError:
+                raise exc.Error(f'Not a valid video: {path}')
 
 class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -845,29 +860,22 @@ class AudioType(ColumnType):
         import pyarrow as pa  # pylint: disable=import-outside-toplevel
         return pa.string()
 
-    def validate_literal(self, val: Any) -> None:
-        if not isinstance(val, str):
-            raise TypeError(f'Expected file path, got {val.__class__.__name__}')
-        # TODO: see ImageType.validate_literal()
-        parsed = urllib.parse.urlparse(val)
-        if parsed.scheme != '' and parsed.scheme != 'file':
-            # skip validation for now
-            return
-        path = Path(val)
-        if not path.is_file():
-            raise TypeError(f'File not found: {val}')
+    def _validate_literal(self, val: Any, full_validation : bool) -> None:
+         with validate_pointer(val) as (fp, path):
+            if fp is None or not full_validation:
+                return
+            
+            try:
+                with av.open(fp) as container:
+                    if len(container.streams.audio) == 0:
+                        raise exc.Error(f'No audio stream in file: {val}')
+                    audio_stream = container.streams.audio[0]
 
-        # TODO: is there some way to verify it's a playable audio file other than decoding all of it?
-        try:
-            with av.open(val) as container:
-                if len(container.streams.audio) == 0:
-                    raise TypeError(f'No audio stream in file: {val}')
-                audio_stream = container.streams.audio[0]
-
-                # decode everything to make sure it's playable
-                # TODO: only decode a few frames?
-                for packet in container.demux(audio_stream):
-                    for _ in packet.decode():
-                        pass
-        except av.error.InvalidDataError as e:
-            raise TypeError(f'Not a valid audio file: {val}\n{e}')
+                    # decode everything to make sure it's playable
+                    # TODO: only decode a few frames?
+                    for packet in container.demux(audio_stream):
+                        for _ in packet.decode():
+                            pass
+                    # TODO: is there some way to verify it's a playable audio file other than decoding all of it?
+            except av.AVError as e:
+                raise exc.Error(f'Not a valid audio file: {val}\n{e}')

@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, List, Set, Any, Dict
+from typing import Tuple, Optional, List, Set, Any, Dict, Union
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -213,7 +213,7 @@ class Planner:
 
     @classmethod
     def create_insert_plan(
-            cls, tbl: catalog.TableVersion, rows: List[List[Any]], column_names: List[str]
+            cls, tbl: catalog.TableVersion, rows: List[List[Any]], column_names: List[str], ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
@@ -234,12 +234,15 @@ class Planner:
         row_column_pos = {name: i for i, name in enumerate(column_names)}
         plan = exec.InsertDataNode(tbl, rows, row_column_pos, row_builder, input_col_info, tbl.next_rowid)
 
-        # add an ExprEvalNode if there are exprs to compute
+        media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
+
+        # prefetch external files for all input column refs for validation
+        plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
+        plan = exec.DataValidationNode(row_builder, media_input_cols, ignore_errors=ignore_errors, input=plan)
+
         computed_exprs = row_builder.default_eval_ctx.target_exprs
         if len(computed_exprs) > 0:
-            # prefetch external files for media column types
-            plan = cls._insert_prefetch_node(tbl.id, computed_exprs, row_builder, plan)
-            # input_exprs=[]: our inputs are values in 'rows'
+            # add an ExprEvalNode when there are exprs to compute
             plan = exec.ExprEvalNode(row_builder, computed_exprs, [], ignore_errors=True, input=plan)
 
         plan.set_stored_img_cols(stored_img_col_info)
@@ -498,7 +501,7 @@ class Planner:
         if len(media_col_refs) == 0:
             return input
         # we need to prefetch external files for media column types
-        file_col_info = [exprs.ColumnSlotIdx(e.col, e.slot_idx) for e in media_col_refs]
+        file_col_info = [exprs.ColumnSlotIdx(e.col, e.slot_idx) for e in media_col_refs]        
         prefetch_node = exec.CachePrefetchNode(tbl_id, file_col_info, input)
         return prefetch_node
 

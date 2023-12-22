@@ -40,7 +40,8 @@ class InsertableTable(MutableTable):
             _logger.info(f'created table {name}, id={tbl_version.id}')
             return tbl
 
-    def insert(self, rows: List[List[Any]], columns: List[str] = [], print_stats: bool = False) -> MutableTable.UpdateStatus:
+    def insert(self, rows: List[List[Any]], columns: List[str] = [], 
+               print_stats: bool = False, ignore_errors : bool = False) -> MutableTable.UpdateStatus:
         """Insert rows into table.
 
         Args:
@@ -48,7 +49,8 @@ class InsertableTable(MutableTable):
             columns: A list of column names that specify the columns present in ``rows``.
                 If ``columns`` is empty, all non-computed columns are present in ``rows``.
             print_stats: If ``True``, print statistics about the cost of computed columns.
-
+            ignore_errors: If ``True``, store error information for row field, but continue inserting rows.
+                         If ``False``, raise an exception that aborts the insert.
         Returns:
             execution status
 
@@ -68,7 +70,7 @@ class InsertableTable(MutableTable):
             Note that the ``columns`` argument is unnecessary here because only the ``video`` column is required.
 
             >>> tbl.insert([['/path/to/video.mp4']])
-
+            # TODO: ignore errors seems like the wrong name. Errors are not being ignored. fail_on_error is more accurate.
         """
         if not isinstance(rows, list):
             raise exc.Error('rows must be a list of lists')
@@ -88,6 +90,7 @@ class InsertableTable(MutableTable):
 
         insertable_col_names = self.tbl_version.get_insertable_col_names()
         if len(columns) == 0 and len(rows[0]) != len(insertable_col_names):
+            # if no columns are specified, they must match number
             if len(rows[0]) < len(insertable_col_names):
                 raise exc.Error((
                     f'MutableTable {self.name} has {len(insertable_col_names)} user-supplied columns, but the data only '
@@ -114,7 +117,7 @@ class InsertableTable(MutableTable):
                 f'({", ".join(columns)})')
 
         self.tbl_version.check_input_rows(rows, columns)
-        result = self.tbl_version.insert(rows, columns, print_stats=print_stats)
+        result = self.tbl_version.insert(rows, columns, print_stats=print_stats, ignore_errors=ignore_errors)
 
         if result.num_excs == 0:
             cols_with_excs_str = ''

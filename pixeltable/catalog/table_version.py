@@ -365,18 +365,18 @@ class TableVersion:
             self._update_md(ts, preceding_schema_version, conn)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
-    def insert(self, rows: List[List[Any]], column_names: List[str], print_stats: bool = False) -> UpdateStatus:
+    def insert(self, rows: List[List[Any]], column_names: List[str], print_stats: bool = False, ignore_errors : bool = False) -> UpdateStatus:
         """Insert rows into this table.
         """
         assert self.is_insertable()
         from pixeltable.plan import Planner
-        plan = Planner.create_insert_plan(self, rows, column_names)
+        plan = Planner.create_insert_plan(self, rows, column_names, ignore_errors=ignore_errors)
         ts = time.time()
         with Env.get().engine.begin() as conn:
             return self._insert(plan, conn, ts, print_stats)
 
     def _insert(
-            self, exec_plan: exec.ExecNode, conn: sql.engine.Connection, ts: float, print_stats: bool = False
+            self, exec_plan: exec.ExecNode, conn: sql.engine.Connection, ts: float, print_stats: bool = False, 
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         assert self.is_mutable()
@@ -642,7 +642,11 @@ class TableVersion:
 
     def check_input_rows(self, rows: List[List[Any]], column_names: List[str]) -> None:
         """
-        Make sure 'rows' conform to schema.
+        Check for possible programming errors in the input rows.
+            1. Check the number of columns matches the number of values provided
+            2. Check all required table columns are present.
+            3. Check all columns provided are insertable (ie not computed).
+            4. Check all provided values for a column are of a compatible python type.
         """
         assert len(rows) > 0
         all_col_names = {col.name for col in self.cols}
@@ -668,7 +672,9 @@ class TableVersion:
                 if val is None:
                     continue
                 try:
-                    row[col_idx] = col.col_type.create_literal(val)
+                    # basic sanity checks here
+                    checked_val = col.col_type.create_literal(val, full_validation=False)
+                    row[col_idx] = checked_val
                 except TypeError as e:
                     raise exc.Error(f'Column {col.name} in row {row_idx}: {e}')
 

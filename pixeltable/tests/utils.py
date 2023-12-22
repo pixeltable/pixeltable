@@ -203,9 +203,11 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
         df[col_name] = df.apply(lambda r: str(abs_path / r[col_name]), axis=1)
     return df.values.tolist(), df.columns.tolist()
 
-def get_video_files() -> List[str]:
+def get_video_files(include_bad_video=False) -> List[str]:
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/videos/*', recursive=True)
+    if not include_bad_video:
+        glob_result = [f for f in glob_result if 'bad_video' not in f]
     return glob_result
 
 def get_image_files() -> List[str]:
@@ -213,9 +215,11 @@ def get_image_files() -> List[str]:
     glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
     return glob_result
 
-def get_audio_files() -> List[str]:
+def get_audio_files(include_bad_audio=False) -> List[str]:
     tests_dir = os.path.dirname(__file__)
     glob_result = glob.glob(f'{tests_dir}/**/audio/*', recursive=True)
+    if not include_bad_audio:
+        glob_result = [f for f in glob_result if 'bad_audio' not in f]
     return glob_result
 
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:

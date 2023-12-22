@@ -54,7 +54,7 @@ class CachePrefetchNode(ExecNode):
                     cache_misses.append((row, info))
                     missing_url_rows[url].append(row)
                 else:
-                    row.set_file_path(info.slot_idx, local_path)
+                    row.set_file_path(info.slot_idx, str(local_path))
 
         # download the cache misses in parallel
         # TODO: set max_workers to maximize throughput

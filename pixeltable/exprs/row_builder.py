@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple, Set
+from typing import Optional, List, Any, Dict, Tuple, Set, Iterable
 from dataclasses import dataclass
 import time
 import sys
@@ -276,6 +276,29 @@ class RowBuilder:
         return self.EvalCtx(
             slot_idxs=ctx_slot_idxs, exprs=[self.unique_exprs[slot_idx] for slot_idx in ctx_slot_idxs],
             target_slot_idxs=target_slot_idxs, target_exprs=targets)
+    
+    def validate(self, data_row: DataRow, column_slots: Iterable[ColumnSlotIdx], 
+                 ignore_errors: bool = False, input_row_num : Optional[int] = None) -> None:
+        
+        for column_slot_pair in column_slots:
+            slot_idx = column_slot_pair.slot_idx
+            col_type = column_slot_pair.col.col_type
+
+            assert data_row.has_val[slot_idx]
+            # for media types, assumption is here we already downloaded/saved into local file
+            if col_type.is_media_type():
+                val = data_row.file_paths[slot_idx]
+            else:
+                val = data_row.vals[slot_idx]
+
+            try:
+                column_slot_pair.col.col_type.validate_literal(val, full_validation=True)
+            except excs.Error as exc:
+                data_row.set_exc(slot_idx, exc)
+                for slot_idx in self.dependents[slot_idx]:
+                    data_row.set_exc(slot_idx, exc)
+                if not ignore_errors:
+                    raise exc
 
     def eval(
             self, data_row: DataRow, ctx: EvalCtx, profile: Optional[ExecProfile] = None, ignore_errors: bool = False

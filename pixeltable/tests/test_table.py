@@ -9,12 +9,13 @@ import os
 import PIL
 import cv2
 
+from typing import List, Tuple
 import pixeltable as pt
 from pixeltable import exceptions as exc
 from pixeltable import catalog
 from pixeltable.type_system import \
-    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
-from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files, assert_resultset_eq
+    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType
+from pixeltable.tests.utils import make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, assert_resultset_eq
 from pixeltable.functions import make_video, sum
 from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.filecache import FileCache
@@ -121,31 +122,66 @@ class TestTable:
         for tup in pdf.itertuples():
             assert tup.img == tup.img_literal
 
-    def test_insert_bad_images(self, test_client: pt.Client) -> None:
-        # bad image file
-        cl = test_client
+    def check_bad_media(self, test_client, rows : List[Tuple[str, bool]], col_type) -> None:
+        """ Assumes filename for corrupt data file has word bad in it.
+        """
         cols = [
-            catalog.Column('img', ImageType(nullable=False)),
-            catalog.Column('category', StringType(nullable=False)),
-            catalog.Column('split', StringType(nullable=False)),
+            catalog.Column('media', col_type),
+            catalog.Column('is_bad_media', BoolType(nullable=False))
         ]
+
         tbl = test_client.create_table('test', cols)
-        rows, col_names = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
+        assert len(rows) > 0
+        col_names = ['media', 'is_bad_media']
 
-        # check insert with bad image file fails
+        total_bad_rows = 0
+        for row in rows:
+            assert ('bad' in row[0]) == row[1]
+            assert isinstance(row[1], bool)
+            total_bad_rows += int(row[1])
+        assert total_bad_rows > 0
+            
+        ## Mode 1: Validation error on bad input (default)
         with pytest.raises(exc.Error) as exc_info:
             tbl.insert(rows, columns=col_names)
-        assert 'not a valid image' in str(exc_info.value)
+        assert 'bad' in str(exc_info.value)
 
-        # replace row with literal
-        bad_row = rows[0]
-        img_idx = col_names.index('img')
-        bad_row[img_idx] = b'bad image literal'
+        ## Mode 2: ignore_errors=True, store error information in table
+        tbl.insert(rows, columns=col_names, ignore_errors=True)
+        bad_rows = tbl.where(tbl.is_bad_media == True)
+        good_rows = tbl.where(tbl.is_bad_media == False)
 
-        # check insert with bad image literal fails
-        with pytest.raises(exc.Error) as exc_info:
-            tbl.insert(rows, columns=col_names)
-        assert 'not a valid image' in str(exc_info.value)
+        # check that we have the right number of bad and good rows
+        assert bad_rows.count() == total_bad_rows
+        assert good_rows.count() == len(rows) - total_bad_rows
+
+        # check error type is set correctly
+        assert tbl.where((tbl.is_bad_media == True) & (tbl.media.errortype == None)).count() == 0
+        assert tbl.where((tbl.is_bad_media == False) & (tbl.media.errortype == None)).count() == len(rows) - total_bad_rows
+
+        # check fileurl is set for valid images, and check no file url is set for bad images
+        # NB(orm) found no intuitive way to express this without getting data out
+        # (see https://www.notion.so/API-pain-points-60841135411c4c67bb422dc0179dc08a )
+        assert (tbl.where((tbl.is_bad_media == False)).select(tbl.media.fileurl).show()
+                .to_pandas()['media_fileurl'].isnull().sum()) == 0
+        
+        assert (tbl.where((tbl.is_bad_media == True)).select(tbl.media.fileurl).show()
+                .to_pandas()['media_fileurl'].isnull().sum()) == total_bad_rows
+
+
+    def test_insert_validate_image(self, test_client: pt.Client) -> None:
+        rows, _ = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
+        self.check_bad_media(test_client, rows, ImageType(nullable=True))
+              
+    def test_insert_validate_video(self, test_client: pt.Client) -> None:
+        files = get_video_files(include_bad_video=True)
+        rows = [[f, f.endswith('bad_video.mp4')] for f in files]
+        self.check_bad_media(test_client, rows, VideoType(nullable=True))
+
+    def test_insert_validate_audio(self, test_client: pt.Client) -> None:
+        files = get_audio_files(include_bad_audio=True)
+        rows = [[f, f.endswith('bad_audio.mp3')] for f in files]
+        self.check_bad_media(test_client, rows, AudioType(nullable=True))
 
     def test_create_s3_image_table(self, test_client: pt.Client) -> None:
         cl = test_client
@@ -318,7 +354,7 @@ class TestTable:
                 cl.drop_table('test1', ignore_errors=True)
                 t = cl.create_table('test1', [col])
                 t.insert([[r[row_pos]] for r in rows])
-            assert 'Expected' in str(exc_info.value)
+            assert 'expected' in str(exc_info.value).lower()
 
         # rows not list of lists
         with pytest.raises(exc.Error) as exc_info:
@@ -555,7 +591,7 @@ class TestTable:
         c2 = catalog.Column('c2', FloatType(nullable=False))
         c3 = catalog.Column('c3', JsonType(nullable=False))
         schema = [c1, c2, c3]
-        t = cl.create_table('test', schema)
+        t : pt.InsertableTable = cl.create_table('test', schema)
         t.add_column(catalog.Column('c4', computed_with=t.c1 + 1))
         t.add_column(catalog.Column('c5', computed_with=t.c4 + 1))
         t.add_column(catalog.Column('c6', computed_with=t.c1 / t.c2))
