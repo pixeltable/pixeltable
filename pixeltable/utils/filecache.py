@@ -52,7 +52,8 @@ class FileCache:
     """
     _instance: Optional[FileCache] = None
     ColumnStats = namedtuple('FileCacheColumnStats', ['tbl_id', 'col_id', 'num_files', 'total_size'])
-    CacheStats = namedtuple('FileCacheStats', ['num_requests', 'num_hits', 'num_evictions', 'util'])
+    CacheStats = namedtuple(
+        'FileCacheStats', ['total_size', 'num_requests', 'num_hits', 'num_evictions', 'column_stats'])
 
     @classmethod
     def get(cls) -> FileCache:
@@ -179,6 +180,7 @@ class FileCache:
 
     def stats(self) -> CacheStats:
         # collect column stats
+        # (tbl_id, col_id) -> (num_files, total_size)
         d: Dict[Tuple[int, int], List[int]] = defaultdict(lambda: [0, 0])
         for entry in self.cache.values():
             t = d[(entry.tbl_id, entry.col_id)]
@@ -188,7 +190,7 @@ class FileCache:
             self.ColumnStats(tbl_id, col_id, num_files, size) for (tbl_id, col_id), (num_files, size) in d.items()
         ]
         col_stats.sort(key=lambda e: e[3], reverse=True)
-        return self.CacheStats(self.num_requests, self.num_hits, self.num_evictions, col_stats)
+        return self.CacheStats(self.total_size, self.num_requests, self.num_hits, self.num_evictions, col_stats)
 
     def debug_print(self) -> None:
         for entry in self.cache.values():

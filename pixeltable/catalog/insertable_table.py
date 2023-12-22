@@ -40,7 +40,10 @@ class InsertableTable(MutableTable):
             _logger.info(f'created table {name}, id={tbl_version.id}')
             return tbl
 
-    def insert(self, rows: List[List[Any]], columns: List[str] = [], print_stats: bool = False) -> MutableTable.UpdateStatus:
+    def insert(
+            self, rows: List[List[Any]], columns: List[str] = [],
+            print_stats: bool = False, fail_on_exception : bool = True
+    ) -> MutableTable.UpdateStatus:
         """Insert rows into table.
 
         Args:
@@ -48,7 +51,11 @@ class InsertableTable(MutableTable):
             columns: A list of column names that specify the columns present in ``rows``.
                 If ``columns`` is empty, all non-computed columns are present in ``rows``.
             print_stats: If ``True``, print statistics about the cost of computed columns.
-
+            fail_on_exception:
+                Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
+                are handled.
+                If ``False``, store error information for those cases, but continue inserting rows.
+                If ``True``, raise an exception that aborts the insert.
         Returns:
             execution status
 
@@ -61,14 +68,6 @@ class InsertableTable(MutableTable):
             argument is required here because ``rows`` only contain two columns.
 
             >>> tbl.insert([[1, 1], [2, 2]], columns=['a', 'b'])
-
-            Assuming a table with columns ``video``, ``frame`` and ``frame_idx`` and set up for automatic frame extraction,
-            insert a single row containing a video file path (the video contains 100 frames). The row will be expanded
-            into 100 rows, one for each frame, and the ``frame`` and ``frame_idx`` columns will be populated accordingly.
-            Note that the ``columns`` argument is unnecessary here because only the ``video`` column is required.
-
-            >>> tbl.insert([['/path/to/video.mp4']])
-
         """
         if not isinstance(rows, list):
             raise exc.Error('rows must be a list of lists')
@@ -88,11 +87,12 @@ class InsertableTable(MutableTable):
 
         insertable_col_names = self.tbl_version.get_insertable_col_names()
         if len(columns) == 0 and len(rows[0]) != len(insertable_col_names):
+            # if no columns are specified, they must match number
             if len(rows[0]) < len(insertable_col_names):
                 raise exc.Error((
-                    f'MutableTable {self.name} has {len(insertable_col_names)} user-supplied columns, but the data only '
-                    f'contains {len(rows[0])} columns. In this case, you need to specify the column names with the '
-                    f"'columns' parameter."))
+                    f'MutableTable {self.name} has {len(insertable_col_names)} user-supplied columns, but the data '
+                    f'only contains {len(rows[0])} columns. In this case, you need to specify the column names with '
+                    f"the 'columns' parameter."))
             else:
                 raise exc.Error((
                     f'MutableTable {self.name} has {len(insertable_col_names)} user-supplied columns, but the data '
@@ -114,7 +114,8 @@ class InsertableTable(MutableTable):
                 f'({", ".join(columns)})')
 
         self.tbl_version.check_input_rows(rows, columns)
-        result = self.tbl_version.insert(rows, columns, print_stats=print_stats)
+        result = self.tbl_version.insert(
+            rows, columns, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
         if result.num_excs == 0:
             cols_with_excs_str = ''

@@ -8,7 +8,8 @@ class ExecContext:
     """Class for execution runtime constants"""
     def __init__(
             self, row_builder: exprs.RowBuilder, *, show_pbar: bool = False, batch_size: int = 0,
-            pk_clause: Optional[List[sql.ClauseElement]] = None, num_computed_exprs: int = 0
+            pk_clause: Optional[List[sql.ClauseElement]] = None, num_computed_exprs: int = 0,
+            ignore_errors: bool = False
     ):
         self.show_pbar = show_pbar
         self.batch_size = batch_size
@@ -18,6 +19,7 @@ class ExecContext:
         self.conn: Optional[sql.engine.Connection] = None  # if present, use this to execute SQL queries
         self.pk_clause = pk_clause
         self.num_computed_exprs = num_computed_exprs
+        self.ignore_errors = ignore_errors
 
     def set_pk_clause(self, pk_clause: List[sql.ClauseElement]) -> None:
         self.pk_clause = pk_clause

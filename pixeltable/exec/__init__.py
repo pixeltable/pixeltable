@@ -6,3 +6,4 @@ from .exec_node import ExecNode
 from .expr_eval_node import ExprEvalNode
 from .insert_data_node import InsertDataNode
 from .sql_scan_node import SqlScanNode
+from .media_validation_node import MediaValidationNode

@@ -173,10 +173,11 @@ class TestExprs:
 
     def test_props(self, test_tbl: catalog.MutableTable, img_tbl: catalog.MutableTable) -> None:
         t = test_tbl
-        res = t.select(t.c8.errortype).show(0).to_pandas()
-        assert res.iloc[:, 0].isna().all()
-        res = t.select(t.c8.errormsg).show(0).to_pandas()
-        assert res.iloc[:, 0].isna().all()
+        # errortype/-msg for computed column
+        res = t.select(error=t.c8.errortype).collect()
+        assert res.to_pandas()['error'].isna().all()
+        res = t.select(error=t.c8.errormsg).collect()
+        assert res.to_pandas()['error'].isna().all()
 
         img_t = img_tbl
         # fileurl
@@ -193,23 +194,30 @@ class TestExprs:
         all_paths  = set(get_image_files())
         assert stored_paths <= all_paths
 
-        # non-computed columns don't have errortype/-msg
-        with pytest.raises(exc.Error) as excinfo:
-            _ = t.select(t.c1.errortype).show()
-        assert 'not valid for' in str(excinfo.value)
-        with pytest.raises(exc.Error) as excinfo:
-            _ = t.select(t.c1.errormsg).show()
-        assert 'not valid for' in str(excinfo.value)
+        # errortype/-msg for image column
+        res = img_t.select(error=img_t.img.errortype).collect().to_pandas()
+        assert res['error'].isna().all()
+        res = img_t.select(error=img_t.img.errormsg).collect().to_pandas()
+        assert res['error'].isna().all()
 
-        # fileurl/localpath only applies to image/video columns
-        with pytest.raises(exc.Error) as excinfo:
-            _ = t.select(t.c1.fileurl).show()
-        assert 'only valid for' in str(excinfo.value)
-        with pytest.raises(exc.Error) as excinfo:
-            _ = t.select(t.c1.localpath).show()
-        assert 'only valid for' in str(excinfo.value)
+        for c in [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]:
+            # errortype/errormsg only applies to stored computed and media columns
+            with pytest.raises(exc.Error) as excinfo:
+                _ = t.select(c.errortype).show()
+            assert 'only valid for' in str(excinfo.value)
+            with pytest.raises(exc.Error) as excinfo:
+                _ = t.select(c.errormsg).show()
+            assert 'only valid for' in str(excinfo.value)
 
-        # fileurl/localpath doesn't apply to computed img columns
+            # fileurl/localpath only applies to media columns
+            with pytest.raises(exc.Error) as excinfo:
+                _ = t.select(t.c1.fileurl).show()
+            assert 'only valid for' in str(excinfo.value)
+            with pytest.raises(exc.Error) as excinfo:
+                _ = t.select(t.c1.localpath).show()
+            assert 'only valid for' in str(excinfo.value)
+
+        # fileurl/localpath doesn't apply to unstored computed img columns
         img_t.add_column(catalog.Column('c9', computed_with=img_t.img.rotate(30)))
         with pytest.raises(exc.Error) as excinfo:
             _ = img_t.select(img_t.c9.localpath).show()
@@ -236,16 +244,12 @@ class TestExprs:
 
         # data that tests all combinations of nulls
         data = [[1.0, 1.0], [1.0, None], [None, 1.0], [None, None]]
-        t.insert(data)
+        status = t.insert(data, fail_on_exception=False)
+        assert status.num_rows == len(data)
+        assert status.num_excs == len(data) - 1
         result = t.select(t.c3, t.c4).collect()
-        assert result[0, 0] == 2
-        assert result[0, 1] == 2
-        assert result[1, 0] == None
-        assert result[1, 1] == 1
-        assert result[2, 0] == None
-        assert result[2, 1] == None
-        assert result[3, 0] == None
-        assert result[3, 1] == None
+        assert result['c3'] == [2.0, None, None, None]
+        assert result['c4'] == [2.0, 1.0, None, None]
 
     def test_arithmetic_exprs(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl

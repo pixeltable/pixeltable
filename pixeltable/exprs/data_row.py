@@ -42,12 +42,12 @@ class DataRow:
         # - stored url of file for media in vals[i]
         # - None if vals[i] is not media type
         # - not None if file_paths[i] is not None
-        self.file_urls: Optional[str] = [None] * size
+        self.file_urls: List[Optional[str]] = [None] * size
 
         # file_paths:
         # - local path of media file in vals[i]; points to the file cache if file_urls[i] is remote
         # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
-        self.file_paths: Optional[str] = [None] * size
+        self.file_paths: List[Optional[str]] = [None] * size
 
     def clear(self) -> None:
         size = len(self.vals)
@@ -82,9 +82,15 @@ class DataRow:
         return self.excs[slot_idx]
 
     def set_exc(self, slot_idx: int, exc: Exception) -> None:
-        assert self.has_val[slot_idx] is False
         assert self.excs[slot_idx] is None
         self.excs[slot_idx] = exc
+
+        if self.has_val[slot_idx]:
+            # eg. during validation, where contents of file is found invalid
+            self.has_val[slot_idx] = False
+            self.vals[slot_idx] = None
+            self.file_paths[slot_idx] = None
+            self.file_urls[slot_idx] = None
 
     def __getitem__(self, index: object) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""

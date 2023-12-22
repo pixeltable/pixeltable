@@ -46,8 +46,8 @@ class ColumnRef(Expr):
         # resolve column properties
         if name == ColumnPropertyRef.Property.ERRORTYPE.name.lower() \
                 or name == ColumnPropertyRef.Property.ERRORMSG.name.lower():
-            if not self.col.is_computed or not self.col.is_stored:
-                raise excs.Error(f'{name} not valid for a non-computed or unstored column: {self}')
+            if not (self.col.is_computed and self.col.is_stored) and not self.col.col_type.is_media_type():
+                raise excs.Error(f'{name} only valid for a stored computed or media column: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
         if name == ColumnPropertyRef.Property.FILEURL.name.lower() \
                 or name == ColumnPropertyRef.Property.LOCALPATH.name.lower():

@@ -19,6 +19,7 @@ from pixeltable.env import Env
 import pixeltable.func as func
 from pixeltable.metadata import schema
 from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.filecache import FileCache
 from pixeltable.iterators import ComponentIterator
 
 
@@ -190,6 +191,7 @@ class TableVersion:
 
             # delete this table and all associated data
             MediaStore.delete(self.id)
+            FileCache.get().clear(tbl_id=self.id)
             conn = session.connection()
             conn.execute(
                 sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == self.id))
@@ -365,18 +367,21 @@ class TableVersion:
             self._update_md(ts, preceding_schema_version, conn)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
-    def insert(self, rows: List[List[Any]], column_names: List[str], print_stats: bool = False) -> UpdateStatus:
+    def insert(
+            self, rows: List[List[Any]], column_names: List[str], print_stats: bool = False,
+            fail_on_exception : bool = True
+    ) -> UpdateStatus:
         """Insert rows into this table.
         """
         assert self.is_insertable()
         from pixeltable.plan import Planner
-        plan = Planner.create_insert_plan(self, rows, column_names)
+        plan = Planner.create_insert_plan(self, rows, column_names, ignore_errors=not fail_on_exception)
         ts = time.time()
         with Env.get().engine.begin() as conn:
             return self._insert(plan, conn, ts, print_stats)
 
     def _insert(
-            self, exec_plan: exec.ExecNode, conn: sql.engine.Connection, ts: float, print_stats: bool = False
+            self, exec_plan: exec.ExecNode, conn: sql.engine.Connection, ts: float, print_stats: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         assert self.is_mutable()
@@ -642,7 +647,11 @@ class TableVersion:
 
     def check_input_rows(self, rows: List[List[Any]], column_names: List[str]) -> None:
         """
-        Make sure 'rows' conform to schema.
+        Verify the integrity of 'rows':
+        1. the number of columns matches the number of values provided
+        2. all required table columns are present
+        3. all columns provided are insertable (ie not computed)
+        4. all provided values for a column are of a compatible python type
         """
         assert len(rows) > 0
         all_col_names = {col.name for col in self.cols}
@@ -668,7 +677,9 @@ class TableVersion:
                 if val is None:
                     continue
                 try:
-                    row[col_idx] = col.col_type.create_literal(val)
+                    # basic sanity checks here
+                    checked_val = col.col_type.create_literal(val)
+                    row[col_idx] = checked_val
                 except TypeError as e:
                     raise exc.Error(f'Column {col.name} in row {row_idx}: {e}')
 

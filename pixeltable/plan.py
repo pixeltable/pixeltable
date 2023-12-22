@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, List, Set, Any, Dict
+from typing import Tuple, Optional, List, Set, Any, Dict, Union
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -213,7 +213,7 @@ class Planner:
 
     @classmethod
     def create_insert_plan(
-            cls, tbl: catalog.TableVersion, rows: List[List[Any]], column_names: List[str]
+            cls, tbl: catalog.TableVersion, rows: List[List[Any]], column_names: List[str], ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
@@ -234,16 +234,22 @@ class Planner:
         row_column_pos = {name: i for i, name in enumerate(column_names)}
         plan = exec.InsertDataNode(tbl, rows, row_column_pos, row_builder, input_col_info, tbl.next_rowid)
 
-        # add an ExprEvalNode if there are exprs to compute
+        media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
+
+        # prefetch external files for all input column refs for validation
+        plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
+        plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
+
         computed_exprs = row_builder.default_eval_ctx.target_exprs
         if len(computed_exprs) > 0:
-            # prefetch external files for media column types
-            plan = cls._insert_prefetch_node(tbl.id, computed_exprs, row_builder, plan)
-            # input_exprs=[]: our inputs are values in 'rows'
-            plan = exec.ExprEvalNode(row_builder, computed_exprs, [], ignore_errors=True, input=plan)
+            # add an ExprEvalNode when there are exprs to compute
+            plan = exec.ExprEvalNode(row_builder, computed_exprs, [], input=plan)
 
         plan.set_stored_img_cols(stored_img_col_info)
-        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, show_pbar=True, num_computed_exprs=len(computed_exprs)))
+        plan.set_ctx(
+            exec.ExecContext(
+                row_builder, batch_size=0, show_pbar=True, num_computed_exprs=len(computed_exprs),
+                ignore_errors=ignore_errors))
         return plan
 
     @classmethod
@@ -339,7 +345,9 @@ class Planner:
         return plan
 
     @classmethod
-    def create_view_load_plan(cls, view: catalog.TableVersion, propagates_insert: bool = False) -> Tuple[exec.ExecNode, int]:
+    def create_view_load_plan(
+            cls, view: catalog.TableVersion, propagates_insert: bool = False
+    ) -> Tuple[exec.ExecNode, int]:
         """Creates a query plan for populating a view.
 
         Args:
@@ -375,19 +383,19 @@ class Planner:
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         base_analyzer = Analyzer(view, base_output_exprs, where_clause=view.predicate)
         plan = cls._create_query_plan(
-            view.base, row_builder=row_builder, analyzer=base_analyzer, with_pk=True, ignore_errors=True,
+            view.base, row_builder=row_builder, analyzer=base_analyzer, with_pk=True,
             exact_version_only=view.get_bases() if propagates_insert else [])
         exec_ctx = plan.ctx
         if view.is_component_view():
             plan = exec.ComponentIterationNode(view, plan)
         if len(view_output_exprs) > 0:
             plan = exec.ExprEvalNode(
-                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, ignore_errors=True,
-                input=plan)
+                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan)
 
         stored_img_col_info = [info for info in row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
         plan.set_stored_img_cols(stored_img_col_info)
         exec_ctx.set_pk_clause(view.base.store_tbl.pk_columns())
+        exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         return plan, len(row_builder.default_eval_ctx.target_exprs)
 
@@ -521,9 +529,9 @@ class Planner:
         # select_list: we need to materialize everything that's been collected
         # with_pk: for now, we always retrieve the PK, because we need it for the file cache
         plan = cls._create_query_plan(
-            tbl, row_builder, analyzer=analyzer, limit=limit, with_pk=True, ignore_errors=ignore_errors,
-            exact_version_only=exact_version_only)
+            tbl, row_builder, analyzer=analyzer, limit=limit, with_pk=True, exact_version_only=exact_version_only)
         plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
+        plan.ctx.ignore_errors = ignore_errors
         select_list.clear()
         select_list.extend(analyzer.select_list)
         return plan
@@ -531,8 +539,7 @@ class Planner:
     @classmethod
     def _create_query_plan(
             cls, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder, analyzer: Analyzer,
-            limit: Optional[int] = None, with_pk: bool = False, ignore_errors: bool = False,
-            exact_version_only: List[catalog.TableVersion] = []
+            limit: Optional[int] = None, with_pk: bool = False, exact_version_only: List[catalog.TableVersion] = []
     ) -> exec.ExecNode:
         """
         Args:
@@ -559,7 +566,7 @@ class Planner:
                 agg_input.extend(fn_call.components)
             if not cls._is_contained_in(agg_input, analyzer.sql_exprs):
                 # we need an ExprEvalNode
-                plan = exec.ExprEvalNode(row_builder, agg_input, analyzer.sql_exprs, ignore_errors=ignore_errors, input=plan)
+                plan = exec.ExprEvalNode(row_builder, agg_input, analyzer.sql_exprs, input=plan)
 
             # batch size for aggregation input: this could be the entire table, so we need to divide it into
             # smaller batches; at the same time, we need to make the batches large enough to amortize the
@@ -574,12 +581,11 @@ class Planner:
             if not cls._is_contained_in(analyzer.select_list, agg_output):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
                 plan = exec.ExprEvalNode(
-                    row_builder, analyzer.select_list, agg_output, ignore_errors=ignore_errors, input=plan)
+                    row_builder, analyzer.select_list, agg_output, input=plan)
         else:
             if not cls._is_contained_in(analyzer.select_list, analyzer.sql_exprs):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
-                plan = exec.ExprEvalNode(
-                    row_builder, analyzer.select_list, analyzer.sql_exprs, ignore_errors=ignore_errors, input=plan)
+                plan = exec.ExprEvalNode(row_builder, analyzer.select_list, analyzer.sql_exprs, input=plan)
             # we're returning everything to the user, so we might as well do it in a single batch
             ctx.batch_size = 0
 
@@ -604,10 +610,11 @@ class Planner:
         row_builder = exprs.RowBuilder(
             output_exprs=[], columns=[col], indices=[(col, openai_clip)] if col.is_indexed else [], input_exprs=[])
         analyzer = Analyzer(tbl, row_builder.default_eval_ctx.target_exprs)
-        plan = cls._create_query_plan(tbl, row_builder=row_builder, analyzer=analyzer, with_pk=True, ignore_errors=True)
+        plan = cls._create_query_plan(tbl, row_builder=row_builder, analyzer=analyzer, with_pk=True)
         plan.ctx.batch_size = 16
         plan.ctx.show_pbar = True
         plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
+        plan.ctx.ignore_errors = True
 
         # we want to flush images
         if col.is_computed and col.is_stored and col.col_type.is_image_type():

@@ -144,12 +144,14 @@ class Column:
 
     @property
     def is_stored(self) -> bool:
-        """
-        Returns True if column is materialized in the stored table.
-        Note that the extracted frame col is effectively computed.
-        """
+        """Returns True if column is materialized in the stored table."""
         assert self.stored is not None
         return self.stored
+
+    @property
+    def records_errors(self) -> bool:
+        """True if this column also stores error information."""
+        return self.is_stored and (self.is_computed or self.col_type.is_media_type())
 
     def source(self) -> None:
         """
@@ -165,10 +167,9 @@ class Column:
         These need to be recreated for every new table schema version.
         """
         assert self.is_stored
-        # computed cols store a NULL value when the computation has an error
-        nullable = True if self.is_computed else self.col_type.nullable
-        self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=nullable)
-        if self.is_computed:
+        # all storage columns are nullable (we deal with null errors in Pixeltable directly)
+        self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=True)
+        if self.is_computed or self.col_type.is_media_type():
             self.sa_errormsg_col = sql.Column(self.errormsg_storage_name(), StringType().to_sa_type(), nullable=True)
             self.sa_errortype_col = sql.Column(self.errortype_storage_name(), StringType().to_sa_type(), nullable=True)
         if self.is_indexed:

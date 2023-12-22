@@ -3,13 +3,11 @@ from __future__ import annotations
 import abc
 import datetime
 import enum
-import io
 import json
 from pathlib import Path
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 import urllib.parse
 
-import cv2
 import av
 import nos
 import numpy as np
@@ -260,13 +258,51 @@ class ColumnType:
                 return None
         return None
 
-    @abc.abstractmethod
     def validate_literal(self, val: Any) -> None:
+        """Raise TypeError if val is not a valid literal for this type"""
+        if val is None:
+            if not self.nullable:
+                raise TypeError('Expected non-None value')
+            else:
+                return
+        self._validate_literal(val)
+
+    def validate_media(self, val: Any) -> None:
+        """
+        Raise TypeError if val is not a path to a valid media file (or a valid in-memory byte sequence) for this type
+        """
+        if self.is_media_type():
+            raise NotImplementedError(f'validate_media() not implemented for {self.__class__.__name__}')
+
+    def _validate_file_path(self, val: Any) -> None:
+        """Raises TypeError if not a valid local file path or not a path/byte sequence"""
+        if isinstance(val, str):
+            parsed = urllib.parse.urlparse(val)
+            if parsed.scheme != '' and parsed.scheme != 'file':
+                return
+            path = Path(urllib.parse.unquote(parsed.path))
+            if not path.is_file():
+                raise TypeError(f'File not found: {str(path)}')
+        else:
+            if not isinstance(val, bytes):
+                raise TypeError(f'expected file path or bytes, got {type(val)}')
+
+    @abc.abstractmethod
+    def _validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
         pass
 
+    @abc.abstractmethod
+    def _create_literal(self, val : Any) -> Any:
+        """Create a literal of this type from val, including any needed conversions.
+             val is guaranteed to be non-None"""
+        return val
+
     def create_literal(self, val: Any) -> Any:
         """Try to create a literal of this type from val. Raise TypeError if not possible"""
+        if val is not None:
+            val = self._create_literal(val)
+
         self.validate_literal(val)
         return val
 
@@ -313,6 +349,7 @@ class ColumnType:
         return self._type == self.Type.AUDIO
 
     def is_media_type(self) -> bool:
+        # types that refer to external media files
         return self.is_image_type() or self.is_video_type() or self.is_audio_type()
 
     @abc.abstractmethod
@@ -385,7 +422,7 @@ class InvalidType(ColumnType):
     def print_value(self, val: Any) -> str:
         assert False
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any) -> None:
         assert False
 
 class StringType(ColumnType):
@@ -416,7 +453,7 @@ class StringType(ColumnType):
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, str):
             raise TypeError(f'Expected string, got {val.__class__.__name__}')
 
@@ -435,7 +472,7 @@ class IntType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.int64() # to be consistent with bigint above
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, int):
             raise TypeError(f'Expected int, got {val.__class__.__name__}')
 
@@ -454,15 +491,14 @@ class FloatType(ColumnType):
         import pyarrow as pa
         return pa.float32()
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, float):
             raise TypeError(f'Expected float, got {val.__class__.__name__}')
 
-    def create_literal(self, val: Any) -> Any:
+    def _create_literal(self, val: Any) -> Any:
         if isinstance(val, int):
             return float(val)
-        return super().create_literal(val)
-
+        return val
 
 class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -478,15 +514,14 @@ class BoolType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.bool_()
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, bool):
             raise TypeError(f'Expected bool, got {val.__class__.__name__}')
 
-    def create_literal(self, val: Any) -> Any:
+    def _create_literal(self, val: Any) -> Any:
         if isinstance(val, int):
             return bool(val)
-        return super().create_literal(val)
-
+        return val
 
 class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -502,15 +537,14 @@ class TimestampType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.timestamp('us') # postgres timestamp is microseconds
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
             raise TypeError(f'Expected datetime.datetime or datetime.date, got {val.__class__.__name__}')
 
-    def create_literal(self, val: Any) -> Any:
+    def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
-        return super().create_literal(val)
-
+        return val
 
 class JsonType(ColumnType):
     # TODO: type_spec also needs to be able to express lists
@@ -550,7 +584,7 @@ class JsonType(ColumnType):
             return str(val)
         return val_type.print_value(val)
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, dict) and not isinstance(val, list):
             raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
         try:
@@ -558,11 +592,10 @@ class JsonType(ColumnType):
         except TypeError as e:
             raise TypeError(f'Expected JSON-serializable object, got {val}')
 
-    def create_literal(self, val: Any) -> Any:
+    def _create_literal(self, val: Any) -> Any:
         if isinstance(val, tuple):
             val = list(val)
-        return super().create_literal(val)
-
+        return val
 
 class ArrayType(ColumnType):
     def __init__(
@@ -629,7 +662,7 @@ class ArrayType(ColumnType):
                 return False
         return val.dtype == self.numpy_dtype()
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, np.ndarray):
             raise TypeError(f'Expected numpy.ndarray, got {val.__class__.__name__}')
         if not self.is_valid_literal(val):
@@ -637,12 +670,10 @@ class ArrayType(ColumnType):
                 f'Expected ndarray({self.shape}, dtype={self.numpy_dtype()}), '
                 f'got ndarray({val.shape}, dtype={val.dtype})'))
 
-    def create_literal(self, val: Any) -> Any:
-        if isinstance(val, list):
-            val = np.array(val)
-        elif isinstance(val, tuple):
-            val = np.array(val)
-        return super().create_literal(val)
+    def _create_literal(self, val: Any) -> Any:
+        if isinstance(val, (list,tuple)):
+            return np.array(val)
+        return val
 
     def to_sql(self) -> str:
         return 'BYTEA'
@@ -765,36 +796,17 @@ class ImageType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.binary()
 
-    def validate_literal(self, val: Any) -> None:
+    def _validate_literal(self, val: Any) -> None:
         if isinstance(val, PIL.Image.Image):
             return
+        self._validate_file_path(val)
 
-        # make sure file path points to a valid image file or binary is a valid image
-        if not isinstance(val, (str, bytes)):
-            raise TypeError(f'Expected file path or bytes, got {val.__class__.__module__}.{val.__class__.__name__}')
-
-        if isinstance(val, bytes):
-            try:
-                _ = PIL.Image.open(io.BytesIO(val))
-            except PIL.UnidentifiedImageError:
-                raise TypeError(f'Bytes are not a valid image')
-        # TODO:
-        # - unify file validation for ImageType and VideoType
-        # - turn it into an ExecNode, so it can be done in parallel for external URLs
-        elif isinstance(val, str):
-            parsed = urllib.parse.urlparse(val)
-            if parsed.scheme != '' and parsed.scheme != 'file':
-                # skip validation for now
-                return
-            try:
-                _ = PIL.Image.open(val)
-            except FileNotFoundError:
-                raise TypeError(f'File not found: {val}')
-            except PIL.UnidentifiedImageError:
-                raise TypeError(f'File is not a valid image: {val}')
-        else:
-            assert False
-
+    def validate_media(self, val: Any) -> None:
+        assert isinstance(val, str)
+        try:
+            _ = PIL.Image.open(val)
+        except PIL.UnidentifiedImageError:
+            raise exc.Error(f'Not a valid image: {val}')
 
 class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -811,24 +823,25 @@ class VideoType(ColumnType):
         import pyarrow as pa # pylint: disable=import-outside-toplevel
         return pa.string()
 
-    def validate_literal(self, val: Any) -> None:
-        if not isinstance(val, str):
-            raise TypeError(f'Expected file path, got {val.__class__.__name__}')
-        # TODO: see ImageType.validate_literal()
-        parsed = urllib.parse.urlparse(val)
-        if parsed.scheme != '' and parsed.scheme != 'file':
-            # skip validation for now
-            return
-        path = Path(val)
-        if not path.is_file():
-            raise TypeError(f'File not found: {val}')
-        cap = cv2.VideoCapture(val)
-        # TODO: this succeeds for image files; figure out how to verify it's a video
-        success = cap.isOpened()
-        cap.release()
-        if not success:
-            raise TypeError(f'File is not a valid video: {val}')
+    def _validate_literal(self, val: Any) -> None:
+        self._validate_file_path(val)
 
+    def validate_media(self, val: Any) -> None:
+        assert isinstance(val, str)
+        try:
+            with av.open(val, 'r') as fh:
+                if len(fh.streams.video) == 0:
+                    raise exc.Error(f'Not a valid video: {val}')
+                # decode a few frames to make sure it's playable
+                # TODO: decode all frames? but that's very slow
+                num_to_decode = 10
+                for frame in fh.decode(video=0):
+                    _ = frame.to_image()
+                    num_to_decode -= 1
+                    if num_to_decode == 0:
+                        break
+        except av.AVError:
+            raise exc.Error(f'Not a valid video: {val}')
 
 class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -845,29 +858,20 @@ class AudioType(ColumnType):
         import pyarrow as pa  # pylint: disable=import-outside-toplevel
         return pa.string()
 
-    def validate_literal(self, val: Any) -> None:
-        if not isinstance(val, str):
-            raise TypeError(f'Expected file path, got {val.__class__.__name__}')
-        # TODO: see ImageType.validate_literal()
-        parsed = urllib.parse.urlparse(val)
-        if parsed.scheme != '' and parsed.scheme != 'file':
-            # skip validation for now
-            return
-        path = Path(val)
-        if not path.is_file():
-            raise TypeError(f'File not found: {val}')
+    def _validate_literal(self, val: Any) -> None:
+        self._validate_file_path(val)
 
-        # TODO: is there some way to verify it's a playable audio file other than decoding all of it?
+    def validate_media(self, val: Any) -> None:
         try:
             with av.open(val) as container:
                 if len(container.streams.audio) == 0:
-                    raise TypeError(f'No audio stream in file: {val}')
+                    raise exc.Error(f'No audio stream in file: {val}')
                 audio_stream = container.streams.audio[0]
 
                 # decode everything to make sure it's playable
-                # TODO: only decode a few frames?
+                # TODO: is there some way to verify it's a playable audio file other than decoding all of it?
                 for packet in container.demux(audio_stream):
                     for _ in packet.decode():
                         pass
-        except av.error.InvalidDataError as e:
-            raise TypeError(f'Not a valid audio file: {val}\n{e}')
+        except av.AVError as e:
+            raise exc.Error(f'Not a valid audio file: {val}\n{e}')

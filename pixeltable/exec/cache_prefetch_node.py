@@ -13,6 +13,7 @@ from .exec_node import ExecNode
 import pixeltable.exprs as exprs
 from pixeltable.utils.filecache import FileCache
 import pixeltable.env as env
+import pixeltable.exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -54,17 +55,19 @@ class CachePrefetchNode(ExecNode):
                     cache_misses.append((row, info))
                     missing_url_rows[url].append(row)
                 else:
-                    row.set_file_path(info.slot_idx, local_path)
+                    row.set_file_path(info.slot_idx, str(local_path))
 
         # download the cache misses in parallel
         # TODO: set max_workers to maximize throughput
         futures: Dict[concurrent.futures.Future, Tuple[exprs.DataRow, exprs.ColumnSlotIdx]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
             for row, info in cache_misses:
-                futures[executor.submit(self._fetch_url, row.file_urls[info.slot_idx])] = (row, info)
+                futures[executor.submit(self._fetch_url, row, info.slot_idx)] = (row, info)
             for future in concurrent.futures.as_completed(futures):
                 # TODO:  does this need to deal with recoverable errors (such as retry after throttling)?
                 tmp_path = future.result()
+                if tmp_path is None:
+                    continue
                 row, info = futures[future]
                 url = row.file_urls[info.slot_idx]
                 local_path = file_cache.add(self.tbl_id, info.col.id, url, tmp_path)
@@ -74,8 +77,9 @@ class CachePrefetchNode(ExecNode):
 
         return input_batch
 
-    def _fetch_url(self, url: str) -> str:
+    def _fetch_url(self, row: exprs.DataRow, slot_idx: int) -> Optional[str]:
         """Fetches a remote URL into Env.tmp_dir and returns its path"""
+        url = row.file_urls[slot_idx]
         parsed = urllib.parse.urlparse(url)
         assert parsed.scheme != '' and parsed.scheme != 'file'
         if parsed.scheme == 's3':
@@ -84,7 +88,15 @@ class CachePrefetchNode(ExecNode):
                 if self.boto_client is None:
                     self.boto_client = get_client()
             tmp_path = env.Env.get().tmp_dir / os.path.basename(parsed.path)
-            self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
-            return tmp_path
+            try:
+                self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
+                return tmp_path
+            except Exception as e:
+                # we want to add the file url to the exception message
+                exc = excs.Error(f'Failed to download {url}: {e}')
+                self.row_builder.set_exc(row, slot_idx, exc)
+                if not self.ctx.ignore_errors:
+                    raise exc
+                return None
         assert False, f'Unsupported URL scheme: {parsed.scheme}'
 

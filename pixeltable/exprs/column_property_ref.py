@@ -54,6 +54,9 @@ class ColumnPropertyRef(Expr):
         if self.prop == self.Property.ERRORMSG:
             assert self._col_ref.col.sa_errormsg_col is not None
             return self._col_ref.col.sa_errormsg_col
+        if self.prop == self.Property.FILEURL:
+            # the file url is stored as the column value
+            return self._col_ref.sql_expr()
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

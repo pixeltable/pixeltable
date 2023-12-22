@@ -68,9 +68,10 @@ class StoreBase:
             # to the last sql.MutableTable version we created and cannot be reused
             col.create_sa_cols()
             all_cols.append(col.sa_col)
-            if col.is_computed:
+            if col.records_errors:
                 all_cols.append(col.sa_errormsg_col)
                 all_cols.append(col.sa_errortype_col)
+
             if col.is_indexed:
                 all_cols.append(col.sa_idx_col)
 
@@ -79,6 +80,7 @@ class StoreBase:
             # - non-computed video and image columns (they will contain external paths/urls that users might want to
             #   filter on)
             if col.col_type.is_scalar_type() or col.col_type.is_media_type() and not col.is_computed:
+                # index names need to be unique within the Postgres instance
                 idx_name = f'idx_{col.id}_{self.tbl_version.id.hex}'
                 idxs.append(sql.Index(idx_name, col.sa_col))
 
@@ -176,7 +178,7 @@ class StoreBase:
         log_stmt(_logger, stmt)
         conn.execute(stmt)
         added_storage_cols = [col.storage_name()]
-        if col.is_computed:
+        if col.records_errors:
             # we also need to create the errormsg and errortype storage cols
             stmt = (f'ALTER TABLE {self._storage_name()} '
                     f'ADD COLUMN {col.errormsg_storage_name()} {StringType().to_sql()} DEFAULT NULL')
@@ -184,7 +186,7 @@ class StoreBase:
             stmt = (f'ALTER TABLE {self._storage_name()} '
                     f'ADD COLUMN {col.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
             conn.execute(sql.text(stmt))
-            added_storage_cols.extend([col.errormsg_storage_name(), col.errortype_storage_name()])
+        added_storage_cols.extend([col.errormsg_storage_name(), col.errortype_storage_name()])
         self._create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 
@@ -194,7 +196,7 @@ class StoreBase:
             assert conn is not None
             stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.storage_name()}'
             conn.execute(sql.text(stmt))
-            if col.is_computed:
+            if col.records_errors:
                 stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errormsg_storage_name()}'
                 conn.execute(sql.text(stmt))
                 stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errortype_storage_name()}'

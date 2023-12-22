@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple, Set
+from typing import Optional, List, Any, Dict, Tuple, Set, Iterable
 from dataclasses import dataclass
 import time
 import sys
@@ -277,6 +277,12 @@ class RowBuilder:
             slot_idxs=ctx_slot_idxs, exprs=[self.unique_exprs[slot_idx] for slot_idx in ctx_slot_idxs],
             target_slot_idxs=target_slot_idxs, target_exprs=targets)
 
+    def set_exc(self, data_row: DataRow, slot_idx: int, exc: Exception) -> None:
+        """Record an exception in data_row and propagate it to dependents"""
+        data_row.set_exc(slot_idx, exc)
+        for slot_idx in self.dependents[slot_idx]:
+            data_row.set_exc(slot_idx, exc)
+
     def eval(
             self, data_row: DataRow, ctx: EvalCtx, profile: Optional[ExecProfile] = None, ignore_errors: bool = False
     ) -> None:
@@ -299,10 +305,7 @@ class RowBuilder:
                     profile.eval_count[expr.slot_idx] += 1
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
-                # propagate exception to dependents
-                data_row.set_exc(expr.slot_idx, exc)
-                for slot_idx in self.dependents[expr.slot_idx]:
-                    data_row.set_exc(slot_idx, exc)
+                self.set_exc(data_row, expr.slot_idx, exc)
                 if not ignore_errors:
                     input_vals = [data_row[d.slot_idx] for d in expr.dependencies()]
                     raise excs.ExprEvalError(

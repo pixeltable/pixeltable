@@ -27,14 +27,13 @@ class ExprEvalNode(ExecNode):
 
     def __init__(
             self, row_builder: exprs.RowBuilder, output_exprs: List[exprs.Expr], input_exprs: List[exprs.Expr],
-            ignore_errors: bool, input: ExecNode
+            input: ExecNode
     ):
         super().__init__(row_builder, output_exprs, input_exprs, input)
         self.input_exprs = input_exprs
         input_slot_idxs = {e.slot_idx for e in input_exprs}
         # we're only materializing exprs that are not already in the input
         self.target_exprs = [e for e in output_exprs if e.slot_idx not in input_slot_idxs]
-        self.ignore_errors = ignore_errors  # if False, raise exc.ExprEvalError on error in _exec_cohort()
         self.pbar: Optional[tqdm] = None
         self.cohorts: List[List[ExprEvalNode.Cohort]] = []
         self._create_cohorts()
@@ -143,7 +142,7 @@ class ExprEvalNode(ExecNode):
                     # compute batch row-wise
                     for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
                         self.row_builder.eval(
-                            rows[row_idx], segment_ctx, self.ctx.profile, ignore_errors=self.ignore_errors)
+                            rows[row_idx], segment_ctx, self.ctx.profile, ignore_errors=self.ctx.ignore_errors)
                 else:
                     fn_call = segment_ctx.exprs[0]
                     # make a batched external function call
