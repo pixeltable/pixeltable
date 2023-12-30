@@ -71,7 +71,7 @@ class TestView:
 
         # insert data: of 20 new rows, only 10 are reflected in the view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
-        status = t.insert([list(r.values()) for r in rows])
+        status = t.insert(rows)
         assert status.num_rows == 30
         assert t.count() == 120
         assert_resultset_eq(view_query.collect(), base_query.collect())
@@ -117,7 +117,7 @@ class TestView:
 
         # insert data: of 20 new rows, only 10 show up in each view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
-        status = t.insert([list(r.values()) for r in rows])
+        status = t.insert(rows)
         assert status.num_rows == 40
         assert t.count() == 120
         assert v1.count() == 20
@@ -182,7 +182,7 @@ class TestView:
         # insert data: of 20 new rows; 10 show up in v1, 5 in v2
         base_version, v1_version, v2_version = t.version(), v1.version(), v2.version()
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
-        status = t.insert([list(r.values()) for r in rows])
+        status = t.insert(rows)
         assert status.num_rows == 20 + 10 + 5
         assert t.count() == 120
         assert v1.count() == 20
@@ -254,7 +254,12 @@ class TestView:
         # populate table with images of a defined size
         width, height = 100, 100
         rows = [
-            [PIL.Image.new('RGB', (width, height), color=(0, 0, 0)).tobytes('jpeg', 'RGB') , i, i] for i in range(100)
+            {
+                'img': PIL.Image.new('RGB', (width, height), color=(0, 0, 0)).tobytes('jpeg', 'RGB'),
+                'int1': i,
+                'int2': i,
+            }
+            for i in range(100)
         ]
         t.insert(rows)
 
@@ -337,7 +342,7 @@ class TestView:
 
         # insert data
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).collect())
-        t.insert([list(r.values()) for r in rows])
+        t.insert(rows)
         assert t.count() == 200
         assert_resultset_eq(
             v.select(v.v1).order_by(v.c2).show(0),
@@ -374,7 +379,7 @@ class TestView:
 
         # insert data: of 20 new rows, only 10 are reflected in the view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).where(t.c2 < 20).collect())
-        t.insert([list(r.values()) for r in rows])
+        t.insert(rows)
         assert t.count() == 120
         assert_resultset_eq(
             v.order_by(v.c2).show(0),
@@ -424,7 +429,7 @@ class TestView:
 
         # insert data: no changes to view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
-        t.insert([list(r.values()) for r in rows])
+        t.insert(rows)
         assert t.count() == 120
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).show(0), res)
 
@@ -473,7 +478,7 @@ class TestView:
 
         # insert data: no changes to snapshot
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
-        t.insert([list(r.values()) for r in rows])
+        t.insert(rows)
         assert t.count() == 120
         assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
 

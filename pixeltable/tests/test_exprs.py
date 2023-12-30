@@ -243,7 +243,7 @@ class TestExprs:
         t.add_column(pt.Column('c4', FloatType(), computed_with=f(t.c1, t.c2)))
 
         # data that tests all combinations of nulls
-        data = [[1.0, 1.0], [1.0, None], [None, 1.0], [None, None]]
+        data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
         status = t.insert(data, fail_on_exception=False)
         assert status.num_rows == len(data)
         assert status.num_excs == len(data) - 1
@@ -528,10 +528,9 @@ class TestExprs:
         new_t = cl.create_table('insert_test', [c2, c3, c4])
         new_t.add_column(catalog.Column(
             'c2_sum', computed_with=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3)))
-        dict_rows = list(t.select(t.c2, t.c4, t.c3).collect())
-        new_t.insert([list(r.values()) for r in dict_rows], columns=['c2', 'c4', 'c3'])
+        rows = list(t.select(t.c2, t.c4, t.c3).collect())
+        new_t.insert(rows)
         _ = new_t.show(0)
-        print(_)
 
     def test_aggregates(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl

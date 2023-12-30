@@ -213,13 +213,13 @@ class Planner:
 
     @classmethod
     def create_insert_plan(
-            cls, tbl: catalog.TableVersion, rows: List[List[Any]], column_names: List[str], ignore_errors: bool
+            cls, tbl: catalog.TableVersion, rows: List[Dict[str, Any]], ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
         # things we need to materialize:
         # 1. stored_cols: all cols we need to store, incl computed cols (and indices)
-        stored_cols = [c for c in tbl.cols if c.is_stored and (c.name in column_names or c.is_computed)]
+        stored_cols = [c for c in tbl.cols if c.is_stored]
         assert len(stored_cols) > 0
         # 2. values to insert into indices
         from pixeltable.functions.nos.image_embedding import openai_clip
@@ -227,12 +227,11 @@ class Planner:
 
         row_builder = exprs.RowBuilder([], stored_cols, index_info, [])
 
-        # create InsertDataNode for 'rows'
+        # create InMemoryDataNode for 'rows'
         stored_col_info = row_builder.output_slot_idxs()
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         input_col_info = [info for info in stored_col_info if not info.col.is_computed]
-        row_column_pos = {name: i for i, name in enumerate(column_names)}
-        plan = exec.InsertDataNode(tbl, rows, row_column_pos, row_builder, input_col_info, tbl.next_rowid)
+        plan = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
 
         media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
 

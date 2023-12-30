@@ -341,7 +341,7 @@ class TestDataFrame:
 
         # check invalidation on insert
         t_size = t.count()
-        t.insert([[t_size, ]], columns=['row_id'])
+        t.insert([{'row_id': t_size}])
         ds3 = t.to_pytorch_dataset(image_format='pt')
         assert ds3.path != ds1.path, 'different path should be used'
 

@@ -57,7 +57,7 @@ class TestComponentView:
         view_t.add_column(catalog.Column('v2', computed_with=view_t.frame_idx - 1))
 
         # and load data
-        rows = [[p, 30] for p in video_filepaths]
+        rows = [{'video': p, 'angle': 30} for p in video_filepaths]
         video_t.insert(rows)
         # pos and frame_idx are identical
         res = view_t.select(view_t.pos, view_t.frame_idx).collect().to_pandas()
@@ -80,7 +80,7 @@ class TestComponentView:
         args = {'video': video_t.video, 'fps': 1}
         view_t = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
 
-        rows = [[p] for p in video_filepaths]
+        rows = [{'video': p} for p in video_filepaths]
         video_t.insert(rows)
         # adding a non-computed column backfills it with nulls
         view_t.add_column(catalog.Column('annotation', JsonType(nullable=True)))
@@ -105,7 +105,7 @@ class TestComponentView:
             'test_view', video_t, schema=[dict_col], iterator_class=FrameIterator, iterator_args=args)
 
         video_filepaths = get_video_files()
-        rows = [[p] for p in video_filepaths]
+        rows = [{'video': p} for p in video_filepaths]
         status = video_t.insert(rows)
         import urllib
         video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
@@ -217,7 +217,7 @@ class TestComponentView:
                     .order_by(v2.video, v2.pos).collect())
 
         # load data
-        rows = [[p, i, len(video_filepaths) - i] for i, p in enumerate(video_filepaths)]
+        rows = [{'video': p, 'int1': i, 'int2': len(video_filepaths) - i} for i, p in enumerate(video_filepaths)]
         status = video_t.insert(rows)
         assert status.num_rows == video_t.count() + v1.count() + v2.count()
         check_view()

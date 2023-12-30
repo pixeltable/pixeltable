@@ -1,11 +1,9 @@
 import pytest
 
-from pixeltable import catalog
-from pixeltable.type_system import \
-    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
-from pixeltable.tests.utils import get_video_files
-from pixeltable.exprs import Literal
 import pixeltable as pt
+from pixeltable import catalog
+from pixeltable.type_system import ImageType, VideoType
+from pixeltable.tests.utils import get_video_files
 from pixeltable.iterators import FrameIterator
 
 
@@ -25,7 +23,7 @@ class TestNOS:
         # add a stored column that isn't referenced in nos calls
         v.add_column(catalog.Column('transform2', computed_with=v.frame.rotate(60), stored=True))
 
-        status = video_t.insert([[get_video_files()[0]]], ['video'])
+        status = video_t.insert([{'video': get_video_files()[0]}])
         pass
 
     def test_exceptions(self, test_client: pt.Client) -> None:
@@ -34,7 +32,7 @@ class TestNOS:
         # create frame view
         args = {'video': video_t.video, 'fps': 1}
         v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
-        video_t.insert([[get_video_files()[0]]], ['video'])
+        video_t.insert([{'video': get_video_files()[0]}])
 
         v.add_column(catalog.Column('frame_s', computed_with=v.frame.resize([640, 480])))
         # 'rotated' has exceptions
@@ -48,7 +46,7 @@ class TestNOS:
     def test_sd(self, test_client: pt.Client) -> None:
         """Test model that mixes batched with scalar parameters"""
         t = test_client.create_table('sd_test', [pt.Column('prompt', pt.StringType())])
-        t.insert([['cat on a sofa']])
+        t.insert([{'prompt': 'cat on a sofa'}])
         from pixeltable.functions.nos.image_generation import stabilityai_stable_diffusion_2 as sd2
         t.add_column(pt.Column('img', computed_with=sd2(t.prompt, 1, 512, 512), stored=True))
         img = t[t.img].show(1)[0, 0]

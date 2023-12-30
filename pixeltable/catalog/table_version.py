@@ -368,14 +368,13 @@ class TableVersion:
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def insert(
-            self, rows: List[List[Any]], column_names: List[str], print_stats: bool = False,
-            fail_on_exception : bool = True
+            self, rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception : bool = True
     ) -> UpdateStatus:
         """Insert rows into this table.
         """
         assert self.is_insertable()
         from pixeltable.plan import Planner
-        plan = Planner.create_insert_plan(self, rows, column_names, ignore_errors=not fail_on_exception)
+        plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
         ts = time.time()
         with Env.get().engine.begin() as conn:
             return self._insert(plan, conn, ts, print_stats)
@@ -639,10 +638,16 @@ class TableVersion:
         """Return all non-system columns"""
         return [c for c in self.cols if not self.is_system_column(c)]
 
-    def get_insertable_col_names(self, required_only: bool = False) -> List[str]:
-        """Return the names of all columns for which values can be specified."""
+    def get_required_col_names(self) -> List[str]:
+        """Return the names of all columns for which values must be specified in insert()"""
         assert not self.is_view()
-        names = [c.name for c in self.cols if not c.is_computed and (not required_only or not c.col_type.nullable)]
+        names = [c.name for c in self.cols if not c.is_computed and not c.col_type.nullable]
+        return names
+
+    def get_computed_col_names(self) -> List[str]:
+        """Return the names of all computed columns"""
+        assert not self.is_view()
+        names = [c.name for c in self.cols if c.is_computed]
         return names
 
     def check_input_rows(self, rows: List[List[Any]], column_names: List[str]) -> None:
@@ -655,7 +660,7 @@ class TableVersion:
         """
         assert len(rows) > 0
         all_col_names = {col.name for col in self.cols}
-        reqd_col_names = set(self.get_insertable_col_names(required_only=True))
+        reqd_col_names = set(self.get_required_col_names(required_only=True))
         given_col_names = set(column_names)
         if not(reqd_col_names <= given_col_names):
             raise exc.Error(f'Missing columns: {", ".join(reqd_col_names - given_col_names)}')
@@ -779,6 +784,16 @@ class TableVersion:
             # we only include base columns that don't conflict with one of our column names
             result.extend([c for c in base_cols if c.name not in self.cols_by_name])
         return result
+
+    def get_column(self, name: str) -> Optional[Column]:
+        """Return the column with the given name, or None if not found"""
+        col = self.cols_by_name.get(name)
+        if col is not None:
+            return col
+        elif self.base is not None:
+            return self.base.get_column(name)
+        else:
+            return None
 
     def has_column(self, col: Column) -> bool:
         """Return True if this table has the given column.

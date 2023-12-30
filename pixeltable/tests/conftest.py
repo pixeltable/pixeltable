@@ -88,8 +88,8 @@ def img_tbl(test_client: pt.Client) -> catalog.MutableTable:
     ]
     # this table is not indexed in order to avoid the cost of computing embeddings
     tbl = test_client.create_table('test_img_tbl', cols)
-    rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-    tbl.insert(rows, columns=col_names)
+    rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+    tbl.insert(rows)
     return tbl
 
 @pytest.fixture(scope='function')
@@ -118,10 +118,10 @@ def indexed_img_tbl(test_client: pt.Client) -> catalog.MutableTable:
         catalog.Column('split', StringType(nullable=False)),
     ]
     tbl = cl.create_table('test_indexed_img_tbl', cols)
-    rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+    rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     # select output_rows randomly in the hope of getting a good sample of the available categories
     rng = np.random.default_rng(17)
     idxs = rng.choice(np.arange(len(rows)), size=40, replace=False)
     rows = [rows[i] for i in idxs]
-    tbl.insert(rows, columns=col_names)
+    tbl.insert(rows)
     return tbl

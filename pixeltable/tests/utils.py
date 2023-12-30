@@ -9,7 +9,8 @@ import pandas as pd
 
 import pixeltable as pt
 from pixeltable import catalog
-from pixeltable.type_system import ColumnType, StringType, IntType, FloatType, ArrayType, BoolType, TimestampType, JsonType, ImageType, VideoType
+from pixeltable.type_system import \
+    ColumnType, StringType, IntType, FloatType, ArrayType, BoolType, TimestampType, JsonType, ImageType, VideoType
 from pixeltable.dataframe import DataFrameResultSet
 
 
@@ -32,7 +33,7 @@ def make_tbl(cl: pt.Client, name: str = 'test', col_names: List[str] = ['c1']) -
         schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type(i % 5))))
     return cl.create_table(name, schema)
 
-def create_table_data(t: catalog.MutableTable, col_names: List[str] = [], num_rows: int = 10) -> List[List[Any]]:
+def create_table_data(t: catalog.MutableTable, col_names: List[str] = [], num_rows: int = 10) -> List[Dict[str, Any]]:
     data: Dict[str, Any] = {}
 
     sample_dict = {
@@ -99,7 +100,7 @@ def create_table_data(t: catalog.MutableTable, col_names: List[str] = [], num_ro
             video_path = get_video_files()[0]
             col_data = [video_path for i in range(num_rows)]
         data[col.name] = col_data
-    rows = [[data[col_name][i] for col_name in col_names] for i in range(num_rows)]
+    rows = [{col_name: data[col_name][i] for col_name in col_names} for i in range(num_rows)]
     return rows
 
 def create_test_tbl(client: pt.Client) -> catalog.MutableTable:
@@ -152,11 +153,19 @@ def create_test_tbl(client: pt.Client) -> catalog.MutableTable:
 
     c7_data = [d2] * num_rows
     rows = [
-        [c1_data[i], c1_data[i] if i % 10 != 0 else None,
-         c2_data[i], c3_data[i], c4_data[i], c5_data[i], c6_data[i], c7_data[i]]
+        {
+            'c1': c1_data[i],
+            'c1n': c1_data[i] if i % 10 != 0 else None,
+            'c2': c2_data[i],
+            'c3': c3_data[i],
+            'c4': c4_data[i],
+            'c5': c5_data[i],
+            'c6': c6_data[i],
+            'c7': c7_data[i],
+        }
         for i in range(num_rows)
     ]
-    t.insert(rows, columns=['c1', 'c1n', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'])
+    t.insert(rows)
     return t
 
 def create_all_datatype_tbl(test_client: pt.Client) -> catalog.Table:
@@ -178,12 +187,12 @@ def create_all_datatype_tbl(test_client: pt.Client) -> catalog.Table:
     example_rows = create_table_data(tbl, num_rows=11)
 
     for i,r in enumerate(example_rows):
-        r[0] = i # row_id
+        r['row_id'] = i # row_id
 
     tbl.insert(example_rows)
     return tbl
 
-def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []) -> Tuple[List[List[Any]], List[str]]:
+def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []) -> List[Dict[str, Any]]:
     """
     Locate dir_name, create df out of file_name.
     path_col_names: col names in csv file that contain file names; those will be converted to absolute paths
@@ -201,7 +210,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
     for col_name in path_col_names:
         assert col_name in df.columns
         df[col_name] = df.apply(lambda r: str(abs_path / r[col_name]), axis=1)
-    return df.values.tolist(), df.columns.tolist()
+    return df.to_dict(orient='records')
 
 def get_video_files(include_bad_video=False) -> List[str]:
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir

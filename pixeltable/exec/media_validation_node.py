@@ -30,6 +30,8 @@ class MediaValidationNode(ExecNode):
                     continue
                 assert row.has_val[slot_idx]
                 path = row.file_paths[slot_idx]
+                if path is None:
+                    continue
 
                 try:
                     col.col_type.validate_media(path)

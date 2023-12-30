@@ -105,16 +105,15 @@ class TestTable:
         ]
         tbl = cl.create_table('test', cols)
 
-        rows, col_names = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, 20)
 
         # add literal image data and column
         for r in rows:
-            with open(r[0], 'rb') as f:
-                r.append(f.read())
+            with open(r['img'], 'rb') as f:
+                r['img_literal'] = f.read()
 
-        col_names.append('img_literal')
-        tbl.insert(sample_rows, columns=col_names)
+        tbl.insert(sample_rows)
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -123,7 +122,7 @@ class TestTable:
         for tup in pdf.itertuples():
             assert tup.img == tup.img_literal
 
-    def check_bad_media(self, test_client, rows : List[Tuple[str, bool]], col_type) -> None:
+    def check_bad_media(self, test_client: pt.Client, rows: List[Tuple[str, bool]], col_type: pt.ColumnType) -> None:
         cols = [
             catalog.Column('media', col_type),
             catalog.Column('is_bad_media', BoolType(nullable=False))
@@ -131,18 +130,17 @@ class TestTable:
         tbl = test_client.create_table('test', cols)
 
         assert len(rows) > 0
-        total_bad_rows = sum([int(row[1]) for row in rows])
+        total_bad_rows = sum([int(row['is_bad_media']) for row in rows])
         assert total_bad_rows > 0
 
         # Mode 1: Validation error on bad input (default)
-        col_names = [c.name for c in cols]
         with pytest.raises(exc.Error) as exc_info:
-            tbl.insert(rows, columns=col_names, fail_on_exception=True)
+            tbl.insert(rows, fail_on_exception=True)
         # paths for corrupt media files contain the substring 'bad'
         assert 'bad' in str(exc_info.value)
 
         # Mode 2: ignore_errors=True, store error information in table
-        status = tbl.insert(rows, columns=col_names, fail_on_exception=False)
+        status = tbl.insert(rows, fail_on_exception=False)
         assert status.num_rows == len(rows)
         assert status.num_excs == total_bad_rows
 
@@ -160,25 +158,26 @@ class TestTable:
         assert tbl.where((tbl.is_bad_media == True) & (tbl.media.fileurl != None)).count() == 0
 
     def test_validate_image(self, test_client: pt.Client) -> None:
-        rows, _ = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
+        rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
+        rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
         self.check_bad_media(test_client, rows, ImageType(nullable=True))
 
     def test_validate_video(self, test_client: pt.Client) -> None:
         files = get_video_files(include_bad_video=True)
-        rows = [[f, f.endswith('bad_video.mp4')] for f in files]
+        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         self.check_bad_media(test_client, rows, VideoType(nullable=True))
 
     def test_validate_audio(self, test_client: pt.Client) -> None:
         files = get_audio_files(include_bad_audio=True)
-        rows = [[f, f.endswith('bad_audio.mp3')] for f in files]
+        rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
         self.check_bad_media(test_client, rows, AudioType(nullable=True))
 
     def test_validate_external_url(self, test_client: pt.Client) -> None:
         rows = [
-            ['s3://open-images-dataset/validation/bad_url.jpg', True],
-            ['s3://open-images-dataset/validation/3c02ca9ec9b2b77b.jpg', False],
-            ['s3://open-images-dataset/validation/3c13e0015b6c3bcf.jpg', False],
-            ['s3://open-images-dataset/validation/3ba5380490084697.jpg', False],
+            {'media': 's3://open-images-dataset/validation/bad_url.jpg', 'is_bad_media': True},
+            {'media': 's3://open-images-dataset/validation/3c02ca9ec9b2b77b.jpg', 'is_bad_media': False},
+            {'media': 's3://open-images-dataset/validation/3c13e0015b6c3bcf.jpg', 'is_bad_media': False},
+            {'media': 's3://open-images-dataset/validation/3ba5380490084697.jpg', 'is_bad_media': False},
 
         ]
         self.check_bad_media(test_client, rows, VideoType(nullable=True))
@@ -202,25 +201,26 @@ class TestTable:
             's3://open-images-dataset/validation/3b07a2c0d5c0c789.jpg',
         ]
 
-        tbl.insert([[url] for url in urls], columns=['img'])
+        tbl.insert([{'img': url} for url in urls])
         # check that we populated the cache
-        assert cache_stats.num_requests == 5, f'{str(cache_stats)} tbl_id={tbl.id}'
+        cache_stats = FileCache.get().stats()
+        assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl.id}'
         assert cache_stats.num_hits == 0
-        assert FileCache.get().num_files() == 5
-        assert FileCache.get().num_files(tbl.id) == 5
+        assert FileCache.get().num_files() == len(urls)
+        assert FileCache.get().num_files(tbl.id) == len(urls)
         assert FileCache.get().avg_file_size() > 0
 
         # query: we read from the cache
         _ = tbl.show(0)
         cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == 10
-        assert cache_stats.num_hits == 5
+        assert cache_stats.num_requests == 2 * len(urls)
+        assert cache_stats.num_hits == len(urls)
 
         # after clearing the cache, we need to re-fetch the files
         FileCache.get().clear()
         _ = tbl.show(0)
         cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == 5
+        assert cache_stats.num_requests == len(urls)
         assert cache_stats.num_hits == 0
 
         # start with fresh client and FileCache instance to test FileCache initialization with pre-existing files
@@ -228,10 +228,10 @@ class TestTable:
         # is there a better way to do this?
         FileCache._instance = None
         t = cl.get_table('test')
-        _ = tbl.show(0)
+        _ = t.show(0)
         cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == 5
-        assert cache_stats.num_hits == 5
+        assert cache_stats.num_requests == len(urls)
+        assert cache_stats.num_hits == len(urls)
 
         # dropping the table also clears the file cache
         cl.drop_table('test')
@@ -246,7 +246,7 @@ class TestTable:
         ]
         tbl = cl.create_table('test', cols)
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
-        tbl.insert([[1, url]], columns=['payload', 'video'])
+        tbl.insert([{'payload': 1, 'video': url}])
         row = tbl.select(tbl.video.fileurl, tbl.video.localpath).collect()[0]
         assert row['video_fileurl'] == url
         # row[1] contains valid path to an mp4 file
@@ -298,16 +298,16 @@ class TestTable:
         assert view.parameters == params
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
-        status = tbl.insert([[1, url]], columns=['payload', 'video'])
+        status = tbl.insert([{'payload': 1, 'video': url}])
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
         assert MediaStore.count(view.id) == view.count() * 2
         # also insert a local file
-        tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
+        tbl.insert([{'payload': 1, 'video': get_video_files()[0]}])
         assert MediaStore.count(view.id) == view.count() * 2
 
         # TODO: test inserting Nulls
-        #status = tbl.insert([[1, None]], columns=['payload', 'video'])
+        #status = tbl.insert([{'payload': 1, 'video': None}])
         #assert status.num_excs == 0
 
         # revert() clears stored images
@@ -323,7 +323,7 @@ class TestTable:
             view.drop_column('frame_idx')
 
         # drop() clears stored images and the cache
-        tbl.insert([[1, get_video_files()[0]]], columns=['payload', 'video'])
+        tbl.insert([{'payload': 1, 'video': get_video_files()[0]}])
         with pytest.raises(exc.Error) as exc_info:
             tbl.drop()
         assert '1 view' in str(exc_info.value)
@@ -355,65 +355,47 @@ class TestTable:
 
         # missing column
         with pytest.raises(exc.Error) as exc_info:
-            t.insert([r[:-1] for r in rows], columns=[c.name for c in cols[:-1]])
+            # drop first column
+            col_names = list(rows[0].keys())[1:]
+            new_rows = [{col_name: row[col_name] for col_name in col_names} for row in rows]
+            t.insert(new_rows)
         assert 'Missing' in str(exc_info.value)
 
         # incompatible schema
-        for col, row_pos in zip(cols, [1, 2, 4, 4, 5, 6, 1, 1]):
+        for col, value_col_name in zip(cols, ['c2', 'c3', 'c5', 'c5', 'c6', 'c7', 'c2', 'c2']):
+            cl.drop_table('test1', ignore_errors=True)
+            t = cl.create_table('test1', [col])
             with pytest.raises(exc.Error) as exc_info:
-                cl.drop_table('test1', ignore_errors=True)
-                t = cl.create_table('test1', [col])
-                t.insert([[r[row_pos]] for r in rows])
+                t.insert([{col.name: r[value_col_name]} for r in rows])
             assert 'expected' in str(exc_info.value).lower()
 
-        # rows not list of lists
+        # rows not list of dicts
+        cl.drop_table('test1', ignore_errors=True)
+        t = cl.create_table('test1', [c5])
         with pytest.raises(exc.Error) as exc_info:
-            cl.drop_table('test1', ignore_errors=True)
-            t = cl.create_table('test1', [c5])
             t.insert([np.ndarray((3, 2))])
-        assert 'lists' in str(exc_info.value)
-
-        # columns not list of column names
-        with pytest.raises(exc.Error) as exc_info:
-            cl.drop_table('test1', ignore_errors=True)
-            t = cl.create_table('test1', [c1])
-            t.insert([['test']], columns=[t.c1])
-        assert 'column names' in str(exc_info.value)
-
-        # columns not list of column names
-        with pytest.raises(exc.Error) as exc_info:
-            cl.drop_table('test1', ignore_errors=True)
-            t = cl.create_table('test1', [c1])
-            t.insert([['test']], columns='c1')
-        assert 'column names' in str(exc_info.value)
-
-        # unknown column
-        with pytest.raises(exc.Error) as exc_info:
-            cl.drop_table('test1', ignore_errors=True)
-            t = cl.create_table('test1', [c1])
-            t.insert([['test']], columns=['does_not_exist'])
-        assert 'unknown' in str(exc_info.value).lower()
+        assert 'list of dictionaries' in str(exc_info.value)
 
         # bad null value
+        cl.drop_table('test1', ignore_errors=True)
+        t = cl.create_table('test1', [c1])
         with pytest.raises(exc.Error) as exc_info:
-            cl.drop_table('test1', ignore_errors=True)
-            t = cl.create_table('test1', [c1])
-            t.insert([[None]], columns=['c1'])
-        assert 'contains None' in str(exc_info.value)
+            t.insert([{'c1': None}])
+        assert 'expected non-None' in str(exc_info.value)
 
         # bad array literal
+        cl.drop_table('test1', ignore_errors=True)
+        t = cl.create_table('test1', [c5])
         with pytest.raises(exc.Error) as exc_info:
-            cl.drop_table('test1', ignore_errors=True)
-            t = cl.create_table('test1', [c5])
-            t.insert([[np.ndarray((3, 2))]])
-        assert 'Expected' in str(exc_info.value)
+            t.insert([{'c5': np.ndarray((3, 2))}])
+        assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
     def test_query(self, test_client: pt.Client) -> None:
         cl = test_client
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
         t = make_tbl(cl, 'test', col_names)
         rows = create_table_data(t)
-        t.insert(rows, columns=col_names)
+        t.insert(rows)
         _ = t.show(n=0)
 
         # test querying existing table
@@ -624,13 +606,13 @@ class TestTable:
         assert len(t.c8.col.dependent_cols) == 0
 
         rows = create_table_data(t, ['c1', 'c2', 'c3'], num_rows=10)
-        t.insert(rows, columns=['c1', 'c2', 'c3'])
+        t.insert(rows)
         _ = t.show()
 
         # not allowed to pass values for computed cols
         with pytest.raises(exc.Error):
             rows2 = create_table_data(t, ['c1', 'c2', 'c3', 'c4'], num_rows=10)
-            t.insert(rows2, columns=['c1', 'c2', 'c3', 'c4'])
+            t.insert(rows2)
 
         # computed col references non-existent col
         with pytest.raises(exc.Error):
@@ -648,7 +630,7 @@ class TestTable:
                 assert t.columns()[i].value_expr.equals(t.columns()[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
-        t.insert(rows, columns=['c1', 'c2', 'c3'])
+        t.insert(rows)
         res = t.show(0)
         tbl_df = t.show(0).to_pandas()
 
@@ -665,27 +647,29 @@ class TestTable:
         # exception during insert()
         c2 = catalog.Column('c2', IntType(nullable=False))
         schema = [c2]
-        rows = [list(r.values()) for r in list(test_tbl[test_tbl.c2].collect())]
+        rows = list(test_tbl.select(test_tbl.c2).collect())
         t = cl.create_table('test_insert', schema)
-        _ = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
-        status = t.insert(rows, columns=['c2'], fail_on_exception=False)
+        status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
+        assert status.num_excs == 0
+        status = t.insert(rows, fail_on_exception=False)
         assert status.num_excs == 10
         assert 'test_insert.add1' in status.cols_with_excs
-        assert t[t.add1.errortype != None].count() == 10
+        assert t.where(t.add1.errortype != None).count() == 10
 
         # exception during add_column()
         t = cl.create_table('test_add_column', schema)
-        status = t.insert(rows, columns=['c2'])
+        status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
         status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
         assert status.num_excs == 10
         assert 'test_add_column.add1' in status.cols_with_excs
-        assert t[t.add1.errortype != None].count() == 10
+        assert t.where(t.add1.errortype != None).count() == 10
 
     def _test_computed_img_cols(self, t: catalog.MutableTable, stores_img_col: bool) -> None:
-        rows, _ = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-        status = t.insert([[r[0]] for r in rows[:20]], columns=['img'])
+        rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        rows = [{'img': r['img']} for r in rows[:20]]
+        status = t.insert(rows)
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
@@ -700,7 +684,7 @@ class TestTable:
                 assert t.columns()[i].value_expr.equals(t2.columns()[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
-        t2.insert([[r[0]] for r in rows[:20]], columns=['img'])
+        t2.insert(rows)
         assert MediaStore.count(t2.id) == t2.count() * stores_img_col
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
@@ -731,8 +715,9 @@ class TestTable:
         def f(img: PIL.Image.Image) -> PIL.Image.Image:
             raise RuntimeError
         t.add_column(catalog.Column('c3', computed_with=f(t.img), stored=True))
-        rows, _ = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-        t.insert([[r[0]] for r in rows[:20]], columns=['img'], fail_on_exception=False)
+        rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+        rows = [{'img': r['img']} for r in rows[:20]]
+        t.insert(rows, fail_on_exception=False)
         _ = t[t.c3.errortype].show(0)
 
     def test_computed_window_fn(self, test_client: pt.Client, test_tbl: catalog.MutableTable) -> None:
@@ -749,7 +734,7 @@ class TestTable:
         new_t.add_column(catalog.Column(
             'c6', computed_with=ptf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3)))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
-        new_t.insert([list(r.values()) for r in rows], columns=['c2', 'c4', 'c3'])
+        new_t.insert(rows)
         _ = new_t.show(0)
 
     def test_revert(self, test_client: pt.Client) -> None:
@@ -757,17 +742,17 @@ class TestTable:
         t1 = make_tbl(cl, 'test1', ['c1', 'c2'])
         assert t1.version() == 0
         rows1 = create_table_data(t1)
-        t1.insert(rows1, columns=['c1', 'c2'])
+        t1.insert(rows1)
         assert t1.count() == len(rows1)
         assert t1.version() == 1
         rows2 = create_table_data(t1)
-        t1.insert(rows2, columns=['c1', 'c2'])
+        t1.insert(rows2)
         assert t1.count() == len(rows1) + len(rows2)
         assert t1.version() == 2
         t1.revert()
         assert t1.count() == len(rows1)
         assert t1.version() == 1
-        t1.insert(rows2, columns=['c1', 'c2'])
+        t1.insert(rows2)
         assert t1.count() == len(rows1) + len(rows2)
         assert t1.version() == 2
 
@@ -783,7 +768,7 @@ class TestTable:
         cl.create_dir('main')
         tbl = make_tbl(cl, 'main.test1', ['c1', 'c2'])
         rows1 = create_table_data(tbl)
-        tbl.insert(rows1, columns=['c1', 'c2'])
+        tbl.insert(rows1)
         assert tbl.count() == len(rows1)
 
         cl.create_dir('snap')
@@ -799,7 +784,7 @@ class TestTable:
 
         # adding data to a base table doesn't change the snapshot
         rows2 = create_table_data(tbl)
-        tbl.insert(rows2, columns=['c1', 'c2'])
+        tbl.insert(rows2)
         assert tbl.count() == len(rows1) + len(rows2)
         assert snap.count() == len(rows1)
 

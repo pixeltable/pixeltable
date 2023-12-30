@@ -299,7 +299,7 @@ class ColumnType:
         return val
 
     def create_literal(self, val: Any) -> Any:
-        """Try to create a literal of this type from val. Raise TypeError if not possible"""
+        """Create a literal of this type from val or raise TypeError if not possible"""
         if val is not None:
             val = self._create_literal(val)
 

@@ -28,7 +28,7 @@ class TestVideo:
         base_t, view_t = self.create_tbls(cl)
 
         view_t.add_column(catalog.Column('transform', computed_with=view_t.frame.rotate(90), stored=stored))
-        base_t.insert([[p] for p in paths], columns=['video'])
+        base_t.insert([{'video': p} for p in paths])
         total_num_rows = view_t.count()
         result = view_t[view_t.frame_idx >= 5][view_t.frame_idx, view_t.frame, view_t.transform].show(0)
         assert len(result) == total_num_rows - len(paths) * 5
@@ -55,23 +55,15 @@ class TestVideo:
         assert MediaStore.count(view.id) == view.count()
 
         # revert() also removes computed images
-        tbl.insert([[p] for p in video_filepaths], columns=['video'])
+        tbl.insert([{'video': p} for p in video_filepaths])
         tbl.revert()
         assert MediaStore.count(view.id) == view.count()
-
-        # column values mismatch in rows
-        with pytest.raises(exc.Error):
-            tbl.insert([[1, 2], [3]], columns=['video'])
-
-        # column values mismatch in rows
-        with pytest.raises(exc.Error):
-            tbl.insert([[1, 2]], columns=['video'])
 
     def test_query(self, test_client: pt.client) -> None:
         video_filepaths = get_video_files()
         cl = test_client
         base_t, view_t = self.create_tbls(cl)
-        base_t.insert([[p] for p in video_filepaths], columns=['video'])
+        base_t.insert([{'video': p} for p in video_filepaths])
         res = view_t.where(view_t.video == video_filepaths[0]).show(0)
 
     def test_computed_cols(self, test_client: pt.client) -> None:
@@ -85,14 +77,14 @@ class TestVideo:
         view_t.add_column(catalog.Column('c4', computed_with=view_t.c1.rotate(30)))
         for name in ['c1', 'c2', 'c3', 'c4']:
             assert not view_t.cols_by_name[name].is_stored
-        base_t.insert([[p] for p in video_filepaths], columns=['video'])
+        base_t.insert([{'video': p} for p in video_filepaths])
         _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].show(0)
 
     def test_make_video(self, test_client: pt.Client) -> None:
         video_filepaths = get_video_files()
         cl = test_client
         base_t, view_t = self.create_tbls(cl)
-        base_t.insert([[p] for p in video_filepaths], columns=['video'])
+        base_t.insert([{'video': p} for p in video_filepaths])
         # reference to the frame col requires ordering by base, pos
         _ = view_t.select(pt.make_video(view_t.pos, view_t.frame)).group_by(base_t).show()
         # the same without frame col

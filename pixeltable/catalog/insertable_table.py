@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -41,81 +41,39 @@ class InsertableTable(MutableTable):
             return tbl
 
     def insert(
-            self, rows: List[List[Any]], columns: List[str] = [],
-            print_stats: bool = False, fail_on_exception : bool = True
+            self, rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception : bool = True
     ) -> MutableTable.UpdateStatus:
         """Insert rows into table.
 
         Args:
-            rows: A list of rows to insert. Each row is a list of values, one for each column.
-            columns: A list of column names that specify the columns present in ``rows``.
-                If ``columns`` is empty, all non-computed columns are present in ``rows``.
+            rows: A list of rows to insert, each of which is a dictionary mapping column names to values.
             print_stats: If ``True``, print statistics about the cost of computed columns.
             fail_on_exception:
                 Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
                 are handled.
-                If ``False``, store error information for those cases, but continue inserting rows.
+                If ``False``, store error information (accessible as column properties 'errortype' and 'errormsg')
+                for those cases, but continue inserting rows.
                 If ``True``, raise an exception that aborts the insert.
         Returns:
             execution status
 
         Raises:
-            Error: If the number of columns in ``rows`` does not match the number of columns in the table or in
-            ``columns``.
+            Error: if a row does not match the table schema or contains values for computed columns
 
         Examples:
-            Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Note that the ``columns``
-            argument is required here because ``rows`` only contain two columns.
+            Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Column ``c`` is nullable.
 
-            >>> tbl.insert([[1, 1], [2, 2]], columns=['a', 'b'])
+            >>> tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])
         """
         if not isinstance(rows, list):
-            raise exc.Error('rows must be a list of lists')
+            raise exc.Error('rows must be a list of dictionaries')
         if len(rows) == 0:
             raise exc.Error('rows must not be empty')
         for row in rows:
-            if not isinstance(row, list):
-                raise exc.Error('rows must be a list of lists')
-        if not isinstance(columns, list):
-            raise exc.Error('columns must be a list of column names')
-        existing_col_names = self.column_names()
-        for col_name in columns:
-            if not isinstance(col_name, str):
-                raise exc.Error('columns must be a list of column names')
-            if col_name not in existing_col_names:
-                raise exc.Error(f'Unknown column: {col_name}')
-
-        insertable_col_names = self.tbl_version.get_insertable_col_names()
-        if len(columns) == 0 and len(rows[0]) != len(insertable_col_names):
-            # if no columns are specified, they must match number
-            if len(rows[0]) < len(insertable_col_names):
-                raise exc.Error((
-                    f'MutableTable {self.name} has {len(insertable_col_names)} user-supplied columns, but the data '
-                    f'only contains {len(rows[0])} columns. In this case, you need to specify the column names with '
-                    f"the 'columns' parameter."))
-            else:
-                raise exc.Error((
-                    f'MutableTable {self.name} has {len(insertable_col_names)} user-supplied columns, but the data '
-                    f'contains {len(rows[0])} columns. '))
-
-        # make sure that each row contains the same number of values
-        num_col_vals = len(rows[0])
-        for i in range(1, len(rows)):
-            if len(rows[i]) != num_col_vals:
-                raise exc.Error(
-                    f'Inconsistent number of column values in rows: row 0 has {len(rows[0])}, '
-                    f'row {i} has {len(rows[i])}')
-
-        if len(columns) == 0:
-            columns = insertable_col_names
-        if len(rows[0]) != len(columns):
-            raise exc.Error(
-                f'The number of column values in rows ({len(rows[0])}) does not match the given number of column names '
-                f'({", ".join(columns)})')
-
-        self.tbl_version.check_input_rows(rows, columns)
-        result = self.tbl_version.insert(
-            rows, columns, print_stats=print_stats, fail_on_exception=fail_on_exception)
+            if not isinstance(row, dict):
+                raise exc.Error('rows must be a list of dictionaries')
+        self._validate_input_rows(rows)
+        result = self.tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
         if result.num_excs == 0:
             cols_with_excs_str = ''
@@ -130,6 +88,33 @@ class InsertableTable(MutableTable):
         print(msg)
         _logger.info(f'InsertableTable {self.name}: {msg}')
         return result
+
+    def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
+        """Verify that the input rows match the table schema"""
+        valid_col_names = set(self.column_names())
+        reqd_col_names = set(self.tbl_version.get_required_col_names())
+        computed_col_names = set(self.tbl_version.get_computed_col_names())
+        for row in rows:
+            assert isinstance(row, dict)
+            col_names = set(row.keys())
+            if len(reqd_col_names - col_names) > 0:
+                raise exc.Error(f'Missing required column(s) ({", ".join(reqd_col_names - col_names)}) in row {row}')
+
+            for col_name, val in row.items():
+                if col_name not in valid_col_names:
+                    raise exc.Error(f'Unknown column name {col_name} in row {row}')
+                if col_name in computed_col_names:
+                    raise exc.Error(f'Value for computed column {col_name} in row {row}')
+
+                # validate data
+                col = self.tbl_version.get_column(col_name)
+                try:
+                    # basic sanity checks here
+                    checked_val = col.col_type.create_literal(val)
+                    row[col_name] = checked_val
+                except TypeError as e:
+                    msg = str(e)
+                    raise exc.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
 
     def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> MutableTable.UpdateStatus:
         """Delete rows in this table.

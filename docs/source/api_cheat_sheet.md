@@ -74,15 +74,15 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 
 
 ## Table operations summary
-|Action|Code|
-|----|----|
-| Print table schema | `t.describe()`|
-| Query a table | `t.select(<column selections>).where(<filter expression>).show()` |
-| Insert rows into a table| `t.insert([<list of column values for row 1>, <row 2>, ...], columns=<list of column names>)`|
-| Add a column| `t.add_column(pxt.Column(...))`|
-| Rename a column| `t.rename_column('col_name', 'new_col_name')`|
-| Drop a column| `t.drop_column('col_name')`|
-| Undo the last update operation (add/rename/drop column or insert)| `t.revert()`|
+|Action| Code                                                                                             |
+|----|--------------------------------------------------------------------------------------------------|
+| Print table schema | `t.describe()`                                                                                   |
+| Query a table | `t.select(<column selections>).where(<filter expression>).show()`                                |
+| Insert rows into a table| `t.insert([{'<column name>: <column value>, ...}, {'<column name>': <column value>, ...}, ...])` |
+| Add a column| `t.add_column(pxt.Column(...))`                                                                  |
+| Rename a column| `t.rename_column('col_name', 'new_col_name')`                                                    |
+| Drop a column| `t.drop_column('col_name')`                                                                      |
+| Undo the last update operation (add/rename/drop column or insert)| `t.revert()`                                                                                     |
 
 ## Querying a table
 
