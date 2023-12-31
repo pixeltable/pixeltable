@@ -31,7 +31,8 @@ class Env:
     def __init__(self):
         self._home: Optional[Path] = None
         self._media_dir: Optional[Path] = None  # computed media files
-        self._filecache_dir: Optional[Path] = None  # cached media files with external URL
+        self._file_cache_dir: Optional[Path] = None  # cached media files with external URL
+        self._dataset_cache_dir: Optional[Path] = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir: Optional[Path] = None  # log files
         self._tmp_dir: Optional[Path] = None  # any tmp files
         self._sa_engine: Optional[sql.engine.base.Engine] = None
@@ -112,10 +113,10 @@ class Env:
         assert self._home is None or self._home == home
         self._home = home
         self._media_dir = self._home / 'media'
-        self._filecache_dir = self._home / 'filecache'
+        self._file_cache_dir = self._home / 'file_cache'
+        self._dataset_cache_dir = self._home / 'dataset_cache'
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
-        self._cache_dir = self._home / 'cache'
 
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
@@ -136,14 +137,14 @@ class Env:
 
         if not self._media_dir.exists():
             self._media_dir.mkdir()
-        if not self._filecache_dir.exists():
-            self._filecache_dir.mkdir()
+        if not self._file_cache_dir.exists():
+            self._file_cache_dir.mkdir()
+        if not self._dataset_cache_dir.exists():
+            self._dataset_cache_dir.mkdir()
         if not self._log_dir.exists():
             self._log_dir.mkdir()
         if not self._tmp_dir.exists():
             self._tmp_dir.mkdir()
-        if not self._cache_dir.exists():
-            self._cache_dir.mkdir()
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
@@ -306,9 +307,14 @@ class Env:
         return self._media_dir
 
     @property
-    def filecache_dir(self) -> Path:
-        assert self._filecache_dir is not None
-        return self._filecache_dir
+    def file_cache_dir(self) -> Path:
+        assert self._file_cache_dir is not None
+        return self._file_cache_dir
+
+    @property
+    def dataset_cache_dir(self) -> Path:
+        assert self._dataset_cache_dir is not None
+        return self._dataset_cache_dir
 
     @property
     def tmp_dir(self) -> Path:

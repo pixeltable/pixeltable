@@ -46,6 +46,7 @@ pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 torch = "^2.1.1"
 torchvision = "^0.16.1"
 pyarrow = ">=13.0.1"
+pycocotools = "^2.0.7"
 
 [tool.poetry.group.docs]
 optional = true

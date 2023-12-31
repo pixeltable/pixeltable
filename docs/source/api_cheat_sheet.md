@@ -89,6 +89,8 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 | Action                                       | Code                                                      |
 |----------------------------------------------|-----------------------------------------------------------|
 | Look at 10 rows                              | `t.show(10)`                                              |
+| Look at the oldest 10 rows                   | `t.head(n=10)`                                            |
+| Look at the most recently added 10 rows      | `t.tail(n=10)`                                            |
 | Look at all rows                             | `t.collect()`                                             |
 | Iterate over all rows as dictionaries        | `for row in t.collect(): ...`                             |
 | Look at row for frame 15                     | `t.where(t.pos  == 15).show()`                            |

@@ -259,7 +259,9 @@ class DataFrame:
         return out_exprs, out_names
 
     def _exec(self) -> Generator[exprs.DataRow, None, None]:
-        """Returned value: list of select list values"""
+        """Run the query and return rows as a generator.
+        This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
+        """
         # construct a group-by clause if we're grouping by a table
         group_by_clause: List[exprs.Expr] = []
         if self.grouping_tbl is not None:
@@ -270,15 +272,12 @@ class DataFrame:
         elif self.group_by_clause is not None:
             group_by_clause = self.group_by_clause
 
-        if self.order_by_clause is None:
-            self.order_by_clause = []
         for item in self._select_list_exprs:
             item.bind_rel_paths(None)
         plan = Planner.create_query_plan(
             self.tbl, self._select_list_exprs, where_clause=self.where_clause, group_by_clause=group_by_clause,
-            order_by_clause=self.order_by_clause,
-            # limit_val == 0: no limit_val
-            limit=self.limit_val if self.limit_val is not None else 0)
+            order_by_clause=self.order_by_clause if self.order_by_clause is not None else [],
+            limit=self.limit_val if self.limit_val is not None else 0)  # limit_val == 0: no limit_val
 
         with Env.get().engine.begin() as conn:
             plan.ctx.conn = conn
@@ -542,32 +541,64 @@ class DataFrame:
         }
         return d
 
-    def to_pytorch_dataset(self, image_format : str = 'pt') -> 'torch.utils.data.IterableDataset':
+    def to_coco_dataset(self) -> Path:
+        """Convert the dataframe to a COCO dataset.
+        This dataframe must return a single json-typed output column in the following format:
+        {
+            'image': PIL.Image.Image,
+            'annotations': [
+                {
+                    'bbox': [x: int, y: int, w: int, h: int],
+                    'category': str | int,
+                },
+                ...
+            ],
+        }
+
+        Returns:
+            Path to the COCO dataset file.
         """
-            Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
-             with torch.utils.data.DataLoader. 
+        from pixeltable.utils.coco import write_coco_dataset
 
-            This method requires pyarrow >= 13, torch and torchvision to work.
+        summary_string = json.dumps(self._as_dict())
+        cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
 
-            This method serializes data so it can be read from disk efficiently and repeatedly without 
-            re-executing the query. This data is cached to disk for future re-use.
+        dest_path = (Env.get().dataset_cache_dir / f'coco_{cache_key}')
+        if dest_path.exists():
+            assert dest_path.is_dir()
+            data_file_path = dest_path / 'data.json'
+            assert data_file_path.exists()
+            assert data_file_path.is_file()
+            return data_file_path
+        else:
+            return write_coco_dataset(self, dest_path)
 
-            Args:
-                image_format: format of the images. Can be 'pt' (pytorch tensor) or 'np' (numpy array).
-                        'np' means image columns return as an RGB uint8 array of shape HxWxC.
-                        'pt' means image columns return as a CxHxW tensor with values in [0,1] and type torch.float32.
-                            (the format output by torchvision.transforms.ToTensor())
-            Returns:
-                A pytorch IterableDataset: Columns become fields of the dataset, 
-                where rows are returned as a dictionary compatible with torch.utils.data.DataLoader default collation.
+    def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
+        """
+        Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
+        with torch.utils.data.DataLoader.
 
-            Constraints:
-                The default collate_fn for torch.data.util.DataLoader cannot represent null values as part of a 
-                pytorch tensor when forming batches. These values will raise an exception while running the dataloader.
-                
-                If you have them, you can work around None values by providing your custom collate_fn to the DataLoader
-                (and have your model handle it). Or, if these are not meaningful values within a minibtach, you can
-                modify or remove any such values through selections and filters prior to calling to_pytorch_dataset().
+        This method requires pyarrow >= 13, torch and torchvision to work.
+
+        This method serializes data so it can be read from disk efficiently and repeatedly without
+        re-executing the query. This data is cached to disk for future re-use.
+
+        Args:
+            image_format: format of the images. Can be 'pt' (pytorch tensor) or 'np' (numpy array).
+                    'np' means image columns return as an RGB uint8 array of shape HxWxC.
+                    'pt' means image columns return as a CxHxW tensor with values in [0,1] and type torch.float32.
+                        (the format output by torchvision.transforms.ToTensor())
+        Returns:
+            A pytorch IterableDataset: Columns become fields of the dataset,
+            where rows are returned as a dictionary compatible with torch.utils.data.DataLoader default collation.
+
+        Constraints:
+            The default collate_fn for torch.data.util.DataLoader cannot represent null values as part of a
+            pytorch tensor when forming batches. These values will raise an exception while running the dataloader.
+
+            If you have them, you can work around None values by providing your custom collate_fn to the DataLoader
+            (and have your model handle it). Or, if these are not meaningful values within a minibtach, you can
+            modify or remove any such values through selections and filters prior to calling to_pytorch_dataset().
         """
         # check dependencies
         if importlib.util.find_spec('pyarrow') is None:
@@ -589,7 +620,7 @@ class DataFrame:
         summary_string = json.dumps(self._as_dict()) 
         cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
     
-        dest_path = (Env.get()._cache_dir / f'df_{cache_key}').with_suffix('.parquet') # pylint: disable = protected-access
+        dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet') # pylint: disable = protected-access
         if dest_path.exists(): # fast path: use cache
             assert dest_path.is_dir()
         else:

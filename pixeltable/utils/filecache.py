@@ -26,7 +26,7 @@ class CacheEntry:
         return f'{self.tbl_id.hex}_{self.col_id}_{self.key}'
 
     def path(self) -> Path:
-        return Env.get().filecache_dir / self.filename()
+        return Env.get().file_cache_dir / self.filename()
 
     @classmethod
     def from_file(cls, path: Path) -> CacheEntry:
@@ -62,7 +62,7 @@ class FileCache:
         return cls._instance
 
     def __init__(self):
-        paths = glob.glob(str(Env.get().filecache_dir / '*'))
+        paths = glob.glob(str(Env.get().file_cache_dir / '*'))
         self.cache: OrderedDict[str, CacheEntry] = OrderedDict()  # ordered by entry.last_accessed_ts
         self.total_size = 0
         #self.capacity = Env.get().max_filecache_size
