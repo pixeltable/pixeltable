@@ -225,11 +225,8 @@ class TestExprs:
 
     def test_null_args(self, test_client: pt.Client) -> None:
         # create table with two int columns
-        cols = [
-            pt.Column('c1', FloatType(nullable=True)),
-            pt.Column('c2', FloatType(nullable=True))
-        ]
-        t = test_client.create_table('test', cols)
+        schema = {'c1': FloatType(nullable=True), 'c2': FloatType(nullable=True)}
+        t = test_client.create_table('test', schema)
 
         # computed column that doesn't allow nulls
         t.add_column(pt.Column('c3', FloatType(nullable=False), computed_with=lambda c1, c2: c1 + c2))
@@ -512,8 +509,7 @@ class TestExprs:
         _ = t.c9.col.has_window_fn_call()
 
         # ordering conflict between frame extraction and window fn
-        base_t = cl.create_table(
-            'videos', [catalog.Column('video', VideoType()), catalog.Column('c2', IntType(nullable=False))])
+        base_t = cl.create_table('videos', {'video': VideoType(), 'c2': IntType(nullable=False)})
         args = {'video': base_t.video, 'fps': 0}
         v = cl.create_view('frame_view', base_t, iterator_class=FrameIterator, iterator_args=args)
         # compatible ordering
@@ -522,10 +518,12 @@ class TestExprs:
             # incompatible ordering
             _ = v.select(v.frame, sum(v.c2, order_by=base_t, group_by=v.pos)).show(100)
 
-        c2 = catalog.Column('c2', IntType(nullable=False))
-        c3 = catalog.Column('c3', FloatType(nullable=False))
-        c4 = catalog.Column('c4', BoolType(nullable=False))
-        new_t = cl.create_table('insert_test', [c2, c3, c4])
+        schema = {
+            'c2': IntType(nullable=False),
+            'c3': FloatType(nullable=False),
+            'c4': BoolType(nullable=False),
+        }
+        new_t = cl.create_table('insert_test', schema=schema)
         new_t.add_column(catalog.Column(
             'c2_sum', computed_with=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3)))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())

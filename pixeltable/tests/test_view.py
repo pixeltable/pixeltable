@@ -37,11 +37,11 @@ class TestView:
         t = self.create_tbl(cl)
 
         # create view with filter and computed columns
-        cols = [
-            catalog.Column('v1', computed_with=t.c3 * 2.0),
-            catalog.Column('v2', computed_with=t.c6.f5)
-        ]
-        v = cl.create_view('test_view', t, schema=cols, filter=t.c2 < 10)
+        schema = {
+            'v1': t.c3 * 2.0,
+            'v2': t.c6.f5,
+        }
+        v = cl.create_view('test_view', t, schema=schema, filter=t.c2 < 10)
         # TODO: test repr more thoroughly
         _ = v.__repr__()
         assert_resultset_eq(
@@ -102,10 +102,9 @@ class TestView:
         t = self.create_tbl(cl)
 
         # create view with filter and computed columns
-        v1 = cl.create_view('v1', t, schema=[catalog.Column('v1', computed_with=t.c3 * 2)], filter=t.c2 < 10)
+        v1 = cl.create_view('v1', t, schema={'v1': t.c3 * 2}, filter=t.c2 < 10)
         # create another view with a non-overlapping filter and computed columns
-        v2 = cl.create_view(
-            'v2', t, schema=[catalog.Column('v1', computed_with=t.c3 * 3)], filter=(t.c2 < 20) & (t.c2 >= 10))
+        v2 = cl.create_view('v2', t, schema={'v1': t.c3 * 3}, filter=(t.c2 < 20) & (t.c2 >= 10))
 
         # sanity checks
         v1_query = v1.select(v1.v1).order_by(v1.c2)
@@ -151,13 +150,13 @@ class TestView:
         t = self.create_tbl(cl)
 
         # create view with filter and computed columns
-        v1 = cl.create_view('v1', t, schema=[catalog.Column('col1', computed_with=t.c3 * 2)], filter=t.c2 < 10)
+        v1 = cl.create_view('v1', t, schema={'col1': t.c3 * 2}, filter=t.c2 < 10)
         # create a view on top of v1
-        v2_schema = [
-            catalog.Column('col2', computed_with=t.c3 * 3),  # only base
-            catalog.Column('col3', computed_with=v1.col1 / 2),  # only v1
-            catalog.Column('col4', computed_with=t.c10 + v1.col1),  # both base and v1
-        ]
+        v2_schema = {
+            'col2': t.c3 * 3,  # only base
+            'col3': v1.col1 / 2,  # only v1
+            'col4': t.c10 + v1.col1,  # both base and v1
+        }
         v2 = cl.create_view('v2', v1, schema=v2_schema, filter=t.c2 < 5)
 
         def check_views():
@@ -245,12 +244,12 @@ class TestView:
         """Test chained views with unstored columns"""
         # create table with image column and two updateable int columns
         cl = test_client
-        cols = [
-            catalog.Column('img', ImageType()),
-            catalog.Column('int1', IntType(nullable=False)),
-            catalog.Column('int2', IntType(nullable=False))
-        ]
-        t = cl.create_table('test_tbl', cols)
+        schema = {
+            'img': ImageType(),
+            'int1': IntType(nullable=False),
+            'int2': IntType(nullable=False),
+        }
+        t = cl.create_table('test_tbl', schema)
         # populate table with images of a defined size
         width, height = 100, 100
         rows = [
@@ -264,26 +263,29 @@ class TestView:
         t.insert(rows)
 
         # view with unstored column that depends on int1 and a manually updated column (int4)
-        v1_cols = [
-            catalog.Column('img2', computed_with=t.img.crop([t.int1, t.int1, width, height]), stored=False),
-            catalog.Column('int3', computed_with=t.int1 * 2),
-            catalog.Column('int4', IntType(nullable=True)),  # TODO: add default
-        ]
+        v1_schema = {
+            'img2': {
+                'value': t.img.crop([t.int1, t.int1, width, height]),
+                'stored': False,
+            },
+            'int3': t.int1 * 2,
+            'int4': IntType(nullable=True),  # TODO: add default
+        }
         logger.debug('******************* CREATE V1')
-        v1 = cl.create_view('v1', t, schema=v1_cols)
+        v1 = cl.create_view('v1', t, schema=v1_schema)
         v1.update({'int4': 1})
         _ = v1.select(v1.img2.width, v1.img2.height).collect()
 
         # view with stored column that depends on t and view1
-        v2_cols = [
-            catalog.Column(
-                'img3',
+        v2_schema = {
+            'img3': {
                 # use the actual width and height of the image (not 100, which will pad the image)
-                computed_with=v1.img2.crop([t.int1 + t.int2, v1.int3 + v1.int4, v1.img2.width, v1.img2.height]),
-                stored=True),
-        ]
+                'value': v1.img2.crop([t.int1 + t.int2, v1.int3 + v1.int4, v1.img2.width, v1.img2.height]),
+                'stored': True,
+              },
+        }
         logger.debug('******************* CREATE V2')
-        v2 = cl.create_view('v2', v1, schema=v2_cols, filter=v1.int1 < 10)
+        v2 = cl.create_view('v2', v1, schema=v2_schema, filter=v1.int1 < 10)
 
         def check_views() -> None:
             assert_resultset_eq(
@@ -323,11 +325,11 @@ class TestView:
         t = self.create_tbl(cl)
 
         # create view with computed columns
-        cols = [
-            catalog.Column('v1', computed_with=t.c3 * 2.0),
-            catalog.Column('v2', computed_with=t.c6.f5)
-        ]
-        v = cl.create_view('test_view', t, schema=cols)
+        schema = {
+            'v1': t.c3 * 2.0,
+            'v2': t.c6.f5,
+        }
+        v = cl.create_view('test_view', t, schema=schema)
         assert_resultset_eq(
             v.select(v.v1).order_by(v.c2).show(0),
             t.select(t.c3 * 2.0).order_by(t.c2).show(0))
@@ -407,11 +409,11 @@ class TestView:
         snap = cl.create_snapshot('test_snap', 'test_tbl')
 
         # create view with filter and computed columns
-        cols = [
-            catalog.Column('v1', computed_with=snap.c3 * 2.0),
-            catalog.Column('v2', computed_with=snap.c6.f5)
-        ]
-        v = cl.create_view('test_view', snap, schema=cols, filter=snap.c2 < 10)
+        schema = {
+            'v1': snap.c3 * 2.0,
+            'v2': snap.c6.f5,
+        }
+        v = cl.create_view('test_view', snap, schema=schema, filter=snap.c2 < 10)
         res = v.select(v.v1).order_by(v.c2).show(0)
         assert_resultset_eq(
             res,
@@ -451,11 +453,11 @@ class TestView:
         s = cl.create_snapshot('test_snap', 'test_tbl')
 
         # create view with filter and computed columns
-        cols = [
-            catalog.Column('v1', computed_with=t.c3 * 2.0),
-            catalog.Column('v2', computed_with=t.c6.f5)
-        ]
-        v = cl.create_view('test_view', s, schema=cols, filter=t.c2 < 10)
+        schema = {
+            'v1': t.c3 * 2.0,
+            'v2': t.c6.f5,
+        }
+        v = cl.create_view('test_view', s, schema=schema, filter=t.c2 < 10)
         view_s = cl.create_snapshot('test_view_snap', 'test_view')
         snapshot_query = view_s.order_by(view_s.c2)
         table_snapshot_query = \

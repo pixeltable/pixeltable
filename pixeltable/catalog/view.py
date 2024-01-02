@@ -15,6 +15,7 @@ from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.exceptions import Error
 import pixeltable.func as func
+import pixeltable.type_system as ts
 from pixeltable.type_system import InvalidType, IntType
 
 
@@ -32,10 +33,12 @@ class View(MutableTable):
 
     @classmethod
     def create(
-            cls, dir_id: UUID, name: str, base: TableVersion, cols: List[Column], predicate: 'exprs.Predicate',
-            num_retained_versions: int, iterator_cls: Optional[Type[ComponentIterator]], iterator_args: Optional[Dict]
+            cls, dir_id: UUID, name: str, base: TableVersion, schema: Dict[str, ts.ColumnType],
+            predicate: 'exprs.Predicate', num_retained_versions: int, iterator_cls: Optional[Type[ComponentIterator]],
+            iterator_args: Optional[Dict]
     ) -> View:
-        cls._verify_user_columns(cols)
+        columns = cls._create_columns(schema)
+        cls._verify_schema(columns)
 
         if iterator_cls is not None:
             assert iterator_args is not None
@@ -72,15 +75,15 @@ class View(MutableTable):
             ])
 
             iterator_col_names = {col.name for col in iterator_cols}
-            for col in cols:
+            for col in columns:
                 if col.name in iterator_col_names:
                     raise Error(f'Duplicate name: column {col.name} is already present in the iterator output schema')
-            cols = iterator_cols + cols
+            columns = iterator_cols + columns
 
         with orm.Session(Env.get().engine, future=True) as session:
             from pixeltable.exprs import InlineDict
             tbl_version = TableVersion.create(
-                dir_id, name, cols, base, predicate, num_retained_versions, iterator_cls,
+                dir_id, name, columns, base, predicate, num_retained_versions, iterator_cls,
                 InlineDict(iterator_args) if iterator_args is not None else None, session)
             view = cls(dir_id, tbl_version)
 

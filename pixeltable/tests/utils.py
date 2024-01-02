@@ -12,6 +12,7 @@ from pixeltable import catalog
 from pixeltable.type_system import \
     ColumnType, StringType, IntType, FloatType, ArrayType, BoolType, TimestampType, JsonType, ImageType, VideoType
 from pixeltable.dataframe import DataFrameResultSet
+import pixeltable.type_system as ts
 
 
 def make_default_type(t: ColumnType.Type) -> ColumnType:
@@ -28,9 +29,9 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
     assert False
 
 def make_tbl(cl: pt.Client, name: str = 'test', col_names: List[str] = ['c1']) -> catalog.InsertableTable:
-    schema: List[catalog.Column] = []
+    schema: Dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
-        schema.append(catalog.Column(f'{col_name}', make_default_type(ColumnType.Type(i % 5))))
+        schema[f'{col_name}'] = make_default_type(ColumnType.Type(i % 5))
     return cl.create_table(name, schema)
 
 def create_table_data(t: catalog.MutableTable, col_names: List[str] = [], num_rows: int = 10) -> List[Dict[str, Any]]:
@@ -104,17 +105,17 @@ def create_table_data(t: catalog.MutableTable, col_names: List[str] = [], num_ro
     return rows
 
 def create_test_tbl(client: pt.Client) -> catalog.MutableTable:
-    cols = [
-        catalog.Column('c1', StringType(nullable=False)),
-        catalog.Column('c1n', StringType(nullable=True)),
-        catalog.Column('c2', IntType(nullable=False), primary_key=True),
-        catalog.Column('c3', FloatType(nullable=False)),
-        catalog.Column('c4', BoolType(nullable=False)),
-        catalog.Column('c5', TimestampType(nullable=False)),
-        catalog.Column('c6', JsonType(nullable=False)),
-        catalog.Column('c7', JsonType(nullable=False)),
-    ]
-    t = client.create_table('test_tbl', cols)
+    schema = {
+        'c1': StringType(nullable=False),
+        'c1n': StringType(nullable=True),
+        'c2': IntType(nullable=False),
+        'c3': FloatType(nullable=False),
+        'c4': BoolType(nullable=False),
+        'c5': TimestampType(nullable=False),
+        'c6': JsonType(nullable=False),
+        'c7': JsonType(nullable=False),
+    }
+    t = client.create_table('test_tbl', schema, primary_key='c2')
     t.add_column(catalog.Column('c8', computed_with=[[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100
@@ -171,19 +172,19 @@ def create_test_tbl(client: pt.Client) -> catalog.MutableTable:
 def create_all_datatype_tbl(test_client: pt.Client) -> catalog.Table:
     """ Creates a table with all supported datatypes.
     """
-    cols = [
-        catalog.Column('row_id', IntType(nullable=False)), # used for row selection
-        catalog.Column('c_array', ArrayType(shape=(10,),  dtype=FloatType(), nullable=True)),
-        catalog.Column('c_bool', BoolType(nullable=True)),
-        catalog.Column('c_float', FloatType(nullable=True)),
-        catalog.Column('c_image', ImageType(nullable=True)),
-        catalog.Column('c_int', IntType(nullable=True)),
-        catalog.Column('c_json', JsonType(nullable=True)),
-        catalog.Column('c_string', StringType(nullable=True)),
-        catalog.Column('c_timestamp', TimestampType(nullable=True)),
-        catalog.Column('c_video', VideoType(nullable=True)),
-    ]
-    tbl = test_client.create_table('all_datatype_tbl', cols)
+    schema = {
+        'row_id': IntType(nullable=False), # used for row selection
+        'c_array': ArrayType(shape=(10,),  dtype=FloatType(), nullable=True),
+        'c_bool': BoolType(nullable=True),
+        'c_float': FloatType(nullable=True),
+        'c_image': ImageType(nullable=True),
+        'c_int': IntType(nullable=True),
+        'c_json': JsonType(nullable=True),
+        'c_string': StringType(nullable=True),
+        'c_timestamp': TimestampType(nullable=True),
+        'c_video': VideoType(nullable=True),
+    }
+    tbl = test_client.create_table('all_datatype_tbl', schema)
     example_rows = create_table_data(tbl, num_rows=11)
 
     for i,r in enumerate(example_rows):

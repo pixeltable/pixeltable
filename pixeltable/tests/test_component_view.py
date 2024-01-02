@@ -19,8 +19,8 @@ class TestComponentView:
     def test_basic(self, test_client: pt.Client) -> None:
         cl = test_client
         # create video table
-        cols = [catalog.Column('video', VideoType()), catalog.Column('angle', IntType())]
-        video_t = cl.create_table('video_tbl', cols)
+        schema = {'video': VideoType(), 'angle': IntType()}
+        video_t = cl.create_table('video_tbl', schema)
         video_filepaths = get_video_files()
 
         # cannot add 'pos' column
@@ -74,7 +74,7 @@ class TestComponentView:
     def test_add_column(self, test_client: pt.Client) -> None:
         cl = test_client
         # create video table
-        video_t = cl.create_table('video_tbl', [catalog.Column('video', VideoType())])
+        video_t = cl.create_table('video_tbl', {'video': VideoType()})
         video_filepaths = get_video_files()
         # create frame view
         args = {'video': video_t.video, 'fps': 1}
@@ -97,16 +97,17 @@ class TestComponentView:
     def test_update(self, test_client: pt.Client) -> None:
         cl = test_client
         # create video table
-        video_t = cl.create_table('video_tbl', [catalog.Column('video', VideoType())])
+        video_t = cl.create_table('video_tbl', {'video': VideoType()})
         # create frame view with manually updated column
         args = {'video': video_t.video, 'fps': 1}
-        dict_col = catalog.Column('annotation', JsonType(nullable=True))
         view_t = cl.create_view(
-            'test_view', video_t, schema=[dict_col], iterator_class=FrameIterator, iterator_args=args)
+            'test_view', video_t, schema={'annotation': JsonType(nullable=True)},
+            iterator_class=FrameIterator, iterator_args=args)
 
         video_filepaths = get_video_files()
         rows = [{'video': p} for p in video_filepaths]
         status = video_t.insert(rows)
+        assert status.num_excs == 0
         import urllib
         video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
         status = view_t.update({'annotation': {'a': 1}}, where=view_t.video == video_url)
@@ -115,19 +116,17 @@ class TestComponentView:
         assert c1 == c2
 
         with pytest.raises(exc.Error) as excinfo:
-            non_nullable_col = catalog.Column('annotation', JsonType(nullable=False))
             _ = cl.create_view(
-                'bad_view', video_t, schema=[non_nullable_col], iterator_class=FrameIterator, iterator_args=args)
+                'bad_view', video_t, schema={'annotation': JsonType(nullable=False)},
+                iterator_class=FrameIterator, iterator_args=args)
         assert 'must be nullable' in str(excinfo.value)
 
     def test_chained_views(self, test_client: pt.Client) -> None:
         """Component view followed by a standard view"""
         cl = test_client
         # create video table
-        cols = [
-            catalog.Column('video', VideoType()), catalog.Column('int1', IntType()), catalog.Column('int2', IntType())
-        ]
-        video_t = cl.create_table('video_tbl', cols)
+        schema = {'video': VideoType(), 'int1': IntType(), 'int2': IntType()}
+        video_t = cl.create_table('video_tbl', schema)
         video_filepaths = get_video_files()
 
         # create first view

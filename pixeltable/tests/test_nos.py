@@ -10,7 +10,7 @@ from pixeltable.iterators import FrameIterator
 class TestNOS:
     def test_basic(self, test_client: pt.Client) -> None:
         cl = test_client
-        video_t = cl.create_table('video_tbl', [catalog.Column('video', VideoType())])
+        video_t = cl.create_table('video_tbl', {'video': VideoType()})
         # create frame view
         args = {'video': video_t.video, 'fps': 1}
         v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
@@ -28,7 +28,7 @@ class TestNOS:
 
     def test_exceptions(self, test_client: pt.Client) -> None:
         cl = test_client
-        video_t = cl.create_table('video_tbl', [catalog.Column('video', VideoType())])
+        video_t = cl.create_table('video_tbl', {'video': VideoType()})
         # create frame view
         args = {'video': video_t.video, 'fps': 1}
         v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
@@ -45,7 +45,7 @@ class TestNOS:
     @pytest.mark.skip(reason='too slow')
     def test_sd(self, test_client: pt.Client) -> None:
         """Test model that mixes batched with scalar parameters"""
-        t = test_client.create_table('sd_test', [pt.Column('prompt', pt.StringType())])
+        t = test_client.create_table('sd_test', {'prompt': pt.StringType()})
         t.insert([{'prompt': 'cat on a sofa'}])
         from pixeltable.functions.nos.image_generation import stabilityai_stable_diffusion_2 as sd2
         t.add_column(pt.Column('img', computed_with=sd2(t.prompt, 1, 512, 512), stored=True))

@@ -15,7 +15,7 @@ class TestFunctions:
 
     def test_eval_detections(self, test_client: pt.Client) -> None:
         cl = test_client
-        video_t = cl.create_table('video_tbl', [catalog.Column('video', VideoType())])
+        video_t = cl.create_table('video_tbl', {'video': VideoType()})
         # create frame view
         args = {'video': video_t.video, 'fps': 1}
         v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
@@ -52,7 +52,7 @@ class TestFunctions:
 
     def test_str(self, test_client: pt.Client) -> None:
         cl = test_client
-        t = cl.create_table('test_tbl', [catalog.Column('input', StringType())])
+        t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions import str_format
         t.add_column(catalog.Column('s1', computed_with=str_format('ABC {0}', t.input)))
         t.add_column(catalog.Column('s2', computed_with=str_format('DEF {this}', this=t.input)))
@@ -66,7 +66,7 @@ class TestFunctions:
     @pytest.mark.skip(reason='not supported yet')
     def test_openai(self, test_client: pt.Client) -> None:
         cl = test_client
-        t = cl.create_table('test_tbl', [catalog.Column('input', StringType())])
+        t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.openai import chat_completion, embedding, moderation
         msgs = [
             { "role": "system", "content": "You are a helpful assistant." },

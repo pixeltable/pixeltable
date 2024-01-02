@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Optional, List, Dict, Any, Union, Tuple, Set
+from typing import Optional, List, Dict, Any, Union, Tuple, Set, Callable
 from uuid import UUID
-import re
 import json
 
 import sqlalchemy as sql
 
+from .globals import is_valid_identifier, is_system_column_name
 from .table import Table
 from .column import Column
 from .table_version import TableVersion
-from pixeltable import exceptions as exc
 from ..env import Env
 from ..metadata import schema
-from .globals import is_valid_identifier, is_system_column_name
+from pixeltable import exceptions as exc
+import pixeltable.type_system as ts
+import pixeltable.exprs as exprs
 
 
 _logger = logging.getLogger('pixeltable')
@@ -79,6 +80,77 @@ class MutableTable(Table):
         return self.tbl_version.add_column(col, print_stats=print_stats)
 
     @classmethod
+    def _validate_column_spec(cls, name: str, spec: Dict[str, Any]) -> None:
+        """Check integrity of user-supplied Column spec
+
+        We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
+        (on account of containing Python Callables or Exprs).
+        """
+        assert isinstance(spec, dict)
+        valid_keys = {'type', 'value', 'stored', 'indexed'}
+        has_type = False
+        for k in spec.keys():
+            if k not in valid_keys:
+                raise exc.Error(f'Column {name}: invalid key {k!r}')
+
+        if 'type' in spec:
+            has_type = True
+            if not isinstance(spec['type'], ts.ColumnType):
+                raise exc.Error(f'Column {name}: type must be a ColumnType, got {spec["type"]}')
+
+        if 'value' in spec:
+            value_spec = spec['value']
+            value_expr = exprs.Expr.from_object(value_spec)
+            if value_expr is None:
+                # needs to be a Callable
+                if not isinstance(value_spec, Callable):
+                    raise exc.Error(
+                        f'Column {name}: value needs to be either a Pixeltable expression or a Callable, '
+                        f'but it is a {type(value_spec)}')
+                if 'type' not in spec:
+                    raise exc.Error(f'Column {name}: type is required if value is a Callable')
+            else:
+                has_type = True
+                if 'type' in spec:
+                    raise exc.Error(f'Column {name}: type is redundant if value is a Pixeltable expression')
+
+        if 'stored' in spec and not isinstance(spec['stored'], bool):
+            raise exc.Error(f'Column {name}: stored must be a bool, got {spec["stored"]}')
+        if 'indexed' in spec and not isinstance(spec['indexed'], bool):
+            raise exc.Error(f'Column {name}: indexed must be a bool, got {spec["indexed"]}')
+        if not has_type:
+            raise exc.Error(f'Column {name}: type is required')
+
+    @classmethod
+    def _create_columns(cls, schema: Dict[str, Any]) -> List[Column]:
+        """Construct list of Columns, given schema"""
+        columns: List[Column] = []
+        for name, spec in schema.items():
+            col_type: Optional[ts.ColumnType] = None
+            value_expr: Optional[exprs.Expr] = None
+            stored: Optional[bool] = None
+            indexed: Optional[bool] = None
+            primary_key: Optional[bool] = None
+
+            if isinstance(spec, ts.ColumnType):
+                col_type = spec
+            elif isinstance(spec, exprs.Expr):
+                value_expr = spec
+            elif isinstance(spec, dict):
+                cls._validate_column_spec(name, spec)
+                col_type = spec.get('type')
+                value_expr = spec.get('value')
+                stored = spec.get('stored')
+                indexed = spec.get('indexed')
+                primary_key = spec.get('primary_key')
+
+            column = Column(
+                name, col_type=col_type, computed_with=value_expr, stored=stored, indexed=indexed,
+                primary_key=primary_key)
+            columns.append(column)
+        return columns
+
+    @classmethod
     def _verify_column(cls, col: Column, existing_column_names: Set[str]) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         if is_system_column_name(col.name):
@@ -96,10 +168,10 @@ class MutableTable(Table):
             col.stored = not (col.is_computed and col.col_type.is_image_type() and not col.has_window_fn_call())
 
     @classmethod
-    def _verify_user_columns(cls, cols: List[Column]) -> None:
-        """Check integrity of user-supplied Columns and supply defaults"""
+    def _verify_schema(cls, schema: List[Column]) -> None:
+        """Check integrity of user-supplied schema and set defaults"""
         column_names: Set[str] = set()
-        for col in cols:
+        for col in schema:
             cls._verify_column(col, column_names)
             column_names.add(col.name)
 

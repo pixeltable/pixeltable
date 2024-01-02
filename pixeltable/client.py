@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Tuple, Type, Any
+from typing import List, Optional, Dict, Tuple, Type, Any, Union
 import pandas as pd
 import logging
 import dataclasses
@@ -13,6 +13,7 @@ from pixeltable.catalog import \
 from pixeltable.metadata import schema
 from pixeltable.env import Env
 import pixeltable.func as func
+import pixeltable.type_system as ts
 from pixeltable import exceptions as exc
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
@@ -222,13 +223,13 @@ class Client:
         return '.'.join(path_elements)
 
     def create_table(
-            self, path_str: str, schema: List[Column], num_retained_versions: int = 10,
+            self, path_str: str, schema: Dict[str, Any], primary_key: Union[str, List[str]] = [], num_retained_versions: int = 10,
     ) -> InsertableTable:
         """Create a new :py:class:`InsertableTable`.
 
         Args:
             path_str: Path to the table.
-            schema: List of Columns in the table.
+            schema: dictionary mapping column names to column types, value expressions, or to column specifications.
             num_retained_versions: Number of versions of the table to retain.
 
         Returns:
@@ -240,13 +241,24 @@ class Client:
         Examples:
             Create a table with an int and a string column:
 
-            >>> table = cl.create_table('my_table', schema=[Column('col1', IntType()), Column('col2', StringType())])
+            >>> table = cl.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
+
+            Create a table with a single indexed image column:
+
+            >>> table = cl.create_table('my_table', schema={'col1': {'type': ImageType(), 'indexed': True}})
         """
         path = Path(path_str)
         self.paths.check_is_valid(path, expected=None)
         dir = self.paths[path.parent]
 
-        tbl = InsertableTable.create(dir.id, path.name, schema, num_retained_versions)
+        if isinstance(primary_key, str):
+            primary_key = [primary_key]
+        else:
+            if not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
+                raise exc.Error('primary_key must be a single column name or a list of column names')
+
+        tbl = InsertableTable.create(
+            dir.id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions)
         self.tbl_versions[(tbl.id, None)] = tbl.tbl_version
         self.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
@@ -289,9 +301,33 @@ class Client:
         return snapshot
 
     def create_view(
-            self, path_str: str, base: Table, schema: List[Column] = [], filter: Optional[Predicate] = None,
+            self, path_str: str, base: Table, schema: Dict[str, Any] = {}, filter: Optional[Predicate] = None,
             iterator_class: Optional[Type[ComponentIterator]] = None, iterator_args: Optional[Dict[str, Any]] = None,
             num_retained_versions: int = 10, ignore_errors: bool = False) -> View:
+        """Create a new :py:class:`View`.
+
+        Args:
+            path_str: Path to the view.
+            base: Table (ie, table or view or snapshot) to base the view on.
+            schema: dictionary mapping column names to column types, value expressions, or to column specifications.
+            filter: Predicate to filter rows of the base table.
+            iterator_class: Class of the iterator to use for the view.
+            iterator_args: Arguments to pass to the iterator class.
+            num_retained_versions: Number of versions of the view to retain.
+            ignore_errors: if True, fail silently if the path already exists or is invalid.
+
+        Returns:
+            The newly created table.
+
+        Raises:
+            Error: if the path already exists or is invalid.
+
+        Examples:
+            Create a view with an additional int and a string column and a filter:
+
+            >>> table = cl.create_table(
+                'my_table', base, schema={'col3': IntType(), 'col4': StringType()}, filter=base.col1 > 10)
+        """
         assert (iterator_class is None) == (iterator_args is None)
         path = Path(path_str)
         try:

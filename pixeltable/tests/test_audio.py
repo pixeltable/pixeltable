@@ -21,7 +21,7 @@ class TestAudio:
     def test_basic(self, test_client: pxt.Client) -> None:
         audio_filepaths = get_audio_files()
         cl = test_client
-        audio_t = cl.create_table('audio', [catalog.Column('audio_file', AudioType())])
+        audio_t = cl.create_table('audio', {'audio_file': AudioType()})
         status = audio_t.insert([{'audio_file': p} for p in audio_filepaths])
         assert status.num_rows == len(audio_filepaths)
         assert status.num_excs == 0
@@ -31,7 +31,7 @@ class TestAudio:
     def test_extract(self, test_client: pxt.Client) -> None:
         video_filepaths = get_video_files()
         cl = test_client
-        video_t = cl.create_table('videos', [catalog.Column('video', VideoType())])
+        video_t = cl.create_table('videos', {'video': VideoType()})
         from pixeltable.functions.video import extract_audio
         video_t.add_column(catalog.Column('audio', computed_with=extract_audio(video_t.video)))
 

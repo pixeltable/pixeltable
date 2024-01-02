@@ -37,11 +37,12 @@ class TestTable:
     def test_create(self, test_client: pt.Client) -> None:
         cl = test_client
         cl.create_dir('dir1')
-        c1 = catalog.Column('c1', StringType(nullable=False))
-        c2 = catalog.Column('c2', IntType(nullable=False))
-        c3 = catalog.Column('c3', FloatType(nullable=False))
-        c4 = catalog.Column('c4', TimestampType(nullable=False))
-        schema = [c1, c2, c3, c4]
+        schema = {
+            'c1': StringType(nullable=False),
+            'c2': IntType(nullable=False),
+            'c3': FloatType(nullable=False),
+            'c4': TimestampType(nullable=False),
+        }
         tbl = cl.create_table('test', schema)
         _ = cl.create_table('dir1.test', schema)
 
@@ -50,11 +51,7 @@ class TestTable:
         with pytest.raises(exc.Error):
             _ = catalog.Column('1c', StringType())
         with pytest.raises(exc.Error):
-            _ = cl.create_table('test2', [c1, c1])
-        with pytest.raises(exc.Error):
             _ = cl.create_table('test', schema)
-        with pytest.raises(exc.Error):
-            _ = cl.create_table('test2', [c1, c1])
         with pytest.raises(exc.Error):
             _ = cl.create_table('dir2.test2', schema)
 
@@ -97,13 +94,13 @@ class TestTable:
 
     def test_create_image_table(self, test_client: pt.Client) -> None:
         cl = test_client
-        cols = [
-            catalog.Column('img', ImageType(nullable=False)),
-            catalog.Column('category', StringType(nullable=False)),
-            catalog.Column('split', StringType(nullable=False)),
-            catalog.Column('img_literal', ImageType(nullable=False)),
-        ]
-        tbl = cl.create_table('test', cols)
+        schema = {
+            'img': ImageType(nullable=False),
+            'category': StringType(nullable=False),
+            'split': StringType(nullable=False),
+            'img_literal': ImageType(nullable=False),
+        }
+        tbl = cl.create_table('test', schema)
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, 20)
@@ -122,12 +119,77 @@ class TestTable:
         for tup in pdf.itertuples():
             assert tup.img == tup.img_literal
 
+    def test_schema_spec(self, test_client: pt.Client) -> None:
+        cl = test_client
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c 1': IntType()})
+        assert 'invalid column name' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': {}})
+        assert 'type is required' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': {'xyz': IntType()}})
+        assert "invalid key 'xyz'" in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': {'stored': True}})
+        assert 'type is required' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': {'type': 'string'}})
+        assert 'must be a ColumnType' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': {'value': 1, 'type': StringType()}})
+        assert 'type is redundant' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': {'value': pytest}})
+        assert 'value needs to be either' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            def f() -> float:
+                return 1.0
+            cl.create_table('test', {'c1': {'value': f}})
+        assert 'type is required' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': {'type': StringType(), 'stored': 'true'}})
+        assert 'stored must be a bool' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': {'type': StringType(), 'indexed': 'true'}})
+        assert 'indexed must be a bool' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': StringType()}, primary_key='c2')
+        assert 'primary key column c2 not found' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': StringType()}, primary_key=['c1', 'c2'])
+        assert 'primary key column c2 not found' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': StringType()}, primary_key=['c2'])
+        assert 'primary key column c2 not found' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': StringType()}, primary_key=0)
+        assert 'primary_key must be a' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            cl.create_table('test', {'c1': StringType(nullable=True)}, primary_key='c1')
+        assert 'cannot be nullable' in str(exc_info.value).lower()
+
     def check_bad_media(self, test_client: pt.Client, rows: List[Tuple[str, bool]], col_type: pt.ColumnType) -> None:
-        cols = [
-            catalog.Column('media', col_type),
-            catalog.Column('is_bad_media', BoolType(nullable=False))
-        ]
-        tbl = test_client.create_table('test', cols)
+        schema = {
+            'media': col_type,
+            'is_bad_media': BoolType(nullable=False),
+        }
+        tbl = test_client.create_table('test', schema)
 
         assert len(rows) > 0
         total_bad_rows = sum([int(row['is_bad_media']) for row in rows])
@@ -184,7 +246,7 @@ class TestTable:
 
     def test_create_s3_image_table(self, test_client: pt.Client) -> None:
         cl = test_client
-        tbl = cl.create_table('test', [catalog.Column('img', ImageType(nullable=False))])
+        tbl = cl.create_table('test', {'img': ImageType(nullable=False)})
         # this is needed because Client.reset_catalog() doesn't call TableVersion.drop(), which would
         # clear the file cache
         # TODO: change reset_catalog() to drop tables
@@ -240,11 +302,11 @@ class TestTable:
 
     def test_video_url(self, test_client: pt.Client) -> None:
         cl = test_client
-        cols = [
-            catalog.Column('payload', IntType(nullable=False)),
-            catalog.Column('video', VideoType(nullable=False)),
-        ]
-        tbl = cl.create_table('test', cols)
+        schema = {
+            'payload': IntType(nullable=False),
+            'video': VideoType(nullable=False),
+        }
+        tbl = cl.create_table('test', schema)
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         tbl.insert([{'payload': 1, 'video': url}])
         row = tbl.select(tbl.video.fileurl, tbl.video.localpath).collect()[0]
@@ -261,7 +323,7 @@ class TestTable:
         cl = test_client
         tbl = cl.create_table(
             'test_tbl',
-            [catalog.Column('payload', IntType(nullable=False)), catalog.Column('video', VideoType(nullable=True))])
+            {'payload': IntType(nullable=False), 'video': VideoType(nullable=True)})
         args = {'video': tbl.video, 'fps': 0}
         view = cl.create_view('test_view', tbl, iterator_class=FrameIterator, iterator_args=args)
         view.add_column(catalog.Column('c1', computed_with=view.frame.rotate(30), stored=True))
@@ -333,16 +395,17 @@ class TestTable:
 
     def test_insert(self, test_client: pt.Client) -> None:
         cl = test_client
-        c1 = catalog.Column('c1', StringType(nullable=False))
-        c2 = catalog.Column('c2', IntType(nullable=False))
-        c3 = catalog.Column('c3', FloatType(nullable=False))
-        c4 = catalog.Column('c4', BoolType(nullable=False))
-        c5 = catalog.Column('c5', ArrayType((2, 3), dtype=IntType(), nullable=False))
-        c6 = catalog.Column('c6', JsonType(nullable=False))
-        c7 = catalog.Column('c7', ImageType(nullable=False))
-        c8 = catalog.Column('c8', VideoType(nullable=False))
-        cols = [c1, c2, c3, c4, c5, c6, c7, c8]
-        t = cl.create_table('test1', cols)
+        schema = {
+            'c1': StringType(nullable=False),
+            'c2': IntType(nullable=False),
+            'c3': FloatType(nullable=False),
+            'c4': BoolType(nullable=False),
+            'c5': ArrayType((2, 3), dtype=IntType(), nullable=False),
+            'c6': JsonType(nullable=False),
+            'c7': ImageType(nullable=False),
+            'c8': VideoType(nullable=False),
+        }
+        t = cl.create_table('test1', schema)
         rows = create_table_data(t)
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -362,30 +425,30 @@ class TestTable:
         assert 'Missing' in str(exc_info.value)
 
         # incompatible schema
-        for col, value_col_name in zip(cols, ['c2', 'c3', 'c5', 'c5', 'c6', 'c7', 'c2', 'c2']):
+        for (col_name, col_type), value_col_name in zip(schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c7', 'c2', 'c2']):
             cl.drop_table('test1', ignore_errors=True)
-            t = cl.create_table('test1', [col])
+            t = cl.create_table('test1', {col_name: col_type})
             with pytest.raises(exc.Error) as exc_info:
-                t.insert([{col.name: r[value_col_name]} for r in rows])
+                t.insert([{col_name: r[value_col_name]} for r in rows])
             assert 'expected' in str(exc_info.value).lower()
 
         # rows not list of dicts
         cl.drop_table('test1', ignore_errors=True)
-        t = cl.create_table('test1', [c5])
+        t = cl.create_table('test1', {'c1': StringType()})
         with pytest.raises(exc.Error) as exc_info:
-            t.insert([np.ndarray((3, 2))])
+            t.insert(['1'])
         assert 'list of dictionaries' in str(exc_info.value)
 
         # bad null value
         cl.drop_table('test1', ignore_errors=True)
-        t = cl.create_table('test1', [c1])
+        t = cl.create_table('test1', {'c1': StringType(nullable=False)})
         with pytest.raises(exc.Error) as exc_info:
             t.insert([{'c1': None}])
         assert 'expected non-None' in str(exc_info.value)
 
         # bad array literal
         cl.drop_table('test1', ignore_errors=True)
-        t = cl.create_table('test1', [c5])
+        t = cl.create_table('test1', {'c5': ArrayType((2, 3), dtype=IntType(), nullable=False)})
         with pytest.raises(exc.Error) as exc_info:
             t.insert([{'c5': np.ndarray((3, 2))}])
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
@@ -579,10 +642,11 @@ class TestTable:
 
     def test_computed_cols(self, test_client: pt.client) -> None:
         cl = test_client
-        c1 = catalog.Column('c1', IntType(nullable=False))
-        c2 = catalog.Column('c2', FloatType(nullable=False))
-        c3 = catalog.Column('c3', JsonType(nullable=False))
-        schema = [c1, c2, c3]
+        schema = {
+            'c1': IntType(nullable=False),
+            'c2': FloatType(nullable=False),
+            'c3': JsonType(nullable=False),
+        }
         t : pt.InsertableTable = cl.create_table('test', schema)
         t.add_column(catalog.Column('c4', computed_with=t.c1 + 1))
         t.add_column(catalog.Column('c5', computed_with=t.c4 + 1))
@@ -614,13 +678,6 @@ class TestTable:
             rows2 = create_table_data(t, ['c1', 'c2', 'c3', 'c4'], num_rows=10)
             t.insert(rows2)
 
-        # computed col references non-existent col
-        with pytest.raises(exc.Error):
-            c1 = catalog.Column('c1', IntType(nullable=False))
-            c2 = catalog.Column('c2', FloatType(nullable=False))
-            c3 = catalog.Column('c3', FloatType(nullable=False), computed_with=lambda c2: math.sqrt(c2))
-            _ = cl.create_table('test2', [c1, c3, c2])
-
         # test loading from store
         cl = pt.Client()
         t = cl.get_table('test')
@@ -645,8 +702,7 @@ class TestTable:
         cl = test_client
 
         # exception during insert()
-        c2 = catalog.Column('c2', IntType(nullable=False))
-        schema = [c2]
+        schema = {'c2': IntType(nullable=False)}
         rows = list(test_tbl.select(test_tbl.c2).collect())
         t = cl.create_table('test_insert', schema)
         status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
@@ -695,8 +751,7 @@ class TestTable:
 
     def test_computed_img_cols(self, test_client: pt.Client) -> None:
         cl = test_client
-        c1 = catalog.Column('img', ImageType(nullable=False), indexed=True)
-        schema = [c1]
+        schema = {'img': ImageType(nullable=False)}
         t = cl.create_table('test', schema)
         t.add_column(catalog.Column('c2', computed_with=t.img.width))
         # c3 is not stored by default
@@ -726,10 +781,12 @@ class TestTable:
         # backfill
         t.add_column(catalog.Column('c9', computed_with=ptf.sum(t.c2, group_by=t.c4, order_by=t.c3)))
 
-        c2 = catalog.Column('c2', IntType(nullable=False))
-        c3 = catalog.Column('c3', FloatType(nullable=False))
-        c4 = catalog.Column('c4', BoolType(nullable=False))
-        new_t = cl.create_table('insert_test', [c2, c3, c4])
+        schema = {
+            'c2': IntType(nullable=False),
+            'c3': FloatType(nullable=False),
+            'c4': BoolType(nullable=False),
+        }
+        new_t = cl.create_table('insert_test', schema)
         new_t.add_column(catalog.Column('c5', IntType(), computed_with=lambda c2: c2 * c2))
         new_t.add_column(catalog.Column(
             'c6', computed_with=ptf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3)))

@@ -81,13 +81,13 @@ def all_datatypes_tbl(test_client: pt.Client) -> catalog.MutableTable:
 
 @pytest.fixture(scope='function')
 def img_tbl(test_client: pt.Client) -> catalog.MutableTable:
-    cols = [
-        catalog.Column('img', ImageType(nullable=False), indexed=False),
-        catalog.Column('category', StringType(nullable=False)),
-        catalog.Column('split', StringType(nullable=False)),
-    ]
+    schema = {
+        'img': ImageType(nullable=False),
+        'category': StringType(nullable=False),
+        'split': StringType(nullable=False),
+    }
     # this table is not indexed in order to avoid the cost of computing embeddings
-    tbl = test_client.create_table('test_img_tbl', cols)
+    tbl = test_client.create_table('test_img_tbl', schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     tbl.insert(rows)
     return tbl
@@ -112,12 +112,12 @@ def img_tbl_exprs(img_tbl: catalog.MutableTable) -> List[exprs.Expr]:
 @pytest.fixture(scope='function')
 def indexed_img_tbl(test_client: pt.Client) -> catalog.MutableTable:
     cl = test_client
-    cols = [
-        catalog.Column('img', ImageType(nullable=False), indexed=True),
-        catalog.Column('category', StringType(nullable=False)),
-        catalog.Column('split', StringType(nullable=False)),
-    ]
-    tbl = cl.create_table('test_indexed_img_tbl', cols)
+    schema = {
+        'img': { 'type': ImageType(nullable=False), 'indexed': True },
+        'category': StringType(nullable=False),
+        'split': StringType(nullable=False),
+    }
+    tbl = cl.create_table('test_indexed_img_tbl', schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     # select output_rows randomly in the hope of getting a good sample of the available categories
     rng = np.random.default_rng(17)

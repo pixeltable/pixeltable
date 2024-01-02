@@ -17,7 +17,7 @@ class TestVideo:
     ) -> Tuple[catalog.InsertableTable, catalog.MutableTable]:
         cl.drop_table(view_name, ignore_errors=True)
         cl.drop_table(base_name, ignore_errors=True)
-        base_t = cl.create_table(base_name, [catalog.Column('video', VideoType())])
+        base_t = cl.create_table(base_name, {'video': VideoType()})
         args = {'video': base_t.video, 'fps': 1}
         view_t = cl.create_view(view_name, base_t, iterator_class=FrameIterator, iterator_args=args)
         return base_t, view_t

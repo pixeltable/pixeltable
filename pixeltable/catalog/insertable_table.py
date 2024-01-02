@@ -11,6 +11,7 @@ from .table_version import TableVersion
 from .mutable_table import MutableTable
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
+import pixeltable.type_system as ts
 
 
 _logger = logging.getLogger('pixeltable')
@@ -28,13 +29,23 @@ class InsertableTable(MutableTable):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def create(
-            cls, dir_id: UUID, name: str, cols: List[Column],
+            cls, dir_id: UUID, name: str, schema: Dict[str, ts.ColumnType], primary_key: List[str],
             num_retained_versions: int,
     ) -> InsertableTable:
-        cls._verify_user_columns(cols)
+        columns = cls._create_columns(schema)
+        cls._verify_schema(columns)
+        column_names = [col.name for col in columns]
+        for pk_col in primary_key:
+            if pk_col not in column_names:
+                raise exc.Error(f'Primary key column {pk_col} not found in table schema')
+            col = columns[column_names.index(pk_col)]
+            if col.col_type.nullable:
+                raise exc.Error(f'Primary key column {pk_col} cannot be nullable')
+            col.primary_key = True
+
         with orm.Session(Env.get().engine, future=True) as session:
             tbl_version = TableVersion.create(
-                dir_id, name, cols, None, None, num_retained_versions, None, None, session)
+                dir_id, name, columns, None, None, num_retained_versions, None, None, session)
             tbl = cls(dir_id, tbl_version)
             session.commit()
             _logger.info(f'created table {name}, id={tbl_version.id}')

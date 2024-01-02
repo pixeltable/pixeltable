@@ -353,7 +353,7 @@ class TestDataFrame:
 
     def test_to_coco(self, test_client: pt.Client) -> None:
         cl = test_client
-        base_t = cl.create_table('videos', [catalog.Column('video', pt.VideoType())])
+        base_t = cl.create_table('videos', {'video': pt.VideoType()})
         args = {'video': base_t.video, 'fps': 1}
         view_t = cl.create_view('frames', base_t, iterator_class=FrameIterator, iterator_args=args)
         from pixeltable.functions.nos.object_detection_2d import yolox_medium
