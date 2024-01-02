@@ -14,7 +14,7 @@ from .column import Column
 from .table_version import TableVersion
 from ..env import Env
 from ..metadata import schema
-from pixeltable import exceptions as exc
+from pixeltable import exceptions as excs
 import pixeltable.type_system as ts
 import pixeltable.exprs as exprs
 
@@ -46,11 +46,63 @@ class MutableTable(Table):
                 f"WHERE {schema.Table.id.name} = :id"))
             conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self.id})
 
-    def add_column(self, col: Column, print_stats: bool = False) -> MutableTable.UpdateStatus:
+    def __setitem__(self, column_name: str, value: Union[ts.ColumnType, exprs.Expr, Callable, dict]) -> None:
+        """Adds a column to the table
+        Args:
+            column_name: the name of the new column
+            value: column type or value expression or column specification dictionary:
+                column type: a Pixeltable column type (if the table already contains rows, it must be nullable)
+                value expression: a Pixeltable expression that computes the column values
+                column specification: a dictionary with possible keys 'type', 'value', 'stored', 'indexed'
+        Examples:
+            Add an int column with ``None`` values:
+
+            >>> tbl['new_col'] = IntType(nullable=True)
+
+            For a table with int column ``int_col``, add a column that is the factorial of ``int_col``. The names of
+            the parameters of the Callable must correspond to existing column names (the column values are then passed
+            as arguments to the Callable). In this case, the return type cannot be inferred and needs to be specified
+            explicitly:
+
+            >>> tbl['factorial'] = {'value': lambda int_col: math.factorial(int_col), 'type': IntType()}
+
+            For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
+            90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
+            (by default, computed image columns are not stored but recomputed on demand):
+
+            >>> tbl['rotated'] = tbl.frame.rotate(90)
+
+            Do the same, but now the column is stored:
+
+            >>> tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
+
+            Add a resized version of the ``frame`` column and index it. The column does not need to be stored in order
+            to be indexed:
+
+            >>> tbl['small_frame'] = {'value': tbl.frame.resize([224, 224]), 'indexed': True}
+        """
+        if not isinstance(column_name, str):
+            raise excs.Error(f'Column name must be a string, got {type(column_name)}')
+        if not is_valid_identifier(column_name):
+            raise excs.Error(f'Invalid column name: {column_name!r}')
+
+        new_col = self._create_columns({column_name: value})[0]
+        self._verify_column(new_col, self.column_names())
+        return self.tbl_version.add_column(new_col)
+
+    def add_column(
+            self, *,
+            type: Optional[ts.ColumnType] = None, stored: Optional[bool] = None, indexed: Optional[bool] = None,
+            print_stats: bool = False, **kwargs: Any
+    ) -> MutableTable.UpdateStatus:
         """Adds a column to the table.
 
         Args:
-            col: The column to add.
+            kwargs: Exactly one keyword argument of the form ``column-name=type|value-expression``.
+            type: The type of the column. Only valid and required if ``value-expression`` is a Callable.
+            stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
+            indexed: Whether the column is indexed.
+            print_stats: If ``True``, print execution metrics.
 
         Returns:
             execution status
@@ -61,23 +113,56 @@ class MutableTable(Table):
         Examples:
             Add an int column with ``None`` values:
 
-            >>> tbl.add_column(Column('new_col', IntType()))
+            >>> tbl.add_column(new_col=IntType())
 
-            For a table with int column ``x``, add a column that is the factorial of ``x``. Note that the names of
-            the parameters of the ``computed_with`` Callable must correspond to existing column names (the column
-            values are then passed as arguments to the Callable):
+            For a table with int column ``int_col``, add a column that is the factorial of ``int_col``. The names of
+            the parameters of the Callable must correspond to existing column names (the column values are then passed
+            as arguments to the Callable). In this case, the column type needs to be specified explicitly:
 
-            >>> tbl.add_column(Column('factorial', IntType(), computed_with=lambda x: math.factorial(x)))
+            >>> tbl.add_column(factorial=lambda int_col: math.factorial(int_col), type=IntType())
 
             For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
-            90 degrees (note that in this case, the column type is inferred from the ``computed_with`` expression):
+            90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
+            (by default, computed image columns are not stored but recomputed on demand):
 
-            >>> tbl.add_column(Column('rotated', computed_with=tkbl.frame.rotate(90)))
-            'added ...'
+            >>> tbl.add_column(rotated=tbl.frame.rotate(90))
+
+            Do the same, but now the column is stored:
+
+            >>> tbl.add_column(rotated=tbl.frame.rotate(90), stored=True)
+
+            Add a resized version of the ``frame`` column and index it. The column does not need to be stored in order
+            to be indexed:
+
+            >>> tbl.add_column(small_frame=tbl.frame.resize([224, 224]), indexed=True)
         """
         self._check_is_dropped()
-        self._verify_column(col, self.column_names())
-        return self.tbl_version.add_column(col, print_stats=print_stats)
+        # verify kwargs and construct column schema dict
+        if len(kwargs) != 1:
+            raise excs.Error((
+                f'add_column() requires exactly one keyword argument of the form "column-name=type|value-expression", '
+                f'got {len(kwargs)} instead ({", ".join(list(kwargs.keys()))})'
+            ))
+        col_name, spec = next(iter(kwargs.items()))
+        col_schema: Dict[str, Any] = {}
+        if isinstance(spec, ts.ColumnType):
+            if type is not None:
+                raise excs.Error(f'add_column(): keyword argument "type" is redundant')
+            col_schema['type'] = spec
+        else:
+            if isinstance(spec, exprs.Expr) and type is not None:
+                raise excs.Error(f'add_column(): keyword argument "type" is redundant')
+            col_schema['value'] = spec
+        if type is not None:
+            col_schema['type'] = type
+        if stored is not None:
+            col_schema['stored'] = stored
+        if indexed is not None:
+            col_schema['indexed'] = indexed
+
+        new_col = self._create_columns({col_name: col_schema})[0]
+        self._verify_column(new_col, self.column_names())
+        return self.tbl_version.add_column(new_col, print_stats=print_stats)
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: Dict[str, Any]) -> None:
@@ -91,12 +176,12 @@ class MutableTable(Table):
         has_type = False
         for k in spec.keys():
             if k not in valid_keys:
-                raise exc.Error(f'Column {name}: invalid key {k!r}')
+                raise excs.Error(f'Column {name}: invalid key {k!r}')
 
         if 'type' in spec:
             has_type = True
             if not isinstance(spec['type'], ts.ColumnType):
-                raise exc.Error(f'Column {name}: type must be a ColumnType, got {spec["type"]}')
+                raise excs.Error(f'Column {name}: "type" must be a ColumnType, got {spec["type"]}')
 
         if 'value' in spec:
             value_spec = spec['value']
@@ -104,22 +189,22 @@ class MutableTable(Table):
             if value_expr is None:
                 # needs to be a Callable
                 if not isinstance(value_spec, Callable):
-                    raise exc.Error(
+                    raise excs.Error(
                         f'Column {name}: value needs to be either a Pixeltable expression or a Callable, '
                         f'but it is a {type(value_spec)}')
                 if 'type' not in spec:
-                    raise exc.Error(f'Column {name}: type is required if value is a Callable')
+                    raise excs.Error(f'Column {name}: "type" is required if value is a Callable')
             else:
                 has_type = True
                 if 'type' in spec:
-                    raise exc.Error(f'Column {name}: type is redundant if value is a Pixeltable expression')
+                    raise excs.Error(f'Column {name}: "type" is redundant if value is a Pixeltable expression')
 
         if 'stored' in spec and not isinstance(spec['stored'], bool):
-            raise exc.Error(f'Column {name}: stored must be a bool, got {spec["stored"]}')
+            raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')
         if 'indexed' in spec and not isinstance(spec['indexed'], bool):
-            raise exc.Error(f'Column {name}: indexed must be a bool, got {spec["indexed"]}')
+            raise excs.Error(f'Column {name}: "indexed" must be a bool, got {spec["indexed"]}')
         if not has_type:
-            raise exc.Error(f'Column {name}: type is required')
+            raise excs.Error(f'Column {name}: "type" is required')
 
     @classmethod
     def _create_columns(cls, schema: Dict[str, Any]) -> List[Column]:
@@ -154,15 +239,15 @@ class MutableTable(Table):
     def _verify_column(cls, col: Column, existing_column_names: Set[str]) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         if is_system_column_name(col.name):
-            raise exc.Error(f'Column name {col.name} is reserved')
+            raise excs.Error(f'Column name {col.name} is reserved')
         if not is_valid_identifier(col.name):
-            raise exc.Error(f"Invalid column name: '{col.name}'")
+            raise excs.Error(f"Invalid column name: '{col.name}'")
         if col.name in existing_column_names:
-            raise exc.Error(f'Duplicate column name: {col.name}')
+            raise excs.Error(f'Duplicate column name: {col.name}')
         if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
-            raise exc.Error(f'Column {col.name}: stored={col.stored} only applies to computed image columns')
+            raise excs.Error(f'Column {col.name}: stored={col.stored} only applies to computed image columns')
         if col.stored is False and not (col.col_type.is_image_type() and not col.has_window_fn_call()):
-            raise exc.Error(
+            raise excs.Error(
                 f'Column {col.name}: stored={col.stored} is not valid for image columns computed with a streaming function')
         if col.stored is None:
             col.stored = not (col.is_computed and col.col_type.is_image_type() and not col.has_window_fn_call())
@@ -220,16 +305,16 @@ class MutableTable(Table):
         update_targets: List[Tuple[Column, exprs.Expr]] = []
         for col_name, val in value_spec.items():
             if not isinstance(col_name, str):
-                raise exc.Error(f'Update specification: dict key must be column name, got {col_name!r}')
+                raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
             if col_name not in self.tbl_version.cols_by_name:
-                raise exc.Error(f'Column {col_name} unknown')
+                raise excs.Error(f'Column {col_name} unknown')
             col = self.tbl_version.cols_by_name[col_name]
             if col.is_computed:
-                raise exc.Error(f'Column {col_name} is computed and cannot be updated')
+                raise excs.Error(f'Column {col_name} is computed and cannot be updated')
             if col.primary_key:
-                raise exc.Error(f'Column {col_name} is a primary key column and cannot be updated')
+                raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
             if col.col_type.is_media_type():
-                raise exc.Error(f'Column {col_name} has type image/video/audio and cannot be updated')
+                raise excs.Error(f'Column {col_name} has type image/video/audio and cannot be updated')
 
             # make sure that the value is compatible with the column type
             # check if this is a literal
@@ -239,9 +324,9 @@ class MutableTable(Table):
                 # it's not a literal, let's try to create an expr from it
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
-                    raise exc.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
+                    raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
                 if not col.col_type.matches(value_expr.col_type):
-                    raise exc.Error((
+                    raise excs.Error((
                         f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
                         f'{col_name} ({col.col_type})'
                     ))
@@ -250,13 +335,13 @@ class MutableTable(Table):
         from pixeltable.plan import Planner
         if where is not None:
             if not isinstance(where, exprs.Predicate):
-                raise exc.Error(f"'where' argument must be a Predicate, got {type(where)}")
+                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
             analysis_info = Planner.analyze(self.tbl_version, where)
             if analysis_info.similarity_clause is not None:
-                raise exc.Error('nearest() cannot be used with update()')
+                raise excs.Error('nearest() cannot be used with update()')
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
-                raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
         return self.tbl_version.update(update_targets, where, cascade)
 

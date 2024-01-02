@@ -24,12 +24,12 @@ class TestView:
     def create_tbl(self, cl: pt.Client) -> catalog.InsertableTable:
         """Create table with computed columns"""
         t = create_test_tbl(cl)
-        t.add_column(catalog.Column('d1', computed_with=t.c3 - 1))
+        t.add_column(d1=t.c3 - 1)
         # add column that can be updated
-        t.add_column(catalog.Column('c10', FloatType()))
+        t.add_column(c10=FloatType(nullable=True))
         t.update({'c10': t.c3})
         # computed column that depends on two columns: exercise duplicate elimination during query construction
-        t.add_column(catalog.Column('d2', computed_with=t.c3 - t.c10))
+        t.add_column(d2=t.c3 - t.c10)
         return t
 
     def test_basic(self, test_client: pt.Client) -> None:
@@ -52,8 +52,8 @@ class TestView:
             v.select(v.v1).order_by(v.v1).collect(),
             t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())
         # computed columns that don't reference the base table
-        v.add_column(catalog.Column('v3', computed_with=v.v1 * 2.0))
-        v.add_column(catalog.Column('v4', computed_with=v.v2[0]))
+        v.add_column(v3=v.v1 * 2.0)
+        v.add_column(v4=v.v2[0])
         assert v.count() == t.where(t.c2 < 10).count()
         _ = v.where(v.c2 > 4).show(0)
 
@@ -334,8 +334,8 @@ class TestView:
             v.select(v.v1).order_by(v.c2).show(0),
             t.select(t.c3 * 2.0).order_by(t.c2).show(0))
         # computed columns that don't reference the base table
-        v.add_column(catalog.Column('v3', computed_with=v.v1 * 2.0))
-        v.add_column(catalog.Column('v4', computed_with=v.v2[0]))
+        v.add_column(v3=v.v1 * 2.0)
+        v.add_column(v4=v.v2[0])
 
         # use view md after reload
         cl = pt.Client()
@@ -419,8 +419,8 @@ class TestView:
             res,
             t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).show(0))
         # computed columns that don't reference the base table
-        v.add_column(catalog.Column('v3', computed_with=v.v1 * 2.0))
-        v.add_column(catalog.Column('v4', computed_with=v.v2[0]))
+        v.add_column(v3=v.v1 * 2.0)
+        v.add_column(v4=v.v2[0])
         assert v.count() == t.where(t.c2 < 10).count()
         _ = v.where(v.c2 > 4).show(0)
 
@@ -465,8 +465,8 @@ class TestView:
                 .where(s.c2 < 10).order_by(s.c2)
         assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
         # add more columns
-        v.add_column(catalog.Column('v3', computed_with=v.v1 * 2.0))
-        v.add_column(catalog.Column('v4', computed_with=v.v2[0]))
+        v.add_column(v3=v.v1 * 2.0)
+        v.add_column(v4=v.v2[0])
         assert_resultset_eq(snapshot_query.show(0), table_snapshot_query.show(0))
 
         # check md after reload

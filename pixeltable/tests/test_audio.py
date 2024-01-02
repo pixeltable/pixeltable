@@ -33,7 +33,7 @@ class TestAudio:
         cl = test_client
         video_t = cl.create_table('videos', {'video': VideoType()})
         from pixeltable.functions.video import extract_audio
-        video_t.add_column(catalog.Column('audio', computed_with=extract_audio(video_t.video)))
+        video_t.add_column(audio=extract_audio(video_t.video))
 
         # one of the 3 videos doesn't have audio
         status = video_t.insert([{'video': p} for p in video_filepaths])

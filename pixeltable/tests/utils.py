@@ -116,7 +116,7 @@ def create_test_tbl(client: pt.Client) -> catalog.MutableTable:
         'c7': JsonType(nullable=False),
     }
     t = client.create_table('test_tbl', schema, primary_key='c2')
-    t.add_column(catalog.Column('c8', computed_with=[[1, 2, 3], [4, 5, 6]]))
+    t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
 
     num_rows = 100
     d1 = {

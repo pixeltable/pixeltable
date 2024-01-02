@@ -63,20 +63,12 @@ class TestTable:
         with pytest.raises(exc.Error):
             _ = cl.list_tables('dir2')
 
-        # 'stored' kwarg only applies to computed image columns
-        with pytest.raises(exc.Error):
-            tbl.add_column(catalog.Column('c5', IntType(), stored=False))
-        with pytest.raises(exc.Error):
-            tbl.add_column(catalog.Column('c5', ImageType(), stored=False))
-        with pytest.raises(exc.Error):
-            tbl.add_column(catalog.Column('c5', computed_with=(tbl.c2 + tbl.c3), stored=False))
-
         # test loading with new client
         cl = pt.Client()
 
         tbl = cl.get_table('test')
         assert isinstance(tbl, catalog.InsertableTable)
-        tbl.add_column(catalog.Column('c5', IntType()))
+        tbl.add_column(c5=IntType())
         tbl.drop_column('c1')
         tbl.rename_column('c2', 'c17')
 
@@ -128,7 +120,7 @@ class TestTable:
 
         with pytest.raises(exc.Error) as exc_info:
             cl.create_table('test', {'c1': {}})
-        assert 'type is required' in str(exc_info.value)
+        assert '"type" is required' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             cl.create_table('test', {'c1': {'xyz': IntType()}})
@@ -136,7 +128,7 @@ class TestTable:
 
         with pytest.raises(exc.Error) as exc_info:
             cl.create_table('test', {'c1': {'stored': True}})
-        assert 'type is required' in str(exc_info.value)
+        assert '"type" is required' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             cl.create_table('test', {'c1': {'type': 'string'}})
@@ -144,7 +136,7 @@ class TestTable:
 
         with pytest.raises(exc.Error) as exc_info:
             cl.create_table('test', {'c1': {'value': 1, 'type': StringType()}})
-        assert 'type is redundant' in str(exc_info.value)
+        assert '"type" is redundant' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             cl.create_table('test', {'c1': {'value': pytest}})
@@ -154,15 +146,15 @@ class TestTable:
             def f() -> float:
                 return 1.0
             cl.create_table('test', {'c1': {'value': f}})
-        assert 'type is required' in str(exc_info.value)
+        assert '"type" is required' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             cl.create_table('test', {'c1': {'type': StringType(), 'stored': 'true'}})
-        assert 'stored must be a bool' in str(exc_info.value)
+        assert '"stored" must be a bool' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             cl.create_table('test', {'c1': {'type': StringType(), 'indexed': 'true'}})
-        assert 'indexed must be a bool' in str(exc_info.value)
+        assert '"indexed" must be a bool' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             cl.create_table('test', {'c1': StringType()}, primary_key='c2')
@@ -254,7 +246,7 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == 0, f'{str(cache_stats)} tbl_id={tbl.id}'
         # add computed column to make sure that external files are cached locally during insert
-        tbl.add_column(catalog.Column('rotated', computed_with=tbl.img.rotate(30), stored=True))
+        tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
         urls = [
             's3://open-images-dataset/validation/3c02ca9ec9b2b77b.jpg',
             's3://open-images-dataset/validation/3c13e0015b6c3bcf.jpg',
@@ -326,11 +318,11 @@ class TestTable:
             {'payload': IntType(nullable=False), 'video': VideoType(nullable=True)})
         args = {'video': tbl.video, 'fps': 0}
         view = cl.create_view('test_view', tbl, iterator_class=FrameIterator, iterator_args=args)
-        view.add_column(catalog.Column('c1', computed_with=view.frame.rotate(30), stored=True))
-        view.add_column(catalog.Column('c2', computed_with=view.c1.rotate(40), stored=False))
-        view.add_column(catalog.Column('c3', computed_with=view.c2.rotate(50), stored=True))
+        view.add_column(c1=view.frame.rotate(30), stored=True)
+        view.add_column(c2=view.c1.rotate(40), stored=False)
+        view.add_column(c3=view.c2.rotate(50), stored=True)
         # a non-materialized column that refers to another non-materialized column
-        view.add_column(catalog.Column('c4', computed_with=view.c2.rotate(60), stored=False))
+        view.add_column(c4=view.c2.rotate(60), stored=False)
 
         class WindowFnAggregator:
             def __init__(self):
@@ -349,7 +341,7 @@ class TestTable:
             value_fn=WindowFnAggregator.value,
             requires_order_by=True, allows_window=True)
         # cols computed with window functions are stored by default
-        view.add_column((catalog.Column('c5', computed_with=window_fn(view.frame_idx, group_by=view.video))))
+        view.add_column(c5=window_fn(view.frame_idx, group_by=view.video))
         assert view.cols_by_name['c5'].is_stored
 
         params = view.parameters
@@ -486,7 +478,7 @@ class TestTable:
             t.revert()
 
         # exchange two columns
-        t.add_column(catalog.Column('float_col', FloatType()))
+        t.add_column(float_col=FloatType(nullable=True))
         t.update({'float_col': 1.0})
         float_col_vals = t.select(t.float_col).collect().to_pandas()['float_col']
         c3_vals = t.select(t.c3).collect().to_pandas()['c3']
@@ -497,9 +489,9 @@ class TestTable:
         t.revert()
 
         # update column that is used in computed cols
-        t.add_column(catalog.Column('computed1', computed_with=t.c3 + 1))
-        t.add_column(catalog.Column('computed2', computed_with=t.computed1 + 1))
-        t.add_column(catalog.Column('computed3', computed_with=t.c3 + 3))
+        t.add_column(computed1=t.c3 + 1)
+        t.add_column(computed2=t.computed1 + 1)
+        t.add_column(computed3=t.c3 + 3)
 
         # cascade=False
         computed1 = t.order_by(t.computed1).show(0).to_pandas()['computed1']
@@ -590,12 +582,12 @@ class TestTable:
 
     def test_cascading_update(self, test_tbl: pt.InsertableTable) -> None:
         t = test_tbl
-        t.add_column(catalog.Column('d1', computed_with=t.c3 - 1))
+        t.add_column(d1=t.c3 - 1)
         # add column that can be updated
-        t.add_column(catalog.Column('c10', FloatType()))
+        t.add_column(c10=FloatType(nullable=True))
         t.update({'c10': t.c3})
         # computed column that depends on two columns: exercise duplicate elimination during query construction
-        t.add_column(catalog.Column('d2', computed_with=t.c3 - t.c10))
+        t.add_column(d2=t.c3 - t.c10)
         r1 = t.where(t.c2 < 5).select(t.c3 + 1.0, t.c10 - 1.0, t.c3, 2.0).order_by(t.c2).show(0)
         t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).show(0)
@@ -648,16 +640,16 @@ class TestTable:
             'c3': JsonType(nullable=False),
         }
         t : pt.InsertableTable = cl.create_table('test', schema)
-        t.add_column(catalog.Column('c4', computed_with=t.c1 + 1))
-        t.add_column(catalog.Column('c5', computed_with=t.c4 + 1))
-        t.add_column(catalog.Column('c6', computed_with=t.c1 / t.c2))
-        t.add_column(catalog.Column('c7', computed_with=t.c6 * t.c2))
-        t.add_column(catalog.Column('c8', computed_with=t.c3.detections['*'].bounding_box))
-        t.add_column(catalog.Column('c9', FloatType(), computed_with=lambda c2: math.sqrt(c2)))
+        t.add_column(c4=t.c1 + 1)
+        t.add_column(c5=t.c4 + 1)
+        t.add_column(c6=t.c1 / t.c2)
+        t.add_column(c7=t.c6 * t.c2)
+        t.add_column(c8=t.c3.detections['*'].bounding_box)
+        t.add_column(c9=lambda c2: math.sqrt(c2), type=FloatType())
 
         # unstored cols that compute window functions aren't currently supported
         with pytest.raises((exc.Error)):
-            t.add_column(catalog.Column('c10', computed_with=ptf.sum(t.c1, group_by=t.c1), stored=False))
+            t.add_column(c10=ptf.sum(t.c1, group_by=t.c1), stored=False)
 
         # Column.dependent_cols are computed correctly
         assert len(t.c1.col.dependent_cols) == 2
@@ -705,7 +697,7 @@ class TestTable:
         schema = {'c2': IntType(nullable=False)}
         rows = list(test_tbl.select(test_tbl.c2).collect())
         t = cl.create_table('test_insert', schema)
-        status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
+        status = t.add_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
         status = t.insert(rows, fail_on_exception=False)
         assert status.num_excs == 10
@@ -717,7 +709,7 @@ class TestTable:
         status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
-        status = t.add_column(catalog.Column('add1', computed_with=self.f2(self.f1(t.c2))))
+        status = t.add_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 10
         assert 'test_add_column.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
@@ -753,14 +745,14 @@ class TestTable:
         cl = test_client
         schema = {'img': ImageType(nullable=False)}
         t = cl.create_table('test', schema)
-        t.add_column(catalog.Column('c2', computed_with=t.img.width))
+        t.add_column(c2=t.img.width)
         # c3 is not stored by default
-        t.add_column(catalog.Column('c3', computed_with=t.img.rotate(90)))
+        t.add_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=False)
 
         t = cl.create_table('test2', schema)
         # c3 is now stored
-        t.add_column(catalog.Column('c3', computed_with=t.img.rotate(90), stored=True))
+        t.add_column(c3=t.img.rotate(90), stored=True)
         self._test_computed_img_cols(t, stores_img_col=True)
         _ = t[t.c3.errortype].show(0)
 
@@ -769,7 +761,7 @@ class TestTable:
         @pt.udf(return_type=ImageType(), param_types=[ImageType()])
         def f(img: PIL.Image.Image) -> PIL.Image.Image:
             raise RuntimeError
-        t.add_column(catalog.Column('c3', computed_with=f(t.img), stored=True))
+        t.add_column(c3=f(t.img), stored=True)
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         t.insert(rows, fail_on_exception=False)
@@ -779,7 +771,7 @@ class TestTable:
         cl = test_client
         t = test_tbl
         # backfill
-        t.add_column(catalog.Column('c9', computed_with=ptf.sum(t.c2, group_by=t.c4, order_by=t.c3)))
+        t.add_column(c9=ptf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
         schema = {
             'c2': IntType(nullable=False),
@@ -787,9 +779,8 @@ class TestTable:
             'c4': BoolType(nullable=False),
         }
         new_t = cl.create_table('insert_test', schema)
-        new_t.add_column(catalog.Column('c5', IntType(), computed_with=lambda c2: c2 * c2))
-        new_t.add_column(catalog.Column(
-            'c6', computed_with=ptf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3)))
+        new_t.add_column(c5=lambda c2: c2 * c2, type=IntType())
+        new_t.add_column(c6=ptf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.show(0)
@@ -859,17 +850,45 @@ class TestTable:
     def test_add_column(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
-        t.add_column(catalog.Column('add1', pt.IntType(nullable=False)))
+        t.add_column(add1=pt.IntType(nullable=True))
         assert len(t.columns()) == num_orig_cols + 1
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.add_column(add2=pt.IntType(nullable=False))
+        assert 'cannot add non-nullable' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.add_column(add2=pt.IntType(nullable=False), add3=pt.StringType())
+        assert 'requires exactly one keyword argument' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.add_column(pos=pt.StringType(nullable=True))
+        assert 'is reserved' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.add_column(add2=pt.IntType(nullable=False), type=pt.StringType())
+        assert '"type" is redundant' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.add_column(add2=[[1.0, 2.0], [3.0, 4.0]], type=pt.StringType())
+        assert '"type" is redundant' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.add_column(add2=pt.IntType(nullable=False), stored=False)
+        assert 'stored=false only applies' in str(exc_info.value).lower()
 
         # duplicate name
         with pytest.raises(exc.Error) as exc_info:
-            t.add_column(catalog.Column('c1', pt.IntType()))
+            _ = t.add_column(c1=pt.IntType())
         assert 'duplicate column name' in str(exc_info.value).lower()
-        # bad name
-        with pytest.raises(exc.Error) as exc_info:
-            t.add_column(catalog.Column('bad name', pt.IntType()))
-        assert 'invalid column name' in str(exc_info.value).lower()
+
+        # 'stored' kwarg only applies to computed image columns
+        with pytest.raises(exc.Error):
+            _ = t.add_column(c5=IntType(), stored=False)
+        with pytest.raises(exc.Error):
+            _ = t.add_column(c5=ImageType(), stored=False)
+        with pytest.raises(exc.Error):
+            _ = t.add_column(c5=(t.c2 + t.c3), stored=False)
 
         # make sure this is still true after reloading the metadata
         cl = pt.Client()
@@ -877,6 +896,58 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols + 1
 
         # revert() works
+        t.revert()
+        assert len(t.columns()) == num_orig_cols
+
+        # make sure this is still true after reloading the metadata once more
+        cl = pt.Client()
+        t = cl.get_table(t.name)
+        assert len(t.columns()) == num_orig_cols
+
+    def test_add_column_setitem(self, test_tbl: catalog.MutableTable) -> None:
+        t = test_tbl
+        num_orig_cols = len(t.columns())
+        t['add1'] = pt.IntType(nullable=True)
+        assert len(t.columns()) == num_orig_cols + 1
+        t['computed1'] = t.c2 + 1
+        assert len(t.columns()) == num_orig_cols + 2
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t['pos'] = pt.StringType()
+        assert 'is reserved' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t[2] = pt.StringType()
+        assert 'must be a string' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t['add 2'] = pt.StringType()
+        assert 'invalid column name' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t['add2'] = {'value': t.c2 + 1, 'type': pt.StringType()}
+        assert '"type" is redundant' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t['add2'] = {'value': pt.IntType()}
+        assert 'value needs to be either' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t['add2'] = {'value': t.c2 + 1, 'stored': False}
+        assert 'stored=false only applies' in str(exc_info.value).lower()
+
+        # duplicate name
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t['c1'] = pt.IntType()
+        assert 'duplicate column name' in str(exc_info.value).lower()
+
+        # make sure this is still true after reloading the metadata
+        cl = pt.Client()
+        t = cl.get_table(t.name)
+        assert len(t.columns()) == num_orig_cols + 2
+
+        # revert() works
+        t.revert()
         t.revert()
         assert len(t.columns()) == num_orig_cols
 
@@ -943,22 +1014,22 @@ class TestTable:
 
     def test_add_computed_column(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
-        status = t.add_column(catalog.Column('add1', computed_with=t.c2 + 10))
+        status = t.add_column(add1=t.c2 + 10)
         assert status.num_excs == 0
         _ = t.show()
 
         # with exception in SQL
         with pytest.raises(exc.Error):
-            t.add_column(catalog.Column('add2', computed_with=(t.c2 - 10) / (t.c3 - 10)))
+            t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
 
         # with exception in Python for c6.f2 == 10
-        status = t.add_column(catalog.Column('add2', computed_with=(t.c6.f2 - 10) / (t.c6.f2 - 10)))
+        status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10))
         assert status.num_excs == 1
         result = t[t.add2.errortype != None][t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg].show()
         assert len(result) == 1
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
-        status = t.add_column(catalog.Column('add3', computed_with=self.f2(self.f1(t.c2))))
+        status = t.add_column(add3=self.f2(self.f1(t.c2)))
         assert status.num_excs == 10
         result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()
         assert len(result) == 10
@@ -966,8 +1037,7 @@ class TestTable:
     def test_describe(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
         fn = lambda c2: np.full((3, 4), c2)
-        t.add_column(
-            catalog.Column('computed1', col_type=ArrayType((3, 4), dtype=IntType()), computed_with=fn))
+        t.add_column(computed1=fn, type=ArrayType((3, 4), dtype=IntType()))
         t.describe()
 
         # TODO: how to you check the output of these?

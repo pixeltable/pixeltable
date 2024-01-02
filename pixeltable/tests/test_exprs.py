@@ -218,7 +218,7 @@ class TestExprs:
             assert 'only valid for' in str(excinfo.value)
 
         # fileurl/localpath doesn't apply to unstored computed img columns
-        img_t.add_column(catalog.Column('c9', computed_with=img_t.img.rotate(30)))
+        img_t.add_column(c9=img_t.img.rotate(30))
         with pytest.raises(exc.Error) as excinfo:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
@@ -229,7 +229,7 @@ class TestExprs:
         t = test_client.create_table('test', schema)
 
         # computed column that doesn't allow nulls
-        t.add_column(pt.Column('c3', FloatType(nullable=False), computed_with=lambda c1, c2: c1 + c2))
+        t.add_column(c3=lambda c1, c2: c1 + c2, type=FloatType(nullable=False))
         # function that does allow nulls
         @pt.udf(return_type=FloatType(nullable=True),
                 param_types=[FloatType(nullable=False), FloatType(nullable=True)])
@@ -237,7 +237,7 @@ class TestExprs:
             if b is None:
                 return a
             return a + b
-        t.add_column(pt.Column('c4', FloatType(), computed_with=f(t.c1, t.c2)))
+        t.add_column(c4=f(t.c1, t.c2))
 
         # data that tests all combinations of nulls
         data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
@@ -350,7 +350,7 @@ class TestExprs:
 
     def test_arrays(self, test_tbl: catalog.MutableTable) -> None:
         t = test_tbl
-        t.add_column(catalog.Column('array_col', computed_with=[[t.c2, 1], [1, t.c2]]))
+        t.add_column(array_col=[[t.c2, 1], [1, t.c2]])
         _ = t[t.array_col].show()
         print(_)
         _ = t[t.array_col[:, 0]].show()
@@ -505,7 +505,7 @@ class TestExprs:
             _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3), sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
 
         # backfill works
-        t.add_column(catalog.Column('c9', computed_with=sum(t.c2, group_by=t.c4, order_by=t.c3)))
+        t.add_column(c9=sum(t.c2, group_by=t.c4, order_by=t.c3))
         _ = t.c9.col.has_window_fn_call()
 
         # ordering conflict between frame extraction and window fn
@@ -524,8 +524,7 @@ class TestExprs:
             'c4': BoolType(nullable=False),
         }
         new_t = cl.create_table('insert_test', schema=schema)
-        new_t.add_column(catalog.Column(
-            'c2_sum', computed_with=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3)))
+        new_t.add_column(c2_sum=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.show(0)

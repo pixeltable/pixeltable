@@ -25,7 +25,7 @@ class TestComponentView:
 
         # cannot add 'pos' column
         with pytest.raises(exc.Error) as excinfo:
-            video_t.add_column(catalog.Column('pos', IntType()))
+            video_t.add_column(pos=IntType())
         assert 'reserved' in str(excinfo.value)
 
         # parameter missing
@@ -50,11 +50,11 @@ class TestComponentView:
         args = {'video': video_t.video, 'fps': 1}
         view_t = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
         # computed column that references an unstored computed column from the view and a column from the base
-        view_t.add_column(catalog.Column('angle2', computed_with=view_t.angle + 1))
+        view_t.add_column(angle2=view_t.angle + 1)
         # computed column that references an unstored and a stored computed view column
-        view_t.add_column(catalog.Column('v1', computed_with=view_t.frame.rotate(view_t.angle2), stored=True))
+        view_t.add_column(v1=view_t.frame.rotate(view_t.angle2), stored=True)
         # computed column that references a stored computed column from the view
-        view_t.add_column(catalog.Column('v2', computed_with=view_t.frame_idx - 1))
+        view_t.add_column(v2=view_t.frame_idx - 1)
 
         # and load data
         rows = [{'video': p, 'angle': 30} for p in video_filepaths]
@@ -83,7 +83,7 @@ class TestComponentView:
         rows = [{'video': p} for p in video_filepaths]
         video_t.insert(rows)
         # adding a non-computed column backfills it with nulls
-        view_t.add_column(catalog.Column('annotation', JsonType(nullable=True)))
+        view_t.add_column(annotation=JsonType(nullable=True))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
         # adding more data via the base table sets the column values to null
         video_t.insert(rows)
@@ -91,7 +91,7 @@ class TestComponentView:
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
         with pytest.raises(exc.Error) as excinfo:
-            view_t.add_column(catalog.Column('annotation', JsonType(nullable=False)))
+            view_t.add_column(annotation=JsonType(nullable=False))
         assert 'must be nullable' in str(excinfo.value)
 
     def test_update(self, test_client: pt.Client) -> None:
@@ -133,43 +133,27 @@ class TestComponentView:
         args = {'video': video_t.video, 'fps': 1}
         v1 = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
         # computed column that references stored base column
-        v1.add_column(catalog.Column('int3', computed_with=v1.int1 + 1))
+        v1.add_column(int3=v1.int1 + 1)
         # stored computed column that references an unstored and a stored computed view column
-        v1.add_column(
-            catalog.Column(
-                'img1',
-                computed_with=v1.frame.crop([v1.int3, v1.int3, v1.frame.width, v1.frame.height]),
-                stored=True))
+        v1.add_column(img1=v1.frame.crop([v1.int3, v1.int3, v1.frame.width, v1.frame.height]), stored=True)
         # computed column that references a stored computed view column
-        v1.add_column(catalog.Column('int4', computed_with=v1.frame_idx + 1))
+        v1.add_column(int4=v1.frame_idx + 1)
         # unstored computed column that references an unstored and a stored computed view column
-        v1.add_column(
-            catalog.Column(
-                'img2',
-                computed_with=v1.frame.crop([v1.int4, v1.int4, v1.frame.width, v1.frame.height]),
-                stored=False))
+        v1.add_column(img2=v1.frame.crop([v1.int4, v1.int4, v1.frame.width, v1.frame.height]), stored=False)
 
         # create second view
         v2 = cl.create_view('chained_view', v1)
         # computed column that references stored video_t column
-        v2.add_column(catalog.Column('int5', computed_with=v2.int1 + 1))
-        v2.add_column(catalog.Column('int6', computed_with=v2.int2 + 1))
+        v2.add_column(int5=v2.int1 + 1)
+        v2.add_column(int6=v2.int2 + 1)
         # stored computed column that references a stored base column and a stored computed view column;
         # indirectly references int1
-        v2.add_column(
-            catalog.Column(
-                'img3',
-                computed_with=v2.img1.crop([v2.int5, v2.int5, v2.img1.width, v2.img1.height]),
-                stored=True))
+        v2.add_column(img3=v2.img1.crop([v2.int5, v2.int5, v2.img1.width, v2.img1.height]), stored=True)
         # stored computed column that references an unstored base column and a manually updated column from video_t;
         # indirectly references int2
-        v2.add_column(
-            catalog.Column(
-                'img4',
-                computed_with=v2.img2.crop([v2.int6, v2.int6, v2.img2.width, v2.img2.height]),
-                stored=True))
+        v2.add_column(img4=v2.img2.crop([v2.int6, v2.int6, v2.img2.width, v2.img2.height]), stored=True)
         # comuted column that indirectly references int1 and int2
-        v2.add_column(catalog.Column('int7', computed_with=v2.img3.width + v2.img4.width))
+        v2.add_column(int7=v2.img3.width + v2.img4.width)
 
         def check_view():
             assert_resultset_eq(

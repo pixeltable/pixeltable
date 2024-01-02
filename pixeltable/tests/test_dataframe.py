@@ -357,7 +357,7 @@ class TestDataFrame:
         args = {'video': base_t.video, 'fps': 1}
         view_t = cl.create_view('frames', base_t, iterator_class=FrameIterator, iterator_args=args)
         from pixeltable.functions.nos.object_detection_2d import yolox_medium
-        view_t.add_column(catalog.Column('detections', computed_with=yolox_medium(view_t.frame)))
+        view_t.add_column(detections=yolox_medium(view_t.frame))
         base_t.insert([{'video': get_video_files()[0]}])
 
         @pt.udf(return_type=pt.JsonType(nullable=False), param_types=[pt.JsonType(nullable=False)])

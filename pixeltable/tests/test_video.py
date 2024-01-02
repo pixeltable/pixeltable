@@ -27,7 +27,7 @@ class TestVideo:
     ) -> Tuple[catalog.InsertableTable, catalog.MutableTable]:
         base_t, view_t = self.create_tbls(cl)
 
-        view_t.add_column(catalog.Column('transform', computed_with=view_t.frame.rotate(90), stored=stored))
+        view_t.add_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert([{'video': p} for p in paths])
         total_num_rows = view_t.count()
         result = view_t[view_t.frame_idx >= 5][view_t.frame_idx, view_t.frame, view_t.transform].show(0)
@@ -71,10 +71,10 @@ class TestVideo:
         cl = test_client
         base_t, view_t = self.create_tbls(cl)
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
-        view_t.add_column(catalog.Column('c1', computed_with=view_t.frame.resize([224, 224])))
-        view_t.add_column(catalog.Column('c2', computed_with=view_t.c1.rotate(10)))
-        view_t.add_column(catalog.Column('c3', computed_with=view_t.c2.rotate(20)))
-        view_t.add_column(catalog.Column('c4', computed_with=view_t.c1.rotate(30)))
+        view_t.add_column(c1=view_t.frame.resize([224, 224]))
+        view_t.add_column(c2=view_t.c1.rotate(10))
+        view_t.add_column(c3=view_t.c2.rotate(20))
+        view_t.add_column(c4=view_t.c1.rotate(30))
         for name in ['c1', 'c2', 'c3', 'c4']:
             assert not view_t.cols_by_name[name].is_stored
         base_t.insert([{'video': p} for p in video_filepaths])
@@ -88,7 +88,7 @@ class TestVideo:
         # reference to the frame col requires ordering by base, pos
         _ = view_t.select(pt.make_video(view_t.pos, view_t.frame)).group_by(base_t).show()
         # the same without frame col
-        view_t.add_column(catalog.Column('transformed', computed_with=view_t.frame.rotate(30), stored=True))
+        view_t.add_column(transformed=view_t.frame.rotate(30), stored=True)
         _ = view_t.select(pt.make_video(view_t.pos, view_t.transformed)).group_by(base_t).show()
 
         with pytest.raises(exc.Error):
@@ -123,15 +123,13 @@ class TestVideo:
         # make sure it works
         _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
         cl.create_function('agg_fn', agg_fn)
-        view_t.add_column(
-            catalog.Column('agg', computed_with=agg_fn(view_t.pos, view_t.frame, group_by=base_t)))
+        view_t.add_column(agg=agg_fn(view_t.pos, view_t.frame, group_by=base_t))
         assert view_t.cols_by_name['agg'].is_stored
         _ = view_t.select(pt.make_video(view_t.pos, view_t.agg)).group_by(base_t).show()
 
         # image cols computed with a window function currently need to be stored
         with pytest.raises(exc.Error):
-            view_t.add_column(
-                catalog.Column('agg2', computed_with=agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False))
+            view_t.add_column(agg2=agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store
         cl = pt.Client()

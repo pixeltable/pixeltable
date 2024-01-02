@@ -256,6 +256,11 @@ class TableVersion:
             col.check_value_expr()
             self._record_value_expr(col)
 
+        from pixeltable.dataframe import DataFrame
+        row_count = DataFrame(self).count()
+        if row_count > 0 and not col.col_type.nullable and not col.is_computed:
+            raise exc.Error(f'Cannot add non-nullable column "{col.name}" to table {self.name} with existing rows')
+
         # we're creating a new schema version
         ts = time.time()
         self.version += 1
@@ -273,8 +278,6 @@ class TableVersion:
             if col.is_stored:
                 self.store_tbl.add_column(col, conn)
 
-        from pixeltable.dataframe import DataFrame
-        row_count = DataFrame(self).count()
         if row_count == 0:
             return UpdateStatus()
         if (not col.is_computed or not col.is_stored) and not col.is_indexed:

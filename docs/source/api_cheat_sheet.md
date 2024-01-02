@@ -79,7 +79,7 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 | Print table schema | `t.describe()`                                                                                   |
 | Query a table | `t.select(<column selections>).where(<filter expression>).show()`                                |
 | Insert rows into a table| `t.insert([{'<column name>: <column value>, ...}, {'<column name>': <column value>, ...}, ...])` |
-| Add a column| `t.add_column(pxt.Column(...))`                                                                  |
+| Add a column| `t.add_column(new_col_name=pxt.IntType())`                                                       |
 | Rename a column| `t.rename_column('col_name', 'new_col_name')`                                                    |
 | Drop a column| `t.drop_column('col_name')`                                                                      |
 | Undo the last update operation (add/rename/drop column or insert)| `t.revert()`                                                                                     |
@@ -116,7 +116,7 @@ or `~(t.frame.mode == 'RGB')`.
 
 The values in a computed column are automatically filled when data is added:
 ```python
-t.add_column(pxt.Column('c_added', computed_with=t.frame.rotate(30)))
+t.add_column(c_added=t.frame.rotate(30))
 ```
 
 Computed columns have attributes `errortype` and `errormsg`, which contain the exception type and string
@@ -161,7 +161,7 @@ def add1(x):
 
 For querying: `t.select(t.frame_idx, add1(t.frame_idx)).show()`
 
-As a computed column: `t.add_column(pxt.Column('c', computed_with=add1(t.frame_idx)))`
+As a computed column: `t.add_column(c=add1(t.frame_idx))`
 
 ## Image similarity search
 
