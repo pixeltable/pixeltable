@@ -14,7 +14,7 @@
         <link rel="prev" href="..">
       
       
-        <link rel="next" href="../tutorials/Pixeltable%20Overview/">
+        <link rel="next" href="../tutorials/pixeltable_basics/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -398,15 +398,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#image-similarity-search" class="md-nav__link">
-    <span class="md-ellipsis">
-      Image similarity search
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -459,11 +450,11 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/Pixeltable%20Overview/" class="md-nav__link">
+      <a href="../tutorials/pixeltable_basics/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
-    10-Minute Overview
+    Pixeltable Basics
   </span>
   
 
@@ -480,7 +471,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/Comparing%20Object%20Detection%20Models%20for%20Video/" class="md-nav__link">
+      <a href="../tutorials/comparing_object_detection_models_for_video/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -501,7 +492,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/Object%20Detection%20in%20Videos/" class="md-nav__link">
+      <a href="../tutorials/object_detection_in_videos/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -652,11 +643,32 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/table/" class="md-nav__link">
+      <a href="../api/data_frame/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
-    Table
+    DataFrame
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/insertable_table/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    InsertableTable
   </span>
   
 
@@ -694,11 +706,11 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/insertable_table/" class="md-nav__link">
+      <a href="../api/table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
-    InsertableTable
+    Table
   </span>
   
 
@@ -892,15 +904,6 @@
   <a href="#functions_1" class="md-nav__link">
     <span class="md-ellipsis">
       Functions
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#image-similarity-search" class="md-nav__link">
-    <span class="md-ellipsis">
-      Image similarity search
     </span>
   </a>
   
@@ -1125,27 +1128,27 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 </tr>
 <tr>
 <td>Query a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(<column selections>).where(<filter expression>).show()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(t.col2, t.col3 + 5).where(t.col1 == 'green').show()</td>
 </tr>
 <tr>
 <td>Insert rows into a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable_table/#pixeltable.InsertableTable.insert">insert</a>([{'<column name>: <column value>, ...}, {'<column name>': <column value>, ...}, ...])</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/insertable_table/#pixeltable.InsertableTable.insert">insert</a>([{'col1': 'green', ...}, {'col1': 'red', ...}, ...])</td>
 </tr>
 <tr>
 <td>Add a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable_table/#pixeltable.InsertableTable.add_column">add_column</a>(new_col_name=pxt.IntType())</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/mutable_table/#pixeltable.MutableTable.add_column">add_column</a>(new_col_name=pxt.IntType())</td>
 </tr>
 <tr>
 <td>Rename a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable_table/#pixeltable.InsertableTable.rename_column">rename_column</a>('col_name', 'new_col_name')</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/mutable_table/#pixeltable.MutableTable.rename_column">rename_column</a>('col_name', 'new_col_name')</td>
 </tr>
 <tr>
 <td>Drop a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable_table/#pixeltable.InsertableTable.drop_column">drop_column</a>('col_name')</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/mutable_table/#pixeltable.MutableTable.drop_column">drop_column</a>('col_name')</td>
 </tr>
 <tr>
 <td>Undo the last update operation (add/rename/drop column or insert)</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable_table/#pixeltable.InsertableTable.revert">revert</a>()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/mutable_table/#pixeltable.MutableTable.revert">revert</a>()</td>
 </tr>
 </tbody>
 </table>
@@ -1160,35 +1163,35 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 <tbody>
 <tr>
 <td>Look at 10 rows</td>
-<td><code>t.show(10)</code></td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.show">show</a>(10)</td>
 </tr>
 <tr>
 <td>Look at the oldest 10 rows</td>
-<td><code>t.head(n=10)</code></td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.head">head</a>(n=10)</td>
 </tr>
 <tr>
 <td>Look at the most recently added 10 rows</td>
-<td><code>t.tail(n=10)</code></td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.tail">tail</a>(n=10)</td>
 </tr>
 <tr>
 <td>Look at all rows</td>
-<td><code>t.collect()</code></td>
+<td>t.collect()</td>
 </tr>
 <tr>
 <td>Iterate over all rows as dictionaries</td>
-<td><code>for row in t.collect(): ...</code></td>
+<td>for row in t.collect(): ...</td>
 </tr>
 <tr>
 <td>Look at row for frame 15</td>
-<td><code>t.where(t.pos  == 15).show()</code></td>
+<td>t.[where][pixeltable.Table.where}(t.pos  == 15).show()</td>
 </tr>
 <tr>
 <td>Look at rows before index 15</td>
-<td><code>t.where(t.pos &lt; 15).show(0)</code></td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.where">where</a>(t.pos &lt; 15).show(0)</td>
 </tr>
 <tr>
 <td>Look at rows before index 15 with RGB frames</td>
-<td><code>t.where((t.pos &lt; 15) &amp; (t.frame.mode == 'RGB')).show(0)</code></td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.where">where</a>((t.pos &lt; 15) &amp; (t.frame.mode == 'RGB')).collect()</td>
 </tr>
 </tbody>
 </table>
@@ -1208,15 +1211,15 @@ or <code>~(t.frame.mode == 'RGB')</code>.</p>
 <tbody>
 <tr>
 <td>Only retrieve the frame index and frame</td>
-<td><code>t.select(t.frame_idx, t.frame).show()</code></td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(t.frame_idx, t.frame).collect()</td>
 </tr>
 <tr>
 <td>Look at frames rotated 90 degrees</td>
-<td><code>t.select(t.frame.rotate(90)).show()</code></td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(t.frame.rotate(90)).collect()</td>
 </tr>
 <tr>
 <td>Overlay frame with itself rotated 90 degrees</td>
-<td><code>t.select(pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).show()</code></td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).collect()</td>
 </tr>
 </tbody>
 </table>
@@ -1224,17 +1227,21 @@ or <code>~(t.frame.mode == 'RGB')</code>.</p>
 <p>The values in a computed column are automatically filled when data is added:</p>
 <pre><code class="language-python">t.add_column(c_added=t.frame.rotate(30))
 </code></pre>
-<p>Computed columns have attributes <code>errortype</code> and <code>errormsg</code>, which contain the exception type and string
-in rows where the <code>computed_with</code> expression results in an exception (the column value itself will be <code>None</code>).</p>
+<p>Alternatively:</p>
+<pre><code class="language-python">t['c_added'] = t.frame.rotate(30)
+</code></pre>
+<p>Computed columns and media columns (video, image, audio) have attributes <code>errortype</code> and <code>errormsg</code>,
+which contain the exception type and string
+in rows where the computation expression or media type validation results in an exception
+(the column value itself will be <code>None</code>).</p>
 <p>Example:</p>
 <pre><code class="language-python">t.where(t.c_added.errortype != None).select(t.c_added.errortype, t.c_added.errormsg).show()
 </code></pre>
 <p>returns the exception type and message for rows with an exception.</p>
 <h2 id="inserting-data-into-a-table">Inserting data into a table</h2>
-<pre><code class="language-python">t.insert([['/path/to/video1.mp4'], ['/path/to/video2.mp4']], columns=['video'])
+<pre><code class="language-python">t.insert([{'video': '/path/to/video1.mp4'}, {'video': '/path/to/video2.mp4'}])
 </code></pre>
-<p>Each row is a list of column values (do not provide values for computed columns). The
-<code>columns</code> argument contains the names of columns for which values are being provided.</p>
+<p>Each row is a dictionary mapping column names to column values (do not provide values for computed columns).</p>
 <h2 id="attributes-and-methods-on-image-data">Attributes and methods on image data</h2>
 <p>Images are currently represented as <code>PIL.Image.Image</code> instances in memory and support a lot of the
 attributes and methods documented
@@ -1252,14 +1259,22 @@ def add1(x):
 </code></pre>
 <p>For querying: <code>t.select(t.frame_idx, add1(t.frame_idx)).show()</code></p>
 <p>As a computed column: <code>t.add_column(c=add1(t.frame_idx))</code></p>
-<h2 id="image-similarity-search">Image similarity search</h2>
-<p>In order to enable similarity on specific image columns, create those columns with <code>indexed=True</code>.
-This will compute an embedding for every image and store it in a vector index.</p>
+<!---
+## Image similarity search
+
+In order to enable similarity on specific image columns, create those columns with `indexed=True`.
+This will compute an embedding for every image and store it in a vector index.
+
 <pre><code class="language-python">c3 = pxt.Column('frame', pxt.ImageType(), indexed=True)
 </code></pre>
-<p>Assuming <code>img = PIL.Image.open(...)</code></p>
-<p>Similarity search: <code>t.where(t.frame.nearest(img)).show(10)</code></p>
-<p>Keyword search: <code>t.where(t.frame.matches('car')).show(10)</code></p>
+
+
+Assuming `img = PIL.Image.open(...)`
+
+Similarity search: `t.where(t.frame.nearest(img)).show(10)`
+
+Keyword search: `t.where(t.frame.matches('car')).show(10)`
+-->
 
 
 

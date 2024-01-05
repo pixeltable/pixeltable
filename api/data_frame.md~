@@ -1,0 +1,29 @@
+# DataFrame
+
+`DataFrame` represents a query against a specific table. Unlike computation container frameworks like pandas or Dask,
+Pixeltable dataframes do not hold data or allow you to update data (use [InsertableTable.insert][pixeltable.InsertableTable.insert]/[MutableTable.update][pixeltable.MutableTable.update]/[InsertableTable.delete][pixeltable.InsertableTable.delete] for that purpose).
+
+## Overview
+| Query Construction| |
+|------------|-----------------------------------------------------|
+| [`select`][pixeltable.DataFrame.select] | Adds a column to the table |
+| [`where`][pixeltable.DataFrame.where] | Adds a column to the table |
+| [`group_by`][pixeltable.DataFrame.group_by] | Adds a column to the table |
+| [`order_by`][pixeltable.DataFrame.order_by] | Adds a column to the table |
+| [`limit`][pixeltable.DataFrame.limit] | Adds a column to the table |
+
+| Query Execution| |
+|------------|-----------------------------------------------------|
+| [`collect`][pixeltable.DataFrame.collect] | Adds a column to the table |
+| [`show`][pixeltable.DataFrame.show] | Adds a column to the table |
+| [`head`][pixeltable.DataFrame.head] | Adds a column to the table |
+| [`tail`][pixeltable.DataFrame.tail] | Adds a column to the table |
+
+## ::: pixeltable.DataFrame
+    options:
+      members:
+      - select
+      - where
+      - groupby
+      - update
+      - revert

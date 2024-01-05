@@ -78,8 +78,8 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 |Action| Code                                                                                             |
 |----|--------------------------------------------------------------------------------------------------|
 | Print table schema | t.[describe][pixeltable.Table.describe]()                                                                                   |
-| Query a table | t.[select][pixeltable.Table.select](<column selections>).where(<filter expression>).show()                                |
-| Insert rows into a table| t.[insert][pixeltable.InsertableTable.insert]([{'<column name>: <column value>, ...}, {'<column name>': <column value>, ...}, ...]) |
+| Query a table | t.[select][pixeltable.Table.select](t.col2, t.col3 + 5).where(t.col1 == 'green').show()                                |
+| Insert rows into a table| t.[insert][pixeltable.InsertableTable.insert]([{'col1': 'green', ...}, {'col1': 'red', ...}, ...]) |
 | Add a column| t.[add_column][pixeltable.MutableTable.add_column](new_col_name=pxt.IntType())                                                       |
 | Rename a column| t.[rename_column][pixeltable.MutableTable.rename_column]('col_name', 'new_col_name')                                                    |
 | Drop a column| t.[drop_column][pixeltable.MutableTable.drop_column]('col_name')                                                                      |
@@ -89,14 +89,14 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 
 | Action                                       | Code                                                      |
 |----------------------------------------------|-----------------------------------------------------------|
-| Look at 10 rows                              | `t.show(10)`                                              |
-| Look at the oldest 10 rows                   | `t.head(n=10)`                                            |
-| Look at the most recently added 10 rows      | `t.tail(n=10)`                                            |
-| Look at all rows                             | `t.collect()`                                             |
-| Iterate over all rows as dictionaries        | `for row in t.collect(): ...`                             |
-| Look at row for frame 15                     | `t.where(t.pos  == 15).show()`                            |
-| Look at rows before index 15                 | `t.where(t.pos < 15).show(0)`                             |
-| Look at rows before index 15 with RGB frames | `t.where((t.pos < 15) & (t.frame.mode == 'RGB')).show(0)` |
+| Look at 10 rows                              | t.[show][pixeltable.Table.show](10)                                              |
+| Look at the oldest 10 rows                   | t.[head][pixeltable.Table.head](n=10)                                            |
+| Look at the most recently added 10 rows      | t.[tail][pixeltable.Table.tail](n=10)                                            |
+| Look at all rows                             | t.collect()                                             |
+| Iterate over all rows as dictionaries        | for row in t.collect(): ...                             |
+| Look at row for frame 15                     | t.[where][pixeltable.Table.where}(t.pos  == 15).show()                            |
+| Look at rows before index 15                 | t.[where][pixeltable.Table.where](t.pos < 15).show(0)                             |
+| Look at rows before index 15 with RGB frames | t.[where][pixeltable.Table.where]((t.pos < 15) & (t.frame.mode == 'RGB')).collect() |
 
 Pixeltable supports the standard comparison operators (`>=`, `>`, `==`, `<=`, `<`).
 `== None` is the equivalent of `isna()/isnull()` in Pandas.
@@ -109,9 +109,9 @@ or `~(t.frame.mode == 'RGB')`.
 
 |Action|Code|
 |----|----|
-| Only retrieve the frame index and frame | `t.select(t.frame_idx, t.frame).show()` |
-| Look at frames rotated 90 degrees | `t.select(t.frame.rotate(90)).show()` |
-| Overlay frame with itself rotated 90 degrees | `t.select(pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).show()` |
+| Only retrieve the frame index and frame | t.[select][pixeltable.Table.select](t.frame_idx, t.frame).collect() |
+| Look at frames rotated 90 degrees | t.[select][pixeltable.Table.select](t.frame.rotate(90)).collect() |
+| Overlay frame with itself rotated 90 degrees | t.[select][pixeltable.Table.select](pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).collect() |
 
 ## Computed columns
 
@@ -119,9 +119,15 @@ The values in a computed column are automatically filled when data is added:
 ```python
 t.add_column(c_added=t.frame.rotate(30))
 ```
+Alternatively:
+```python
+t['c_added'] = t.frame.rotate(30)
+```
 
-Computed columns have attributes `errortype` and `errormsg`, which contain the exception type and string
-in rows where the `computed_with` expression results in an exception (the column value itself will be `None`).
+Computed columns and media columns (video, image, audio) have attributes `errortype` and `errormsg`,
+which contain the exception type and string
+in rows where the computation expression or media type validation results in an exception
+(the column value itself will be `None`).
 
 Example:
 ```python
@@ -131,10 +137,9 @@ returns the exception type and message for rows with an exception.
 
 ## Inserting data into a table
 ```python
-t.insert([['/path/to/video1.mp4'], ['/path/to/video2.mp4']], columns=['video'])
+t.insert([{'video': '/path/to/video1.mp4'}, {'video': '/path/to/video2.mp4'}])
 ```
-Each row is a list of column values (do not provide values for computed columns). The
-`columns` argument contains the names of columns for which values are being provided.
+Each row is a dictionary mapping column names to column values (do not provide values for computed columns).
 
 ## Attributes and methods on image data
 
@@ -164,6 +169,7 @@ For querying: `t.select(t.frame_idx, add1(t.frame_idx)).show()`
 
 As a computed column: `t.add_column(c=add1(t.frame_idx))`
 
+<!---
 ## Image similarity search
 
 In order to enable similarity on specific image columns, create those columns with `indexed=True`.
@@ -177,4 +183,4 @@ Assuming `img = PIL.Image.open(...)`
 Similarity search: `t.where(t.frame.nearest(img)).show(10)`
 
 Keyword search: `t.where(t.frame.matches('car')).show(10)`
-
+-->

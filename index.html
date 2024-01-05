@@ -64,7 +64,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#pixeltable-a-table-interface-for-image-and-video-data" class="md-skip">
+        <a href="#pixeltable-a-table-interface-for-ml-data" class="md-skip">
           Skip to content
         </a>
       
@@ -352,11 +352,11 @@
   
   
     <li class="md-nav__item">
-      <a href="tutorials/Pixeltable%20Overview/" class="md-nav__link">
+      <a href="tutorials/pixeltable_basics/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
-    10-Minute Overview
+    Pixeltable Basics
   </span>
   
 
@@ -373,7 +373,7 @@
   
   
     <li class="md-nav__item">
-      <a href="tutorials/Comparing%20Object%20Detection%20Models%20for%20Video/" class="md-nav__link">
+      <a href="tutorials/comparing_object_detection_models_for_video/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -394,7 +394,7 @@
   
   
     <li class="md-nav__item">
-      <a href="tutorials/Object%20Detection%20in%20Videos/" class="md-nav__link">
+      <a href="tutorials/object_detection_in_videos/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -545,11 +545,32 @@
   
   
     <li class="md-nav__item">
-      <a href="api/table/" class="md-nav__link">
+      <a href="api/data_frame/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
-    Table
+    DataFrame
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="api/insertable_table/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    InsertableTable
   </span>
   
 
@@ -587,11 +608,11 @@
   
   
     <li class="md-nav__item">
-      <a href="api/insertable_table/" class="md-nav__link">
+      <a href="api/table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
-    InsertableTable
+    Table
   </span>
   
 
@@ -715,8 +736,8 @@
   
 
 
-<h1 id="pixeltable-a-table-interface-for-image-and-video-data">Pixeltable: A Table Interface for Image and Video Data</h1>
-<p>Pixeltable is a Python library that lets computer vision engineers focus on experiments and models
+<h1 id="pixeltable-a-table-interface-for-ml-data">Pixeltable: A Table Interface for ML Data</h1>
+<p>Pixeltable is a Python library that lets ML engineers and data scientists focus on experiments and models
 without having to deal with the customary data plumbing.</p>
 <ul>
 <li>Interact with video data at the frame level without having to think about frame extraction,
@@ -724,9 +745,9 @@ intermediate file storage, or storage space explosion.</li>
 <li>Augment your data incrementally and interactively with built-in and user-defined functions such as
 image transformations, model inference, visualizations, etc., without having to think about data pipelines,
 incremental updates, capturing function output, etc.</li>
-<li>Interact with all the data relevant to your CV project (video, images, structured data, JSON) through
+<li>Interact with all the data relevant to your ML project (video, images, documents, audio, structured data, JSON) through
 a simple dataframe-style API directly in Python. This includes:<ul>
-<li>similarity search on images, supported by high-dimensional vector indexing</li>
+<li>similarity search on embeddings, supported by high-dimensional vector indexing</li>
 <li>path expressions and transformations on JSON data</li>
 <li>PIL and OpenCV image operations</li>
 <li>assembling frames into videos</li>
@@ -734,7 +755,7 @@ a simple dataframe-style API directly in Python. This includes:<ul>
 </li>
 <li>Perform keyword and image similarity search at the video frame level without having to worry about frame
 storage.</li>
-<li>Access all Pixeltable-resident data directly as a PyTorch or TensorFlow dataset in your training scripts.</li>
+<li>Access all Pixeltable-resident data directly as a PyTorch dataset in your training scripts.</li>
 <li>Understand the compute and storage costs of your data at the granularity of individual augmentations and
 get cost projections <strong>before</strong> adding new data and new augmentations.</li>
 <li>Rely on Pixeltable's automatic versioning and snapshot functionality to protect against regressions
@@ -751,10 +772,10 @@ and to ensure reproducibility.</li>
 </li>
 </ol>
 <h2 id="first-steps">First Steps</h2>
-<p><a href="https://pixeltable.readthedocs.io/en/latest/tutorials/Pixeltable%20Overview.html">This tutorial</a>
+<p><a href="https://mkornacker.github.io/pixeltable/tutorials/pixeltable_basics/">This tutorial</a>
 gives you a 10-minute overview of Pixeltable.</p>
 <p>If you are interested in working with video and how to interact with videos at the frame level through Pixeltable,
-take a look at <a href="https://pixeltable.readthedocs.io/en/latest/tutorials/Object%20Detection%20in%20Videos.html">this tutorial</a>.</p>
+take a look at <a href="https://mkornacker.github.io/pixeltable/tutorials/comparing_object_detection_models_for_video/">this tutorial</a>.</p>
 
 
 

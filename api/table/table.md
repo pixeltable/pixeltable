@@ -12,5 +12,7 @@ without having to construct [`DataFrame`][pixeltable.DataFrame] instances explic
       - select
       - where
       - show
+      - head
+      - tail
       - count
       - describe
