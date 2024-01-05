@@ -52,10 +52,11 @@ pycocotools = "^2.0.7"
 optional = true
 
 [tool.poetry.group.docs.dependencies]
-sphinx = ">=5.2,<7"
-sphinx-book-theme = "^1.0.1"
-myst-nb = "^0.17.2"
-myst-parser = ">=0.18,<0.19"
+mkdocs = "^1.5.3"
+mkdocstrings = {extras = ["python"], version = "^0.24.0"}
+mkdocs-material = "^9.5.3"
+mkdocs-jupyter = "^0.24.6"
+black = "^23.12.1"
 
 [tool.poetry.extras]
 s3 = ["boto3"]

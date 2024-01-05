@@ -806,7 +806,7 @@ class ImageType(ColumnType):
         try:
             _ = PIL.Image.open(val)
         except PIL.UnidentifiedImageError:
-            raise exc.Error(f'Not a valid image: {val}')
+            raise exc.Error(f'Not a valid image: {val}') from None
 
 class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -841,7 +841,7 @@ class VideoType(ColumnType):
                     if num_to_decode == 0:
                         break
         except av.AVError:
-            raise exc.Error(f'Not a valid video: {val}')
+            raise exc.Error(f'Not a valid video: {val}') from None
 
 class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -874,4 +874,4 @@ class AudioType(ColumnType):
                     for _ in packet.decode():
                         pass
         except av.AVError as e:
-            raise exc.Error(f'Not a valid audio file: {val}\n{e}')
+            raise exc.Error(f'Not a valid audio file: {val}\n{e}') from None

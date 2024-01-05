@@ -96,7 +96,7 @@ class CachePrefetchNode(ExecNode):
                 exc = excs.Error(f'Failed to download {url}: {e}')
                 self.row_builder.set_exc(row, slot_idx, exc)
                 if not self.ctx.ignore_errors:
-                    raise exc
+                    raise exc from None  # suppress original exception
                 return None
         assert False, f'Unsupported URL scheme: {parsed.scheme}'
 

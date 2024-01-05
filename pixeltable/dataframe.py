@@ -588,9 +588,10 @@ class DataFrame:
                     'np' means image columns return as an RGB uint8 array of shape HxWxC.
                     'pt' means image columns return as a CxHxW tensor with values in [0,1] and type torch.float32.
                         (the format output by torchvision.transforms.ToTensor())
+
         Returns:
-            A pytorch IterableDataset: Columns become fields of the dataset,
-            where rows are returned as a dictionary compatible with torch.utils.data.DataLoader default collation.
+            A pytorch IterableDataset: Columns become fields of the dataset, where rows are returned as a dictionary
+                compatible with torch.utils.data.DataLoader default collation.
 
         Constraints:
             The default collate_fn for torch.data.util.DataLoader cannot represent null values as part of a

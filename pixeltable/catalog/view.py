@@ -22,7 +22,7 @@ from pixeltable.type_system import InvalidType, IntType
 _logger = logging.getLogger('pixeltable')
 
 class View(MutableTable):
-    """A :py:class:`MutableTable` that presents a virtual view of another table (or view).
+    """A `MutableTable` that presents a virtual view of another table (or view).
     """
     def __init__(self, dir_id: UUID, tbl_version: TableVersion):
         super().__init__(tbl_version.id, dir_id, tbl_version)

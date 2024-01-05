@@ -269,7 +269,9 @@ class MutableTable(Table):
         Raises:
             Error: If the column does not exist or if it is referenced by a computed column.
 
-        Example:
+        Examples:
+            Drop column ``factorial``:
+
             >>> tbl.drop_column('factorial')
         """
         self._check_is_dropped()
@@ -285,7 +287,7 @@ class MutableTable(Table):
         Raises:
             Error: If the column does not exist or if the new name is invalid or already exists.
 
-        Example:
+        Examples:
             >>> tbl.rename_column('factorial', 'fac')
         """
         self._check_is_dropped()

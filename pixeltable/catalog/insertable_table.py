@@ -17,7 +17,7 @@ import pixeltable.type_system as ts
 _logger = logging.getLogger('pixeltable')
 
 class InsertableTable(MutableTable):
-    """A :py:class:`MutableTable` that allows inserting and deleting rows.
+    """A `MutableTable` that allows inserting and deleting rows.
     """
     def __init__(self, dir_id: UUID, tbl_version: TableVersion):
         super().__init__(tbl_version.id, dir_id, tbl_version)
@@ -65,6 +65,7 @@ class InsertableTable(MutableTable):
                 If ``False``, store error information (accessible as column properties 'errortype' and 'errormsg')
                 for those cases, but continue inserting rows.
                 If ``True``, raise an exception that aborts the insert.
+
         Returns:
             execution status
 
@@ -129,6 +130,7 @@ class InsertableTable(MutableTable):
 
     def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> MutableTable.UpdateStatus:
         """Delete rows in this table.
+
         Args:
             where: a Predicate to filter rows to delete.
         """
