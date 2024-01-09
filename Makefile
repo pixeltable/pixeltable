@@ -44,7 +44,7 @@ typecheck: install
 	@echo "Running type checks..."
 	@poetry run mypy --config-file mypy.ini --package pixeltable
 
-# NB does not remove the poetry.lock
+# does not remove the poetry.lock
 .PHONY: clean
 clean:
 	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
