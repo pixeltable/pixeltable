@@ -66,6 +66,20 @@ class TestVideo:
         base_t.insert([{'video': p} for p in video_filepaths])
         res = view_t.where(view_t.video == video_filepaths[0]).show(0)
 
+    def test_fps(self, test_client: pt.client) -> None:
+        cl = test_client
+        path = get_video_files()[0]
+        videos = cl.create_table('videos', {'video': VideoType()})
+        frames_1_0 = cl.create_view(
+            'frames_1_0', videos, iterator_class=FrameIterator, iterator_args={'video': videos.video, 'fps': 1})
+        frames_0_5 = cl.create_view(
+            'frames_0_5', videos, iterator_class=FrameIterator, iterator_args={'video': videos.video, 'fps': 1/2})
+        frames_0_33 = cl.create_view(
+            'frames_0_33', videos, iterator_class=FrameIterator, iterator_args={'video': videos.video, 'fps': 1/3})
+        videos.insert([{'video': path}])
+        assert frames_0_5.count() == frames_1_0.count() // 2 or frames_0_5.count() == frames_1_0.count() // 2 + 1
+        assert frames_0_33.count() == frames_1_0.count() // 3 or frames_0_33.count() == frames_1_0.count() // 3 + 1
+
     def test_computed_cols(self, test_client: pt.client) -> None:
         video_filepaths = get_video_files()
         cl = test_client

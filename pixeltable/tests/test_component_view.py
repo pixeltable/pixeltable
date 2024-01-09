@@ -38,7 +38,7 @@ class TestComponentView:
         with pytest.raises(exc.Error) as excinfo:
             args = {'video': video_t.video, 'fps': '1'}
             _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
-        assert 'expected int' in str(excinfo.value)
+        assert 'expected float' in str(excinfo.value)
 
         # bad parameter type
         with pytest.raises(exc.Error) as excinfo:

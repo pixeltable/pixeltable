@@ -8,14 +8,14 @@ import PIL.Image
 
 from .base import ComponentIterator
 
-from pixeltable.type_system import ColumnType, VideoType, StringType, ImageType, IntType, FloatType
+from pixeltable.type_system import ColumnType, VideoType, ImageType, IntType, FloatType
 from pixeltable.exceptions import Error
 
 
 _logger = logging.getLogger('pixeltable')
 
 class FrameIterator(ComponentIterator):
-    def __init__(self, video: str, fps: int = 0):
+    def __init__(self, video: str, fps: float = 0.0):
         video_path = Path(video)
         assert video_path.exists() and video_path.is_file()
         self.video_path = video_path
@@ -40,7 +40,7 @@ class FrameIterator(ComponentIterator):
     def input_schema(cls) -> Dict[str, ColumnType]:
         return {
             'video': VideoType(nullable=False),
-            'fps': IntType()
+            'fps': FloatType()
         }
 
     @classmethod
