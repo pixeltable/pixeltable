@@ -15,19 +15,29 @@ from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_d
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
-
+import tempfile
+import pathlib
 
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory) -> None:
     from pixeltable.env import Env
     # set the relevant env vars for Client() to connect to the test db
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
+
+    # NB: unix socket path names cannot exceed ~100 chars, 
+    # but pgdata path from pytest fixture exceeds that length.
+    # Will make a separate dir at a shallower path for testing purposes.
+    # pathlib.Path(tempfile.mkdtemp())
+    pgdata_dir = pathlib.Path(tempfile.mkdtemp(prefix='pixeltable_test_pgdata_', dir='/tmp/'))
+
     os.environ['PIXELTABLE_HOME'] = home_dir
     test_db = 'test'
     os.environ['PIXELTABLE_DB'] = test_db
+    os.environ['PIXELTABLE_PGDATA'] = str(pgdata_dir)
+
     # this also runs create_all()
     Env.get().set_up(echo=True)
-    yield
+    yield Env.get()
     # leave db in place for debugging purposes
 
 @pytest.fixture(scope='function')

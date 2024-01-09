@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlalchemy as sql
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 import psycopg2
+import pgserver
 import docker
 import logging
 import sys
@@ -37,10 +38,7 @@ class Env:
         self._tmp_dir: Optional[Path] = None  # any tmp files
         self._sa_engine: Optional[sql.engine.base.Engine] = None
         self._db_name: Optional[str] = None
-        self._db_user: Optional[str] = None
-        self._db_password: Optional[str] = None
-        self._db_name: Optional[str] = None
-        self._db_port: Optional[int] = None
+        self._db_url: Optional[str] = None
         self._store_container: Optional[docker.models.containers.Container] = None
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
@@ -58,23 +56,14 @@ class Env:
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
+        self._inited = False
 
-    def db_url(self, hide_passwd: bool = False) -> str:
-        assert self._db_user is not None
-        assert self._db_password is not None
-        assert self._db_name is not None
-        assert self._db_port is not None
-        return (
-            f'postgresql://{self._db_user}:{"*****" if hide_passwd else self._db_password}'
-            f'@localhost:{self._db_port}/{self._db_name}'
-        )
-
+    def db_url(self, hide_passwd=False) -> str:
+        return self._db_url
+    
     @property
     def db_service_url(self) -> str:
-        assert self._db_user is not None
-        assert self._db_password is not None
-        assert self._db_port is not None
-        return f'postgresql://{self._db_user}:{self._db_password}@localhost:{self._db_port}'
+        return self._db_url
 
     def print_log_config(self) -> None:
         print(f'logging to {self._logfilename}')
@@ -108,6 +97,10 @@ class Env:
         return False
 
     def set_up(self, echo: bool = False) -> None:
+        if self._inited:
+            return
+        
+        self._inited = True
         self.log_to_stdout(True)
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
@@ -118,13 +111,11 @@ class Env:
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
 
+        env_pgdata = os.environ.get('PIXELTABLE_PGDATA')
+        self._pgdata_dir = Path(env_pgdata) if env_pgdata is not None else (self._home / 'pgdata')
+
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
-
-        self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
-        self._db_user = os.environ.get('PIXELTABLE_DB_USER', 'postgres')
-        self._db_password = os.environ.get('PIXELTABLE_DB_PASSWORD', 'pgpassword')
-        self._db_port = os.environ.get('PIXELTABLE_DB_PORT', '6543')
 
         if not self._home.exists():
             msg = f'setting up Pixeltable at {self._home}, db at {self.db_url(hide_passwd=True)}'
@@ -159,11 +150,13 @@ class Env:
         for path in glob.glob(f'{self._tmp_dir}/*'):
             os.remove(path)
 
-        # we now have a home directory; start runtime containers
-        self._set_up_runtime()
+        self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
+        self.db_server = pgserver.get_server(self._pgdata_dir)
+        self._db_url = self.db_server.get_uri(database=self._db_name)
 
         if init_home_dir:
-            self.tear_down()
+            if database_exists(self.db_url()):
+                drop_database(self.db_url())
 
         if not database_exists(self.db_url()):
             self._logger.info('creating database')
@@ -175,39 +168,15 @@ class Env:
             # enable pgvector
             with self._sa_engine.begin() as conn:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
-
         else:
             self._logger.info(f'found database {self.db_url(hide_passwd=True)}')
             if self._sa_engine is None:
                 self._sa_engine = sql.create_engine(self.db_url(), echo=echo, future=True)
             metadata.upgrade_md(self._sa_engine)
 
+        # we now have a home directory and db; start runtime containers
+        self._set_up_runtime()
         self.log_to_stdout(False)
-
-    def _set_up_postgres(self) -> None:
-        cl = docker.from_env()
-        try:
-            self._store_container = cl.containers.get('pixeltable-store')
-            self._logger.info('found store container')
-        except docker.errors.NotFound:
-            self._logger.info('starting store container')
-            self._store_container = cl.containers.run(
-                self._postgres_image(),
-                detach=True,
-                name='pixeltable-store',
-                ports={'5432/tcp': self._db_port},
-                environment={
-                    'POSTGRES_USER': self._db_user,
-                    'POSTGRES_PASSWORD': self._db_password,
-                    'POSTGRES_DB': self._db_name,
-                    'PGDATA': '/var/lib/postgresql/data',
-                },
-                volumes={
-                    str(self._home / 'pgdata'): {'bind': '/var/lib/postgresql/data', 'mode': 'rw'},
-                },
-                remove=True,
-            )
-            self._wait_for_postgres()
 
     def _create_nos_client(self) -> None:
         import nos
@@ -240,8 +209,6 @@ class Env:
 
     def _set_up_runtime(self) -> None:
         """Check for and start runtime services"""
-        self._set_up_postgres()
-
         try:
             import nos
             self._create_nos_client()
@@ -253,45 +220,8 @@ class Env:
         except ImportError:
             pass
 
-    def _postgres_is_up(self) -> bool:
-        """
-        Returns true if the service is up, false otherwise.
-        """
-        try:
-            conn = psycopg2.connect(self.db_service_url)
-            conn.close()
-            self._logger.info(f'connected to {self.db_service_url}')
-            return True
-        except psycopg2.OperationalError:
-            return False
-
-    def _wait_for_postgres(self, num_attempts: int = 20) -> None:
-        """
-        Waits for the service to be up.
-        """
-        i = 0
-        while not self._postgres_is_up() and i < num_attempts:
-            self._logger.info('waiting for store container to start...')
-            time.sleep(i + 1)
-            i += 1
-        if not self._postgres_is_up():
-            self._logger.info('could not find store container')
-            raise RuntimeError(f'Postgres is not running: {self.db_service_url}')
-
     def _is_apple_cpu(self) -> bool:
         return sys.platform == 'darwin' and platform.processor() == 'arm'
-
-    def _postgres_image(self) -> str:
-        if self._is_apple_cpu():
-            return 'ankane/pgvector:latest'
-            #return 'arm64v8/postgres:15-alpine'
-        else:
-            #return 'postgres:15-alpine'
-            return 'ankane/pgvector:latest'
-
-    def tear_down(self) -> None:
-        if database_exists(self.db_url()):
-            drop_database(self.db_url())
 
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
