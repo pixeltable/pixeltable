@@ -37,14 +37,14 @@ test: install
 .PHONY: notebooks
 notebooks: install
 	@echo "Running notebooks and overwriting outputs..."
-	@poetry run pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) docs/source/tutorials/*.ipynb
+	@poetry run pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) docs/tutorials/*.ipynb
 
 .PHONY: typecheck
 typecheck: install
 	@echo "Running type checks..."
 	@poetry run mypy --config-file mypy.ini --package pixeltable
 
-# NB does not remove the poetry.lock
+# does not remove the poetry.lock
 .PHONY: clean
 clean:
 	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
