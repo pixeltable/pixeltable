@@ -16,19 +16,19 @@ from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
 
-
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory) -> None:
     from pixeltable.env import Env
     # set the relevant env vars for Client() to connect to the test db
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
+
     os.environ['PIXELTABLE_HOME'] = home_dir
     test_db = 'test'
     os.environ['PIXELTABLE_DB'] = test_db
+
     # this also runs create_all()
     Env.get().set_up(echo=True)
     yield
-    # leave db in place for debugging purposes
 
 @pytest.fixture(scope='function')
 def test_client(init_env) -> pt.Client:
