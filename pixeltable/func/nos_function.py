@@ -10,6 +10,7 @@ from .signature import Signature, Parameter
 from .external_function import ExternalFunction
 import pixeltable.env as env
 import pixeltable.type_system as ts
+import pixeltable.exceptions as excs
 
 
 _logger = logging.getLogger('pixeltable')
@@ -72,19 +73,46 @@ class NOSFunction(ExternalFunction):
         if batch_size != sys.maxsize:
             self.batch_size = batch_size
 
+    def _convert_nos_type(
+            self, type_info: 'nos.common.spec.ObjectTypeInfo', ignore_shape: bool = False
+    ) -> ts.ColumnType:
+        """Convert ObjectTypeInfo to ColumnType"""
+        import nos
+        if type_info.base_spec() is None:
+            if type_info.base_type() == str:
+                return ts.StringType()
+            if type_info.base_type() == int:
+                return ts.IntType()
+            if type_info.base_type() == float:
+                return ts.FloatType()
+            if type_info.base_type() == bool:
+                return ts.BoolType()
+            else:
+                raise excs.Error(f'Cannot convert {type_info} to ColumnType')
+        elif isinstance(type_info.base_spec(), nos.common.ImageSpec):
+            size = None
+            if not ignore_shape and type_info.base_spec().shape is not None:
+                size = (type_info.base_spec().shape[1], type_info.base_spec().shape[0])
+            # TODO: set mode
+            return ts.ImageType(size=size)
+        elif isinstance(type_info.base_spec(), nos.common.TensorSpec):
+            return ts.ArrayType(shape=type_info.base_spec().shape, dtype=ts.FloatType())
+        else:
+            raise excs.Error(f'Cannot convert {type_info} to ColumnType')
+
     def _convert_nos_signature(
             self, sig: 'nos.common.spec.FunctionSignature') -> Tuple[ts.ColumnType, List[ts.ColumnType]]:
         if len(sig.get_outputs_spec()) > 1:
             return_type = ts.JsonType()
         else:
-            return_type = ts.ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
+            return_type = self._convert_nos_type(list(sig.get_outputs_spec().values())[0])
         param_types: List[ts.ColumnType] = []
         for _, type_info in sig.get_inputs_spec().items():
             # if there are multiple input shapes we leave them out of the ColumnType and deal with them in FunctionCall
             if isinstance(type_info, list):
-                param_types.append(ts.ColumnType.from_nos(type_info[0], ignore_shape=True))
+                param_types.append(self._convert_nos_type(type_info[0], ignore_shape=True))
             else:
-                param_types.append(ts.ColumnType.from_nos(type_info, ignore_shape=False))
+                param_types.append(self._convert_nos_type(type_info, ignore_shape=False))
         return return_type, param_types
 
     def is_multi_res_model(self) -> bool:

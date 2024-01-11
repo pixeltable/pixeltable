@@ -2,13 +2,11 @@ from __future__ import annotations
 from typing import List, Callable, Union
 import inspect
 
-import nos
 
 from .globals import resolve_symbol
 from .signature import Signature, Parameter
 from .function_md import FunctionMd
 from .function import Function
-from .nos_function import NOSFunction
 import pixeltable.type_system as ts
 
 

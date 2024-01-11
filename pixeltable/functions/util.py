@@ -67,20 +67,6 @@ def create_openai_module() -> types.ModuleType:
 
     return pt_module
 
-def _convert_nos_signature(self, sig: 'nos.common.spec.FunctionSignature') -> Tuple[ts.ColumnType, List[ts.ColumnType]]:
-    if len(sig.get_outputs_spec()) > 1:
-        return_type = ts.JsonType()
-    else:
-        return_type = ts.ColumnType.from_nos(list(sig.get_outputs_spec().values())[0])
-    param_types: List[ts.ColumnType] = []
-    for _, type_info in sig.get_inputs_spec().items():
-        # if there are multiple input shapes we leave them out of the ColumnType and deal with them in FunctionCall
-        if isinstance(type_info, list):
-            param_types.append(ts.ColumnType.from_nos(type_info[0], ignore_shape=True))
-        else:
-            param_types.append(ts.ColumnType.from_nos(type_info, ignore_shape=False))
-    return return_type, param_types
-
 def create_nos_modules() -> List[types.ModuleType]:
     """Create module pixeltable.functions.nos with one submodule per task and return the submodules"""
     models = env.Env.get().nos_client.ListModels()

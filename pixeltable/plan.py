@@ -7,6 +7,7 @@ from pixeltable import catalog
 from pixeltable import exprs
 import pixeltable.exec as exec
 from pixeltable import exceptions as exc
+import pixeltable.func as func
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -222,8 +223,11 @@ class Planner:
         stored_cols = [c for c in tbl.cols if c.is_stored]
         assert len(stored_cols) > 0
         # 2. values to insert into indices
-        from pixeltable.functions.nos.image_embedding import openai_clip
-        index_info = [(c, openai_clip) for c in tbl.cols if c.is_indexed]
+        indexed_cols = [c for c in tbl.cols if c.is_indexed]
+        index_info: List[Tuple[catalog.Column, func.Function]] = []
+        if len(indexed_cols) > 0:
+            from pixeltable.functions.nos.image_embedding import openai_clip
+            index_info = [(c, openai_clip) for c in tbl.cols if c.is_indexed]
 
         row_builder = exprs.RowBuilder([], stored_cols, index_info, [])
 
@@ -365,8 +369,11 @@ class Planner:
         #   the store
         stored_cols = [c for c in view.cols if c.is_stored and (c.is_computed or view.is_iterator_column(c))]
         # 2. index values
-        from pixeltable.functions.nos.image_embedding import openai_clip
-        index_info = [(c, openai_clip) for c in view.cols if c.is_indexed]
+        indexed_cols = [c for c in view.cols if c.is_indexed]
+        index_info: List[Tuple[catalog.Column, func.Function]] = []
+        if len(indexed_cols) > 0:
+            from pixeltable.functions.nos.image_embedding import openai_clip
+            index_info = [(c, openai_clip) for c in view.cols if c.is_indexed]
         # 3. for component views: iterator args
         iterator_args = [view.iterator_args] if view.iterator_args is not None else []
 
@@ -605,9 +612,12 @@ class Planner:
             value_expr slot idx for the plan output (for computed cols)
             embedding slot idx for the plan output (for indexed image cols)
         """
-        from pixeltable.functions.nos.image_embedding import openai_clip
+        index_info: List[Tuple[catalog.Column, func.Function]] = []
+        if col.is_indexed:
+            from pixeltable.functions.nos.image_embedding import openai_clip
+            index_info = [(col, openai_clip)]
         row_builder = exprs.RowBuilder(
-            output_exprs=[], columns=[col], indices=[(col, openai_clip)] if col.is_indexed else [], input_exprs=[])
+            output_exprs=[], columns=[col], indices=index_info, input_exprs=[])
         analyzer = Analyzer(tbl, row_builder.default_eval_ctx.target_exprs)
         plan = cls._create_query_plan(tbl, row_builder=row_builder, analyzer=analyzer, with_pk=True)
         plan.ctx.batch_size = 16

@@ -1,13 +1,19 @@
 import pytest
 
 import pixeltable as pt
-from pixeltable import catalog
 from pixeltable.type_system import ImageType, VideoType
 from pixeltable.tests.utils import get_video_files
 from pixeltable.iterators import FrameIterator
 
 
+try:
+    import nos
+    has_nos = True
+except ImportError:
+    has_nos = False
+
 class TestNOS:
+    @pytest.mark.skipif(not has_nos, reason='NOS not installed')
     def test_basic(self, test_client: pt.Client) -> None:
         cl = test_client
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
@@ -26,6 +32,7 @@ class TestNOS:
         status = video_t.insert([{'video': get_video_files()[0]}])
         pass
 
+    @pytest.mark.skipif(not has_nos, reason='NOS not installed')
     def test_exceptions(self, test_client: pt.Client) -> None:
         cl = test_client
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
