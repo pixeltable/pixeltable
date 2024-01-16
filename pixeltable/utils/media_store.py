@@ -31,7 +31,7 @@ class MediaStore:
             os.mkdir(path)
 
     @classmethod
-    def get_path(cls, tbl_id: UUID, col_id: int, version: int, ext: Optional[str] = None) -> Path:
+    def create_media_path(cls, tbl_id: UUID, col_id: int, version: int, ext: Optional[str] = None) -> Path:
         """Return Path for the target table and column
         ext is appended if non-None.
         """
@@ -50,7 +50,10 @@ class MediaStore:
         for p in paths:
             os.remove(p)
         if version is None:
-            os.rmdir(cls.table_path(tbl_id))
+            table_path = cls.table_path(tbl_id)
+            if os.path.exists(table_path):
+                assert os.path.isdir(table_path)
+                os.rmdir(cls.table_path(tbl_id))
 
     @classmethod
     def count(cls, tbl_id: UUID) -> int:

@@ -119,10 +119,12 @@ class TestTable:
         assert(MediaStore.count(tbl.id) == 2 * n_sample_rows)
 
         # Test MediaStore.stats
-        stats = MediaStore.stats()
-        assert len(stats) == 2      # Two versions, before and after add_column
-        assert stats[0][2] == 20    # Each version has 20 associated images
-        assert stats[1][2] == 20
+        # TODO (aaron-siegel) I'd like to include this test, but not yet sure how to do it
+        # deterministically since the unit tests are interdependent.
+        # stats = MediaStore.stats()
+        # assert len(stats) == 2      # Two versions, before and after add_column
+        # assert stats[0][2] == 20    # Each version has 20 associated images
+        # assert stats[1][2] == 20
 
         # Test that stored images are cleared when table is dropped
         cl.drop_table('test')

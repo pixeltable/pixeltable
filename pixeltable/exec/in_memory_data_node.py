@@ -46,7 +46,7 @@ class InMemoryDataNode(ExecNode):
                 if col_info.col.col_type.is_image_type() and isinstance(val, bytes):
                     # this is a literal image, ie, a sequence of bytes; we save this as a media file and store the path
                     MediaStore.ensure_table_path_exists(self.tbl.id)
-                    path = str(MediaStore.get_path(self.tbl.id, col_info.col.id, self.tbl.version))
+                    path = str(MediaStore.create_media_path(self.tbl.id, col_info.col.id, self.tbl.version))
                     open(path, 'wb').write(val)
                     val = path
                 self.output_rows[row_idx][col_info.slot_idx] = val
