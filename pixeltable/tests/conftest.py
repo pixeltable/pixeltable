@@ -15,16 +15,19 @@ from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_d
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
+import pathlib
 
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory) -> None:
     from pixeltable.env import Env
     # set the relevant env vars for Client() to connect to the test db
-    home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
 
+    shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', '~/.pixeltable')).expanduser()
+    home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     test_db = 'test'
     os.environ['PIXELTABLE_DB'] = test_db
+    os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 
     # this also runs create_all()
     Env.get().set_up(echo=True)
