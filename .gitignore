@@ -1,4 +1,6 @@
-.venv
+.idea
 .ipynb_checkpoints
+.make-install
+.venv
 **/__pycache__
 site
