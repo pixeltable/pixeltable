@@ -61,6 +61,7 @@ class DataRowBatch:
             return
         if idx_range is None:
             idx_range = slice(0, len(self.rows))
+        MediaStore.ensure_table_path_exists(self.table_id)
         for row in self.rows[idx_range]:
             for info in stored_img_info:
                 filepath = str(MediaStore.get_path(self.table_id, info.col.id, self.table_version))

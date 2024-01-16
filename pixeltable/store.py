@@ -126,6 +126,7 @@ class StoreBase:
             # not a tmp file
             return file_url
         _, ext = os.path.splitext(file_path)
+        MediaStore.ensure_table_path_exists(self.tbl_version.id)
         new_path = str(MediaStore.get_path(self.tbl_version.id, col.id, v_min, ext=ext))
         os.rename(file_path, new_path)
         new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(new_path))
