@@ -84,7 +84,8 @@ class TestTable:
         with pytest.raises(exc.Error):
             cl.drop_table('.test2')
 
-    def test_create_image_table(self, test_client: pt.Client) -> None:
+    def test_image_table(self, test_client: pt.Client) -> None:
+        n_sample_rows = 20
         cl = test_client
         schema = {
             'img': ImageType(nullable=False),
@@ -93,9 +94,10 @@ class TestTable:
             'img_literal': ImageType(nullable=False),
         }
         tbl = cl.create_table('test', schema)
+        assert(MediaStore.count(tbl.id) == 0)
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-        sample_rows = random.sample(rows, 20)
+        sample_rows = random.sample(rows, n_sample_rows)
 
         # add literal image data and column
         for r in rows:
@@ -103,6 +105,7 @@ class TestTable:
                 r['img_literal'] = f.read()
 
         tbl.insert(sample_rows)
+        assert(MediaStore.count(tbl.id) == n_sample_rows)
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -110,6 +113,14 @@ class TestTable:
         pdf = tdf.to_pandas()
         for tup in pdf.itertuples():
             assert tup.img == tup.img_literal
+
+        # Test adding stored image transformation
+        tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
+        assert(MediaStore.count(tbl.id) == 2 * n_sample_rows)
+
+        # Test that stored images are cleared when table is dropped
+        cl.drop_table('test')
+        assert(MediaStore.count(tbl.id) == 0)
 
     def test_schema_spec(self, test_client: pt.Client) -> None:
         cl = test_client
