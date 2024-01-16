@@ -3,4 +3,5 @@
 .make-install
 .venv
 **/__pycache__
+*.iml
 site
