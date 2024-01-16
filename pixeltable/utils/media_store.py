@@ -62,17 +62,18 @@ class MediaStore:
 
     @classmethod
     def stats(cls) -> List[Tuple[int, int, int, int]]:
-        paths = glob.glob(str(Env.get().media_dir), recursive=True)
+        paths = glob.glob(str(Env.get().media_dir) + "/**", recursive=True)
         # key: (tbl_id, col_id), value: (num_files, size)
         d: Dict[Tuple[UUID, int], List[int]] = defaultdict(lambda: [0, 0])
         for p in paths:
-            matched = re.match(cls.pattern, Path(p).name)
-            assert matched is not None
-            tbl_id, col_id = UUID(hex=matched[1]), int(matched[2])
-            file_info = os.stat(p)
-            t = d[(tbl_id, col_id)]
-            t[0] += 1
-            t[1] += file_info.st_size
+            if not os.path.isdir(p):
+                matched = re.match(cls.pattern, Path(p).name)
+                assert matched is not None
+                tbl_id, col_id = UUID(hex=matched[1]), int(matched[2])
+                file_info = os.stat(p)
+                t = d[(tbl_id, col_id)]
+                t[0] += 1
+                t[1] += file_info.st_size
         result = [(tbl_id, col_id, num_files, size) for (tbl_id, col_id), (num_files, size) in d.items()]
         result.sort(key=lambda e: e[3], reverse=True)
         return result
