@@ -57,6 +57,8 @@ mkdocstrings = {extras = ["python"], version = "^0.24.0"}
 mkdocs-material = "^9.5.3"
 mkdocs-jupyter = "^0.24"
 black = "^23.12.1"
+bs4 = "^0.0.2"
+requests = "^2.31.0"
 
 [tool.poetry.extras]
 s3 = ["boto3"]

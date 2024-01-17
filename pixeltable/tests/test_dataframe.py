@@ -4,6 +4,8 @@ import pytest
 import pickle
 import numpy as np
 from pathlib import Path
+import bs4
+import requests
 
 from pycocotools.coco import COCO
 
@@ -11,7 +13,7 @@ from pixeltable import catalog
 from pixeltable import exceptions as exc
 import pixeltable as pt
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files
+from pixeltable.tests.utils import get_video_files, get_audio_files
 
 class TestDataFrame:
     def test_select_where(self, test_tbl: catalog.MutableTable) -> None:
@@ -179,6 +181,28 @@ class TestDataFrame:
         t = test_tbl
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[res.column_names()[0]] == [1.0] * 10
+
+    def test_html_media_url(self):
+        cl = pt.Client()
+        cl.drop_table('test_html_repr', ignore_errors=True)
+        tab = cl.create_table('test_html_repr', {'video': pt.VideoType(), 'audio': pt.AudioType()})
+        tab.insert([{'video': get_video_files()[0], 'audio': get_audio_files()[0]}])
+        res = tab.select(tab.video, tab.audio).collect()
+
+        ## parse html_text to get all the video and audio tags
+        soup = bs4.BeautifulSoup(res._repr_html_(), features='html.parser') 
+        video_tags = soup.find_all('video')
+        assert len(video_tags) == 1
+        audio_tags = soup.find_all('audio')
+        assert len(audio_tags) == 1
+
+        ## get the src attribute of the video and audio tags and download
+        for tag in video_tags + audio_tags:
+            children = list(tag.children)
+            assert len(children) == 1
+            src_url = children[0]['src']
+            resp = requests.get(src_url)
+            assert resp.status_code == 200
 
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.MutableTable):
         """ tests all types are handled correctly in this conversion
