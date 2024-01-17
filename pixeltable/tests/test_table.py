@@ -124,8 +124,8 @@ class TestTable:
         assert stats[0][2] == n_sample_rows    # Each column has n_sample_rows associated images
         assert stats[1][2] == n_sample_rows
 
-        # Test version-specific MediaStore.delete
-        MediaStore.delete(tbl.id, version=1)
+        # Test that version-specific images are cleared when table is reverted
+        tbl.revert()
         assert(MediaStore.count(tbl.id) == n_sample_rows)
 
         # Test that all stored images are cleared when table is dropped
