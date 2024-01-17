@@ -63,7 +63,7 @@ class DataRowBatch:
             idx_range = slice(0, len(self.rows))
         for row in self.rows[idx_range]:
             for info in stored_img_info:
-                filepath = str(MediaStore.get_path(self.table_id, info.col.id, self.table_version))
+                filepath = str(MediaStore.prepare_media_path(self.table_id, info.col.id, self.table_version))
                 row.flush_img(info.slot_idx, filepath)
             for slot_idx in flushed_slot_idxs:
                 row.flush_img(slot_idx)
