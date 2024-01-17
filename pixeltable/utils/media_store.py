@@ -39,8 +39,10 @@ class MediaStore:
         only those files belonging to the specified version."""
         assert tbl_id is not None
         if version is None:
+            # Remove the entire folder for this table id.
             target = Env.get().media_dir / tbl_id.hex
         else:
+            # Remove only the subfolder for the specified version.
             target = Env.get().media_dir / tbl_id.hex / str(version)
         if target.exists():
             shutil.rmtree(target)
