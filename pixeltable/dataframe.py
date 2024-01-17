@@ -1,7 +1,6 @@
 from __future__ import annotations
 import base64
 import io
-import os
 from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 from pathlib import Path
 import pandas as pd
@@ -14,7 +13,9 @@ import json
 import hashlib
 import importlib.util
 import logging
+import mimetypes
 
+import pixeltable.type_system as ts
 import pixeltable.catalog as catalog
 from pixeltable.env import Env
 from pixeltable.type_system import ColumnType
@@ -39,26 +40,33 @@ def _format_img(img: object) -> str:
         img_base64 = base64.b64encode(buffer.getvalue()).decode()
         return f'<img src="data:image/jpeg;base64,{img_base64}">'
 
-def _format_video(video_file_path: str) -> str:
-    # turn absolute video_file_path into relative path, absolute paths don't work
-    p = Path(video_file_path)
-    root = Path(os.getcwd())
-    try:
-        rel_path = p.relative_to(root)
-        return f'<video controls><source src="{rel_path}" type="video/mp4"></video>'
-    except ValueError:
-        # display path as string
-        return video_file_path
+def _get_src(file_path: str) -> str:
+    abs_path = Path(file_path)
+    assert abs_path.is_absolute()
+    # http server runs serves files wrt. to file-system root
+    url = f'{Env.get().http_address}/{abs_path}'
+    mime = mimetypes.guess_type(url)[0]
+
+    # if mime is None, the attribute string would not be valid html.
+    mime_attr = f'type="{mime}"' if mime is not None else ''
+    return f'<source src="{url}" {mime_attr}>'
+
+def _format_video(file_path: str) -> str:
+    return f'<video controls>{_get_src(file_path)}</video>'
 
 def _format_audio(file_path: str) -> str:
-    # TODO: do we need to include type="audio/..." in <source>?
-    return f'<video controls><source src="{file_path}"></video>'
+    return f'<audio controls>{_get_src(file_path)}</audio>'
 
 class DataFrameResultSet:
     def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
         self._rows = rows
         self._col_names = col_names
         self._col_types = col_types
+        self._formatters = {
+            ts.ImageType: _format_img,
+            ts.VideoType: _format_video,
+            ts.AudioType: _format_audio,
+        }
 
     def __len__(self) -> int:
         return len(self._rows)
@@ -73,13 +81,11 @@ class DataFrameResultSet:
         return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
-        img_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_image_type()]
-        video_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_video_type()]
-        audio_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_audio_type()]
-        formatters = {self._col_names[i]: _format_img for i in img_col_idxs}
-        formatters.update({self._col_names[i]: _format_video for i in video_col_idxs})
-        formatters.update({self._col_names[i]: _format_audio for i in audio_col_idxs})
-        # escape=False: make sure <img> tags stay intact
+        formatters = {}
+        for col_name, col_type in zip(self._col_names, self._col_types):
+                if col_type.__class__ in self._formatters:
+                    formatters[col_name] = self._formatters[col_type.__class__]
+        
         # TODO: why does mypy complain about formatters having an incorrect type?
         return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)  # type: ignore[arg-type]
 

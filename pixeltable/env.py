@@ -4,6 +4,11 @@ import time
 from typing import Optional, Dict, Any
 from pathlib import Path
 import sqlalchemy as sql
+
+import http.server
+import socketserver
+import threading
+
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 import psycopg2
 import pgserver
@@ -14,7 +19,6 @@ import platform
 import glob
 
 from pixeltable import metadata
-
 
 class Env:
     """
@@ -44,7 +48,8 @@ class Env:
         self._store_container: Optional[docker.models.containers.Container] = None
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
-
+        self._httpd : Optional[socketserver.TCPServer] = None
+        self._http_address : Optional[str] = None
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
         self._logger.setLevel(logging.DEBUG)  # allow everything to pass, we filter in _log_filter()
@@ -65,6 +70,11 @@ class Env:
         assert self._db_url is not None
         return self._db_url
     
+    @property
+    def http_address(self) -> str:
+        assert self._http_address is not None
+        return self._http_address
+
     def print_log_config(self) -> None:
         print(f'logging to {self._logfilename}')
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
@@ -207,8 +217,35 @@ class Env:
         self._logger.info('connecting to OpenAI')
         self._openai_client = openai.OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
+    def _start_web_server(self) -> None:
+        """
+        The http server root is the file system root.
+        eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
+        This arrangement enables serving media hosted within _home, 
+        as well as external media inserted into pixeltable or produced by pixeltable.
+        The port is chosen dynamically to prevent conflicts.
+        """        
+        # Port 0 means OS picks one for us.
+        address = ("127.0.0.1", 0)
+        class FixedRootHandler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory='/', **kwargs)        
+        self._httpd = socketserver.TCPServer(address, FixedRootHandler)
+        port = self._httpd.server_address[1]
+        self._http_address = f'http://127.0.0.1:{port}'
+
+        def run_server():
+            logging.log(logging.INFO, f'running web server at {self._http_address}')
+            self._httpd.serve_forever()
+
+        # Run the server in a separate thread
+        thread = threading.Thread(target=run_server, daemon=True)
+        thread.start()
+
     def _set_up_runtime(self) -> None:
         """Check for and start runtime services"""
+        self._start_web_server()
+
         try:
             import nos
             self._create_nos_client()
