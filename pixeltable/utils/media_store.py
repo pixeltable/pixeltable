@@ -29,7 +29,7 @@ class MediaStore:
         the environment's media_dir.
         """
         id = uuid.uuid4()
-        parent = Env.get().media_dir / tbl_id.hex / str(version) / id.hex[0:3]
+        parent = Env.get().media_dir / tbl_id.hex / id.hex[0:2] / id.hex[0:4]
         parent.mkdir(parents=True, exist_ok=True)
         return parent / f'{tbl_id.hex}_{col_id}_{version}_{id.hex}{ext or ""}'
 
@@ -40,12 +40,14 @@ class MediaStore:
         assert tbl_id is not None
         if version is None:
             # Remove the entire folder for this table id.
-            target = Env.get().media_dir / tbl_id.hex
+            path = Env.get().media_dir / tbl_id.hex
+            if path.exists():
+                shutil.rmtree(path)
         else:
-            # Remove only the subfolder for the specified version.
-            target = Env.get().media_dir / tbl_id.hex / str(version)
-        if target.exists():
-            shutil.rmtree(target)
+            # Remove only the elements for the specified version.
+            paths = glob.glob(str(Env.get().media_dir / tbl_id.hex) + f'/**/{tbl_id.hex}_*_{version}_*', recursive=True)
+            for path in paths:
+                os.remove(path)
 
     @classmethod
     def count(cls, tbl_id: UUID) -> int:
