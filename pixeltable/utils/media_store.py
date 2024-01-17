@@ -1,6 +1,7 @@
 import glob
 import os
 import re
+import shutil
 import uuid
 from typing import Optional, List, Tuple, Dict
 from pathlib import Path
@@ -21,46 +22,35 @@ class MediaStore:
     pattern = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_([0-9a-fA-F]+)')  # tbl_id, col_id, version, uuid
 
     @classmethod
-    def table_path(cls, tbl_id: UUID) -> Path:
-        return Env.get().media_dir / tbl_id.hex
-
-    @classmethod
-    def ensure_table_path_exists(cls, tbl_id: UUID):
-        path = cls.table_path(tbl_id)
-        if not os.path.exists(path):
-            os.mkdir(path)
-
-    @classmethod
     def create_media_path(cls, tbl_id: UUID, col_id: int, version: int, ext: Optional[str] = None) -> Path:
-        """Return Path for the target table and column
-        ext is appended if non-None.
+        """
+        Construct a new, unique Path for a persisted media file, and create the parent directory
+        for the new Path if it does not already exist. The file will reside in
+        the environment's media_dir.
         """
         id = uuid.uuid4()
-        return cls.table_path(tbl_id) / f'{tbl_id.hex}_{col_id}_{version}_{id.hex}{ext or ""}'
+        parent = Env.get().media_dir / tbl_id.hex / str(version) / id.hex[0:3]
+        parent.mkdir(parents=True, exist_ok=True)
+        return parent / f'{tbl_id.hex}_{col_id}_{version}_{id.hex}{ext or ""}'
 
     @classmethod
     def delete(cls, tbl_id: UUID, version: Optional[int] = None) -> None:
-        """Delete all files belonging to tbl_id"""
+        """Delete all files belonging to tbl_id. If version is not None, delete
+        only those files belonging to the specified version."""
         assert tbl_id is not None
-        if version is not None:
-            pattern = f'{tbl_id.hex}_*_{version}_*'
-        else:
-            pattern = f'{tbl_id.hex}_*'
-        paths = glob.glob(str(cls.table_path(tbl_id) / pattern))
-        for p in paths:
-            os.remove(p)
         if version is None:
-            table_path = cls.table_path(tbl_id)
-            if os.path.exists(table_path):
-                assert os.path.isdir(table_path)
-                os.rmdir(cls.table_path(tbl_id))
+            target = Env.get().media_dir / tbl_id.hex
+        else:
+            target = Env.get().media_dir / tbl_id.hex / str(version)
+        if target.exists():
+            shutil.rmtree(target)
 
     @classmethod
     def count(cls, tbl_id: UUID) -> int:
         """
         Return number of files for given tbl_id.
         """
-        paths = glob.glob(str(cls.table_path(tbl_id) / f'{tbl_id.hex}_*'))
+        paths = glob.glob(str(Env.get().media_dir / tbl_id.hex) + f'/**/{tbl_id.hex}_*', recursive=True)
         return len(paths)
 
     @classmethod
