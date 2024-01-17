@@ -21,7 +21,7 @@ poetry.lock: pyproject.toml
 # haven't changed
 .make-install: poetry.lock
 	@echo "Installing development environment..."
-	@poetry install -E s3 -E openai -E torch --with=dev
+	@poetry install -E s3 -E openai -E torch -E nos --with=dev
 	@poetry run python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@touch .make-install
 
