@@ -22,10 +22,10 @@ class MediaStore:
     pattern = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_([0-9a-fA-F]+)')  # tbl_id, col_id, version, uuid
 
     @classmethod
-    def create_media_path(cls, tbl_id: UUID, col_id: int, version: int, ext: Optional[str] = None) -> Path:
+    def prepare_media_path(cls, tbl_id: UUID, col_id: int, version: int, ext: Optional[str] = None) -> Path:
         """
-        Construct a new, unique Path for a persisted media file, and create the parent directory
-        for the new Path if it does not already exist. The file will reside in
+        Construct a new, unique Path name for a persisted media file, and create the parent directory
+        for the new Path if it does not already exist. The Path will reside in
         the environment's media_dir.
         """
         id_hex = uuid.uuid4().hex
