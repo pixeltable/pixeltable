@@ -282,7 +282,6 @@ class TestDataFrame:
             elt_count += 1
         assert elt_count == 1
 
-    @pytest.mark.skip(reason='broken')
     def test_to_pytorch_dataloader(self, all_datatypes_tbl: catalog.MutableTable) -> None:
         """ Tests the dataset works well with pytorch dataloader:
             1. compatibility with multiprocessing
