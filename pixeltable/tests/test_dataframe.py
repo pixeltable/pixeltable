@@ -223,6 +223,7 @@ class TestDataFrame:
             assert arrval.dtype == col_type.numpy_dtype()
             assert arrval.shape == col_type.shape
             assert arrval.dtype == np.float32
+            assert arrval.flags["WRITEABLE"], 'required by pytorch collate function'
 
             assert isinstance(tup['c_bool'], bool)
             assert isinstance(tup['c_int'], int)
@@ -258,10 +259,14 @@ class TestDataFrame:
         for elt, elt_pt in zip(ds, ds_ptformat):
             arr_plain = elt['c_image']
             assert isinstance(arr_plain, np.ndarray)
+            assert arr_plain.flags["WRITEABLE"], 'required by pytorch collate function'
+
             # NB: compare numpy array bc PIL.Image object itself is not using same file.
             assert (arr_plain == np.array(im_plain)).all(), 'numpy image should be the same as the original'
             arr_xformed = elt['c_image_xformed']
             assert isinstance(arr_xformed, np.ndarray)
+            assert arr_xformed.flags["WRITEABLE"], 'required by pytorch collate function'
+
             assert arr_xformed.shape == (H, W, 3)
             assert arr_xformed.dtype == np.uint8
             # same as above, compare numpy array bc PIL.Image object itself is not using same file.

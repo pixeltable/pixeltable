@@ -72,13 +72,20 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
             im = PIL.Image.open(io.BytesIO(v))
             if self.image_format == "np":
                 return np.array(im)
-            else:
-                assert self.image_format == "pt"
-                import torchvision  # pylint: disable = import-outside-toplevel
-                return torchvision.transforms.ToTensor()(im)
+
+            assert self.image_format == "pt"
+            import torchvision  # pylint: disable = import-outside-toplevel
+            return torchvision.transforms.ToTensor()(im)
         elif self.column_types[k].is_json_type():
             assert isinstance(v, str)
             return json.loads(v)
+        elif self.column_types[k].is_array_type():
+            assert isinstance(v, np.ndarray)
+            # WRITEABLE is required for torch collate function, or undefined behavior
+            if not v.flags["WRITEABLE"]:
+                return v.copy()
+            else:
+                return v
         elif self.column_types[k].is_timestamp_type():
             # pytorch default collation only supports numeric types
             assert isinstance(v, datetime.datetime)
