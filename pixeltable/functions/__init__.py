@@ -3,7 +3,7 @@ from typing import Callable, List, Optional, Union, Any
 import inspect
 from pathlib import Path
 import tempfile
-
+import pixeltable.env as env
 import PIL.Image
 import numpy as np
 
@@ -131,7 +131,8 @@ class VideoAggregator:
         if frame is None:
             return
         if self.container is None:
-            self.out_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
+            (_, output_filename) = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
+            self.out_file = Path(output_filename)
             self.container = av.open(str(self.out_file), mode='w')
             self.stream = self.container.add_stream('h264', rate=self.fps)
             self.stream.pix_fmt = 'yuv420p'
@@ -141,7 +142,7 @@ class VideoAggregator:
         av_frame = av.VideoFrame.from_ndarray(np.array(frame.convert('RGB')), format='rgb24')
         for packet in self.stream.encode(av_frame):
             self.container.mux(packet)
-        
+
     def value(self) -> str:
         for packet in self.stream.encode():
             self.container.mux(packet)
