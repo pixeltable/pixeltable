@@ -579,7 +579,7 @@ class DataFrame:
         else:
             return write_coco_dataset(self, dest_path)
 
-    def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
+    def to_pytorch_dataset(self, image_format: str = 'pt', shuffle : bool = True) -> 'torch.utils.data.IterableDataset':
         """
         Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
         with torch.utils.data.DataLoader.
@@ -624,13 +624,20 @@ class DataFrame:
         from pixeltable.utils.parquet import save_parquet # pylint: disable=import-outside-toplevel
         from pixeltable.utils.pytorch import PixeltablePytorchDataset # pylint: disable=import-outside-toplevel
 
-        summary_string = json.dumps(self._as_dict()) 
+        if shuffle:
+            if not self.order_by_clause is None:
+                raise exc.Error('order_by() cannot be used with shuffle')
+            df = self.order_by(exprs.SqlRandom(), asc=True)
+        else:
+            df = self
+
+        summary_string = json.dumps(df._as_dict())
         cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
     
         dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet') # pylint: disable = protected-access
         if dest_path.exists(): # fast path: use cache
             assert dest_path.is_dir()
         else:
-            save_parquet(self, dest_path)
+            save_parquet(df, dest_path)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
