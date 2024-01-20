@@ -6,6 +6,8 @@ import numpy as np
 from pathlib import Path
 import bs4
 import requests
+import shutil
+import math
 
 from pycocotools.coco import COCO
 
@@ -33,7 +35,7 @@ class TestDataFrame:
         assert res1 == res4
 
         _ = t.where(t.c2 < 10).select(t.c2, t.c2).show(0) # repeated name no error
-        
+
         # duplicate select list
         with pytest.raises(exc.Error) as exc_info:
             _ = t.select(t.c1).select(t.c2).show(0)
@@ -216,7 +218,7 @@ class TestDataFrame:
         for tup in ds:
             for col in df.get_column_names():
                 assert col in tup
-        
+
             arrval = tup['c_array']
             assert isinstance(arrval, np.ndarray)
             col_type = type_dict['c_array']
@@ -232,6 +234,37 @@ class TestDataFrame:
             assert torch.is_tensor(tup['c_image'])
             assert isinstance(tup['c_video'], str)
             assert isinstance(tup['c_json'], dict)
+
+    def test_to_pytorch_dataset_shuffle(self, all_datatypes_tbl: catalog.MutableTable) -> None:
+        """ Test shuffle flag is honored """
+        t = all_datatypes_tbl
+        assert t.count() > 20
+        # using a large number so that shuffle is unlikely to result in same input order
+        # 1/ 20! chance of spurious failure
+        df = t.select(t.row_id)
+
+        # shuffle is true by default. check that the order is different
+        ds = df.to_pytorch_dataset()
+        def get_ids_ordered(ds):
+            return [tup['row_id'] for tup in ds]
+        order1 = get_ids_ordered(ds)
+
+        # delete the cache and generate dataset again. order should be different
+        shutil.rmtree(str(ds.path))
+        ds2 = df.to_pytorch_dataset()
+        order2 = get_ids_ordered(ds2)
+        assert set(order1) == set(order2)
+        assert order1 != order2
+
+        # check order is respected
+        ds_ordered = df.order_by(t.row_id).to_pytorch_dataset(shuffle=False)
+        order3 = get_ids_ordered(ds_ordered)
+        assert order3 == list(range(df.count()))
+
+        # check error when order by is used with shuffle
+        with pytest.raises(exc.Error) as exc_info:
+            _ = df.order_by(t.row_id).to_pytorch_dataset()
+        assert 'order_by() cannot be used with shuffle' in str(exc_info.value)
 
     def test_to_pytorch_image_format(self, all_datatypes_tbl: catalog.MutableTable) -> None:
         """ tests the image_format parameter is honored
@@ -294,11 +327,15 @@ class TestDataFrame:
         """
         import torch.utils.data
         @pt.udf(param_types=[pt.JsonType()], return_type=pt.JsonType())
-        def restrict_json_for_default_collate(obj):
+        def restrict_json_for_default_collate(obj) -> Dict[str,Any]:
             keys = ['id', 'label', 'iscrowd', 'bounding_box']
             return {k: obj[k] for k in keys}
-        
         t = all_datatypes_tbl
+        num_rows = 11 # prime number larger than batch size
+        batch_size = 3 # relatively prime to num_rows
+        assert math.gcd(num_rows, batch_size) == 1
+
+        # test every type is compatible with default collate_fn
         df = t.select(
             t.row_id,
             t.c_int,
@@ -312,9 +349,12 @@ class TestDataFrame:
             c_json = restrict_json_for_default_collate(t.c_json.detections[0]),
             # images must be uniform shape for pytorch collate_fn to not fail
             c_image=t.c_image.resize([220, 224]).convert('RGB')
-        )
+        ).where(t.row_id < num_rows)
+        # using a prime number of rows to ensure not fully divisible by batch size
         df_size = df.count()
+        assert df_size == num_rows
         ds = df.to_pytorch_dataset(image_format='pt')
+
         # test serialization:
         #  - pickle.dumps() and pickle.loads() must work so that
         #   we can use num_workers > 0
@@ -324,24 +364,23 @@ class TestDataFrame:
         # test we get all rows
         def check_recover_all_rows(ds, size : int, **kwargs):
             dl = torch.utils.data.DataLoader(ds, **kwargs)
-            loaded_ids = set()
+            loaded_ids = []
             for batch in dl:
                 for row_id in batch['row_id']:
                     val = int(row_id) # np.int -> int or will fail set equality test below.
                     assert val not in loaded_ids, val
-                    loaded_ids.add(val)
+                    loaded_ids.append(val)
+            assert set(loaded_ids) == set(range(size))
 
-            assert loaded_ids == set(range(size))
-
-        # check different number of workers
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=0) # within this process
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=2) # two separate processes
+        check_recover_all_rows(ds, size=df_size, batch_size=batch_size, num_workers=0) # within this process
+        check_recover_all_rows(ds, size=df_size, batch_size=batch_size, num_workers=2) # two separate processes
 
         # check edge case where some workers get no rows
         short_size = 1
         df_short = df.where(t.row_id < short_size)
+        assert df_short.count() == short_size
         ds_short = df_short.to_pytorch_dataset(image_format='pt')
-        check_recover_all_rows(ds_short, size=short_size, batch_size=13, num_workers=short_size+1)
+        check_recover_all_rows(ds_short, size=short_size, batch_size=short_size+1, num_workers=short_size+1)
 
     def test_pytorch_dataset_caching(self, all_datatypes_tbl: catalog.MutableTable) -> None:
         """ Tests that dataset caching works
@@ -362,7 +401,7 @@ class TestDataFrame:
         #  check result cached
         ds1 = t.to_pytorch_dataset(image_format='pt')
         ds1_mtimes = _get_mtimes(ds1.path)
-        
+
         ds2 = t.to_pytorch_dataset(image_format='pt')
         ds2_mtimes = _get_mtimes(ds2.path)
         assert ds2.path == ds1.path, 'result should be cached'
