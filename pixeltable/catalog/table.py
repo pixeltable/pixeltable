@@ -258,11 +258,19 @@ class Table(SchemaObject):
 
             >>> tbl.add_column(new_col=IntType())
 
+            Alternatively, this can also be expressed as:
+
+            >>> tbl['new_col'] = IntType()
+
             For a table with int column ``int_col``, add a column that is the factorial of ``int_col``. The names of
             the parameters of the Callable must correspond to existing column names (the column values are then passed
             as arguments to the Callable). In this case, the column type needs to be specified explicitly:
 
             >>> tbl.add_column(factorial=lambda int_col: math.factorial(int_col), type=IntType())
+
+            Alternatively, this can also be expressed as:
+
+            >>> tbl['factorial'] = {'value': lambda int_col: math.factorial(int_col), 'type': IntType()}
 
             For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
             90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
@@ -270,14 +278,26 @@ class Table(SchemaObject):
 
             >>> tbl.add_column(rotated=tbl.frame.rotate(90))
 
+            Alternatively, this can also be expressed as:
+
+            >>> tbl['rotated'] = tbl.frame.rotate(90)
+
             Do the same, but now the column is stored:
 
             >>> tbl.add_column(rotated=tbl.frame.rotate(90), stored=True)
+
+            Alternatively, this can also be expressed as:
+
+            >>> tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
 
             Add a resized version of the ``frame`` column and index it. The column does not need to be stored in order
             to be indexed:
 
             >>> tbl.add_column(small_frame=tbl.frame.resize([224, 224]), indexed=True)
+
+            Alternatively, this can also be expressed as:
+
+            >>> tbl['small_frame'] = {'value': tbl.frame.resize([224, 224]), 'indexed': True}
         """
         self._check_is_dropped()
         # verify kwargs and construct column schema dict
@@ -442,6 +462,8 @@ class Table(SchemaObject):
             Error: If the column does not exist or if the new name is invalid or already exists.
 
         Examples:
+            Rename column ``factorial`` to ``fac``:
+
             >>> tbl.rename_column('factorial', 'fac')
         """
         self._check_is_dropped()
@@ -452,10 +474,28 @@ class Table(SchemaObject):
             where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
+
         Args:
-            value_spec: a dict mapping column names to literal values or Pixeltable expressions.
+            value_spec: a dictionary mapping column names to literal values or Pixeltable expressions.
             where: a Predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
+
+        Examples:
+            Set newly-added column `int_col` to 1 for all rows:
+
+            >>> tbl.update({'int_col': 1})
+
+            Set newly-added column `int_col` to 1 for all rows where `int_col` is 0:
+
+            >>> tbl.update({'int_col': 1}, where=tbl.int_col == 0)
+
+            Set `int_col` to the value of `other_int_col` + 1:
+
+            >>> tbl.update({'int_col': tbl.other_int_col + 1})
+
+            Increment `int_col` by 1 for all rows where `int_col` is 0:
+
+            >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
         from pixeltable import exprs
         update_targets: List[Tuple[Column, exprs.Expr]] = []

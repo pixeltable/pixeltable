@@ -137,6 +137,15 @@ class InsertableTable(Table):
 
         Args:
             where: a Predicate to filter rows to delete.
+
+        Examples:
+            Delete all rows in a table:
+
+            >>> tbl.delete()
+
+            Delete all rows in a table where column `a` is greater than 5:
+
+            >>> tbl.delete(tbl.a > 5)
         """
         from pixeltable.exprs import Predicate
         from pixeltable.plan import Planner

@@ -107,7 +107,7 @@ class Client:
             self, path_str: str, schema: Dict[str, Any], primary_key: Union[str, List[str]] = [],
             num_retained_versions: int = 10,
     ) -> catalog.InsertableTable:
-        """Create a new :py:class:`InsertableTable`.
+        """Create a new `InsertableTable`.
 
         Args:
             path_str: Path to the table.
@@ -150,7 +150,7 @@ class Client:
             is_snapshot: bool = False, iterator_class: Optional[Type[ComponentIterator]] = None,
             iterator_args: Optional[Dict[str, Any]] = None, num_retained_versions: int = 10,
             ignore_errors: bool = False) -> catalog.View:
-        """Create a new :py:class:`View`.
+        """Create a new `View`.
 
         Args:
             path_str: Path to the view.
@@ -182,7 +182,7 @@ class Client:
             Create an immutable view with additional computed columns and a filter:
 
             >>> snapshot_view = cl.create_table(
-                'my_snapshot', base, schema={'col3': base.col2 + 1}, filter=base.col1 > 10)
+                'my_snapshot', base, schema={'col3': base.col2 + 1}, filter=base.col1 > 10, is_snapshot=True)
         """
         assert (iterator_class is None) == (iterator_args is None)
         assert isinstance(base, catalog.Table)
@@ -210,12 +210,12 @@ class Client:
             path: Path to the table.
 
         Returns:
-            A :py:class:`InsertableTable` or :py:class:`View` object.
+            A `InsertableTable` or `View` object.
 
         Raises:
             Error: If the path does not exist or does not designate a table.
 
-        Example:
+        Examples:
             Get handle for a table in the top-level directory:
 
             >>> table = cl.get_table('my_table')
@@ -242,6 +242,7 @@ class Client:
 
         Raises:
             Error: If path does not exist or new_path already exists.
+
         Examples:
             Move a table to a different directory:
 
@@ -300,7 +301,7 @@ class Client:
         Raises:
             Error: If the path does not exist or does not designate a table and ignore_errors is False.
 
-        Example:
+        Examples:
             >>> cl.drop_table('my_table')
         """
         path_obj = catalog.Path(path)
@@ -405,7 +406,7 @@ class Client:
         Raises:
             Error: If the path does not exist or does not designate a directory.
 
-        Example:
+        Examples:
             >>> cl.list_dirs('my_dir', recursive=True)
             ['my_dir', 'my_dir.sub_dir1']
         """
@@ -422,6 +423,7 @@ class Client:
 
         Raises:
             Error: if the path already exists or the parent is not a directory
+
         Examples:
             Create a function ``detect()`` that takes an image and returns a JSON object, and store it in ``my_dir``:
 
@@ -477,7 +479,7 @@ class Client:
         Raises:
             Error: if the path does not exist or is not a function
 
-        Example:
+        Examples:
             >>> detect = cl.get_function('my_dir.detect')
         """
         path = catalog.Path(path_str)
@@ -498,7 +500,7 @@ class Client:
         Raises:
             Error: if the path does not exist or is not a function
 
-        Example:
+        Examples:
             >>> cl.drop_function('my_dir.detect')
         """
         path = catalog.Path(path_str)
