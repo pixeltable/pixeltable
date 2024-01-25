@@ -685,53 +685,11 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/mutable_table/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    MutableTable
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../api/table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     Table
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/table_snapshot/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TableSnapshot
   </span>
   
 
@@ -957,7 +915,7 @@ import pixeltable.functions as pxtf
 </tr>
 <tr>
 <td>Create a snapshot</td>
-<td>t = cl.<a class="autorefs autorefs-internal" href="../api/client/#pixeltable.Client.create_snapshot">create_snapshot</a>('snapshot_name', 'tbl_name')</td>
+<td>t = cl.<a class="autorefs autorefs-internal" href="../api/client/#pixeltable.Client.create_view">create_view</a>('snapshot_name', t, is_snapshot=True)</td>
 </tr>
 </tbody>
 </table>
@@ -1136,19 +1094,19 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 </tr>
 <tr>
 <td>Add a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/mutable_table/#pixeltable.MutableTable.add_column">add_column</a>(new_col_name=pxt.IntType())</td>
+<td>t.[add_column][pixeltable.MutableTable.add_column](new_col_name=pxt.IntType())</td>
 </tr>
 <tr>
 <td>Rename a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/mutable_table/#pixeltable.MutableTable.rename_column">rename_column</a>('col_name', 'new_col_name')</td>
+<td>t.[rename_column][pixeltable.MutableTable.rename_column]('col_name', 'new_col_name')</td>
 </tr>
 <tr>
 <td>Drop a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/mutable_table/#pixeltable.MutableTable.drop_column">drop_column</a>('col_name')</td>
+<td>t.[drop_column][pixeltable.MutableTable.drop_column]('col_name')</td>
 </tr>
 <tr>
 <td>Undo the last update operation (add/rename/drop column or insert)</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/mutable_table/#pixeltable.MutableTable.revert">revert</a>()</td>
+<td>t.[revert][pixeltable.MutableTable.revert]()</td>
 </tr>
 </tbody>
 </table>
