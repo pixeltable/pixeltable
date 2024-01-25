@@ -1043,22 +1043,37 @@ or <a class="autorefs autorefs-internal" href="../client/#pixeltable.Client.get_
     <p>Add an int column with <code>None</code> values:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">new_col</span><span class="o">=</span><span class="n">IntType</span><span class="p">())</span>
 </code></pre></div>
+    <p>Alternatively, this can also be expressed as:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;new_col&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">IntType</span><span class="p">()</span>
+</code></pre></div>
     <p>For a table with int column <code>int_col</code>, add a column that is the factorial of <code>int_col</code>. The names of
 the parameters of the Callable must correspond to existing column names (the column values are then passed
 as arguments to the Callable). In this case, the column type needs to be specified explicitly:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">factorial</span><span class="o">=</span><span class="k">lambda</span> <span class="n">int_col</span><span class="p">:</span> <span class="n">math</span><span class="o">.</span><span class="n">factorial</span><span class="p">(</span><span class="n">int_col</span><span class="p">),</span> <span class="nb">type</span><span class="o">=</span><span class="n">IntType</span><span class="p">())</span>
+</code></pre></div>
+    <p>Alternatively, this can also be expressed as:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;factorial&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">int_col</span><span class="p">:</span> <span class="n">math</span><span class="o">.</span><span class="n">factorial</span><span class="p">(</span><span class="n">int_col</span><span class="p">),</span> <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="n">IntType</span><span class="p">()}</span>
 </code></pre></div>
     <p>For a table with an image column <code>frame</code>, add an image column <code>rotated</code> that rotates the image by
 90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
 (by default, computed image columns are not stored but recomputed on demand):</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">rotated</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">))</span>
 </code></pre></div>
+    <p>Alternatively, this can also be expressed as:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;rotated&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">)</span>
+</code></pre></div>
     <p>Do the same, but now the column is stored:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">rotated</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">),</span> <span class="n">stored</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+    <p>Alternatively, this can also be expressed as:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;rotated&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">),</span> <span class="s1">&#39;stored&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
 </code></pre></div>
     <p>Add a resized version of the <code>frame</code> column and index it. The column does not need to be stored in order
 to be indexed:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">small_frame</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">resize</span><span class="p">([</span><span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">]),</span> <span class="n">indexed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+    <p>Alternatively, this can also be expressed as:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;small_frame&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">resize</span><span class="p">([</span><span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">]),</span> <span class="s1">&#39;indexed&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
 </code></pre></div>
 
   </div>
@@ -1175,6 +1190,7 @@ to be indexed:</p>
 
 
 <p><strong>Examples:</strong></p>
+    <p>Rename column <code>factorial</code> to <code>fac</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">rename_column</span><span class="p">(</span><span class="s1">&#39;factorial&#39;</span><span class="p">,</span> <span class="s1">&#39;fac&#39;</span><span class="p">)</span>
 </code></pre></div>
 
@@ -1297,11 +1313,57 @@ If <code>True</code>, raise an exception that aborts the insert.</p>
 
   <div class="doc doc-contents ">
   
-      <p>Update rows in this table.
-Args:
-    value_spec: a dict mapping column names to literal values or Pixeltable expressions.
-    where: a Predicate to filter rows to update.
-    cascade: if True, also update all computed columns that transitively depend on the updated columns.</p>
+      <p>Update rows in this table.</p>
+
+
+
+  <p>Parameters:</p>
+  <ul>
+      <li class="field-body">
+        <b><code>value_spec</code></b>
+            (<code><span title="typing.Dict">Dict</span>[str, <span title="typing.Union">Union</span>[&#39;pixeltable.exprs.Expr&#39;, <span title="typing.Any">Any</span>]]</code>)
+        –
+        <div class="doc-md-description">
+          <p>a dictionary mapping column names to literal values or Pixeltable expressions.</p>
+        </div>
+      </li>
+      <li class="field-body">
+        <b><code>where</code></b>
+            (<code><span title="typing.Optional">Optional</span>[&#39;pixeltable.exprs.Predicate&#39;]</code>, default:
+                <code>None</code>
+)
+        –
+        <div class="doc-md-description">
+          <p>a Predicate to filter rows to update.</p>
+        </div>
+      </li>
+      <li class="field-body">
+        <b><code>cascade</code></b>
+            (<code>bool</code>, default:
+                <code>True</code>
+)
+        –
+        <div class="doc-md-description">
+          <p>if True, also update all computed columns that transitively depend on the updated columns.</p>
+        </div>
+      </li>
+  </ul>
+
+
+
+<p><strong>Examples:</strong></p>
+    <p>Set newly-added column <code>int_col</code> to 1 for all rows:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;int_col&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">})</span>
+</code></pre></div>
+    <p>Set newly-added column <code>int_col</code> to 1 for all rows where <code>int_col</code> is 0:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;int_col&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">},</span> <span class="n">where</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">int_col</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+    <p>Set <code>int_col</code> to the value of <code>other_int_col</code> + 1:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;int_col&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">other_int_col</span> <span class="o">+</span> <span class="mi">1</span><span class="p">})</span>
+</code></pre></div>
+    <p>Increment <code>int_col</code> by 1 for all rows where <code>int_col</code> is 0:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;int_col&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">int_col</span> <span class="o">+</span> <span class="mi">1</span><span class="p">},</span> <span class="n">where</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">int_col</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
 
   </div>
 
@@ -1339,6 +1401,16 @@ Args:
         </div>
       </li>
   </ul>
+
+
+
+<p><strong>Examples:</strong></p>
+    <p>Delete all rows in a table:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">delete</span><span class="p">()</span>
+</code></pre></div>
+    <p>Delete all rows in a table where column <code>a</code> is greater than 5:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">a</span> <span class="o">&gt;</span> <span class="mi">5</span><span class="p">)</span>
+</code></pre></div>
 
   </div>
 

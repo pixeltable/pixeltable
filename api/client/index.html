@@ -1127,7 +1127,7 @@ below.</p>
 
   <div class="doc doc-contents ">
   
-      <p>Create a new :py:class:<code>InsertableTable</code>.</p>
+      <p>Create a new <code>InsertableTable</code>.</p>
 
 
 
@@ -1226,7 +1226,7 @@ below.</p>
 
   <div class="doc doc-contents ">
   
-      <p>Create a new :py:class:<code>View</code>.</p>
+      <p>Create a new <code>View</code>.</p>
 
 
 
@@ -1358,7 +1358,7 @@ below.</p>
 </code></pre></div>
     <p>Create an immutable view with additional computed columns and a filter:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">snapshot_view</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span>
-<span class="go">    &#39;my_snapshot&#39;, base, schema={&#39;col3&#39;: base.col2 + 1}, filter=base.col1 &gt; 10)</span>
+<span class="go">    &#39;my_snapshot&#39;, base, schema={&#39;col3&#39;: base.col2 + 1}, filter=base.col1 &gt; 10, is_snapshot=True)</span>
 </code></pre></div>
 
   </div>
@@ -1401,10 +1401,10 @@ below.</p>
   <p>Returns:</p>
   <ul>
       <li class="field-body">
-<b><code>A</code></b> (            <code><span title="pixeltable.client.Client.catalog.Table">Table</span></code>
-)        –
+            <code><span title="pixeltable.client.Client.catalog.Table">Table</span></code>
+        –
         <div class="doc-md-description">
-          <p>py:class:<code>InsertableTable</code> or :py:class:<code>View</code> object.</p>
+          <p>A <code>InsertableTable</code> or <code>View</code> object.</p>
       </div>
       </li>
   </ul>
@@ -1422,33 +1422,19 @@ below.</p>
       </li>
   </ul>
 
-<details class="example" open>
-  <summary>Example</summary>
-  <p>Get handle for a table in the top-level directory:</p>
-<blockquote>
-<blockquote>
-<blockquote>
-<p>table = cl.get_table('my_table')</p>
-</blockquote>
-</blockquote>
-</blockquote>
-<p>For a table in a subdirectory:</p>
-<blockquote>
-<blockquote>
-<blockquote>
-<p>table = cl.get_table('subdir.my_table')</p>
-</blockquote>
-</blockquote>
-</blockquote>
-<p>For a snapshot in the top-level directory:</p>
-<blockquote>
-<blockquote>
-<blockquote>
-<p>table = cl.get_table('my_snapshot')</p>
-</blockquote>
-</blockquote>
-</blockquote>
-</details>
+
+
+<p><strong>Examples:</strong></p>
+    <p>Get handle for a table in the top-level directory:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">table</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">)</span>
+</code></pre></div>
+    <p>For a table in a subdirectory:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">table</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;subdir.my_table&#39;</span><span class="p">)</span>
+</code></pre></div>
+    <p>For a snapshot in the top-level directory:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">table</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_snapshot&#39;</span><span class="p">)</span>
+</code></pre></div>
+
   </div>
 
 </div>
@@ -1504,14 +1490,16 @@ below.</p>
         </div>
       </li>
   </ul>
-      <p>Examples:
-    Move a table to a different directory:</p>
-<pre><code>&gt;&gt;&gt;&gt; cl.move('dir1.my_table', 'dir2.my_table')
 
-Rename a table:
 
-&gt;&gt;&gt;&gt; cl.move('dir1.my_table', 'dir1.new_name')
-</code></pre>
+
+<p><strong>Examples:</strong></p>
+    <p>Move a table to a different directory:</p>
+    <div class="highlight"><pre><span></span><code><span class="go">&gt;&gt;&gt;&gt; cl.move(&#39;dir1.my_table&#39;, &#39;dir2.my_table&#39;)</span>
+</code></pre></div>
+    <p>Rename a table:</p>
+    <div class="highlight"><pre><span></span><code><span class="go">&gt;&gt;&gt;&gt; cl.move(&#39;dir1.my_table&#39;, &#39;dir1.new_name&#39;)</span>
+</code></pre></div>
 
   </div>
 
@@ -1666,16 +1654,12 @@ Rename a table:
       </li>
   </ul>
 
-<details class="example" open>
-  <summary>Example</summary>
-  <blockquote>
-<blockquote>
-<blockquote>
-<p>cl.drop_table('my_table')</p>
-</blockquote>
-</blockquote>
-</blockquote>
-</details>
+
+
+<p><strong>Examples:</strong></p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">drop_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">)</span>
+</code></pre></div>
+
   </div>
 
 </div>
@@ -1873,17 +1857,13 @@ Rename a table:
       </li>
   </ul>
 
-<details class="example" open>
-  <summary>Example</summary>
-  <blockquote>
-<blockquote>
-<blockquote>
-<p>cl.list_dirs('my_dir', recursive=True)
-['my_dir', 'my_dir.sub_dir1']</p>
-</blockquote>
-</blockquote>
-</blockquote>
-</details>
+
+
+<p><strong>Examples:</strong></p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">list_dirs</span><span class="p">(</span><span class="s1">&#39;my_dir&#39;</span><span class="p">,</span> <span class="n">recursive</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="go">[&#39;my_dir&#39;, &#39;my_dir.sub_dir1&#39;]</span>
+</code></pre></div>
+
   </div>
 
 </div>
@@ -1938,13 +1918,16 @@ Rename a table:
         </div>
       </li>
   </ul>
-      <p>Examples:
-    Create a function <code>detect()</code> that takes an image and returns a JSON object, and store it in <code>my_dir</code>:</p>
-<pre><code>&gt;&gt;&gt; @pxt.udf(param_types=[ImageType()], return_type=JsonType())
-... def detect(img):
-... ...
-&gt;&gt;&gt; cl.create_function('my_dir.detect', detect)
-</code></pre>
+
+
+
+<p><strong>Examples:</strong></p>
+    <p>Create a function <code>detect()</code> that takes an image and returns a JSON object, and store it in <code>my_dir</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="nd">@pxt</span><span class="o">.</span><span class="n">udf</span><span class="p">(</span><span class="n">param_types</span><span class="o">=</span><span class="p">[</span><span class="n">ImageType</span><span class="p">()],</span> <span class="n">return_type</span><span class="o">=</span><span class="n">JsonType</span><span class="p">())</span>
+<span class="gp">... </span><span class="k">def</span> <span class="nf">detect</span><span class="p">(</span><span class="n">img</span><span class="p">):</span>
+<span class="gp">... </span><span class="o">...</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">create_function</span><span class="p">(</span><span class="s1">&#39;my_dir.detect&#39;</span><span class="p">,</span> <span class="n">detect</span><span class="p">)</span>
+</code></pre></div>
 
   </div>
 
@@ -2062,16 +2045,12 @@ Rename a table:
       </li>
   </ul>
 
-<details class="example" open>
-  <summary>Example</summary>
-  <blockquote>
-<blockquote>
-<blockquote>
-<p>detect = cl.get_function('my_dir.detect')</p>
-</blockquote>
-</blockquote>
-</blockquote>
-</details>
+
+
+<p><strong>Examples:</strong></p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">detect</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">get_function</span><span class="p">(</span><span class="s1">&#39;my_dir.detect&#39;</span><span class="p">)</span>
+</code></pre></div>
+
   </div>
 
 </div>
@@ -2130,16 +2109,12 @@ Rename a table:
       </li>
   </ul>
 
-<details class="example" open>
-  <summary>Example</summary>
-  <blockquote>
-<blockquote>
-<blockquote>
-<p>cl.drop_function('my_dir.detect')</p>
-</blockquote>
-</blockquote>
-</blockquote>
-</details>
+
+
+<p><strong>Examples:</strong></p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">drop_function</span><span class="p">(</span><span class="s1">&#39;my_dir.detect&#39;</span><span class="p">)</span>
+</code></pre></div>
+
   </div>
 
 </div>
