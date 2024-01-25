@@ -1,7 +1,6 @@
 from __future__ import annotations
 import datetime
 import os
-import time
 from typing import Optional, Dict, Any
 from pathlib import Path
 import sqlalchemy as sql
@@ -11,7 +10,6 @@ import socketserver
 import threading
 
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
-import psycopg2
 import pgserver
 import docker
 import logging
@@ -26,7 +24,7 @@ class Env:
     Store for runtime globals.
     """
     _instance: Optional[Env] = None
-    _log_fmt_str = '%(asctime)s %(levelname)s %(module)s %(filename)s:%(lineno)d: %(message)s'
+    _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     @classmethod
     def get(cls) -> Env:
@@ -101,11 +99,18 @@ class Env:
             self._module_log_level[module] = level
 
     def _log_filter(self, record: logging.LogRecord) -> bool:
-        if record.module in self._module_log_level and record.levelno >= self._module_log_level[record.module]:
-            return True
+        if record.name == 'pixeltable':
+            # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
+            path_parts = list(Path(record.pathname).parts)
+            path_parts.reverse()
+            max_idx = path_parts.index('pixeltable')
+            for module_name in path_parts[:max_idx]:
+                if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
+                    return True
         if record.levelno >= self._default_log_level:
             return True
-        return False
+        else:
+            return False
 
     def set_up(self, echo: bool = False) -> None:
         if self._initialized:
@@ -154,6 +159,7 @@ class Env:
         sql_logger = logging.getLogger('sqlalchemy.engine')
         sql_logger.setLevel(logging.INFO)
         sql_logger.addHandler(fh)
+        sql_logger.propagate = False
 
         # empty tmp dir
         for path in glob.glob(f'{self._tmp_dir}/*'):
