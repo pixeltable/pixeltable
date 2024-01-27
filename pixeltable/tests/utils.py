@@ -5,6 +5,15 @@ import pytest
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 import json
+import av
+import PIL.Image
+import PIL.ImageDraw
+import PIL.ImageFont
+
+from pathlib import Path
+from typing import Optional
+import tempfile
+import math
 
 import numpy as np
 import pandas as pd
@@ -16,6 +25,8 @@ from pixeltable.type_system import \
     ColumnType, StringType, IntType, FloatType, ArrayType, BoolType, TimestampType, JsonType, ImageType, VideoType
 from pixeltable.dataframe import DataFrameResultSet
 import pixeltable.type_system as ts
+
+
 
 
 def make_default_type(t: ColumnType.Type) -> ColumnType:
@@ -230,6 +241,11 @@ def get_video_files(include_bad_video=False) -> List[str]:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
     return glob_result
 
+def get_simple_video_files() -> List[str]:
+    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    glob_result = glob.glob(f'{tests_dir}/**/simple_videos/*', recursive=True)
+    return glob_result
+
 def get_image_files() -> List[str]:
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
@@ -272,3 +288,65 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
 def skip_test_if_not_installed(package) -> None:
     if not Env.get().is_installed_package(package):
         pytest.skip(f'Package `{package}` is not installed.')
+
+def make_test_video(
+    frame_count: int,
+    frame_rate: float = 1.0,
+    frame_width: int = 224,
+    frame_height: Optional[int] = None,
+    aspect_ratio: str = '16:9',
+    output_path: Optional[Path] = None,
+    font_file: str = '/Library/Fonts/Arial Unicode.ttf',
+):
+    """Makes simple video (simple content color-wise) for testing purposes.
+    The video will contain a number in each frame (for debug purposes).
+    Smaller frame size videos are much easier to use in tests.
+    This method is meant to be used to generate a test video which can be loaded in the tests.
+    """
+
+    if output_path is None:
+        output_path = Path(tempfile.NamedTemporaryFile(suffix='.mp4', delete=False).name)
+
+    parts = [int(p) for p in aspect_ratio.split(':')]
+    assert len(parts) == 2
+    aspect_ratio = parts[0] / parts[1]
+
+    if frame_height is None:
+        frame_height = math.ceil(frame_width / aspect_ratio)
+
+    frame_size = (frame_width, frame_height)
+
+    font_size = min(frame_height, frame_width) // 4
+    font = PIL.ImageFont.truetype(font=font_file, size=font_size)
+    font_fill = 0xFFFFFF  # white
+    frame_color = 0xFFFFFF - font_fill  # black
+    # Create a video container
+    container = av.open(str(output_path), mode='w')
+
+    # Add a video stream
+    stream = container.add_stream('h264', rate=frame_rate)
+    stream.width, stream.height = frame_size
+    stream.pix_fmt = 'yuv420p'
+
+    for frame_number in range(frame_count):
+        # Create an image with a number in it
+        image = PIL.Image.new('RGB', frame_size, color=frame_color)
+        draw = PIL.ImageDraw.Draw(image)
+        # Optionally, add a font here if you have one
+        text = str(frame_number)
+        _, _, text_width, text_height = draw.textbbox((0, 0), text, font=font)
+        text_position = ((frame_size[0] - text_width) // 2, (frame_size[1] - text_height) // 2)
+        draw.text(text_position, text, font=font, fill=font_fill)
+
+        # Convert the PIL image to an AVFrame
+        frame = av.VideoFrame.from_image(image)
+
+        # Encode and write the frame
+        for packet in stream.encode(frame):
+            container.mux(packet)
+
+    # Flush and close the stream
+    for packet in stream.encode():
+        container.mux(packet)
+
+    container.close()
