@@ -10,8 +10,9 @@ import pytest
 
 import pixeltable as pt
 from pixeltable import exceptions as exc
+
 from pixeltable.iterators import ComponentIterator
-from pixeltable.tests.utils import assert_resultset_eq, get_video_files
+from pixeltable.tests.utils import assert_resultset_eq, get_video_files, get_simple_video_files
 from pixeltable.type_system import IntType, VideoType, JsonType
 from pixeltable.iterators.video import FrameIterator
 
@@ -62,14 +63,13 @@ class TestIterator(ComponentIterator):
             return
         self.next_frame_idx = pos
 
-
 class TestComponentView:
     def test_basic(self, test_client: pt.Client) -> None:
         cl = test_client
         # create video table
         schema = {'video': VideoType(), 'angle': IntType(), 'other_angle': IntType()}
         video_t = cl.create_table('video_tbl', schema)
-        video_filepaths = get_video_files()
+        video_filepaths = get_simple_video_files()
 
         # cannot add 'pos' column
         with pytest.raises(exc.Error) as excinfo:
@@ -127,7 +127,7 @@ class TestComponentView:
         cl = test_client
         # create video table
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
-        video_filepaths = get_video_files()
+        video_filepaths = get_simple_video_files()
         # create frame view
         args = {'video': video_t.video, 'fps': 1}
         view_t = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
@@ -156,7 +156,7 @@ class TestComponentView:
             'test_view', video_t, schema={'annotation': JsonType(nullable=True)},
             iterator_class=FrameIterator, iterator_args=args)
 
-        video_filepaths = get_video_files()
+        video_filepaths = get_simple_video_files()
         rows = [{'video': p} for p in video_filepaths]
         status = video_t.insert(rows)
         assert status.num_excs == 0
@@ -209,7 +209,7 @@ class TestComponentView:
 
         # create video table
         video_t = cl.create_table(base_path, {'video': VideoType(), 'margin': IntType()})
-        video_filepaths = get_video_files()
+        video_filepaths = get_simple_video_files()
         rows = [{'video': path, 'margin': i * 10} for i, path in enumerate(video_filepaths)]
         status = video_t.insert(rows)
         assert status.num_rows == len(rows)
@@ -280,7 +280,7 @@ class TestComponentView:
         # create video table
         schema = {'video': VideoType(), 'int1': IntType(), 'int2': IntType()}
         video_t = cl.create_table('video_tbl', schema)
-        video_filepaths = get_video_files()
+        video_filepaths = get_simple_video_files()
 
         # create first view
         args = {'video': video_t.video}
