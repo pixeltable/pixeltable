@@ -221,6 +221,11 @@ def get_video_files(include_bad_video=False) -> List[str]:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
     return glob_result
 
+def get_simple_video_files() -> List[str]:
+    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    glob_result = glob.glob(f'{tests_dir}/**/simple_videos/*', recursive=True)
+    return glob_result
+
 def get_image_files() -> List[str]:
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
