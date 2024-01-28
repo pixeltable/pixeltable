@@ -11,7 +11,6 @@ import threading
 
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 import pgserver
-import docker
 import logging
 import sys
 import platform
@@ -44,7 +43,6 @@ class Env:
         self._db_name: Optional[str] = None
         self._db_server: Optional[pgserver.PostgresServer] = None
         self._db_url: Optional[str] = None
-        self._store_container: Optional[docker.models.containers.Container] = None
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
         self._httpd : Optional[socketserver.TCPServer] = None
