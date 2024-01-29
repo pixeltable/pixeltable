@@ -352,6 +352,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/openai_demo/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Using the OpenAI API with Pixeltable
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1350,14 +1371,14 @@ below.</p>
 
 <p><strong>Examples:</strong></p>
     <p>Create a view with an additional int and a string column and a filter:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">view</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">view</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span>
 <span class="go">    &#39;my_view&#39;, base, schema={&#39;col3&#39;: IntType(), &#39;col4&#39;: StringType()}, filter=base.col1 &gt; 10)</span>
 </code></pre></div>
     <p>Create a table snapshot:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">snapshot_view</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;my_snapshot_view&#39;</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">is_snapshot</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">snapshot_view</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span><span class="s1">&#39;my_snapshot_view&#39;</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">is_snapshot</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </code></pre></div>
     <p>Create an immutable view with additional computed columns and a filter:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">snapshot_view</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">snapshot_view</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span>
 <span class="go">    &#39;my_snapshot&#39;, base, schema={&#39;col3&#39;: base.col2 + 1}, filter=base.col1 &gt; 10, is_snapshot=True)</span>
 </code></pre></div>
 
