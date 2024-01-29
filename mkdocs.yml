@@ -17,6 +17,7 @@ nav:
   - Pixeltable Basics: tutorials/pixeltable_basics.ipynb
   - Comparing Object Detection Models for Video: tutorials/comparing_object_detection_models_for_video.ipynb
   - Object Detection in Videos: tutorials/object_detection_in_videos.ipynb
+  - Using the OpenAI API with Pixeltable: tutorials/openai_demo.ipynb
 - How-To:
   - Working with external files: howto/working_with_external_files.ipynb
 - API Reference:

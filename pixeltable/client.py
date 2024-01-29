@@ -172,16 +172,16 @@ class Client:
         Examples:
             Create a view with an additional int and a string column and a filter:
 
-            >>> view = cl.create_table(
+            >>> view = cl.create_view(
                 'my_view', base, schema={'col3': IntType(), 'col4': StringType()}, filter=base.col1 > 10)
 
             Create a table snapshot:
 
-            >>> snapshot_view = cl.create_table('my_snapshot_view', base, is_snapshot=True)
+            >>> snapshot_view = cl.create_view('my_snapshot_view', base, is_snapshot=True)
 
             Create an immutable view with additional computed columns and a filter:
 
-            >>> snapshot_view = cl.create_table(
+            >>> snapshot_view = cl.create_view(
                 'my_snapshot', base, schema={'col3': base.col2 + 1}, filter=base.col1 > 10, is_snapshot=True)
         """
         assert (iterator_class is None) == (iterator_args is None)
