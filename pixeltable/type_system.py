@@ -28,6 +28,7 @@ class ColumnType:
         IMAGE = 7
         VIDEO = 8
         AUDIO = 9
+        DOCUMENT = 10
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 255
@@ -143,6 +144,8 @@ class ColumnType:
         if t == cls.Type.VIDEO:
             return VideoType()
         if t == cls.Type.AUDIO:
+            return AudioType()
+        if t == cls.Type.DOCUMENT:
             return AudioType()
 
     def __str__(self) -> str:
@@ -321,9 +324,12 @@ class ColumnType:
     def is_audio_type(self) -> bool:
         return self._type == self.Type.AUDIO
 
+    def is_document_type(self) -> bool:
+        return self._type == self.Type.DOCUMENT
+
     def is_media_type(self) -> bool:
         # types that refer to external media files
-        return self.is_image_type() or self.is_video_type() or self.is_audio_type()
+        return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
     @abc.abstractmethod
     def to_sql(self) -> str:
@@ -807,12 +813,15 @@ class VideoType(ColumnType):
                     raise exc.Error(f'Not a valid video: {val}')
                 # decode a few frames to make sure it's playable
                 # TODO: decode all frames? but that's very slow
-                num_to_decode = 10
+                num_decoded = 0
                 for frame in fh.decode(video=0):
                     _ = frame.to_image()
-                    num_to_decode -= 1
-                    if num_to_decode == 0:
+                    num_decoded += 1
+                    if num_decoded == 10:
                         break
+                if num_decoded < 2:
+                    # this is most likely an image file
+                    raise exc.Error(f'Not a valid video: {val}')
         except av.AVError:
             raise exc.Error(f'Not a valid video: {val}') from None
 
@@ -848,3 +857,32 @@ class AudioType(ColumnType):
                         pass
         except av.AVError as e:
             raise exc.Error(f'Not a valid audio file: {val}\n{e}') from None
+
+class DocumentType(ColumnType):
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.DOCUMENT, nullable=nullable)
+
+    def to_sql(self) -> str:
+        # stored as a file path
+        return 'VARCHAR'
+
+    def to_sa_type(self) -> str:
+        return sql.String
+
+    def to_arrow_type(self) -> 'pyarrow.DataType':
+        import pyarrow as pa  # pylint: disable=import-outside-toplevel
+        return pa.string()
+
+    def _validate_literal(self, val: Any) -> None:
+        self._validate_file_path(val)
+
+    def validate_media(self, val: Any) -> None:
+        with open(val, 'r') as fh:
+            # TODO: Env.has_nlp_extras
+            import bs4
+            try:
+                doc = bs4.BeautifulSoup(fh, 'html.parser')
+            except Exception as e:
+                raise exc.Error(f'Not a valid html file: {val}\n{e}') from None
+            if doc.find() is None:
+                raise exc.Error(f'Not a valid html file, missing html tags: {val}')

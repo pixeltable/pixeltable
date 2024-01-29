@@ -4,6 +4,7 @@ import os
 from typing import Optional, Dict, Any
 from pathlib import Path
 import sqlalchemy as sql
+import uuid
 
 import http.server
 import socketserver
@@ -267,6 +268,9 @@ class Env:
 
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
+
+    def create_tmp_path(self, extension: str = '') -> Path:
+        return self._tmp_dir / f'{uuid.uuid4()}{extension}'
 
     @property
     def home(self) -> Path:

@@ -6,7 +6,7 @@ from uuid import UUID
 import concurrent
 import logging
 import urllib
-import os
+from pathlib import Path
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -40,7 +40,7 @@ class CachePrefetchNode(ExecNode):
         # collect external URLs that aren't already cached, and set DataRow.file_paths for those that are
         file_cache = FileCache.get()
         cache_misses: List[Tuple[exprs.DataRow, exprs.ColumnSlotIdx]] = []
-        missing_url_rows: Dict[str, List[exprs.DataRow]] = defaultdict(list)
+        missing_url_rows: Dict[str, List[exprs.DataRow]] = defaultdict(list)  # URL -> rows in which it's missing
         for row in input_batch:
             for info in self.file_col_info:
                 url = row.file_urls[info.slot_idx]
@@ -82,21 +82,32 @@ class CachePrefetchNode(ExecNode):
         url = row.file_urls[slot_idx]
         parsed = urllib.parse.urlparse(url)
         assert parsed.scheme != '' and parsed.scheme != 'file'
-        if parsed.scheme == 's3':
-            from pixeltable.utils.s3 import get_client
-            with self.boto_client_lock:
-                if self.boto_client is None:
-                    self.boto_client = get_client()
-            tmp_path = env.Env.get().tmp_dir / os.path.basename(parsed.path)
-            try:
-                self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
-                return tmp_path
-            except Exception as e:
-                # we want to add the file url to the exception message
-                exc = excs.Error(f'Failed to download {url}: {e}')
-                self.row_builder.set_exc(row, slot_idx, exc)
-                if not self.ctx.ignore_errors:
-                    raise exc from None  # suppress original exception
-                return None
-        assert False, f'Unsupported URL scheme: {parsed.scheme}'
+        # preserve the file extension, if there is one
+        extension = ''
+        if parsed.path != '':
+            p = Path(urllib.parse.unquote(parsed.path))
+            extension = p.suffix
+        tmp_path = env.Env.get().create_tmp_path(extension=extension)
+        try:
+            if parsed.scheme == 's3':
+                from pixeltable.utils.s3 import get_client
+                with self.boto_client_lock:
+                    if self.boto_client is None:
+                        self.boto_client = get_client()
+                    self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
+                    return tmp_path
+            elif parsed.scheme == 'http' or parsed.scheme == 'https':
+                with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
+                    data = resp.read()
+                    f.write(data)
+            else:
+                assert False, f'Unsupported URL scheme: {parsed.scheme}'
+            return tmp_path
+        except Exception as e:
+            # we want to add the file url to the exception message
+            exc = excs.Error(f'Failed to download {url}: {e}')
+            self.row_builder.set_exc(row, slot_idx, exc)
+            if not self.ctx.ignore_errors:
+                raise exc from None  # suppress original exception
+        return None
 

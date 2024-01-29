@@ -4,7 +4,7 @@ from .catalog import Column, Table, InsertableTable, View
 from .exceptions import Error, Error
 from .type_system import \
     ColumnType, StringType, IntType, FloatType, BoolType,  TimestampType, JsonType, ArrayType, ImageType, VideoType, \
-    AudioType
+    AudioType, DocumentType
 from .func import Function, udf, make_library_function, make_aggregate_function, make_library_aggregate_function
 from .functions import make_video
 from .functions.pil import draw_boxes
@@ -32,6 +32,7 @@ __all__ = [
     'ImageType',
     'VideoType',
     'AudioType',
+    'DocumentType',
     'Function',
     'help',
     'udf',

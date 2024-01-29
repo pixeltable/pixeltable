@@ -511,7 +511,7 @@ class Table(SchemaObject):
             if col.primary_key:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
             if col.col_type.is_media_type():
-                raise excs.Error(f'Column {col_name} has type image/video/audio and cannot be updated')
+                raise excs.Error(f'Column {col_name} has type image/video/audio/document and cannot be updated')
 
             # make sure that the value is compatible with the column type
             # check if this is a literal

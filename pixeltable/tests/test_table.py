@@ -15,9 +15,10 @@ import pixeltable.functions as ptf
 from pixeltable import exceptions as exc
 from pixeltable import catalog
 from pixeltable.type_system import \
-    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType
+    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
+    DocumentType
 from pixeltable.tests.utils import \
-    make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, assert_resultset_eq
+    make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_html_files, assert_resultset_eq
 from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.filecache import FileCache
 from pixeltable.iterators import FrameIterator
@@ -197,7 +198,10 @@ class TestTable:
             cl.create_table('test', {'c1': StringType(nullable=True)}, primary_key='c1')
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
-    def check_bad_media(self, test_client: pt.Client, rows: List[Tuple[str, bool]], col_type: pt.ColumnType) -> None:
+    def check_bad_media(
+            self, test_client: pt.Client, rows: List[Tuple[str, bool]], col_type: pt.ColumnType,
+            validate_local_path: bool = True
+    ) -> None:
         schema = {
             'media': col_type,
             'is_bad_media': BoolType(nullable=False),
@@ -209,13 +213,13 @@ class TestTable:
         assert total_bad_rows > 0
 
         # Mode 1: Validation error on bad input (default)
-        with pytest.raises(exc.Error) as exc_info:
+        # we ignore the exact error here, because it depends on the media type
+        with pytest.raises(exc.Error):
             tbl.insert(rows, fail_on_exception=True)
-        # paths for corrupt media files contain the substring 'bad'
-        assert 'bad' in str(exc_info.value)
 
         # Mode 2: ignore_errors=True, store error information in table
         status = tbl.insert(rows, fail_on_exception=False)
+        _ = tbl.select(tbl.media, tbl.media.errormsg).show()
         assert status.num_rows == len(rows)
         assert status.num_excs == total_bad_rows
 
@@ -232,10 +236,16 @@ class TestTable:
         assert tbl.where((tbl.is_bad_media == False) & (tbl.media.fileurl == None)).count() == 0
         assert tbl.where((tbl.is_bad_media == True) & (tbl.media.fileurl != None)).count() == 0
 
+        if validate_local_path:
+            # check that tbl.media is a valid local path
+            paths = tbl.where(tbl.media != None).select(output=tbl.media).collect()['output']
+            for path in paths:
+                assert os.path.exists(path) and os.path.isfile(path)
+
     def test_validate_image(self, test_client: pt.Client) -> None:
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
-        self.check_bad_media(test_client, rows, ImageType(nullable=True))
+        self.check_bad_media(test_client, rows, ImageType(nullable=True), validate_local_path=False)
 
     def test_validate_video(self, test_client: pt.Client) -> None:
         files = get_video_files(include_bad_video=True)
@@ -247,12 +257,26 @@ class TestTable:
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
         self.check_bad_media(test_client, rows, AudioType(nullable=True))
 
+    def test_validate_docs(self, test_client: pt.Client) -> None:
+        files, is_valid = get_html_files(include_invalid=True)
+        rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(files, is_valid)]
+        self.check_bad_media(test_client, rows, DocumentType(nullable=True))
+
     def test_validate_external_url(self, test_client: pt.Client) -> None:
         rows = [
-            {'media': 's3://open-images-dataset/validation/bad_url.jpg', 'is_bad_media': True},
-            {'media': 's3://open-images-dataset/validation/3c02ca9ec9b2b77b.jpg', 'is_bad_media': False},
-            {'media': 's3://open-images-dataset/validation/3c13e0015b6c3bcf.jpg', 'is_bad_media': False},
-            {'media': 's3://open-images-dataset/validation/3ba5380490084697.jpg', 'is_bad_media': False},
+            {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
+            {'media': 'https://archive.random.org/download?file=2024-01-28.bin', 'is_bad_media': True},  # 403 error
+            {'media': 's3://open-images-dataset/validation/3c02ca9ec9b2b77b.jpg', 'is_bad_media': True},  # wrong media
+            # test s3 url
+            {
+                'media': 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4',
+                'is_bad_media': False
+            },
+            # test http url
+            {
+                'media': 'https://github.com/mkornacker/pixeltable/raw/master/pixeltable/tests/data/videos/bangkok.mp4',
+                'is_bad_media': False
+            },
 
         ]
         self.check_bad_media(test_client, rows, VideoType(nullable=True))

@@ -52,7 +52,7 @@ class ColumnRef(Expr):
         if name == ColumnPropertyRef.Property.FILEURL.name.lower() \
                 or name == ColumnPropertyRef.Property.LOCALPATH.name.lower():
             if not self.col.col_type.is_media_type():
-                raise excs.Error(f'{name} only valid for image/video/audio columns: {self}')
+                raise excs.Error(f'{name} only valid for image/video/audio/document columns: {self}')
             if self.col.is_computed and not self.col.is_stored:
                 raise excs.Error(f'{name} not valid for computed unstored columns: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
