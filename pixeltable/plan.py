@@ -511,9 +511,11 @@ class Planner:
             cls, tbl_id: UUID, output_exprs: List[exprs.Expr], row_builder: exprs.RowBuilder, input: exec.ExecNode
     ) -> exec.ExecNode:
         """Returns a CachePrefetchNode into the plan if needed, otherwise returns input"""
-        output_dependencies = row_builder.get_dependencies(output_exprs)
+        # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
+        # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
+        # aren't explicitly captured as dependencies
         media_col_refs = [
-            e for e in output_dependencies if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()
+            e for e in list(row_builder.unique_exprs) if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()
         ]
         if len(media_col_refs) == 0:
             return input

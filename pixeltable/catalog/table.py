@@ -106,6 +106,11 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self.tbl_version_path).order_by(*items, asc=asc)
 
+    def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+        """Return rows from this table.
+        """
+        return self.df().collect()
+
     def show(
             self, *args, **kwargs
     ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]

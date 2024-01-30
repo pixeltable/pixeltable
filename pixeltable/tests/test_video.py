@@ -63,8 +63,18 @@ class TestVideo:
         video_filepaths = get_video_files()
         cl = test_client
         base_t, view_t = self.create_tbls(cl)
-        base_t.insert([{'video': p} for p in video_filepaths])
-        res = view_t.where(view_t.video == video_filepaths[0]).show(0)
+        # also include an external file, to make sure that prefetching works
+        url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
+        video_filepaths.append(url)
+        status = base_t.insert([{'video': p} for p in video_filepaths])
+        assert status.num_excs == 0
+        # make sure that we can get the frames back
+        res = view_t.select(view_t.frame).collect().to_pandas()
+        assert res['frame'].notnull().all()
+        # make sure we can select a specific video
+        all_rows = view_t.select(url=view_t.video.fileurl).collect().to_pandas()
+        res = view_t.where(view_t.video == url).collect()
+        assert len(res) == len(all_rows[all_rows.url == url])
 
     def test_fps(self, test_client: pt.client) -> None:
         cl = test_client
