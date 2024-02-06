@@ -76,10 +76,11 @@ class StoreBase:
                 all_cols.append(col.sa_idx_col)
 
             # we create an index for:
-            # - scalar columns
+            # - scalar columns (except for strings, because long strings can't be used for B-tree indices)
             # - non-computed video and image columns (they will contain external paths/urls that users might want to
             #   filter on)
-            if col.col_type.is_scalar_type() or col.col_type.is_media_type() and not col.is_computed:
+            if (col.col_type.is_scalar_type() and not col.col_type.is_string_type()) \
+                    or (col.col_type.is_media_type() and not col.is_computed):
                 # index names need to be unique within the Postgres instance
                 idx_name = f'idx_{col.id}_{self.tbl_version.id.hex}'
                 idxs.append(sql.Index(idx_name, col.sa_col))

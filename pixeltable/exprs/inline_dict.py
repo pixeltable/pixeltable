@@ -66,6 +66,10 @@ class InlineDict(Expr):
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         return super()._id_attrs() + [('dict_items', self.dict_items)]
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the original dict used to construct this"""
+        return {key: val if idx == -1 else self.components[idx] for key, idx, val in self.dict_items}
+
     def sql_expr(self) -> Optional[sql.ClauseElement]:
         return None
 

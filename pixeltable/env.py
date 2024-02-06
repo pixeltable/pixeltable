@@ -1,10 +1,13 @@
 from __future__ import annotations
 import datetime
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+import types
 from pathlib import Path
 import sqlalchemy as sql
 import uuid
+import importlib
+import importlib.util
 
 import http.server
 import socketserver
@@ -18,6 +21,7 @@ import platform
 import glob
 
 from pixeltable import metadata
+import pixeltable.exceptions as excs
 
 class Env:
     """
@@ -44,10 +48,16 @@ class Env:
         self._db_name: Optional[str] = None
         self._db_server: Optional[pgserver.PostgresServer] = None
         self._db_url: Optional[str] = None
+
+        # info about installed packages that are utilized by some parts of the code;
+        # package name -> version; version == []: package is installed, but we haven't determined the version yet
+        self._installed_packages: Dict[str, Optional[List[int]]] = {}
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
+        self._spacy_nlp: Optional[Any] = None  # spacy.Language
         self._httpd : Optional[socketserver.TCPServer] = None
         self._http_address : Optional[str] = None
+
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
         self._logger.setLevel(logging.DEBUG)  # allow everything to pass, we filter in _log_filter()
@@ -251,20 +261,50 @@ class Env:
     def _set_up_runtime(self) -> None:
         """Check for and start runtime services"""
         self._start_web_server()
+        self._check_installed_packages()
 
-        try:
-            import nos
-            self._create_nos_client()
-        except ImportError:
-            pass
-        try:
-            import openai
+    def _check_installed_packages(self) -> None:
+        def check(package: str) -> None:
+            if importlib.util.find_spec(package) is not None:
+                self._installed_packages[package] = []
+            else:
+                self._installed_packages[package] = None
+
+        check('torch')
+        check('torchvision')
+        check('boto3')
+        check('pyarrow')
+        check('spacy')  # TODO: deal with en-core-web-sm
+        if self._installed_packages['spacy'] is not None:
+            import spacy
+            self._spacy_nlp = spacy.load('en_core_web_sm')
+        check('tiktoken')
+        check('openai')
+        if self._installed_packages['openai'] is not None:
             self._create_openai_client()
-        except ImportError:
-            pass
+        check('nos')
+        if self._installed_packages['nos'] is not None:
+            self._create_nos_client()
 
-    def _is_apple_cpu(self) -> bool:
-        return sys.platform == 'darwin' and platform.processor() == 'arm'
+    def require_package(self, package: str, min_version: Optional[List[int]] = None) -> None:
+        assert package in self._installed_packages
+        if self._installed_packages[package] is None:
+            raise excs.Error(f'Package {package} is not installed')
+        if min_version is None:
+            return
+
+        # check whether we have a version >= the required one
+        if self._installed_packages[package] == []:
+            m = importlib.import_module(package)
+            module_version = [int(x) for x in m.__version__.split('.')]
+            self._installed_packages[package] = module_version
+        installed_version = self._installed_packages[package]
+        if len(min_version) < len(installed_version):
+            normalized_min_version = min_version + [0] * (len(installed_version) - len(min_version))
+        if any([a < b for a, b in zip(installed_version, normalized_min_version)]):
+            raise excs.Error((
+                f'The installed version of package {package} is {".".join([str[v] for v in installed_version])}, '
+                f'but version  >={".".join([str[v] for v in min_version])} is required'))
 
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
@@ -309,3 +349,8 @@ class Env:
     @property
     def openai_client(self) -> Any:
         return self._openai_client
+
+    @property
+    def spacy_nlp(self) -> Any:
+        assert self._spacy_nlp is not None
+        return self._spacy_nlp

@@ -608,18 +608,9 @@ class DataFrame:
             modify or remove any such values through selections and filters prior to calling to_pytorch_dataset().
         """
         # check dependencies
-        if importlib.util.find_spec('pyarrow') is None:
-            raise exc.Error('pyarrow >= 13 is not installed. Please install it, eg `pip install pyarrow`')
-        else:
-            import pyarrow as pa
-            if int(pa.__version__.split('.')[0]) < 13:
-                _logger.warning('pyarrow version %s is installed. pyarrow >= 13 is needed to handle array types',
-                                pa.__version__)
-
-        if importlib.util.find_spec('torch') is None:
-            raise exc.Error('torch is not installed. Please install it, eg `pip install torch`')
-        if importlib.util.find_spec('torchvision') is None:
-            raise exc.Error('torchvision is not installed. Please install it, eg `pip install torchvision`')
+        Env.get().require_package('pyarrow', [13])
+        Env.get().require_package('torch')
+        Env.get().require_package('torchvision')
 
         from pixeltable.utils.parquet import save_parquet # pylint: disable=import-outside-toplevel
         from pixeltable.utils.pytorch import PixeltablePytorchDataset # pylint: disable=import-outside-toplevel

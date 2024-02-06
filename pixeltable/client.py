@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Tuple, Type, Any, Union
+from typing import List, Optional, Dict, Type, Any, Union
 import pandas as pd
 import logging
 import dataclasses
@@ -104,7 +104,7 @@ class Client:
         return '.'.join(path_elements)
 
     def create_table(
-            self, path_str: str, schema: Dict[str, Any], primary_key: Union[str, List[str]] = [],
+            self, path_str: str, schema: Dict[str, Any], primary_key: Optional[Union[str, List[str]]] = None,
             num_retained_versions: int = 10,
     ) -> catalog.InsertableTable:
         """Create a new `InsertableTable`.
@@ -133,7 +133,9 @@ class Client:
         self.catalog.paths.check_is_valid(path, expected=None)
         dir = self.catalog.paths[path.parent]
 
-        if isinstance(primary_key, str):
+        if primary_key is None:
+            primary_key = []
+        elif isinstance(primary_key, str):
             primary_key = [primary_key]
         else:
             if not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
@@ -146,7 +148,8 @@ class Client:
         return tbl
 
     def create_view(
-            self, path_str: str, base: catalog.Table, schema: Dict[str, Any] = {}, filter: Optional[Predicate] = None,
+            self, path_str: str, base: catalog.Table, *, schema: Optional[Dict[str, Any]] = None,
+            filter: Optional[Predicate] = None,
             is_snapshot: bool = False, iterator_class: Optional[Type[ComponentIterator]] = None,
             iterator_args: Optional[Dict[str, Any]] = None, num_retained_versions: int = 10,
             ignore_errors: bool = False) -> catalog.View:
@@ -196,6 +199,8 @@ class Client:
                 raise e
         dir = self.catalog.paths[path.parent]
 
+        if schema is None:
+            schema = {}
         view = catalog.View.create(
             dir.id, path.name, base=base, schema=schema, predicate=filter, is_snapshot=is_snapshot,
             iterator_cls=iterator_class, iterator_args=iterator_args, num_retained_versions=num_retained_versions)

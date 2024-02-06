@@ -20,7 +20,7 @@ class ComponentIterator(ABC):
 
     @classmethod
     @abstractmethod
-    def output_schema(cls) -> Tuple[Dict[str, ColumnType], List[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, ColumnType], List[str]]:
         """Specify the dictionary returned by next() and a list of unstored column names
 
         Returns:
@@ -45,9 +45,4 @@ class ComponentIterator(ABC):
     @abstractmethod
     def set_pos(self, pos: int) -> None:
         """Set the iterator position to pos"""
-        raise NotImplementedError
-
-    @abstractmethod
-    def len(self) -> int:
-        """Return the number of components in the iterator"""
         raise NotImplementedError
