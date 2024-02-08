@@ -43,6 +43,7 @@ class TableVersion:
         self.name = tbl_md.name
         self.base = base
         self.version = version
+        self.attributes = schema_version_md.attributes
         self.schema_version = schema_version_md.schema_version
         if tbl_md.current_version == self.version:
             self.next_col_id = tbl_md.next_col_id
@@ -52,7 +53,6 @@ class TableVersion:
             self.next_col_id = -1
             self.next_rowid = -1
         self.column_history = tbl_md.column_history
-        self.parameters = tbl_md.parameters
 
         # view-specific initialization
         from pixeltable import exprs
@@ -100,7 +100,7 @@ class TableVersion:
     @classmethod
     def create(
             cls, dir_id: UUID, name: str, cols: List[Column],
-            base: Optional[TableVersion], predicate: Optional['exprs.Predicate'], num_retained_versions: int,
+            base: Optional[TableVersion], predicate: Optional['exprs.Predicate'], num_retained_versions: int, description: str,
             iterator_cls: Optional[Type[ComponentIterator]],
             iterator_args: Optional['exprs.InlineDict'],
             session: orm.Session
@@ -117,8 +117,6 @@ class TableVersion:
             if col.is_computed:
                 col.check_value_expr()
 
-        params = schema.TableParameters(num_retained_versions)
-
         ts = time.time()
         # create schema.MutableTable
         column_history = {
@@ -127,7 +125,7 @@ class TableVersion:
         }
         iterator_class_fqn = f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None else None
         table_md = schema.TableMd(
-            name=name, parameters=params, current_version=0, current_schema_version=0,
+            name=name, current_version=0, current_schema_version=0,
             next_col_id=len(cols), next_row_id=0, column_history=column_history,
             predicate=predicate.as_dict() if predicate is not None else None,
             iterator_class_fqn=iterator_class_fqn,
@@ -157,8 +155,9 @@ class TableVersion:
                 pos=pos, name=col.name, col_type=col.col_type.as_dict(),
                 is_pk=col.primary_key, value_expr=value_expr_dict, stored=col.stored, is_indexed=col.is_indexed)
 
+        attributes = schema.TableAttributes(num_retained_versions, description)
         schema_version_md = schema.TableSchemaVersionMd(
-            schema_version=0, preceding_schema_version=None, columns=column_md)
+            schema_version=0, preceding_schema_version=None, columns=column_md, attributes=attributes)
         schema_version_record = schema.TableSchemaVersion(
             tbl_id=tbl_record.id, schema_version=0, md=dataclasses.asdict(schema_version_md))
         session.add(schema_version_record)
@@ -176,7 +175,7 @@ class TableVersion:
                 .scalar()
             if num_references > 0:
                 raise exc.Error((
-                    f'Cannot drop table {self.name}, which has {num_references} snapshot'
+                    f'Cannot drop table {self.name}, which has {num_references} snapshot(s)'
                     f'{"s" if num_references > 1 else ""}'
                 ))
             # check if we have views
@@ -185,7 +184,7 @@ class TableVersion:
                 .scalar()
             if num_references > 0:
                 raise exc.Error((
-                    f'Cannot drop table {self.name}, which has {num_references} views'
+                    f'Cannot drop table {self.name}, which has {num_references} view(s)'
                     f'{"s" if num_references > 1 else ""}'
                 ))
 
@@ -738,7 +737,7 @@ class TableVersion:
         return schema.TableMd(
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
             next_col_id=self.next_col_id, next_row_id=self.next_rowid, column_history=self.column_history,
-            parameters=self.parameters, predicate=self.predicate.as_dict() if self.predicate is not None else None,
+            predicate=self.predicate.as_dict() if self.predicate is not None else None,
             iterator_class_fqn=iterator_class_fqn,
             iterator_args = self.iterator_args.as_dict() if self.iterator_args is not None else None,
         )
@@ -756,7 +755,7 @@ class TableVersion:
         # preceding_schema_version to be set by the caller
         return schema.TableSchemaVersionMd(
             schema_version=self.schema_version, preceding_schema_version=preceding_schema_version,
-            columns=column_md)
+            columns=column_md, attributes=self.attributes)
 
     def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
         """Return a ColumnRef for the given column name."""

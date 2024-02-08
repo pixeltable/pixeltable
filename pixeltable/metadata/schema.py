@@ -76,9 +76,10 @@ class ColumnHistory:
 
 
 @dataclasses.dataclass
-class TableParameters:
+class TableAttributes:
     # garbage-collect old versions beyond this point, unless they are referenced in a snapshot
     num_retained_versions: int = 10
+    description: str = None
 
 
 @dataclasses.dataclass
@@ -98,7 +99,6 @@ class TableMd:
     next_row_id: int
 
     column_history: Dict[int, ColumnHistory]  # col_id -> ColumnHistory
-    parameters: TableParameters
 
     # filter predicate applied to the base table; view-only
     predicate: Optional[Dict]
@@ -164,6 +164,7 @@ class TableSchemaVersionMd:
     schema_version: int
     preceding_schema_version: Optional[int]
     columns: Dict[int, SchemaColumn]  # col_id -> SchemaColumn
+    attributes: TableAttributes
 
 
 # versioning: each table schema change results in a new record

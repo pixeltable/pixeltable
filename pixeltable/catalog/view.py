@@ -34,7 +34,7 @@ class View(MutableTable):
     @classmethod
     def create(
             cls, dir_id: UUID, name: str, base: TableVersion, schema: Dict[str, ts.ColumnType],
-            predicate: 'exprs.Predicate', num_retained_versions: int, iterator_cls: Optional[Type[ComponentIterator]],
+            predicate: 'exprs.Predicate', num_retained_versions: int, description: str, iterator_cls: Optional[Type[ComponentIterator]],
             iterator_args: Optional[Dict]
     ) -> View:
         columns = cls._create_columns(schema)
@@ -83,7 +83,7 @@ class View(MutableTable):
         with orm.Session(Env.get().engine, future=True) as session:
             from pixeltable.exprs import InlineDict
             tbl_version = TableVersion.create(
-                dir_id, name, columns, base, predicate, num_retained_versions, iterator_cls,
+                dir_id, name, columns, base, predicate, num_retained_versions, description, iterator_cls,
                 InlineDict(iterator_args) if iterator_args is not None else None, session)
             view = cls(dir_id, tbl_version)
 

@@ -119,7 +119,12 @@ class Table(SchemaObject):
             print(self.__repr__())
 
     def __repr__(self) -> str:
-        return self._description().to_string(index=False)
+        structure_as_str = self._description().to_string(index=False)
+        if self.tbl_version.attributes.description is not None:
+            descr = f'{self.tbl_version.attributes.description}\n'
+        else:
+            descr = ''
+        return f'table \'{self.name}\'\n{descr}{structure_as_str}'
 
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()

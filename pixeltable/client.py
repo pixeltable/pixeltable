@@ -223,7 +223,12 @@ class Client:
         return '.'.join(path_elements)
 
     def create_table(
-            self, path_str: str, schema: Dict[str, Any], primary_key: Union[str, List[str]] = [], num_retained_versions: int = 10,
+        self,
+        path_str: str,
+        schema: Dict[str, Any],
+        primary_key: Union[str, List[str]] = [],
+        num_retained_versions: int = 10,
+        description: str = ''
     ) -> InsertableTable:
         """Create a new :py:class:`InsertableTable`.
 
@@ -258,7 +263,8 @@ class Client:
                 raise exc.Error('primary_key must be a single column name or a list of column names')
 
         tbl = InsertableTable.create(
-            dir.id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions)
+            dir.id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, description=description
+        )
         self.tbl_versions[(tbl.id, None)] = tbl.tbl_version
         self.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
@@ -303,7 +309,7 @@ class Client:
     def create_view(
             self, path_str: str, base: Table, schema: Dict[str, Any] = {}, filter: Optional[Predicate] = None,
             iterator_class: Optional[Type[ComponentIterator]] = None, iterator_args: Optional[Dict[str, Any]] = None,
-            num_retained_versions: int = 10, ignore_errors: bool = False) -> View:
+            num_retained_versions: int = 10, description: str = None, ignore_errors: bool = False) -> View:
         """Create a new :py:class:`View`.
 
         Args:
@@ -341,7 +347,7 @@ class Client:
 
         view = View.create(
             dir.id, path.name, base.tbl_version, schema, predicate=filter, iterator_cls=iterator_class,
-            iterator_args=iterator_args, num_retained_versions=num_retained_versions)
+            iterator_args=iterator_args, num_retained_versions=num_retained_versions, description=description)
         self.tbl_versions[(view.id, None)] = view.tbl_version
         self.paths[path] = view
         _logger.info(f'Created view {path_str}')

@@ -30,7 +30,7 @@ class InsertableTable(MutableTable):
     @classmethod
     def create(
             cls, dir_id: UUID, name: str, schema: Dict[str, ts.ColumnType], primary_key: List[str],
-            num_retained_versions: int,
+            num_retained_versions: int, description: str
     ) -> InsertableTable:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
@@ -45,7 +45,7 @@ class InsertableTable(MutableTable):
 
         with orm.Session(Env.get().engine, future=True) as session:
             tbl_version = TableVersion.create(
-                dir_id, name, columns, None, None, num_retained_versions, None, None, session)
+                dir_id, name, columns, None, None, num_retained_versions, description, None, None, session)
             tbl = cls(dir_id, tbl_version)
             session.commit()
             _logger.info(f'created table {name}, id={tbl_version.id}')

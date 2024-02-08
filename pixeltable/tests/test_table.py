@@ -365,12 +365,12 @@ class TestTable:
         view.add_column(c5=window_fn(view.frame_idx, group_by=view.video))
         assert view.cols_by_name['c5'].is_stored
 
-        params = view.parameters
+        attributes = view.attributes
         # reload to make sure that metadata gets restored correctly
         cl = pt.Client()
         tbl = cl.get_table('test_tbl')
         view = cl.get_table('test_view')
-        assert view.parameters == params
+        assert view.attributes == attributes
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         status = tbl.insert([{'payload': 1, 'video': url}])
