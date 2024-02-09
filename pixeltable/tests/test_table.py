@@ -84,6 +84,15 @@ class TestTable:
         with pytest.raises(exc.Error):
             cl.drop_table('.test2')
 
+    def test_attributes(self, test_client: pt.Client) -> None:
+        cl = test_client
+        schema = {'c': StringType(nullable=False)}
+        num_retained_versions = 20
+        description = "This is a table."
+        tbl = cl.create_table('test_attrs', schema, num_retained_versions=num_retained_versions, description=description)
+        assert(tbl.tbl_version.attributes.num_retained_versions == num_retained_versions)
+        assert(tbl.tbl_version.attributes.description == description)
+
     def test_image_table(self, test_client: pt.Client) -> None:
         n_sample_rows = 20
         cl = test_client
