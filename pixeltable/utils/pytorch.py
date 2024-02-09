@@ -22,8 +22,8 @@ def _cumsum(lst):
 
 class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
     """
-    PyTorch dataset interface for pixeltable data. 
-    NB. This class must inherit from torch.utils.data.IterableDataset for it 
+    PyTorch dataset interface for pixeltable data.
+    NB. This class must inherit from torch.utils.data.IterableDataset for it
     to work with torch.utils.data.DataLoader.
     """
     def __init__(
@@ -70,20 +70,37 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
         if self.column_types[k].is_image_type():
             assert isinstance(v, bytes)
             im = PIL.Image.open(io.BytesIO(v))
+            arr = np.array(im) # will copy data to guarantee "WRITEABLE" flag assertion below.
+            assert arr.flags["WRITEABLE"]
+
             if self.image_format == "np":
-                return np.array(im)
-            else:
-                assert self.image_format == "pt"
-                import torchvision  # pylint: disable = import-outside-toplevel
-                return torchvision.transforms.ToTensor()(im)
+                return arr
+
+            assert self.image_format == "pt"
+            import torchvision  # pylint: disable = import-outside-toplevel
+
+            # use arr instead of im in ToTensor() to guarantee array input
+            # to torch.from_numpy is writable. Using im is a suspected cause of
+            # https://github.com/mkornacker/pixeltable/issues/69
+            return torchvision.transforms.ToTensor()(arr)
         elif self.column_types[k].is_json_type():
             assert isinstance(v, str)
             return json.loads(v)
+        elif self.column_types[k].is_array_type():
+            assert isinstance(v, np.ndarray)
+            # WRITEABLE is required for torch collate function, or undefined behavior
+            if not v.flags["WRITEABLE"]:
+                vout = v.copy()
+                assert vout.flags["WRITEABLE"]
+                return vout
+            else:
+                return v
         elif self.column_types[k].is_timestamp_type():
             # pytorch default collation only supports numeric types
             assert isinstance(v, datetime.datetime)
             return v.timestamp()
         else:
+            assert not isinstance(v, np.ndarray) # all array outputs should be handled above
             return v
 
     def __iter__(self) -> Generator[Dict[str, Any], None, None]:

@@ -73,7 +73,7 @@ class ImageMemberAccess(Expr):
         return {'member_name': self.member_name, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'member_name' in d
         assert len(components) == 1
         return cls(d['member_name'], components[0])

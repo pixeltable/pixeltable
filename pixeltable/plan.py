@@ -39,7 +39,7 @@ class Analyzer:
     """Class to perform semantic analysis of a query and to store the analysis state"""
 
     def __init__(
-            self, tbl: catalog.TableVersion, select_list: List[exprs.Expr],
+            self, tbl: catalog.TableVersionPath, select_list: List[exprs.Expr],
             where_clause: Optional[exprs.Predicate] = None, group_by_clause: List[exprs.Expr] = [],
             order_by_clause: List[Tuple[exprs.Expr, bool]] = []):
         self.tbl = tbl
@@ -195,7 +195,7 @@ class Planner:
     # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
     def create_count_stmt(
-            cls, tbl: catalog.TableVersion, where_clause: Optional[exprs.Predicate] = None
+            cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Predicate] = None
     ) -> sql.Select:
         stmt = sql.select(sql.func.count('*'))
         refd_tbl_ids: Set[UUID] = set()
@@ -257,7 +257,7 @@ class Planner:
 
     @classmethod
     def create_update_plan(
-            cls, tbl: catalog.TableVersion,
+            cls, tbl: catalog.TableVersionPath,
             update_targets: List[Tuple[catalog.Column, exprs.Expr]],
             recompute_targets: List[catalog.Column],
             where_clause: Optional[exprs.Predicate], cascade: bool
@@ -275,16 +275,19 @@ class Planner:
             - list of columns that are being recomputed
         """
         # retrieve all stored cols and all target exprs
+        assert isinstance(tbl, catalog.TableVersionPath)
+        target = tbl.tbl_version  # the one we need to update
         updated_cols = [col for col, _ in update_targets]
         if len(recompute_targets) > 0:
             recomputed_cols = recompute_targets.copy()
         else:
-            recomputed_cols = tbl.get_dependent_columns(updated_cols) if cascade else {}
+            recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else {}
             # we only need to recompute stored columns (unstored ones are substituted away)
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
-        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == tbl}
-        copied_cols = \
-            [col for col in tbl.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols]
+        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
+        copied_cols = [
+            col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
+        ]
         select_list = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend([expr for _, expr in update_targets])
 
@@ -297,7 +300,6 @@ class Planner:
 
         # we need to retrieve the PK columns of the existing rows
         plan = cls.create_query_plan(tbl, select_list, where_clause=where_clause, with_pk=True, ignore_errors=True)
-        plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
         all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
         [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
@@ -305,7 +307,7 @@ class Planner:
 
     @classmethod
     def create_view_update_plan(
-            cls, tbl: catalog.TableVersion, recompute_targets: List[catalog.Column]
+            cls, view: catalog.TableVersionPath, recompute_targets: List[catalog.Column]
     ) -> exec.ExecNode:
         """Creates a plan to materialize updated rows for a view, given that the base table has been updated.
         The plan:
@@ -322,10 +324,12 @@ class Planner:
             - list of qualified column names that are getting updated
             - list of columns that are being recomputed
         """
-        assert tbl.is_view()
+        assert isinstance(view, catalog.TableVersionPath)
+        assert view.is_view()
+        target = view.tbl_version  # the one we need to update
         # retrieve all stored cols and all target exprs
         recomputed_cols = set(recompute_targets.copy())
-        copied_cols = [col for col in tbl.cols if col.is_stored and not col in recomputed_cols]
+        copied_cols = [col for col in target.cols if col.is_stored and not col in recomputed_cols]
         select_list = [exprs.ColumnRef(col) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
         recomputed_exprs = \
@@ -334,9 +338,8 @@ class Planner:
 
         # we need to retrieve the PK columns of the existing rows
         plan = cls.create_query_plan(
-            tbl, select_list, where_clause=tbl.predicate, with_pk=True, ignore_errors=True,
-            exact_version_only=tbl.get_bases())
-        plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
+            view, select_list, where_clause=target.predicate, with_pk=True, ignore_errors=True,
+            exact_version_only=view.get_bases())
         [
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
             for i, col in enumerate(copied_cols + list(recomputed_cols))  # same order as select_list
@@ -349,7 +352,7 @@ class Planner:
 
     @classmethod
     def create_view_load_plan(
-            cls, view: catalog.TableVersion, propagates_insert: bool = False
+            cls, view: catalog.TableVersionPath, propagates_insert: bool = False
     ) -> Tuple[exec.ExecNode, int]:
         """Creates a query plan for populating a view.
 
@@ -361,46 +364,49 @@ class Planner:
             - root node of the plan
             - number of materialized values per row
         """
+        assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view()
         # things we need to materialize as DataRows:
         # 1. stored computed cols
         # - iterator columns are effectively computed, just not with a value_expr
         # - we can ignore stored non-computed columns because they have a default value that is supplied directly by
         #   the store
-        stored_cols = [c for c in view.cols if c.is_stored and (c.is_computed or view.is_iterator_column(c))]
+        target = view.tbl_version  # the one we need to populate
+        stored_cols = [c for c in target.cols if c.is_stored and (c.is_computed or target.is_iterator_column(c))]
         # 2. index values
-        indexed_cols = [c for c in view.cols if c.is_indexed]
+        indexed_cols = [c for c in target.cols if c.is_indexed]
         index_info: List[Tuple[catalog.Column, func.Function]] = []
         if len(indexed_cols) > 0:
             from pixeltable.functions.nos.image_embedding import openai_clip
-            index_info = [(c, openai_clip) for c in view.cols if c.is_indexed]
+            index_info = [(c, openai_clip) for c in target.cols if c.is_indexed]
         # 3. for component views: iterator args
-        iterator_args = [view.iterator_args] if view.iterator_args is not None else []
+        iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
         row_builder = exprs.RowBuilder(iterator_args, stored_cols, index_info, [])
 
         # execution plan:
-        # 1. materialize stored view columns that can be computed from the base
+        # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
         # 3. materialize stored view columns that haven't been produced by step 1
-        all_output_exprs = row_builder.default_eval_ctx.target_exprs
-        base_output_exprs = [e for e in all_output_exprs if e.is_bound_by(view.base)]
-        view_output_exprs = [e for e in all_output_exprs if e.is_bound_by(view) and not e.is_bound_by(view.base)]
+        base_output_exprs = [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by(view.base)]
+        view_output_exprs = [
+            e for e in row_builder.default_eval_ctx.target_exprs
+            if e.is_bound_by(view) and not e.is_bound_by(view.base)
+        ]
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
-        base_analyzer = Analyzer(view, base_output_exprs, where_clause=view.predicate)
+        base_analyzer = Analyzer(view, base_output_exprs, where_clause=target.predicate)
         plan = cls._create_query_plan(
             view.base, row_builder=row_builder, analyzer=base_analyzer, with_pk=True,
             exact_version_only=view.get_bases() if propagates_insert else [])
         exec_ctx = plan.ctx
-        if view.is_component_view():
-            plan = exec.ComponentIterationNode(view, plan)
+        if target.is_component_view():
+            plan = exec.ComponentIterationNode(target, plan)
         if len(view_output_exprs) > 0:
             plan = exec.ExprEvalNode(
-                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan)
+                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs,input=plan)
 
         stored_img_col_info = [info for info in row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
         plan.set_stored_img_cols(stored_img_col_info)
-        exec_ctx.set_pk_clause(view.base.store_tbl.pk_columns())
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         return plan, len(row_builder.default_eval_ctx.target_exprs)
@@ -505,9 +511,11 @@ class Planner:
             cls, tbl_id: UUID, output_exprs: List[exprs.Expr], row_builder: exprs.RowBuilder, input: exec.ExecNode
     ) -> exec.ExecNode:
         """Returns a CachePrefetchNode into the plan if needed, otherwise returns input"""
-        output_dependencies = row_builder.get_dependencies(output_exprs)
+        # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
+        # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
+        # aren't explicitly captured as dependencies
         media_col_refs = [
-            e for e in output_dependencies if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()
+            e for e in list(row_builder.unique_exprs) if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()
         ]
         if len(media_col_refs) == 0:
             return input
@@ -518,13 +526,14 @@ class Planner:
 
     @classmethod
     def create_query_plan(
-            cls, tbl: catalog.TableVersion, select_list: List[exprs.Expr] = [],
+            cls, tbl: catalog.TableVersionPath, select_list: List[exprs.Expr] = [],
             where_clause: Optional[exprs.Predicate] = None, group_by_clause: List[exprs.Expr] = [],
             order_by_clause: List[Tuple[exprs.Expr, bool]] = [], limit: Optional[int] = None,
             with_pk: bool = False, ignore_errors: bool = False, exact_version_only: List[catalog.TableVersion] = []
     ) -> exec.ExecNode:
         """Return plan for executing a query.
         Updates 'select_list' in place to make it executable.
+        TODO: make exact_version_only a flag and use the versions from tbl
         """
         analyzer = Analyzer(
             tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
@@ -536,7 +545,6 @@ class Planner:
         # with_pk: for now, we always retrieve the PK, because we need it for the file cache
         plan = cls._create_query_plan(
             tbl, row_builder, analyzer=analyzer, limit=limit, with_pk=True, exact_version_only=exact_version_only)
-        plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
         plan.ctx.ignore_errors = ignore_errors
         select_list.clear()
         select_list.extend(analyzer.select_list)
@@ -544,14 +552,16 @@ class Planner:
 
     @classmethod
     def _create_query_plan(
-            cls, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder, analyzer: Analyzer,
+            cls, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder, analyzer: Analyzer,
             limit: Optional[int] = None, with_pk: bool = False, exact_version_only: List[catalog.TableVersion] = []
     ) -> exec.ExecNode:
         """
         Args:
             plan_target: if not None, generate a plan that materializes only expression that can be evaluted
                 in the context of that table version (eg, if 'tbl' is a view, 'plan_target' might be the base)
+        TODO: make exact_version_only a flag and use the versions from tbl
         """
+        assert isinstance(tbl, catalog.TableVersionPath)
         is_agg_query = len(analyzer.group_by_clause) > 0 or len(analyzer.agg_fn_calls) > 0
         ctx = exec.ExecContext(row_builder)
 
@@ -562,7 +572,7 @@ class Planner:
             tbl, row_builder, select_list=sql_select_list, where_clause=analyzer.sql_where_clause,
             filter=analyzer.filter, similarity_clause=analyzer.similarity_clause, order_by_items=order_by_items,
             limit=sql_limit, set_pk=with_pk, exact_version_only=exact_version_only)
-        plan = cls._insert_prefetch_node(tbl.id, analyzer.select_list, row_builder, plan)
+        plan = cls._insert_prefetch_node(tbl.tbl_version.id, analyzer.select_list, row_builder, plan)
 
         if len(analyzer.group_by_clause) > 0 or len(analyzer.agg_fn_calls) > 0:
             # we're doing aggregation; the input of the AggregateNode are the grouping exprs plus the
@@ -582,7 +592,7 @@ class Planner:
             ctx.batch_size = 16
 
             plan = exec.AggregationNode(
-                tbl, row_builder, analyzer.group_by_clause, analyzer.agg_fn_calls, agg_input, input=plan)
+                tbl.tbl_version, row_builder, analyzer.group_by_clause, analyzer.agg_fn_calls, agg_input, input=plan)
             agg_output = analyzer.group_by_clause + analyzer.agg_fn_calls
             if not cls._is_contained_in(analyzer.select_list, agg_output):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
@@ -599,12 +609,13 @@ class Planner:
         return plan
 
     @classmethod
-    def analyze(cls, tbl: catalog.TableVersion, where_clause: exprs.Predicate) -> Analyzer:
+    def analyze(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Predicate) -> Analyzer:
         return Analyzer(tbl, [], where_clause=where_clause)
 
     @classmethod
     def create_add_column_plan(
-            cls, tbl: catalog.TableVersion, col: catalog.Column) -> Tuple[exec.ExecNode, Optional[int], Optional[int]]:
+            cls, tbl: catalog.TableVersionPath, col: catalog.Column
+    ) -> Tuple[exec.ExecNode, Optional[int], Optional[int]]:
         """Creates a plan for InsertableTable.add_column()
         Returns:
             plan: the plan to execute
@@ -612,6 +623,7 @@ class Planner:
             value_expr slot idx for the plan output (for computed cols)
             embedding slot idx for the plan output (for indexed image cols)
         """
+        assert isinstance(tbl, catalog.TableVersionPath)
         index_info: List[Tuple[catalog.Column, func.Function]] = []
         if col.is_indexed:
             from pixeltable.functions.nos.image_embedding import openai_clip
@@ -622,7 +634,6 @@ class Planner:
         plan = cls._create_query_plan(tbl, row_builder=row_builder, analyzer=analyzer, with_pk=True)
         plan.ctx.batch_size = 16
         plan.ctx.show_pbar = True
-        plan.ctx.set_pk_clause(tbl.store_tbl.pk_columns())
         plan.ctx.ignore_errors = True
 
         # we want to flush images

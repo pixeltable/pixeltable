@@ -27,11 +27,11 @@ class ColumnRef(Expr):
             col.tbl.is_component_view() and col.tbl.is_iterator_column(col) and not col.is_stored
         self.iter_arg_ctx: Optional[RowBuilder.EvalCtx] = None
         # number of rowid columns in the base table
-        self.base_rowid_len = len(col.tbl.base.store_tbl.rowid_columns()) if self.is_unstored_iter_col else 0
+        self.base_rowid_len = col.tbl.base.num_rowid_columns() if self.is_unstored_iter_col else 0
         self.base_rowid = [None] * self.base_rowid_len
         self.iterator: Optional[iters.ComponentIterator] = None
-        # index of the position column in the view's primary key
-        self.pos_idx: Optional[int] = len(col.tbl.store_tbl.rowid_columns()) - 1 if self.is_unstored_iter_col else None
+        # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
+        self.pos_idx: Optional[int] = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
         self.id = self._create_id()
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx) -> None:
@@ -52,7 +52,7 @@ class ColumnRef(Expr):
         if name == ColumnPropertyRef.Property.FILEURL.name.lower() \
                 or name == ColumnPropertyRef.Property.LOCALPATH.name.lower():
             if not self.col.col_type.is_media_type():
-                raise excs.Error(f'{name} only valid for image/video/audio columns: {self}')
+                raise excs.Error(f'{name} only valid for image/video/audio/document columns: {self}')
             if self.col.is_computed and not self.col.is_stored:
                 raise excs.Error(f'{name} not valid for computed unstored columns: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
@@ -77,7 +77,9 @@ class ColumnRef(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if not self.is_unstored_iter_col:
+            assert data_row.has_val[self.slot_idx]
             return
+
         # if this is a new base row, we need to instantiate a new iterator
         if self.base_rowid != data_row.pk[:self.base_rowid_len]:
             row_builder.eval(data_row, self.iter_arg_ctx)
@@ -89,13 +91,15 @@ class ColumnRef(Expr):
         data_row[self.slot_idx] = res[self.col.name]
 
     def _as_dict(self) -> Dict:
-        return {'tbl_id': str(self.col.tbl.id), 'col_id': self.col.id}
+        tbl = self.col.tbl
+        version = tbl.version if tbl.is_snapshot else None
+        return {'tbl_id': str(tbl.id), 'tbl_version': version, 'col_id': self.col.id}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
-        # resolve d['tbl_id'], which is either t or a base of t
-        origin = t.find_tbl(UUID(d['tbl_id']))
-        col_id = d['col_id']
-        assert col_id in origin.cols_by_id
-        return cls(origin.cols_by_id[col_id])
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+        tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
+        tbl_version = catalog.Catalog.get().tbl_versions[(tbl_id, version)]
+        assert col_id in tbl_version.cols_by_id
+        col = tbl_version.cols_by_id[col_id]
+        return cls(col)
 

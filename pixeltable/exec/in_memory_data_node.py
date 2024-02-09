@@ -16,7 +16,7 @@ _logger = logging.getLogger('pixeltable')
 class InMemoryDataNode(ExecNode):
     """Outputs in-memory data as a row batch of a particular table"""
     def __init__(
-            self, tbl: catalog.TableVersion, rows: List[Dict[str, Any]],
+            self, tbl: catalog.TableVersionPath, rows: List[Dict[str, Any]],
             row_builder: exprs.RowBuilder, start_row_id: int,
     ):
         super().__init__(row_builder, [], [], None)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 import base64
 import io
-import os
 from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 from pathlib import Path
 import pandas as pd
@@ -14,7 +13,9 @@ import json
 import hashlib
 import importlib.util
 import logging
+import mimetypes
 
+import pixeltable.type_system as ts
 import pixeltable.catalog as catalog
 from pixeltable.env import Env
 from pixeltable.type_system import ColumnType
@@ -39,26 +40,31 @@ def _format_img(img: object) -> str:
         img_base64 = base64.b64encode(buffer.getvalue()).decode()
         return f'<img src="data:image/jpeg;base64,{img_base64}">'
 
-def _format_video(video_file_path: str) -> str:
-    # turn absolute video_file_path into relative path, absolute paths don't work
-    p = Path(video_file_path)
-    root = Path(os.getcwd())
-    try:
-        rel_path = p.relative_to(root)
-        return f'<video controls><source src="{rel_path}" type="video/mp4"></video>'
-    except ValueError:
-        # display path as string
-        return video_file_path
+def _create_source_tag(file_path: str) -> str:
+    abs_path = Path(file_path)
+    assert abs_path.is_absolute()
+    src_url = f'{Env.get().http_address}/{abs_path}'
+    mime = mimetypes.guess_type(src_url)[0]
+    # if mime is None, the attribute string would not be valid html.
+    mime_attr = f'type="{mime}"' if mime is not None else ''
+    return f'<source src="{src_url}" {mime_attr} />'
+
+def _format_video(file_path: str) -> str:
+    return f'<video controls>{_create_source_tag(file_path)}</video>'
 
 def _format_audio(file_path: str) -> str:
-    # TODO: do we need to include type="audio/..." in <source>?
-    return f'<video controls><source src="{file_path}"></video>'
+    return f'<audio controls>{_create_source_tag(file_path)}</audio>'
 
 class DataFrameResultSet:
     def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
         self._rows = rows
         self._col_names = col_names
         self._col_types = col_types
+        self._formatters = {
+            ts.ImageType: _format_img,
+            ts.VideoType: _format_video,
+            ts.AudioType: _format_audio,
+        }
 
     def __len__(self) -> int:
         return len(self._rows)
@@ -73,13 +79,11 @@ class DataFrameResultSet:
         return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
-        img_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_image_type()]
-        video_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_video_type()]
-        audio_col_idxs = [i for i, col_type in enumerate(self._col_types) if col_type.is_audio_type()]
-        formatters = {self._col_names[i]: _format_img for i in img_col_idxs}
-        formatters.update({self._col_names[i]: _format_video for i in video_col_idxs})
-        formatters.update({self._col_names[i]: _format_audio for i in audio_col_idxs})
-        # escape=False: make sure <img> tags stay intact
+        formatters = {}
+        for col_name, col_type in zip(self._col_names, self._col_types):
+                if col_type.__class__ in self._formatters:
+                    formatters[col_name] = self._formatters[col_type.__class__]
+        
         # TODO: why does mypy complain about formatters having an incorrect type?
         return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)  # type: ignore[arg-type]
 
@@ -170,7 +174,7 @@ class AnalysisInfo:
 
 class DataFrame:
     def __init__(
-            self, tbl: catalog.TableVersion,
+            self, tbl: catalog.TableVersionPath,
             select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]] = None,
             where_clause: Optional[exprs.Predicate] = None,
             group_by_clause: Optional[List[exprs.Expr]] = None,
@@ -218,7 +222,7 @@ class DataFrame:
 
     @classmethod
     def _normalize_select_list(cls,
-        tbl: catalog.TableVersion, 
+        tbl: catalog.TableVersionPath,
         select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]],
     ) -> Tuple[List[exprs.Expr], List[str]]:
         """
@@ -265,10 +269,11 @@ class DataFrame:
         # construct a group-by clause if we're grouping by a table
         group_by_clause: List[exprs.Expr] = []
         if self.grouping_tbl is not None:
+            assert self.group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
-            assert num_rowid_cols <= len(self.tbl.store_tbl.rowid_columns())
-            group_by_clause = [exprs.RowidRef(self.tbl, idx) for idx in range(num_rowid_cols)]
+            assert num_rowid_cols <= len(self.tbl.tbl_version.store_tbl.rowid_columns())
+            group_by_clause = [exprs.RowidRef(self.tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         elif self.group_by_clause is not None:
             group_by_clause = self.group_by_clause
 
@@ -297,15 +302,15 @@ class DataFrame:
     def head(self, n: int = 10) -> DataFrameResultSet:
         if self.order_by_clause is not None:
             raise exc.Error(f'head() cannot be used with order_by()')
-        num_rowid_cols = len(self.tbl.store_tbl.rowid_columns())
-        order_by_clause = [exprs.RowidRef(self.tbl, idx) for idx in range(num_rowid_cols)]
+        num_rowid_cols = len(self.tbl.tbl_version.store_tbl.rowid_columns())
+        order_by_clause = [exprs.RowidRef(self.tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
     def tail(self, n: int = 10) -> DataFrameResultSet:
         if self.order_by_clause is not None:
             raise exc.Error(f'tail() cannot be used with order_by()')
-        num_rowid_cols = len(self.tbl.store_tbl.rowid_columns())
-        order_by_clause = [exprs.RowidRef(self.tbl, idx) for idx in range(num_rowid_cols)]
+        num_rowid_cols = len(self.tbl.tbl_version.store_tbl.rowid_columns())
+        order_by_clause = [exprs.RowidRef(self.tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
         result._reverse()
         return result
@@ -473,10 +478,10 @@ class DataFrame:
                 if len(grouping_items) > 1:
                     raise exc.Error(f'group_by(): only one table can be specified')
                 # we need to make sure that the grouping table is a base of self.tbl
-                base = self.tbl.find_tbl(item.tbl_version.id)
-                if base is None or base is self.tbl:
-                    raise exc.Error(f'group_by(): {item.tbl_version.name} is not a base table of {self.tbl.name}')
-                grouping_tbl = item.tbl_version
+                base = self.tbl.find_tbl_version(item.tbl_version_path.tbl_id())
+                if base is None or base.id == self.tbl.tbl_id():
+                    raise exc.Error(f'group_by(): {item.name} is not a base table of {self.tbl.tbl_name()}')
+                grouping_tbl = item.tbl_version_path.tbl_version
                 break
             if not isinstance(item, exprs.Expr):
                 raise exc.Error(f'Invalid expression in group_by(): {item}')
@@ -526,10 +531,11 @@ class DataFrame:
             Returns:
                 Dictionary representing this dataframe.
         """
+        tbl_versions = self.tbl.get_tbl_versions()
         d = {
             '_classname': 'DataFrame',
-            'tbl_id': str(self.tbl.id),
-            'tbl_version': self.tbl.version,
+            'tbl_ids': [str(t.id) for t in tbl_versions],
+            'tbl_versions': [t.version for t in tbl_versions],
             'select_list':
                 [(e.as_dict(), name) for (e, name) in self.select_list] if self.select_list is not None else None,
             'where_clause': self.where_clause.as_dict() if self.where_clause is not None else None,

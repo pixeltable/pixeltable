@@ -89,7 +89,7 @@ class InlineArray(Expr):
         return {'elements': self.elements, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'elements' in d
         arg: List[Any] = []
         for idx, val in d['elements']:

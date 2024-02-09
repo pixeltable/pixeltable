@@ -48,7 +48,7 @@ class TestDirs:
             cl.create_dir('t2.sub2')
 
         # new client: force loading from store
-        cl2 = pt.Client()
+        cl2 = pt.Client(reload=True)
 
         listing = cl2.list_dirs(recursive=True)
         assert listing == dirs
@@ -88,7 +88,7 @@ class TestDirs:
         assert cl.list_dirs('dir1.sub1') == []
 
         # check after reloading
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         assert cl.list_dirs('dir1.sub1') == []
 
     def test_move(self, test_client: pt.Client) -> None:
@@ -104,5 +104,5 @@ class TestDirs:
         assert cl.list_tables('dir2') == ['dir2.dir1.sub1.t2']
 
         # new client: force loading from store
-        cl2 = pt.Client()
+        cl2 = pt.Client(reload=True)
         assert cl2.list_tables('dir2') == ['dir2.dir1.sub1.t2']

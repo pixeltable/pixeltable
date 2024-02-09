@@ -186,7 +186,7 @@ class Expr(abc.ABC):
                 assert ref.col.value_expr is not None
                 result = result.substitute(ref, ref.col.value_expr)
 
-    def is_bound_by(self, tbl: catalog.TableVersion) -> bool:
+    def is_bound_by(self, tbl: catalog.TableVersionPath) -> bool:
         """Returns True if this expr can be evaluated in the context of tbl."""
         from .column_ref import ColumnRef
         col_refs = self.subexprs(ColumnRef)
@@ -194,6 +194,22 @@ class Expr(abc.ABC):
             if not tbl.has_column(col_ref.col):
                 return False
         return True
+
+    def retarget(self, tbl: catalog.TableVersionPath) -> Expr:
+        """Retarget ColumnRefs in this expr to the specific TableVersions in tbl."""
+        tbl_versions = {tbl_version.id: tbl_version for tbl_version in tbl.get_tbl_versions()}
+        return self._retarget(tbl_versions)
+
+    def _retarget(self, tbl_versions: Dict[UUID, catalog.TableVersion]) -> Expr:
+        from .column_ref import ColumnRef
+        if isinstance(self, ColumnRef):
+            target = tbl_versions[self.col.tbl.id]
+            assert self.col.id in target.cols_by_id
+            col = target.cols_by_id[self.col.id]
+            return ColumnRef(col)
+        for i in range (len(self.components)):
+            self.components[i] = self.components[i]._retarget(tbl_versions)
+        return self
 
     @classmethod
     def list_substitute(cls, expr_list: List[Expr], old: Expr, new: Expr) -> None:
@@ -347,11 +363,11 @@ class Expr(abc.ABC):
         return {}
 
     @classmethod
-    def deserialize(cls, dict_str: str, t: catalog.TableVersion) -> Expr:
-        return cls.from_dict(json.loads(dict_str), t)
+    def deserialize(cls, dict_str: str) -> Expr:
+        return cls.from_dict(json.loads(dict_str))
 
     @classmethod
-    def from_dict(cls, d: Dict, t: catalog.TableVersion) -> Expr:
+    def from_dict(cls, d: Dict) -> Expr:
         """
         Turn dict that was produced by calling Expr.as_dict() into an instance of the correct Expr subclass.
         """
@@ -360,15 +376,15 @@ class Expr(abc.ABC):
         type_class = getattr(exprs_module, d['_classname'])
         components: List[Expr] = []
         if 'components' in d:
-            components = [cls.from_dict(component_dict, t) for component_dict in d['components']]
-        return type_class._from_dict(d, components, t)
+            components = [cls.from_dict(component_dict) for component_dict in d['components']]
+        return type_class._from_dict(d, components)
 
     @classmethod
-    def from_dict_list(cls, dict_list: List[Dict], t: catalog.TableVersion) -> List[Expr]:
-        return [cls.from_dict(d, t) for d in dict_list]
+    def from_dict_list(cls, dict_list: List[Dict]) -> List[Expr]:
+        return [cls.from_dict(d) for d in dict_list]
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert False, 'not implemented'
 
     def __getitem__(self, index: object) -> Expr:

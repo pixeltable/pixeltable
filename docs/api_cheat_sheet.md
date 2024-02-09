@@ -17,7 +17,7 @@ cl = pxt.Client()
 |--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | Create a (mutable) table           | t = cl.[create_table][pixeltable.Client.create_table]('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})               |
 | Create a view           | t = cl.[create_view][pixeltable.Client.create_view]('view_name', base_tbl, schema={'col_1': pxt.StringType, ...}, filter=base_tbl.col > 10) |
-| Create a snapshot           | t = cl.[create_snapshot][pixeltable.Client.create_snapshot]('snapshot_name', 'tbl_name')                                                    |
+| Create a snapshot           | t = cl.[create_view][pixeltable.Client.create_view]('snapshot_name', t, is_snapshot=True)                                                   |
 
 The following functions apply to tables, views, and snapshots.
 
@@ -80,10 +80,10 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 | Print table schema | t.[describe][pixeltable.Table.describe]()                                                                                   |
 | Query a table | t.[select][pixeltable.Table.select](t.col2, t.col3 + 5).where(t.col1 == 'green').show()                                |
 | Insert rows into a table| t.[insert][pixeltable.InsertableTable.insert]([{'col1': 'green', ...}, {'col1': 'red', ...}, ...]) |
-| Add a column| t.[add_column][pixeltable.MutableTable.add_column](new_col_name=pxt.IntType())                                                       |
-| Rename a column| t.[rename_column][pixeltable.MutableTable.rename_column]('col_name', 'new_col_name')                                                    |
-| Drop a column| t.[drop_column][pixeltable.MutableTable.drop_column]('col_name')                                                                      |
-| Undo the last update operation (add/rename/drop column or insert)| t.[revert][pixeltable.MutableTable.revert]()                                                                                     |
+| Add a column| t.[add_column][pixeltable.Table.add_column](new_col_name=pxt.IntType())                                                       |
+| Rename a column| t.[rename_column][pixeltable.Table.rename_column]('col_name', 'new_col_name')                                                    |
+| Drop a column| t.[drop_column][pixeltable.Table.drop_column]('col_name')                                                                      |
+| Undo the last update operation (add/rename/drop column or insert)| t.[revert][pixeltable.Table.revert]()                                                                                     |
 
 ## Querying a table
 

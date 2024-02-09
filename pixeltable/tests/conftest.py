@@ -11,7 +11,7 @@ import pixeltable as pt
 import pixeltable.catalog as catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType
-from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatype_tbl
+from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatypes_tbl
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
@@ -36,13 +36,13 @@ def init_env(tmp_path_factory) -> None:
 
 @pytest.fixture(scope='function')
 def test_client(init_env) -> pt.Client:
-    cl = pt.Client()
+    cl = pt.Client(reload=True)
     cl.logging(level=logging.DEBUG, to_stdout=True)
     yield cl
     cl.reset_catalog()
 
 @pytest.fixture(scope='function')
-def test_tbl(test_client: pt.Client) -> catalog.MutableTable:
+def test_tbl(test_client: pt.Client) -> catalog.Table:
     return create_test_tbl(test_client)
 
 @pytest.fixture(scope='function')
@@ -54,7 +54,7 @@ def test_stored_fn(test_client: pt.Client) -> pt.Function:
     return test_fn
 
 @pytest.fixture(scope='function')
-def test_tbl_exprs(test_tbl: catalog.MutableTable, test_stored_fn: pt.Function) -> List[exprs.Expr]:
+def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List[exprs.Expr]:
     t = test_tbl
     return [
         t.c1,
@@ -80,11 +80,11 @@ def test_tbl_exprs(test_tbl: catalog.MutableTable, test_stored_fn: pt.Function) 
     ]
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(test_client: pt.Client) -> catalog.MutableTable:
-    return create_all_datatype_tbl(test_client)
+def all_datatypes_tbl(test_client: pt.Client) -> catalog.Table:
+    return create_all_datatypes_tbl(test_client)
 
 @pytest.fixture(scope='function')
-def img_tbl(test_client: pt.Client) -> catalog.MutableTable:
+def img_tbl(test_client: pt.Client) -> catalog.Table:
     schema = {
         'img': ImageType(nullable=False),
         'category': StringType(nullable=False),
@@ -97,7 +97,7 @@ def img_tbl(test_client: pt.Client) -> catalog.MutableTable:
     return tbl
 
 @pytest.fixture(scope='function')
-def img_tbl_exprs(img_tbl: catalog.MutableTable) -> List[exprs.Expr]:
+def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
     img_t = img_tbl
     return [
         img_t.img.width,
@@ -110,11 +110,11 @@ def img_tbl_exprs(img_tbl: catalog.MutableTable) -> List[exprs.Expr]:
 
 # TODO: why does this not work with a session scope? (some user tables don't get created with create_all())
 #@pytest.fixture(scope='session')
-#def indexed_img_tbl(init_env: None) -> catalog.MutableTable:
+#def indexed_img_tbl(init_env: None) -> catalog.Table:
 #    cl = pt.Client()
 #    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')
-def indexed_img_tbl(test_client: pt.Client) -> catalog.MutableTable:
+def indexed_img_tbl(test_client: pt.Client) -> catalog.Table:
     cl = test_client
     schema = {
         'img': { 'type': ImageType(nullable=False), 'indexed': True },

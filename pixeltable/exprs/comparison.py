@@ -71,7 +71,7 @@ class Comparison(Predicate):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'operator' in d
         return cls(ComparisonOperator(d['operator']), components[0], components[1])
 

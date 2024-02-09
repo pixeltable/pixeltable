@@ -8,7 +8,7 @@ import sqlalchemy as sql
 from tqdm.autonotebook import tqdm
 import abc
 
-from pixeltable import catalog
+import pixeltable.catalog as catalog
 from pixeltable.metadata import schema
 from pixeltable.type_system import StringType
 from pixeltable.exec import ExecNode
@@ -65,7 +65,7 @@ class StoreBase:
         idxs: List[sql.Index] = []
         for col in [c for c in self.tbl_version.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
-            # to the last sql.MutableTable version we created and cannot be reused
+            # to the last sql.Table version we created and cannot be reused
             col.create_sa_cols()
             all_cols.append(col.sa_col)
             if col.records_errors:
@@ -159,6 +159,17 @@ class StoreBase:
                 table_row[pk_col.name] = pk_val
 
         return table_row, num_excs
+
+    def count(self) -> None:
+        """Return the number of rows visible in self.tbl_version"""
+        stmt = sql.select(sql.func.count('*'))\
+            .select_from(self.sa_tbl)\
+            .where(self.v_min_col <= self.tbl_version.version)\
+            .where(self.v_max_col > self.tbl_version.version)
+        with env.Env.get().engine.begin() as conn:
+            result = conn.execute(stmt).scalar_one()
+            assert isinstance(result, int)
+            return result
 
     def create(self, conn: sql.engine.Connection) -> None:
         self.sa_md.create_all(bind=conn)

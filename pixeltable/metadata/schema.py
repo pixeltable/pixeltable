@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, get_type_hints, Type, Any, TypeVar
+from typing import Optional, List, Dict, get_type_hints, Type, Any, TypeVar, Tuple, Union
 import platform
 import uuid
 import dataclasses
@@ -18,12 +18,20 @@ def md_from_dict(data_class_type: Type[T], data: Any) -> T:
     if dataclasses.is_dataclass(data_class_type):
         fieldtypes = {f: t for f, t in get_type_hints(data_class_type).items()}
         return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
-    elif getattr(data_class_type, '__origin__', None) is list:
-        return [md_from_dict(data_class_type.__args__[0], elem) for elem in data]
-    elif getattr(data_class_type, '__origin__', None) is dict:
-        key_type = data_class_type.__args__[0]
-        val_type = data_class_type.__args__[1]
-        return {key_type(key): md_from_dict(val_type, val) for key, val in data.items()}
+    elif hasattr(data_class_type, '__origin__'):
+        if data_class_type.__origin__ is Union and type(None) in data_class_type.__args__:
+            # Handling Optional types
+            non_none_args = [arg for arg in data_class_type.__args__ if arg is not type(None)]
+            if len(non_none_args) == 1:
+                return md_from_dict(non_none_args[0], data) if data is not None else None
+        elif data_class_type.__origin__ is list:
+            return [md_from_dict(data_class_type.__args__[0], elem) for elem in data]
+        elif data_class_type.__origin__ is dict:
+            key_type = data_class_type.__args__[0]
+            val_type = data_class_type.__args__[1]
+            return {key_type(key): md_from_dict(val_type, val) for key, val in data.items()}
+        elif data_class_type.__origin__ is tuple:
+            return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(data_class_type.__args__, data))
     else:
         return data
 
@@ -79,7 +87,24 @@ class ColumnHistory:
 class TableAttributes:
     # garbage-collect old versions beyond this point, unless they are referenced in a snapshot
     num_retained_versions: int = 10
-    description: str = None
+    description: str = ''
+
+
+@dataclasses.dataclass
+class ViewMd:
+    is_snapshot: bool
+
+    # (table id, version); for mutable views, all versions are None
+    base_versions: List[Tuple[str, Optional[int]]]
+
+    # filter predicate applied to the base table; view-only
+    predicate: Optional[Dict[str, Any]]
+
+    # ComponentIterator subclass; only for component views
+    iterator_class_fqn: Optional[str]
+
+    # args to pass to the iterator class constructor; only for component views
+    iterator_args: Optional[Dict[str, Any]]
 
 
 @dataclasses.dataclass
@@ -100,14 +125,7 @@ class TableMd:
 
     column_history: Dict[int, ColumnHistory]  # col_id -> ColumnHistory
 
-    # filter predicate applied to the base table; view-only
-    predicate: Optional[Dict]
-
-    # ComponentIterator subclass; only for component views
-    iterator_class_fqn: Optional[str]
-
-    # args to pass to the iterator class constructor; only for component views
-    iterator_args: Optional[Dict[str, Any]]
+    view_md: Optional[ViewMd]
 
 
 class Table(Base):
@@ -115,7 +133,7 @@ class Table(Base):
     Table represents both tables and views.
 
     Views are in essence a subclass of tables, because they also store materialized columns. The differences are:
-    - views have a base Table and can reference a particular version of that Table
+    - views have a base, which is either a (live) table or a snapshot
     - views can have a filter predicate
     """
     __tablename__ = 'tables'
@@ -124,8 +142,6 @@ class Table(Base):
 
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
-    base_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), nullable=True)  # view-only
-    base_version = sql.Column(BigInteger, nullable=True)  # view-only
     md = sql.Column(JSONB, nullable=False)  # TableMd
 
 
@@ -174,23 +190,6 @@ class TableSchemaVersion(Base):
     tbl_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False)
     schema_version = sql.Column(BigInteger, primary_key=True, nullable=False)
     md = sql.Column(JSONB, nullable=False)  # TableSchemaVersionMd
-
-
-@dataclasses.dataclass
-class TableSnapshotMd:
-    name: str
-    created_at: float  # time.time()
-
-
-class TableSnapshot(Base):
-    __tablename__ = 'tablesnapshots'
-
-    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
-    dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
-    tbl_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), nullable=False)
-    tbl_version = sql.Column(BigInteger, nullable=False)
-    md = sql.Column(JSONB, nullable=False)  # TableSnapshotMd
-    # TODO: FK to TableSchemaVersion
 
 
 @dataclasses.dataclass

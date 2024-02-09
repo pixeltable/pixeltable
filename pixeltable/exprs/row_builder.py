@@ -118,6 +118,10 @@ class RowBuilder:
         # references to unstored iterator columns:
         # - those ColumnRefs need to instantiate iterators
         # - we create and record the iterator args here and pass them to their respective ColumnRefs
+        # - we do this instead of simply recording the iterator args as a component of those ColumnRefs,
+        #   because that would cause them to be evaluated for every single row
+        # - the separate eval ctx allows the ColumnRef to materialize the iterator args only when the underlying
+        #   iterated object changes
         col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
         def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
             tbl = col_ref.col.tbl

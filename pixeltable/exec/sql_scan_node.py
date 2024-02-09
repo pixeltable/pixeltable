@@ -17,7 +17,7 @@ class SqlScanNode(ExecNode):
     """Materializes data from the store via SQL
     """
     def __init__(
-            self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder,
+            self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
             select_list: Iterable[exprs.Expr],
             where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Predicate] = None,
             order_by_items: List[Tuple[exprs.Expr, bool]] = [],
@@ -36,13 +36,15 @@ class SqlScanNode(ExecNode):
         # create Select stmt
         super().__init__(row_builder, [], [], None)
         self.tbl = tbl
+        target = tbl.tbl_version  # the stored table we're scanning
         self.sql_exprs = exprs.ExprSet(select_list)
         # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
         for iter_arg in row_builder.unstored_iter_args.values():
             sql_subexprs = iter_arg.subexprs(filter=lambda e: e.sql_expr() is not None, traverse_matches=False)
             [self.sql_exprs.append(e) for e in sql_subexprs]
         self.filter = filter
-        self.filter_eval_ctx = row_builder.create_eval_ctx([filter], exclude=select_list) if filter is not None else []
+        self.filter_eval_ctx = \
+            row_builder.create_eval_ctx([filter], exclude=select_list) if filter is not None else None
         self.limit = limit
 
         # change rowid refs against a base table to rowid refs against the target table, so that we minimize
@@ -56,7 +58,12 @@ class SqlScanNode(ExecNode):
         assert len(sql_select_list) == len(self.sql_exprs)
         assert all([e is not None for e in sql_select_list])
         self.set_pk = set_pk
-        self.num_pk_cols = 0  # set in _open()
+        self.num_pk_cols = 0
+        if set_pk:
+            # we also need to retrieve the pk columns
+            pk_columns = target.store_tbl.pk_columns()
+            self.num_pk_cols = len(pk_columns)
+            sql_select_list += pk_columns
 
         self.stmt = sql.select(*sql_select_list)
         self.stmt = self.create_from_clause(
@@ -77,7 +84,7 @@ class SqlScanNode(ExecNode):
                 similarity_clause.img_col_ref.col.sa_idx_col.l2_distance(similarity_clause.embedding()))
         if len(order_by_clause) > 0:
             self.stmt = self.stmt.order_by(*order_by_clause)
-        elif tbl.id in row_builder.unstored_iter_args:
+        elif target.id in row_builder.unstored_iter_args:
             # we are referencing unstored iter columns from this view and try to order by our primary key,
             # which ensures that iterators will see monotonically increasing pos values
             self.stmt = self.stmt.order_by(*self.tbl.store_tbl.rowid_columns())
@@ -96,7 +103,7 @@ class SqlScanNode(ExecNode):
 
     @classmethod
     def create_from_clause(
-            cls, tbl: catalog.TableVersion, stmt: sql.Select, refd_tbl_ids: Set[UUID] = {},
+            cls, tbl: catalog.TableVersionPath, stmt: sql.Select, refd_tbl_ids: Set[UUID] = {},
             exact_version_only: Set[UUID] = {}
     ) -> sql.Select:
         """Add From clause to stmt for tables/views referenced by materialized_exprs
@@ -109,9 +116,10 @@ class SqlScanNode(ExecNode):
             augmented stmt
         """
         # we need to include at least the root
-        joined_tbls: List[catalog.TableVersion] = [tbl]
-        while tbl.base is not None:
-            tbl = tbl.base
+        candidates = tbl.get_tbl_versions()
+        assert len(candidates) > 0
+        joined_tbls: List[catalog.TableVersion] = [candidates[0]]
+        for tbl in candidates[1:]:
             if tbl.id in refd_tbl_ids:
                 joined_tbls.append(tbl)
 
@@ -135,15 +143,6 @@ class SqlScanNode(ExecNode):
                     .where(tbl.store_tbl.v_max_col > tbl.version)
             prev_tbl = tbl
         return stmt
-
-    def _open(self) -> None:
-        """Add PK columns to self.stmt"""
-        if self.set_pk:
-            assert self.ctx.pk_clause is not None
-            # TODO: don't add pk columns if we're already retrieving them via RowidRefs
-            pk_cols = self.ctx.pk_clause
-            self.num_pk_cols = len(pk_cols)
-            self.stmt = self.stmt.add_columns(*pk_cols)
 
     def _log_explain(self, conn: sql.engine.Connection) -> None:
         try:
@@ -173,7 +172,7 @@ class SqlScanNode(ExecNode):
         if not self.has_more_rows:
             raise StopIteration
 
-        output_batch = DataRowBatch(self.tbl, self.row_builder)
+        output_batch = DataRowBatch(self.tbl.tbl_version, self.row_builder)
         needs_row = True
         while self.ctx.batch_size == 0 or len(output_batch) < self.ctx.batch_size:
             try:

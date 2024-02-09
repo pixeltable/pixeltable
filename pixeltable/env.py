@@ -1,13 +1,17 @@
+from __future__ import annotations
 import datetime
 import os
-import time
 from typing import Optional, Dict, Any
 from pathlib import Path
 import sqlalchemy as sql
+import uuid
+
+import http.server
+import socketserver
+import threading
+
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
-import psycopg2
 import pgserver
-import docker
 import logging
 import sys
 import platform
@@ -15,16 +19,15 @@ import glob
 
 from pixeltable import metadata
 
-
 class Env:
     """
     Store for runtime globals.
     """
-    _instance: Optional['Env'] = None
-    _log_fmt_str = '%(asctime)s %(levelname)s %(module)s %(filename)s:%(lineno)d: %(message)s'
+    _instance: Optional[Env] = None
+    _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     @classmethod
-    def get(cls) -> 'Env':
+    def get(cls) -> Env:
         if cls._instance is None:
             cls._instance = Env()
         return cls._instance
@@ -41,10 +44,10 @@ class Env:
         self._db_name: Optional[str] = None
         self._db_server: Optional[pgserver.PostgresServer] = None
         self._db_url: Optional[str] = None
-        self._store_container: Optional[docker.models.containers.Container] = None
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
-
+        self._httpd : Optional[socketserver.TCPServer] = None
+        self._http_address : Optional[str] = None
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
         self._logger.setLevel(logging.DEBUG)  # allow everything to pass, we filter in _log_filter()
@@ -65,6 +68,11 @@ class Env:
         assert self._db_url is not None
         return self._db_url
     
+    @property
+    def http_address(self) -> str:
+        assert self._http_address is not None
+        return self._http_address
+
     def print_log_config(self) -> None:
         print(f'logging to {self._logfilename}')
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
@@ -90,11 +98,18 @@ class Env:
             self._module_log_level[module] = level
 
     def _log_filter(self, record: logging.LogRecord) -> bool:
-        if record.module in self._module_log_level and record.levelno >= self._module_log_level[record.module]:
-            return True
+        if record.name == 'pixeltable':
+            # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
+            path_parts = list(Path(record.pathname).parts)
+            path_parts.reverse()
+            max_idx = path_parts.index('pixeltable')
+            for module_name in path_parts[:max_idx]:
+                if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
+                    return True
         if record.levelno >= self._default_log_level:
             return True
-        return False
+        else:
+            return False
 
     def set_up(self, echo: bool = False) -> None:
         if self._initialized:
@@ -143,6 +158,7 @@ class Env:
         sql_logger = logging.getLogger('sqlalchemy.engine')
         sql_logger.setLevel(logging.INFO)
         sql_logger.addHandler(fh)
+        sql_logger.propagate = False
 
         # empty tmp dir
         for path in glob.glob(f'{self._tmp_dir}/*'):
@@ -207,8 +223,35 @@ class Env:
         self._logger.info('connecting to OpenAI')
         self._openai_client = openai.OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
+    def _start_web_server(self) -> None:
+        """
+        The http server root is the file system root.
+        eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
+        This arrangement enables serving media hosted within _home, 
+        as well as external media inserted into pixeltable or produced by pixeltable.
+        The port is chosen dynamically to prevent conflicts.
+        """        
+        # Port 0 means OS picks one for us.
+        address = ("127.0.0.1", 0)
+        class FixedRootHandler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory='/', **kwargs)        
+        self._httpd = socketserver.TCPServer(address, FixedRootHandler)
+        port = self._httpd.server_address[1]
+        self._http_address = f'http://127.0.0.1:{port}'
+
+        def run_server():
+            logging.log(logging.INFO, f'running web server at {self._http_address}')
+            self._httpd.serve_forever()
+
+        # Run the server in a separate thread
+        thread = threading.Thread(target=run_server, daemon=True)
+        thread.start()
+
     def _set_up_runtime(self) -> None:
         """Check for and start runtime services"""
+        self._start_web_server()
+
         try:
             import nos
             self._create_nos_client()
@@ -225,6 +268,9 @@ class Env:
 
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
+
+    def create_tmp_path(self, extension: str = '') -> Path:
+        return self._tmp_dir / f'{uuid.uuid4()}{extension}'
 
     @property
     def home(self) -> Path:

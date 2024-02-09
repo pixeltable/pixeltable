@@ -50,7 +50,7 @@ class ImageSimilarityPredicate(Predicate):
         return {'img': self.img, 'text': self.text, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'img' in d
         assert 'text' in d
         assert len(components) == 1

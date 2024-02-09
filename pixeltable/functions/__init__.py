@@ -9,9 +9,8 @@ import numpy as np
 
 from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
 import pixeltable.func as func
-from pixeltable import catalog
 from pixeltable import exprs
-import pixeltable.exceptions as exc
+import pixeltable.env as env
 # import all standard function modules here so they get registered with the FunctionRegistry
 import pixeltable.functions.pil
 import pixeltable.functions.pil.image
@@ -34,23 +33,6 @@ def _str_format(format_str: str, *args, **kwargs: Any) -> str:
     return format_str.format(*args, **kwargs)
 str_format = func.make_library_function(StringType(), [StringType()], __name__, '_str_format')
 func.FunctionRegistry.get().register_function(__name__, 'str_format', str_format)
-
-# def udf_call(eval_fn: Callable, return_type: ColumnType, tbl: Optional[catalog.MutableTable]) -> exprs.FunctionCall:
-#     """
-#     Interprets eval_fn's parameters to be references to columns in 'tbl' and construct ColumnRefs as args.
-#     """
-#     params = inspect.signature(eval_fn).parameters
-#     if len(params) > 0 and tbl is None:
-#         raise exc.Error(f'udf_call() is missing tbl parameter')
-#     args: List[exprs.ColumnRef] = []
-#     for param_name in params:
-#         if param_name not in tbl.cols_by_name:
-#             raise exc.Error(
-#                 (f'udf_call(): lambda argument names need to be valid column names in table {tbl.name}: '
-#                  f'column {param_name} unknown'))
-#         args.append(exprs.ColumnRef(tbl.cols_by_name[param_name]))
-#     fn = Function.make_function(return_type, [arg.col_type for arg in args], eval_fn)
-#     return exprs.FunctionCall(fn, args)
 
 def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
     expr.col_type = target_type
@@ -131,7 +113,8 @@ class VideoAggregator:
         if frame is None:
             return
         if self.container is None:
-            self.out_file = Path(os.getcwd()) / f'{Path(tempfile.mktemp()).name}.mp4'
+            (_, output_filename) = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
+            self.out_file = Path(output_filename)
             self.container = av.open(str(self.out_file), mode='w')
             self.stream = self.container.add_stream('h264', rate=self.fps)
             self.stream.pix_fmt = 'yuv420p'
@@ -141,7 +124,7 @@ class VideoAggregator:
         av_frame = av.VideoFrame.from_ndarray(np.array(frame.convert('RGB')), format='rgb24')
         for packet in self.stream.encode(av_frame):
             self.container.mux(packet)
-        
+
     def value(self) -> str:
         for packet in self.stream.encode():
             self.container.mux(packet)

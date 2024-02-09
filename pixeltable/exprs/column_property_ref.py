@@ -71,7 +71,7 @@ class ColumnPropertyRef(Expr):
         return {'prop': self.prop.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'prop' in d
         return cls(components[0], cls.Property(d['prop']))
 

@@ -1,17 +1,11 @@
 import pytest
-import math
 import numpy as np
 import pandas as pd
-import datetime
-
-import PIL
 
 import pixeltable as pt
 from pixeltable import exceptions as exc
-from pixeltable import catalog
-from pixeltable.type_system import \
-    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
-from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq, get_video_files
+from pixeltable.type_system import IntType, VideoType, JsonType
+from pixeltable.tests.utils import assert_resultset_eq, get_video_files
 from pixeltable.iterators import FrameIterator
 
 
@@ -19,7 +13,7 @@ class TestComponentView:
     def test_basic(self, test_client: pt.Client) -> None:
         cl = test_client
         # create video table
-        schema = {'video': VideoType(), 'angle': IntType()}
+        schema = {'video': VideoType(), 'angle': IntType(), 'other_angle': IntType()}
         video_t = cl.create_table('video_tbl', schema)
         video_filepaths = get_video_files()
 
@@ -49,16 +43,20 @@ class TestComponentView:
         # create frame view
         args = {'video': video_t.video, 'fps': 1}
         view_t = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
-        # computed column that references an unstored computed column from the view and a column from the base
+        # computed column that references a column from the base
         view_t.add_column(angle2=view_t.angle + 1)
         # computed column that references an unstored and a stored computed view column
         view_t.add_column(v1=view_t.frame.rotate(view_t.angle2), stored=True)
         # computed column that references a stored computed column from the view
         view_t.add_column(v2=view_t.frame_idx - 1)
+        # computed column that references an unstored view column and a column from the base; the stored value
+        # cannot be materialized in SQL directly
+        view_t.add_column(v3=view_t.frame.rotate(video_t.other_angle), stored=True)
 
         # and load data
-        rows = [{'video': p, 'angle': 30} for p in video_filepaths]
-        video_t.insert(rows)
+        rows = [{'video': p, 'angle': 30, 'other_angle': -30} for p in video_filepaths]
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
         # pos and frame_idx are identical
         res = view_t.select(view_t.pos, view_t.frame_idx).collect().to_pandas()
         assert np.all(res['pos'] == res['frame_idx'])
@@ -120,6 +118,107 @@ class TestComponentView:
                 'bad_view', video_t, schema={'annotation': JsonType(nullable=False)},
                 iterator_class=FrameIterator, iterator_args=args)
         assert 'must be nullable' in str(excinfo.value)
+
+    # break up the snapshot tests for better (future) parallelization
+    def test_snapshot1(self, test_client: pt.Client) -> None:
+        has_column = False
+        has_filter  = False
+        for reload_md in [False, True]:
+            cl = pt.Client(reload=True)
+            self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+
+    def test_snapshot2(self, test_client: pt.Client) -> None:
+        has_column = True
+        has_filter  = False
+        for reload_md in [False, True]:
+            cl = pt.Client(reload=True)
+            self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+
+    def test_snapshot3(self, test_client: pt.Client) -> None:
+        has_column = False
+        has_filter  = True
+        for reload_md in [False, True]:
+            cl = pt.Client(reload=True)
+            self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+
+    def test_snapshot4(self, test_client: pt.Client) -> None:
+        has_column = True
+        has_filter  = True
+        for reload_md in [False, True]:
+            cl = pt.Client(reload=True)
+            self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+
+    def run_snapshot_test(self, cl: pt.Client, has_column: bool, has_filter: bool, reload_md: bool) -> None:
+        base_path = 'video_tbl'
+        view_path = 'test_view'
+        snap_path = 'test_snap'
+
+        # create video table
+        video_t = cl.create_table(base_path, {'video': VideoType(), 'margin': IntType()})
+        video_filepaths = get_video_files()
+        rows = [{'video': path, 'margin': i * 10} for i, path in enumerate(video_filepaths)]
+        status = video_t.insert(rows)
+        assert status.num_rows == len(rows)
+        assert status.num_excs == 0
+
+        # create frame view with a computed column
+        args = {'video': video_t.video, 'fps': 1}
+        view_t = cl.create_view(
+            view_path, video_t, iterator_class=FrameIterator, iterator_args=args, is_snapshot=False)
+        view_t.add_column(
+            cropped=view_t.frame.crop([view_t.margin, view_t.margin, view_t.frame.width, view_t.frame.height]),
+            stored=True)
+        snap_col_expr = [view_t.cropped.width * view_t.cropped.height] if has_column else []
+        view_query = \
+            view_t.select(
+                    view_t.margin, view_t.frame.width, view_t.frame.height, view_t.cropped.width,
+                    view_t.cropped.height, *snap_col_expr)\
+                .order_by(view_t.video, view_t.pos)
+        if has_filter:
+            view_query = view_query.where(view_t.frame_idx < 10)
+        orig_resultset = view_query.collect()
+
+        # create snapshot of view
+        filter = view_t.frame_idx < 10 if has_filter else None
+        schema = {'c1': view_t.cropped.width * view_t.cropped.height} if has_column else {}
+        snap_t = cl.create_view(snap_path, view_t, schema=schema, filter=filter, is_snapshot=True)
+        snap_cols = [snap_t.c1] if has_column else []
+        snap_query = \
+            snap_t.select(
+                    snap_t.margin, snap_t.frame.width, snap_t.frame.height, snap_t.cropped.width,
+                    snap_t.cropped.height, *snap_cols)\
+                .order_by(snap_t.video, snap_t.pos)
+        assert_resultset_eq(snap_query.collect(), orig_resultset)
+
+        if reload_md:
+            cl = pt.Client(reload=True)
+            video_t = cl.get_table(base_path)
+            snap_t = cl.get_table(snap_path)
+            snap_cols = [snap_t.c1] if has_column else []
+            snap_query = \
+                snap_t.select(
+                        snap_t.margin, snap_t.frame.width, snap_t.frame.height, snap_t.cropped.width,
+                        snap_t.cropped.height, *snap_cols) \
+                    .order_by(snap_t.video, snap_t.pos)
+
+        # snapshot is unaffected by base insert()
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        assert_resultset_eq(snap_query.collect(), orig_resultset)
+
+        # snapshot is unaffected by base update()
+        status = video_t.update({'margin': video_t.margin + 1})
+        assert status.num_excs == 0
+        assert_resultset_eq(snap_query.collect(), orig_resultset)
+
+        # snapshot is unaffected by base delete()
+        status = video_t.delete()
+        assert status.num_excs == 0
+        assert_resultset_eq(snap_query.collect(), orig_resultset)
+
+        cl.drop_table(snap_path)
+        cl.drop_table(view_path)
+        cl.drop_table(base_path)
 
     def test_chained_views(self, test_client: pt.Client) -> None:
         """Component view followed by a standard view"""

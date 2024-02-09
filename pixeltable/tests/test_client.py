@@ -10,7 +10,7 @@ class TestClient:
         _ = cl.list_functions()
         print(_)
 
-    def test_drop_table(self, test_tbl: pt.MutableTable) -> None:
+    def test_drop_table(self, test_tbl: pt.Table) -> None:
         cl = pt.Client()
         t = cl.get_table('test_tbl')
         cl.drop_table('test_tbl')

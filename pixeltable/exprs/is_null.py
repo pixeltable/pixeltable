@@ -32,7 +32,7 @@ class IsNull(Predicate):
         data_row[self.slot_idx] = data_row[self.components[0].slot_idx] is None
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert len(components) == 1
         return cls(components[0])
 

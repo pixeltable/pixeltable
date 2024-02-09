@@ -10,7 +10,6 @@ below.
 |------------|-----------------------------------------------------|
 | [`create_table`][pixeltable.Client.create_table] | Create a new (insertable) table|
 | [`create_view`][pixeltable.Client.create_view] | Create a new view |
-| [`create_snapshot`][pixeltable.Client.create_snapshot] | Create a new snapshot of an insertable table or view |
 | [`drop_table`][pixeltable.Client.drop_table] | Delete a table |
 | [`get_table`][pixeltable.Client.get_table] | Get a handle to a table |
 | [`list_tables`][pixeltable.Client.list_tables] | List the tables in a directory |
@@ -31,7 +30,6 @@ below.
       members:
       - __init__
       - create_table
-      - create_snapshot
       - create_view
       - get_table
       - move

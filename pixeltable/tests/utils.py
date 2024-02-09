@@ -34,7 +34,7 @@ def make_tbl(cl: pt.Client, name: str = 'test', col_names: List[str] = ['c1']) -
         schema[f'{col_name}'] = make_default_type(ColumnType.Type(i % 5))
     return cl.create_table(name, schema)
 
-def create_table_data(t: catalog.MutableTable, col_names: List[str] = [], num_rows: int = 10) -> List[Dict[str, Any]]:
+def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int = 10) -> List[Dict[str, Any]]:
     data: Dict[str, Any] = {}
 
     sample_dict = {
@@ -76,35 +76,36 @@ def create_table_data(t: catalog.MutableTable, col_names: List[str] = [], num_ro
     if len(col_names) == 0:
         col_names = [c.name for c in t.columns() if not c.is_computed]
 
+    col_types = t.column_types()
     for col_name in col_names:
-        col = t.cols_by_name[col_name]
+        col_type = col_types[col_name]
         col_data: Any = None
-        if col.col_type.is_string_type():
+        if col_type.is_string_type():
             col_data = ['test string'] * num_rows
-        if col.col_type.is_int_type():
+        if col_type.is_int_type():
             col_data = np.random.randint(0, 100, size=num_rows).tolist()
-        if col.col_type.is_float_type():
+        if col_type.is_float_type():
             col_data = (np.random.random(size=num_rows) * 100).tolist()
-        if col.col_type.is_bool_type():
+        if col_type.is_bool_type():
             col_data = np.random.randint(0, 2, size=num_rows)
             col_data = [False if i == 0 else True for i in col_data]
-        if col.col_type.is_timestamp_type():
+        if col_type.is_timestamp_type():
             col_data = [datetime.datetime.now()] * num_rows
-        if col.col_type.is_json_type():
+        if col_type.is_json_type():
             col_data = [sample_dict] * num_rows
-        if col.col_type.is_array_type():
-            col_data = [np.ones(col.col_type.shape, dtype=col.col_type.numpy_dtype()) for i in range(num_rows)]
-        if col.col_type.is_image_type():
+        if col_type.is_array_type():
+            col_data = [np.ones(col_type.shape, dtype=col_type.numpy_dtype()) for i in range(num_rows)]
+        if col_type.is_image_type():
             image_path = get_image_files()[0]
             col_data = [image_path for i in range(num_rows)]
-        if col.col_type.is_video_type():
+        if col_type.is_video_type():
             video_path = get_video_files()[0]
             col_data = [video_path for i in range(num_rows)]
-        data[col.name] = col_data
+        data[col_name] = col_data
     rows = [{col_name: data[col_name][i] for col_name in col_names} for i in range(num_rows)]
     return rows
 
-def create_test_tbl(client: pt.Client) -> catalog.MutableTable:
+def create_test_tbl(client: pt.Client, name: str = 'test_tbl') -> catalog.Table:
     schema = {
         'c1': StringType(nullable=False),
         'c1n': StringType(nullable=True),
@@ -115,7 +116,7 @@ def create_test_tbl(client: pt.Client) -> catalog.MutableTable:
         'c6': JsonType(nullable=False),
         'c7': JsonType(nullable=False),
     }
-    t = client.create_table('test_tbl', schema, primary_key='c2')
+    t = client.create_table(name, schema, primary_key='c2')
     t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
 
     num_rows = 100
@@ -169,7 +170,7 @@ def create_test_tbl(client: pt.Client) -> catalog.MutableTable:
     t.insert(rows)
     return t
 
-def create_all_datatype_tbl(test_client: pt.Client) -> catalog.Table:
+def create_all_datatypes_tbl(test_client: pt.Client) -> catalog.Table:
     """ Creates a table with all supported datatypes.
     """
     schema = {
@@ -231,6 +232,13 @@ def get_audio_files(include_bad_audio=False) -> List[str]:
     if not include_bad_audio:
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
     return glob_result
+
+def get_html_files(include_invalid: bool = False) -> Tuple[List[str], List[bool]]:
+    tests_dir = os.path.dirname(__file__)
+    html_files = glob.glob(f'{tests_dir}/**/documents/*.html', recursive=True)
+    other_files = [p for p in glob.glob(f'{tests_dir}/**/documents/*', recursive=True) if p not in html_files]
+    return html_files + (other_files if include_invalid else []),\
+        [True] * len(html_files) + ([False] * len(other_files) if include_invalid else [])
 
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)

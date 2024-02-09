@@ -9,7 +9,7 @@ from pixeltable.iterators import FrameIterator
 
 
 class TestFunctions:
-    def test_pil(self, img_tbl: catalog.MutableTable) -> None:
+    def test_pil(self, img_tbl: catalog.Table) -> None:
         t = img_tbl
         _ = t[t.img, t.img.rotate(90), blend(t.img, t.img.rotate(90), 0.5)].show()
 

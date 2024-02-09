@@ -311,6 +311,20 @@ urllib3 = [
 crt = ["awscrt (==0.19.19)"]
 
 [[package]]
+name = "bs4"
+version = "0.0.2"
+description = "Dummy package for Beautiful Soup (beautifulsoup4)"
+optional = false
+python-versions = "*"
+files = [
+    {file = "bs4-0.0.2-py2.py3-none-any.whl", hash = "sha256:abf8742c0805ef7f662dce4b51cca104cffe52b835238afc169142ab9b3fbccc"},
+    {file = "bs4-0.0.2.tar.gz", hash = "sha256:a48685c58f50fe127722417bae83fe6badf500d54b55f7e39ffe43b798653925"},
+]
+
+[package.dependencies]
+beautifulsoup4 = "*"
+
+[[package]]
 name = "certifi"
 version = "2023.11.17"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -747,13 +761,13 @@ files = [
 
 [[package]]
 name = "docker"
-version = "6.1.3"
+version = "7.0.0"
 description = "A Python library for the Docker Engine API."
-optional = false
-python-versions = ">=3.7"
+optional = true
+python-versions = ">=3.8"
 files = [
-    {file = "docker-6.1.3-py3-none-any.whl", hash = "sha256:aecd2277b8bf8e506e484f6ab7aec39abe0038e29fa4a6d3ba86c3fe01844ed9"},
-    {file = "docker-6.1.3.tar.gz", hash = "sha256:aa6d17830045ba5ef0168d5eaa34d37beeb113948c413affe1d5991fc11f9a20"},
+    {file = "docker-7.0.0-py3-none-any.whl", hash = "sha256:12ba681f2777a0ad28ffbcc846a69c31b4dfd9752b47eb425a274ee269c5e14b"},
+    {file = "docker-7.0.0.tar.gz", hash = "sha256:323736fb92cd9418fc5e7133bc953e11a9da04f4483f828b527db553f1e7e5a3"},
 ]
 
 [package.dependencies]
@@ -761,10 +775,10 @@ packaging = ">=14.0"
 pywin32 = {version = ">=304", markers = "sys_platform == \"win32\""}
 requests = ">=2.26.0"
 urllib3 = ">=1.26.0"
-websocket-client = ">=0.32.0"
 
 [package.extras]
 ssh = ["paramiko (>=2.4.3)"]
+websockets = ["websocket-client (>=1.3.0)"]
 
 [[package]]
 name = "exceptiongroup"
@@ -948,20 +962,6 @@ sftp = ["paramiko"]
 smb = ["smbprotocol"]
 ssh = ["paramiko"]
 tqdm = ["tqdm"]
-
-[[package]]
-name = "ftfy"
-version = "6.1.3"
-description = "Fixes mojibake and other problems with Unicode, after the fact"
-optional = false
-python-versions = ">=3.8,<4"
-files = [
-    {file = "ftfy-6.1.3-py3-none-any.whl", hash = "sha256:e49c306c06a97f4986faa7a8740cfe3c13f3106e85bcec73eb629817e671557c"},
-    {file = "ftfy-6.1.3.tar.gz", hash = "sha256:693274aead811cff24c1e8784165aa755cd2f6e442a5ec535c7d697f6422a422"},
-]
-
-[package.dependencies]
-wcwidth = ">=0.2.12,<0.3.0"
 
 [[package]]
 name = "ghp-import"
@@ -1398,13 +1398,13 @@ testing = ["Django", "attrs", "colorama", "docopt", "pytest (<7.0.0)"]
 
 [[package]]
 name = "jinja2"
-version = "3.1.2"
+version = "3.1.3"
 description = "A very fast and expressive template engine."
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "Jinja2-3.1.2-py3-none-any.whl", hash = "sha256:6088930bfe239f0e6710546ab9c19c9ef35e29792895fed6e6e31a023a182a61"},
-    {file = "Jinja2-3.1.2.tar.gz", hash = "sha256:31351a702a408a9e7595a8fc6150fc3f43bb6bf7e319770cbc0db9df9437e852"},
+    {file = "Jinja2-3.1.3-py3-none-any.whl", hash = "sha256:7d6d50dd97d52cbc355597bd845fabfbac3f551e1f99619e39a35ce8c370b5fa"},
+    {file = "Jinja2-3.1.3.tar.gz", hash = "sha256:ac8bd6544d4bb2c9792bf3a159e80bba8fda7f07e81bc3aed565432d5925ba90"},
 ]
 
 [package.dependencies]
@@ -2641,26 +2641,26 @@ ptyprocess = ">=0.5"
 
 [[package]]
 name = "pgserver"
-version = "0.0.3"
+version = "0.0.4"
 description = "Self-contained postgres server for your python applications"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "pgserver-0.0.3-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:1b6b53de4cd6835cadd974a2f26d7b25326bd3de953363538045667119236fe6"},
-    {file = "pgserver-0.0.3-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:609a5f457c143a5ec07882414b61be2a623f4171f2ba4cba1ddc1b96ca7e01b7"},
-    {file = "pgserver-0.0.3-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f4261644f2c474543731669cbc89031ff6af7162c9d12686a3c86af946c03b02"},
-    {file = "pgserver-0.0.3-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:5bbe6f388c3e20d5bcea0f211098299d296ee68b82175f9cb7a7fa52f78672eb"},
-    {file = "pgserver-0.0.3-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:8fd37422ebc13ace95f6057eda7973d9063af933b9af4c1b29a1c75441247eae"},
-    {file = "pgserver-0.0.3-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3e98c7cf5ef61a2e5af785fbcd7a25041f4ff52a67c0d3a3a020b1a4d0da3626"},
-    {file = "pgserver-0.0.3-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:9de84226ef354d54a8e314e5c1caadbf1f74fa9978bf3982f6cb1122bf100ff1"},
-    {file = "pgserver-0.0.3-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:f231cd871fdee9392bdeb96d82c5b96c0daa73c4634351ec0e6f05fc2e27df9a"},
-    {file = "pgserver-0.0.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d947ec664a3ba720b9fca261a75bb3a0e2a8a233433928fa604dc4639a06fb92"},
-    {file = "pgserver-0.0.3-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:05703b1d669247aae23d39b04d1b57468696c9b5598fc072c493ab22bb9389fc"},
-    {file = "pgserver-0.0.3-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:dad2adbd867d6ceb27a10f5e0f91927f1276f58f3d47a53fd53d7bcb1a5a9cb2"},
-    {file = "pgserver-0.0.3-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6d517287f0453afca4ec531ad0a33b1551e2a416bb4ab0871ce108797a9aeb6f"},
-    {file = "pgserver-0.0.3-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:fa7a369d92341a2a39aa228015fb40b203c58057a16e70cf4c8d448340239512"},
-    {file = "pgserver-0.0.3-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:ece9f6c73afda8c1f6b75ae154285f5c983ea7328e9fb163065186e86ec81b4b"},
-    {file = "pgserver-0.0.3-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c63875f7da622e7bc04eff78b1c3bad42031ce79b1a5eaa3706f25e5dc185f65"},
+    {file = "pgserver-0.0.4-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:9b39bd5ae769ed11cff08c45656e322b3c11637fab0d61659ac2bc9f8a116630"},
+    {file = "pgserver-0.0.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:08a57caa75616e35ad69a887cb29a3a877200ffc0775d0a0ad7c1a40492376a6"},
+    {file = "pgserver-0.0.4-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b8e978c363e8a0eb64e9faed9931cbf910b61ae6451a36429f82ce043b9f95ad"},
+    {file = "pgserver-0.0.4-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:92d5984a27bcb3709b3308ce850d15922eb1040f7924f6eac0b2b17663ca94cb"},
+    {file = "pgserver-0.0.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:38ef561625bf24f276a89d4f18638313e09c9a59a716337bbd0e12f7c30d4f8b"},
+    {file = "pgserver-0.0.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b23e2686403077e92b802e4a8d8b7b43e68f8176d80bb87f881827bc21891f6b"},
+    {file = "pgserver-0.0.4-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:f76d644f90e648bbaa293e3e69692ce547a6e1f8ac2765d9acfb796710fd2fdd"},
+    {file = "pgserver-0.0.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:7ff754771e5cb18ba92509e7289255d1d59faf5e80f4dfde9d14401c99824bfc"},
+    {file = "pgserver-0.0.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:61b7b32a25fcaf3eca1e3e8599e40dc2e775412de2dbe5054633fefd046346af"},
+    {file = "pgserver-0.0.4-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:1bbfaf0e617692c03d494d483cf13ed88166fc624d3d48286d63c156874adf1f"},
+    {file = "pgserver-0.0.4-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:5a4e3fa55e1e008772788b1476442aaff56d94a58a3cba00432d13261ae60cbd"},
+    {file = "pgserver-0.0.4-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7bce9bbda3456d754f44db2b4de0a9b1ff13ec77b08c2177810010163803f114"},
+    {file = "pgserver-0.0.4-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:ae1f9956820cb5d78d16bb28508be2d2c0dd3956d940ea576602668c9f755d49"},
+    {file = "pgserver-0.0.4-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:21c5acd218749314e8f82a69d3056d59eede841b6b66cc5ad4a6d58474790e77"},
+    {file = "pgserver-0.0.4-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:aede588c318239411dc959f0844b1a6d843945a72fa2c00150ee7b1ca2e94ebd"},
 ]
 
 [package.dependencies]
@@ -4264,22 +4264,6 @@ files = [
 ]
 
 [[package]]
-name = "websocket-client"
-version = "1.7.0"
-description = "WebSocket client for Python with low level API options"
-optional = false
-python-versions = ">=3.8"
-files = [
-    {file = "websocket-client-1.7.0.tar.gz", hash = "sha256:10e511ea3a8c744631d3bd77e61eb17ed09304c413ad42cf6ddfa4c7787e8fe6"},
-    {file = "websocket_client-1.7.0-py3-none-any.whl", hash = "sha256:f4c3d22fec12a2461427a29957ff07d35098ee2d976d3ba244e688b8b4057588"},
-]
-
-[package.extras]
-docs = ["Sphinx (>=6.0)", "sphinx-rtd-theme (>=1.1.0)"]
-optional = ["python-socks", "wsaccel"]
-test = ["websockets"]
-
-[[package]]
 name = "win32-setctime"
 version = "1.1.0"
 description = "A small Python utility to set file creation time on Windows"
@@ -4317,4 +4301,4 @@ torch = ["pyarrow", "torch", "torchvision"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "e43ccbeeacfde0c1e355db7fcab04126bdeaf7ef785849228044b8e9c6ffa41d"
+content-hash = "c689f6d006517e0817ee4819394a6789c5051dcec80a6e5b85aab749bc8aaa63"

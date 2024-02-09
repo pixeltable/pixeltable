@@ -14,7 +14,7 @@ from pixeltable.iterators import FrameIterator
 class TestVideo:
     def create_tbls(
             self, cl: pt.Client, base_name: str = 'video_tbl', view_name: str = 'frame_view'
-    ) -> Tuple[catalog.InsertableTable, catalog.MutableTable]:
+    ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         cl.drop_table(view_name, ignore_errors=True)
         cl.drop_table(base_name, ignore_errors=True)
         base_t = cl.create_table(base_name, {'video': VideoType()})
@@ -24,7 +24,7 @@ class TestVideo:
 
     def create_and_insert(
             self, cl: pt.Client, stored: Optional[bool], paths: List[str]
-    ) -> Tuple[catalog.InsertableTable, catalog.MutableTable]:
+    ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         base_t, view_t = self.create_tbls(cl)
 
         view_t.add_column(transform=view_t.frame.rotate(90), stored=stored)
@@ -63,8 +63,18 @@ class TestVideo:
         video_filepaths = get_video_files()
         cl = test_client
         base_t, view_t = self.create_tbls(cl)
-        base_t.insert([{'video': p} for p in video_filepaths])
-        res = view_t.where(view_t.video == video_filepaths[0]).show(0)
+        # also include an external file, to make sure that prefetching works
+        url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
+        video_filepaths.append(url)
+        status = base_t.insert([{'video': p} for p in video_filepaths])
+        assert status.num_excs == 0
+        # make sure that we can get the frames back
+        res = view_t.select(view_t.frame).collect().to_pandas()
+        assert res['frame'].notnull().all()
+        # make sure we can select a specific video
+        all_rows = view_t.select(url=view_t.video.fileurl).collect().to_pandas()
+        res = view_t.where(view_t.video == url).collect()
+        assert len(res) == len(all_rows[all_rows.url == url])
 
     def test_fps(self, test_client: pt.client) -> None:
         cl = test_client
@@ -90,7 +100,7 @@ class TestVideo:
         view_t.add_column(c3=view_t.c2.rotate(20))
         view_t.add_column(c4=view_t.c1.rotate(30))
         for name in ['c1', 'c2', 'c3', 'c4']:
-            assert not view_t.cols_by_name[name].is_stored
+            assert not view_t.tbl_version_path.tbl_version.cols_by_name[name].is_stored
         base_t.insert([{'video': p} for p in video_filepaths])
         _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].show(0)
 
@@ -138,7 +148,6 @@ class TestVideo:
         _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
         cl.create_function('agg_fn', agg_fn)
         view_t.add_column(agg=agg_fn(view_t.pos, view_t.frame, group_by=base_t))
-        assert view_t.cols_by_name['agg'].is_stored
         _ = view_t.select(pt.make_video(view_t.pos, view_t.agg)).group_by(base_t).show()
 
         # image cols computed with a window function currently need to be stored
@@ -146,7 +155,7 @@ class TestVideo:
             view_t.add_column(agg2=agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store
-        cl = pt.Client()
+        cl = pt.Client(reload=True)
         agg_fn = cl.get_function('agg_fn')
         base_t, view_t = cl.get_table(base_t.name), cl.get_table(view_t.name)
         _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()

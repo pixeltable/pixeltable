@@ -40,7 +40,7 @@ class JsonPath(Expr):
         return {'path_elements': self.path_elements, 'scope_idx': self.scope_idx, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'path_elements' in d
         assert 'scope_idx' in d
         assert len(components) <= 1

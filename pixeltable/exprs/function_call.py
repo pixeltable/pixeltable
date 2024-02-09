@@ -97,8 +97,8 @@ class FunctionCall(Expr):
         self.id = self._create_id()
 
     def _create_rowid_refs(self, tbl: catalog.Table) -> List[Expr]:
-        rowid_cols = tbl.tbl_version.store_tbl.rowid_columns()
-        return [RowidRef(tbl.tbl_version, i) for i in range(len(rowid_cols))] if len(rowid_cols) > 0 else []
+        target = tbl.tbl_version_path.tbl_version
+        return [RowidRef(target, i) for i in range(target.num_rowid_columns())]
 
     @classmethod
     def check_args(cls, signature: func.Signature, bound_args: Dict[str, Any]) -> None:
@@ -335,7 +335,7 @@ class FunctionCall(Expr):
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr], t: catalog.TableVersion) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'fn' in d
         assert 'args' in d
         assert 'kwargs' in d

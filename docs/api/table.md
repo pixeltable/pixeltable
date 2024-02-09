@@ -1,6 +1,6 @@
 # Table
 
-The `Table` base class provides convenience functions for querying tables and snapshots
+The `Table` base class provides convenience functions for querying tables and views
 without having to construct [`DataFrame`][pixeltable.DataFrame] instances explicitly.
 
 ## ::: pixeltable.Table
