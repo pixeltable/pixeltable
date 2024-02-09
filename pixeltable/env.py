@@ -13,6 +13,7 @@ import http.server
 import socketserver
 import threading
 
+import yaml
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 import pgserver
 import logging
@@ -67,6 +68,10 @@ class Env:
         self._logfilename: Optional[str] = None
         self._log_to_stdout = False
         self._module_log_level: Dict[str, int] = {}  # module name -> log level
+
+        # config
+        self._config_file: Optional[Path] = None
+        self._config: Optional[Dict] = None
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -136,6 +141,16 @@ class Env:
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
         self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
+        self._config_file = self._home / 'pixeltable.yaml'
+        if os.path.isfile(self._config_file):
+            with open(self._config_file, 'r') as stream:
+                try:
+                    self._config = yaml.safe_load(stream)
+                except yaml.YAMLError as exc:
+                    self._logger.error(f'Could not read config file: {self._config_file}')
+                    self._config = {}
+        else:
+            self._config = {}
 
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
@@ -227,11 +242,11 @@ class Env:
             func.FunctionRegistry.get().register_module(mod)
 
     def _create_openai_client(self) -> None:
-        if not 'OPENAI_API_KEY' in os.environ:
+        if not 'openai' in self._config or not 'default' in self._config['openai'] or self._config['openai']['default']['key'] is None:
             return
         import openai
         self._logger.info('connecting to OpenAI')
-        self._openai_client = openai.OpenAI(api_key=os.environ['OPENAI_API_KEY'])
+        self._openai_client = openai.OpenAI(api_key=self._config['openai']['default']['key'])
 
     def _start_web_server(self) -> None:
         """
