@@ -44,7 +44,7 @@ class FrameIterator(ComponentIterator):
         }
 
     @classmethod
-    def output_schema(cls) -> Tuple[Dict[str, ColumnType], List[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, ColumnType], List[str]]:
         return {
             'frame_idx': IntType(),
             'pos_msec': FloatType(),
@@ -87,6 +87,3 @@ class FrameIterator(ComponentIterator):
         _logger.debug(f'seeking to frame {pos}')
         self.video_reader.set(cv2.CAP_PROP_POS_FRAMES, pos * self.frame_freq)
         self.next_frame_idx = pos
-
-    def len(self) -> int:
-        return self.num_frames

@@ -90,10 +90,11 @@ class TableVersion:
             module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
             module = importlib.import_module(module_name)
             self.iterator_cls = getattr(module, class_name)
-            output_schema, _ = self.iterator_cls.output_schema()
+            self.iterator_args = exprs.Expr.from_dict(tbl_md.view_md.iterator_args)
+            assert isinstance(self.iterator_args, exprs.InlineDict)
+            output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_dict())
             self.num_iterator_cols = len(output_schema)
             assert tbl_md.view_md.iterator_args is not None
-            self.iterator_args = exprs.Expr.from_dict(tbl_md.view_md.iterator_args)
 
         # register this table version now so that it's available when we're re-creating value exprs
         import pixeltable.catalog as catalog
@@ -116,8 +117,7 @@ class TableVersion:
 
     @classmethod
     def create(
-            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column],
-            num_retained_versions: int, description: str,
+            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int, description: str,
             base_path: Optional['TableVersionPath'] = None, view_md: Optional[schema.ViewMd] = None
     ) -> Tuple[UUID, Optional[TableVersion]]:
         # assign ids

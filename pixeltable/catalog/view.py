@@ -97,7 +97,7 @@ class View(Table):
             # we create that column here, so it gets assigned a column id;
             # stored=False: it is not stored separately (it's already stored as part of the rowid)
             iterator_cols = [Column(POS_COLUMN_NAME, IntType(), stored=False)]
-            output_dict, unstored_cols = iterator_cls.output_schema()
+            output_dict, unstored_cols = iterator_cls.output_schema(**bound_args)
             iterator_cols.extend([
                 Column(col_name, col_type, stored=col_name not in unstored_cols)
                 for col_name, col_type in output_dict.items()

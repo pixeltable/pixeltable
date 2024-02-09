@@ -21,8 +21,10 @@ class ComponentIterationNode(ExecNode):
         iterator_args = [view.iterator_args.copy()]
         self.row_builder.substitute_exprs(iterator_args)
         self.iterator_args = iterator_args[0]
+        assert isinstance(self.iterator_args, exprs.InlineDict)
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args])
-        self.iterator_output_schema, self.unstored_column_names = self.view.iterator_cls.output_schema()
+        self.iterator_output_schema, self.unstored_column_names = \
+            self.view.iterator_cls.output_schema(**self.iterator_args.to_dict())
         self.iterator_output_fields = list(self.iterator_output_schema.keys())
         self.iterator_output_cols = \
             {field_name: self.view.cols_by_name[field_name] for field_name in self.iterator_output_fields}
