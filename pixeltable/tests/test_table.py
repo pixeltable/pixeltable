@@ -92,6 +92,14 @@ class TestTable:
         tbl = cl.create_table('test_attrs', schema, num_retained_versions=num_retained_versions, description=description)
         assert(tbl.tbl_version.attributes.num_retained_versions == num_retained_versions)
         assert(tbl.tbl_version.attributes.description == description)
+        new_num_retained_versions = 30
+        new_description = "This is an updated table."
+        tbl.update_attributes(num_retained_versions=new_num_retained_versions, description=new_description)
+        assert(tbl.tbl_version.attributes.num_retained_versions == new_num_retained_versions)
+        assert(tbl.tbl_version.attributes.description == new_description)
+        tbl.revert()
+        assert(tbl.tbl_version.attributes.num_retained_versions == num_retained_versions)
+        assert(tbl.tbl_version.attributes.description == description)
 
     def test_image_table(self, test_client: pt.Client) -> None:
         n_sample_rows = 20

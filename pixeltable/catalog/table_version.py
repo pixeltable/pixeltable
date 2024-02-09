@@ -18,6 +18,7 @@ from pixeltable import exceptions as exc
 from pixeltable.env import Env
 import pixeltable.func as func
 from pixeltable.metadata import schema
+from pixeltable.metadata.schema import TableAttributes
 from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.filecache import FileCache
 from pixeltable.iterators import ComponentIterator
@@ -100,7 +101,8 @@ class TableVersion:
     @classmethod
     def create(
             cls, dir_id: UUID, name: str, cols: List[Column],
-            base: Optional[TableVersion], predicate: Optional['exprs.Predicate'], num_retained_versions: int, description: str,
+            base: Optional[TableVersion], predicate: Optional['exprs.Predicate'],
+            num_retained_versions: int, description: str,
             iterator_cls: Optional[Type[ComponentIterator]],
             iterator_args: Optional['exprs.InlineDict'],
             session: orm.Session
@@ -369,6 +371,21 @@ class TableVersion:
             self._update_md(ts, preceding_schema_version, conn)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
+    def update_attributes(self, num_retained_versions: Optional[int] = None, description: Optional[str] = None):
+        self.attributes = TableAttributes(
+            num_retained_versions = self.attributes.num_retained_versions if num_retained_versions is None else num_retained_versions,
+            description = self.attributes.description if description is None else description
+        )
+
+        # we're creating a new schema version
+        ts = time.time()
+        self.version += 1
+        preceding_schema_version = self.schema_version
+        self.schema_version = self.version
+        with Env.get().engine.begin() as conn:
+            self._update_md(ts, preceding_schema_version, conn)
+        _logger.info(f'Updated attributes: {self.attributes}, new version: {self.version}')
+
     def insert(
             self, rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception : bool = True
     ) -> UpdateStatus:
@@ -580,6 +597,7 @@ class TableVersion:
                     .where(schema.TableSchemaVersion.tbl_id == self.id)
                     .where(schema.TableSchemaVersion.schema_version == self.schema_version))
             self.schema_version = preceding_schema_version
+            self.attributes = preceding_schema_version_md.attributes
 
         conn.execute(
             sql.delete(schema.TableVersion.__table__)
