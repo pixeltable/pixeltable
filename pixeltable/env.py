@@ -242,11 +242,26 @@ class Env:
             func.FunctionRegistry.get().register_module(mod)
 
     def _create_openai_client(self) -> None:
-        if not 'openai' in self._config or not 'default' in self._config['openai'] or self._config['openai']['default']['key'] is None:
+        if 'openai' in self._config and 'default' in self._config['openai'] and self._config['openai']['default']['api_key'] is not None:
+            api_key = self._config['openai']['default']['api_key']
+        else:
+            api_key = os.environ['OPENAI_API_KEY']
+        if api_key is None:
             return
         import openai
-        self._logger.info('connecting to OpenAI')
-        self._openai_client = openai.OpenAI(api_key=self._config['openai']['default']['key'])
+        self._logger.info('Initializing OpenAI client.')
+        self._openai_client = openai.OpenAI(api_key=api_key)
+
+    def _create_together_client(self) -> None:
+        if 'together' in self._config and 'default' in self._config['together'] and self._config['together']['default']['api_key'] is not None:
+            api_key = self._config['together']['default']['api_key']
+        else:
+            api_key = os.environ['TOGETHER_API_KEY']
+        if api_key is None:
+            return
+        import together
+        self._logger.info('Initializing Together client.')
+        together.api_key = api_key
 
     def _start_web_server(self) -> None:
         """
@@ -297,6 +312,9 @@ class Env:
         check('openai')
         if self._installed_packages['openai'] is not None:
             self._create_openai_client()
+        check('together')
+        if self._installed_packages['together'] is not None:
+            self._create_together_client()
         check('nos')
         if self._installed_packages['nos'] is not None:
             self._create_nos_client()
