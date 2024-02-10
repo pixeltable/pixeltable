@@ -242,22 +242,24 @@ class Env:
             func.FunctionRegistry.get().register_module(mod)
 
     def _create_openai_client(self) -> None:
-        if 'openai' in self._config and 'default' in self._config['openai'] and self._config['openai']['default']['api_key'] is not None:
+        if 'openai' in self._config and 'default' in self._config['openai'] and 'api_key' in self._config['openai']['default']:
             api_key = self._config['openai']['default']['api_key']
         else:
-            api_key = os.environ['OPENAI_API_KEY']
+            api_key = os.environ.get('OPENAI_API_KEY')
         if api_key is None:
+            self._logger.info("OpenAI client not initialized (no API key configured).")
             return
         import openai
         self._logger.info('Initializing OpenAI client.')
         self._openai_client = openai.OpenAI(api_key=api_key)
 
     def _create_together_client(self) -> None:
-        if 'together' in self._config and 'default' in self._config['together'] and self._config['together']['default']['api_key'] is not None:
+        if 'together' in self._config and 'default' in self._config['together'] and 'api_key' in self._config['together']['default']:
             api_key = self._config['together']['default']['api_key']
         else:
-            api_key = os.environ['TOGETHER_API_KEY']
+            api_key = os.environ.get('TOGETHER_API_KEY')
         if api_key is None:
+            self._logger.info('Together client not initialized (no API key configured).')
             return
         import together
         self._logger.info('Initializing Together client.')
