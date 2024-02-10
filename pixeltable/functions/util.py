@@ -86,7 +86,6 @@ def create_together_module() -> types.ModuleType:
                 'seed': ts.IntType(nullable=True),
                 # tool_choice: ChatCompletionToolChoiceOptionParam | NotGiven = NOT_GIVEN,
                 # tools: List[ChatCompletionToolParam] | NotGiven = NOT_GIVEN,
-                #'stop': ts.List(),
                 'top_k': ts.IntType(nullable=True),
                 'top_p': ts.FloatType(nullable=True),
                 'temperature': ts.FloatType(nullable=True),
