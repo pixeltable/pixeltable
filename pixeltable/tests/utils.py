@@ -233,12 +233,10 @@ def get_audio_files(include_bad_audio=False) -> List[str]:
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
     return glob_result
 
-def get_html_files(include_invalid: bool = False) -> Tuple[List[str], List[bool]]:
+def get_documents() -> List[str]:
     tests_dir = os.path.dirname(__file__)
-    html_files = glob.glob(f'{tests_dir}/**/documents/*.html', recursive=True)
-    other_files = [p for p in glob.glob(f'{tests_dir}/**/documents/*', recursive=True) if p not in html_files]
-    return html_files + (other_files if include_invalid else []),\
-        [True] * len(html_files) + ([False] * len(other_files) if include_invalid else [])
+    # for now, we can only handle .html and .md
+    return [p for p in glob.glob(f'{tests_dir}/**/documents/*', recursive=True) if not p.endswith('.pdf')]
 
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)

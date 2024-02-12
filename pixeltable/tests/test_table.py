@@ -18,7 +18,8 @@ from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
     DocumentType
 from pixeltable.tests.utils import \
-    make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_html_files, assert_resultset_eq
+    make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
+    assert_resultset_eq
 from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.filecache import FileCache
 from pixeltable.iterators import FrameIterator
@@ -258,8 +259,11 @@ class TestTable:
         self.check_bad_media(test_client, rows, AudioType(nullable=True))
 
     def test_validate_docs(self, test_client: pt.Client) -> None:
-        files, is_valid = get_html_files(include_invalid=True)
-        rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(files, is_valid)]
+        valid_doc_paths = get_documents()
+        invalid_doc_paths = [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
+        doc_paths = valid_doc_paths + invalid_doc_paths
+        is_valid = [True] * len(valid_doc_paths) + [False] * len(invalid_doc_paths)
+        rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
         self.check_bad_media(test_client, rows, DocumentType(nullable=True))
 
     def test_validate_external_url(self, test_client: pt.Client) -> None:
