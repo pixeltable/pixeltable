@@ -2,9 +2,14 @@ import pytest
 import math
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import datasets
+
+
 import datetime
 import random
 import os
+from pathlib import Path
 
 import PIL
 import cv2
@@ -17,9 +22,10 @@ from pixeltable import catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
     DocumentType
+from pixeltable.utils.arrow import iter_tuples
 from pixeltable.tests.utils import \
     make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
-    assert_resultset_eq
+    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table
 from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.filecache import FileCache
 from pixeltable.iterators import FrameIterator
@@ -85,6 +91,83 @@ class TestTable:
             cl.drop_table('dir1.test2')
         with pytest.raises(exc.Error):
             cl.drop_table('.test2')
+
+    def test_import_parquet(self, test_client: pt.Client, tmp_path: Path) -> None:
+        parquet_dir = tmp_path / 'test_data'
+        parquet_dir.mkdir()
+        make_test_arrow_table(parquet_dir)
+
+        tab = test_client.import_parquet('test_parquet', str(parquet_dir))
+        assert 'test_parquet' in test_client.list_tables()
+        assert tab is not None
+        num_elts = tab.count()
+        arrow_tab: pa.Table = pa.parquet.read_table(str(parquet_dir))
+        assert num_elts == arrow_tab.num_rows
+        assert set(tab.column_names()) == set(arrow_tab.column_names)
+
+        result_set = tab.order_by(tab.c_id).collect()
+        column_types = tab.column_types()
+
+        for tup, arrow_tup in zip(result_set, iter_tuples(arrow_tab)):
+            assert tup['c_id'] == arrow_tup['c_id']
+            for col, val in tup.items():
+                if val is None:
+                    assert arrow_tup[col] is None
+                    continue
+
+                if column_types[col].is_array_type():
+                    assert (val == arrow_tup[col]).all()
+                else:
+                    assert val == arrow_tup[col]
+
+    def test_import_huggingface_dataset(self, test_client: pt.Client) -> None:
+        test_cases = [
+            {
+                'dataset_name': 'mnli',
+                'dataset': datasets.load_dataset("glue", "mnli", split="validation_matched[:13]"),
+            },
+            {
+                'dataset_name': 'c4',
+                'dataset': datasets.load_dataset(
+                    "allenai/c4", data_files="en/c4-train.00001-of-01024.json.gz", split='train[:13]'
+                ),  # too large to load all
+            },
+            # includes an embedding (array type), useful for RAG.
+            {
+                'dataset_name': 'cohere_wikipedia',
+                'dataset': datasets.load_dataset(f"Cohere/wikipedia-22-12-simple-embeddings", split="train[:10]"),
+                'schema_override': {'emb': ArrayType((768,), dtype=FloatType(), nullable=False)},
+            },
+            # example of dataset dictionary with multiple splits
+            {
+                'dataset_name': 'rotten_tomatoes',
+                'dataset': datasets.load_dataset("rotten_tomatoes"),
+            },
+        ]
+
+        # test a column name for splits other than the default of 'split'
+        split_column_name = 'my_split_col'
+        for rec in test_cases:
+            dataset_name = rec['dataset_name']
+            hf_dataset = rec['dataset']
+
+            tab = test_client.import_huggingface_dataset(
+                dataset_name,
+                hf_dataset,
+                column_name_for_split=split_column_name,
+                schema_override=rec.get('schema_override', None),
+            )
+            if isinstance(hf_dataset, datasets.Dataset):
+                assert_hf_dataset_equal(hf_dataset, tab.df(), split_column_name)
+            elif isinstance(hf_dataset, datasets.DatasetDict):
+                assert tab.count() == sum(hf_dataset.num_rows.values())
+                assert split_column_name in tab.column_names()
+
+                for dataset_name in hf_dataset:
+                    df = tab.where(tab.my_split_col == dataset_name)
+                    assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
+            else:
+                raise AssertionError(f'Unexpected dataset type: {type(hf_dataset)}')
 
     def test_image_table(self, test_client: pt.Client) -> None:
         n_sample_rows = 20
@@ -490,6 +573,15 @@ class TestTable:
         with pytest.raises(exc.Error) as exc_info:
             t.insert([{'c5': np.ndarray((3, 2))}])
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
+
+    def test_insert_string_with_null(self, test_client: pt.Client) -> None:
+        cl = test_client
+        t = cl.create_table('test', {'c1': StringType()})
+
+        t.insert([{'c1': 'this is a python\x00string'}])
+        assert t.count() == 1
+        for tup in t.df().collect():
+            assert tup['c1'] == 'this is a python string'
 
     def test_query(self, test_client: pt.Client) -> None:
         cl = test_client

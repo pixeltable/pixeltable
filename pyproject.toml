@@ -71,6 +71,8 @@ tiktoken = ">=0.3"
 beautifulsoup4 = "^4.0.0"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
+datasets = ">=2.15.0"
+pyarrow-stubs = "^10.0.1.7"
 
 [tool.mypy]
 plugins = "sqlalchemy.ext.mypy.plugin"

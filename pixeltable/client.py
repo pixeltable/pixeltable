@@ -2,12 +2,11 @@ from typing import List, Optional, Dict, Type, Any, Union
 import pandas as pd
 import logging
 import dataclasses
-from uuid import UUID
-from collections import defaultdict
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
+import pixeltable
 from pixeltable.metadata import schema
 from pixeltable.env import Env
 import pixeltable.func as func
@@ -15,6 +14,10 @@ import pixeltable.catalog as catalog
 from pixeltable import exceptions as excs
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import datasets
 
 __all__ = [
     'Client',
@@ -148,6 +151,76 @@ class Client:
         self.catalog.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
         return tbl
+
+    def import_parquet(
+        self,
+        path_str: str,
+        parquet_path: str,
+        schema_override: Optional[Dict[str, Any]] = None,
+        primary_key: Optional[Union[str, List[str]]] = None,
+        num_retained_versions: int = 10,
+    ) -> catalog.InsertableTable:
+        """Create a new `InsertableTable` from a Parquet file or set of files. Requires pyarrow to be installed.
+        Args:
+            path_str: Path to the table within pixeltable.
+            parquet_path: Path to an individual Parquet file or directory of Parquet files.
+            schema_override: Optional dictionary mapping column names to column type to override the default
+                            schema inferred from the Parquet file. The column type should be a pixeltable ColumnType.
+                            For example, {'col_vid': VideoType()}, rather than {'col_vid': StringType()}.
+                            Any fields not provided explicitly will map to types with `pixeltable.utils.parquet.parquet_schema_to_pixeltable_schema`
+            primary_key: Primary key column(s).
+            num_retained_versions: Number of versions of the table to retain.
+
+        Returns:
+            The newly created table. The table will have loaded the data from the Parquet file(s).
+        """
+        from pixeltable.utils.parquet import import_parquet
+
+        return import_parquet(
+            self,
+            path_str=path_str,
+            parquet_path=parquet_path,
+            schema_override=schema_override,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+        )
+
+    def import_huggingface_dataset(
+        self,
+        path_str: str,
+        dataset: Union['datasets.Dataset', 'datasets.DatasetDict'],
+        *,
+        column_name_for_split: Optional[str] = 'split',
+        schema_override: Optional[Dict[str, Any]] = None,
+        primary_key: Optional[Union[str, List[str]]] = None,
+        num_retained_versions: int = 10,
+    ) -> catalog.InsertableTable:
+        """Create a new `InsertableTable` from a Huggingface dataset, or dataset dict with multiple splits.
+            Requires datasets library to be installed.
+
+        Args:
+            path_str: Path to the table.
+            dataset: Huggingface datasts.Dataset or datasts.DatasetDict to insert into the table.
+            column_name_for_split: column name to use for split information. If None, no split information will be stored.
+            schema_override: Optional dictionary mapping column names to column type to override the corresponding defaults from
+            pixeltable.utils.hf_datasets.huggingface_schema_to_pixeltable_schema. The column type should be a pixeltable ColumnType.
+            primary_key: Primary key column(s).
+            num_retained_versions: Number of versions of the table to retain.
+
+        Returns:
+            The newly created table. The table will have loaded the data from the dataset.
+        """
+        from pixeltable.utils.hf_datasets import import_huggingface_dataset
+
+        return import_huggingface_dataset(
+            self,
+            path_str,
+            dataset,
+            column_name_for_split=column_name_for_split,
+            schema_override=schema_override,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+        )
 
     def create_view(
             self, path_str: str, base: catalog.Table, *, schema: Optional[Dict[str, Any]] = None,

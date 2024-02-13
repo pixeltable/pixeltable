@@ -1,0 +1,155 @@
+import datasets
+from typing import Union, Optional, List, Dict, Any
+import pixeltable.type_system as ts
+from pixeltable import exceptions as excs
+import math
+import logging
+import pixeltable
+import random
+
+_logger = logging.getLogger(__name__)
+
+# use 100MB as the batch size limit for loading a huggingface dataset into pixeltable.
+# The primary goal is to bound memory use, regardless of dataset size.
+# Second goal is to limit overhead. 100MB is presumed to be reasonable for a lot of storage systems.
+_K_BATCH_SIZE_BYTES = 100_000_000
+
+# note, there are many more types. we allow overrides in the schema_override parameter
+# to handle cases where the appropriate type is not yet mapped, or to override this mapping.
+# https://huggingface.co/docs/datasets/v2.17.0/en/package_reference/main_classes#datasets.Value
+_hf_to_pt: Dict[str, ts.ColumnType] = {
+    'uint32': ts.IntType(nullable=True),
+    'uint64': ts.IntType(nullable=True),
+    'int32': ts.IntType(nullable=True),
+    'int64': ts.IntType(nullable=True),
+    'bool': ts.BoolType(nullable=True),
+    'float32': ts.FloatType(nullable=True),
+    'string': ts.StringType(nullable=True),
+    'timestamp[s]': ts.TimestampType(nullable=True),
+    'timestamp[ms]': ts.TimestampType(nullable=True),
+}
+
+
+def _to_pixeltable_type(
+    feature_type: Union[datasets.ClassLabel, datasets.Value, datasets.Sequence],
+) -> Optional[ts.ColumnType]:
+    """Convert a huggingface feature type to a pixeltable ColumnType if one is defined."""
+    if isinstance(feature_type, datasets.ClassLabel):
+        # enum, example: ClassLabel(names=['neg', 'pos'], id=None)
+        return ts.StringType(nullable=True)
+    elif isinstance(feature_type, datasets.Value):
+        # example: Value(dtype='int64', id=None)
+        return _hf_to_pt.get(feature_type.dtype, None)
+    elif isinstance(feature_type, datasets.Sequence):
+        # example: cohere wiki. Sequence(feature=Value(dtype='float32', id=None), length=-1, id=None)
+        dtype = _to_pixeltable_type(feature_type.feature)
+        length = feature_type.length if feature_type.length != -1 else None
+        return ts.ArrayType(shape=(length,), dtype=dtype)
+    else:
+        return None
+
+
+def _get_hf_schema(dataset: Union[datasets.Dataset, datasets.DatasetDict]) -> datasets.Features:
+    """Get the schema of a huggingface dataset as a dictionary."""
+    if isinstance(dataset, datasets.Dataset):
+        hf_schema = dataset.features
+    elif isinstance(dataset, datasets.DatasetDict):
+        for _, split_dataset in dataset.items():
+            hf_schema = split_dataset.features
+            break
+    else:
+        raise excs.Error(f'type(dataset) must be datasets.Dataset or datasets.DatasetDict. Got {type(dataset)=}')
+
+    return hf_schema
+
+
+def hugginface_schema_to_pixeltable_schema(
+    hf_dataset: Union[datasets.Dataset, datasets.DatasetDict],
+) -> Dict[str, Optional[ts.ColumnType]]:
+    """Generate a pixeltable schema from a huggingface dataset schema.
+    Columns without a known mapping are mapped to None
+    """
+    hf_schema = _get_hf_schema(hf_dataset)
+    pixeltable_schema: Dict[str, ts.ColumnType] = {}
+    for column_name, feature_type in hf_schema.items():
+        pixeltable_schema[column_name] = _to_pixeltable_type(feature_type)
+
+    return pixeltable_schema
+
+
+def import_huggingface_dataset(
+    cl: 'pixeltable.Client',
+    path_str: str,
+    dataset: Union[datasets.Dataset, datasets.DatasetDict],
+    *,
+    column_name_for_split: Optional[str],
+    schema_override: Optional[Dict[str, Any]],
+    primary_key: Union[str, List[str]],
+    num_retained_versions: int,
+) -> 'pixeltable.InsertableTable':
+    """See `pixeltable.Client.import_huggingface_dataset' for documentation"""
+    if path_str in cl.list_tables():
+        raise excs.Error(f'table {path_str} already exists')
+
+    pixeltable_schema = hugginface_schema_to_pixeltable_schema(dataset)
+    if schema_override is not None:
+        pixeltable_schema.update(schema_override)
+
+    if column_name_for_split is not None:
+        if column_name_for_split in pixeltable_schema:
+            raise excs.Error(
+                f'column name {column_name_for_split} already exists in dataset schema, use a different name for the split column'
+            )
+        pixeltable_schema[column_name_for_split] = ts.StringType(nullable=True)
+
+    for field, column_type in pixeltable_schema.items():
+        if column_type is None:
+            raise excs.Error(f'Could not infer pixeltable type for feature {field} in huggingface dataset')
+
+    # extract all class labels from the dataset to translate category ints to strings
+    categorical_features: Dict[str, List[str]] = {}
+    hf_schema = _get_hf_schema(dataset)
+    for feature_name, feature_type in hf_schema.items():
+        if isinstance(feature_type, datasets.ClassLabel):
+            categorical_features[feature_name] = feature_type.names
+
+    dataset_dict: Dict[str, datasets.Dataset] = None
+    if isinstance(dataset, datasets.Dataset):
+        # when loading an hf dataset partially, dataset.split._name is sometimes the form "train[0:1000]"
+        raw_name = dataset.split._name
+        split_name = raw_name.split('[')[0] if raw_name is not None else None
+        dataset_dict = {split_name: dataset}
+    elif isinstance(dataset, datasets.DatasetDict):
+        dataset_dict = dataset
+    else:
+        raise excs.Error(f'type(dataset) must be datasets.Dataset or datasets.DatasetDict. Got {type(dataset)=}')
+
+    try:
+        # random tmp name
+        tmp_name = f'{path_str}_tmp_{random.randint(0, 100000000)}'
+        tab = cl.create_table(tmp_name, pixeltable_schema, primary_key, num_retained_versions)
+        for split_name, split_dataset in dataset_dict.items():
+            num_batches = split_dataset.size_in_bytes / _K_BATCH_SIZE_BYTES
+            tuples_per_batch = math.ceil(split_dataset.num_rows / num_batches)
+
+            batch: List[Dict[str, Any]] = []
+            for row in split_dataset:
+                row[column_name_for_split] = split_name
+                # map all class labels to strings
+                for column_name, categorical_map in categorical_features.items():
+                    row[column_name] = categorical_map[row[column_name]]
+
+                batch.append(row)
+                if len(batch) > tuples_per_batch:
+                    tab.insert(batch)
+                    batch = []
+
+            # final batch
+            if len(batch) > 0:
+                tab.insert(batch)
+    except Exception as e:
+        _logger.error(f'Error while inserting dataset into table: {tmp_name}')
+        raise e
+
+    cl.move(tmp_name, path_str)
+    return cl.get_table(path_str)
