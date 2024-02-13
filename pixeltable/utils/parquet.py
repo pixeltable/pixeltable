@@ -7,8 +7,9 @@ import numpy as np
 from pathlib import Path
 from collections import deque
 
-from typing import List, Tuple, Any, Dict
+from typing import List, Tuple, Dict
 from pixeltable.utils.transactional_directory import transactional_directory
+import pixeltable.utils.arrow as arrow
 
 def _write_batch(value_batch : Dict[str, deque], schema : pa.Schema, output_path : Path) -> None:
     pydict = {}
@@ -27,11 +28,11 @@ def save_parquet(df: 'pixeltable.DataFrame', dest_path: Path, partition_size_byt
         Internal method to stream dataframe data to parquet format.
         Does not materialize the dataset to memory.
 
-        It preserves pixeltable type metadata in a json file, which would otherwise 
+        It preserves pixeltable type metadata in a json file, which would otherwise
         not be available in the parquet format.
 
         Images are stored inline in a compressed format in their parquet file.
-    
+
         Args:
             df : dataframe to save.
             dest_path : path to directory to save the parquet files to.
@@ -39,10 +40,9 @@ def save_parquet(df: 'pixeltable.DataFrame', dest_path: Path, partition_size_byt
     """
     column_names = df.get_column_names()
     column_types = df.get_column_types()
-
     type_dict = {k: v.as_dict() for k, v in zip(column_names, column_types)}
+    arrow_schema = arrow.get_arrow_schema(dict(zip(column_names, column_types)))
 
-    arrow_schema = pa.schema([pa.field(name, column_types[i].to_arrow_type()) for i, name in enumerate(column_names)])
     # store the changes atomically
     with transactional_directory(dest_path) as temp_path:
         # dump metadata json file so we can inspect what was the source of the parquet file later on.
@@ -66,7 +66,7 @@ def save_parquet(df: 'pixeltable.DataFrame', dest_path: Path, partition_size_byt
                     if data_row.file_paths is not None and data_row.file_paths[e.slot_idx] is not None:
                         # if there is a file, read directly to preserve information
                         val = open(data_row.file_paths[e.slot_idx], 'rb').read()
-                    elif isinstance(val, PIL.Image.Image): 
+                    elif isinstance(val, PIL.Image.Image):
                         # if no file available, eg. bc it is computed, convert to png
                         buf = io.BytesIO()
                         val.save(buf, format='PNG')
@@ -108,19 +108,3 @@ def save_parquet(df: 'pixeltable.DataFrame', dest_path: Path, partition_size_byt
                 current_byte_estimate = 0
 
         _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
-
-def get_part_metadata(path : Path) -> List[Tuple[str, int]]:
-    """
-        Args:
-            path: path to directory containing parquet files.
-        Returns:
-            A list of (file_name, num_rows) tuples for the parquet files in file name order.
-    """
-    parts = sorted([f for f in path.iterdir() if f.suffix == '.parquet'])
-    rows_per_file = {}
-
-    for part in parts:
-        parquet_file = pq.ParquetFile(str(part))
-        rows_per_file[part] = parquet_file.metadata.num_rows
-
-    return [(file, num_rows) for file, num_rows in rows_per_file.items()]

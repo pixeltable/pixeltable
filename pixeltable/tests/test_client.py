@@ -18,4 +18,3 @@ class TestClient:
             _ = cl.get_table('test_tbl')
         with pytest.raises(exc.Error):
             _ = t.show(1)
-

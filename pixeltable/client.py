@@ -2,8 +2,6 @@ from typing import List, Optional, Dict, Type, Any, Union
 import pandas as pd
 import logging
 import dataclasses
-from uuid import UUID
-from collections import defaultdict
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
@@ -146,6 +144,50 @@ class Client:
         self.catalog.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
         return tbl
+
+    def create_table_from_parquet(self, path_str: str, parquet_path: str,
+                                  explain_only : bool = False,
+                                  primary_key: Union[str, List[str]] = [],
+                                  num_retained_versions: int = 10) -> Optional[catalog.InsertableTable]:
+        """Create a new `InsertableTable` from a Parquet file. Requires pyarrow to be installed.
+
+        Args:
+            path_str: Path to the table.
+            parquet_path: Path to an individual Parquet file or directory of Parquet files.
+            explain_only : Print how the file will map to a table and return without creating the table.
+            primary_key: Primary key column(s).
+            num_retained_versions: Number of versions of the table to retain.
+
+        Returns:
+            The newly created table. The table will have loaded the data from the Parquet file(s)
+        """
+        from pixeltable.utils.arrow import create_table_from_parquet
+        return create_table_from_parquet(self, path_str, parquet_path, explain_only, primary_key, num_retained_versions)
+
+    def create_table_from_huggingface_dataset(self, path_str: str,
+                                              dataset : Union['datasets.Dataset', 'datasets.DatasetDict'],
+                                              split_column_name : Optional[str] = 'split',
+                                              explain_only : bool = False,
+                                              primary_key: Union[str, List[str]] = [],
+                                              num_retained_versions: int = 10) -> Optional[catalog.InsertableTable]:
+
+        """Create a new `InsertableTable` from a Huggingface dataset, or dataset dict with multiple splits.
+            Requires datasets library to be installed.
+
+        Args:
+            path_str: Path to the table.
+            dataset: Huggingface dataset or dataset dict to insert into the table.
+            split_column_name: column name to use for split information. If None, no split information will be stored.
+            explain_only : Print how the file will map to a table and return without creating the table.
+            primary_key: Primary key column(s).
+            num_retained_versions: Number of versions of the table to retain.
+
+        Returns:
+            The newly created table. The table will have loaded the data from the dataset.
+            or None if explain_only is True.
+        """
+        from pixeltable.utils.hf_datasets import create_table_from_huggingface_dataset
+        return create_table_from_huggingface_dataset(self, path_str, dataset, split_column_name, explain_only, primary_key, num_retained_versions)
 
     def create_view(
             self, path_str: str, base: catalog.Table, *, schema: Optional[Dict[str, Any]] = None,

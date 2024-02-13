@@ -3,10 +3,14 @@ import glob
 import os
 import pytest
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Set
+from collections import namedtuple
+import datasets
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
+import pyarrow as pa
 
 import pixeltable as pt
 from pixeltable import catalog
@@ -257,3 +261,72 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
 def skip_test_if_not_installed(package) -> None:
     if not Env.get().is_installed_package(package):
         pytest.skip(f'Package `{package}` is not installed.')
+
+
+def make_test_arrow_table(output_path : Path) -> None:
+    value_dict = {
+        'c_id' : [1,2,3,4,5],
+        'c_int64': [-10,-20,-30,-40, None],
+        'c_int32': [-1,-2,-3,-4,None],
+        'c_uint64': [10,20,30,40, None],
+        'c_uint32': [1,2,3,4, None],
+        'c_float32': [1.1,2.2,3.3,4.4, None],
+        'c_string': ['aaa','bbb','ccc','ddd', None],
+        'c_boolean': [True,False,True,False, None],
+        'c_timestamp': [datetime.datetime(2012, 1, 1, 12, 0, 0, 25),
+                        datetime.datetime(2012, 1, 2, 12, 0, 0, 25),
+                        datetime.datetime(2012, 1, 3, 12, 0, 0, 25),
+                        datetime.datetime(2012, 1, 4, 12, 0, 0, 25),
+                        None
+                    ],
+        # The pyarrow fixed_shape_tensor type does not support NULLs (currently can write them but not read them)
+        # So, no nulls in this column
+        'c_array_float32': [[1., 2.,], [10., 20.,], [100., 200.,], [1000., 2000.,], [10000., 20000.]],
+    }
+
+    arr_size = len(value_dict['c_array_float32'][0])
+    tensor_type = pa.fixed_shape_tensor(pa.float32(), (arr_size,))
+
+    schema=pa.schema([
+        ('c_id', pa.int32()),
+        ('c_int64', pa.int64()),
+        ('c_int32', pa.int32()),
+        ('c_uint64', pa.uint64()),
+        ('c_uint32', pa.uint32()),
+        ('c_float32', pa.float32()),
+        ('c_string', pa.string()),
+        ('c_boolean', pa.bool_()),
+        ('c_timestamp', pa.timestamp('us')),
+        ('c_array_float32', tensor_type),
+    ])
+
+    test_table = pa.Table.from_pydict(value_dict, schema=schema)
+    pq.write_table(test_table, str(output_path / 'test.parquet'))
+
+def assert_hf_dataset_equal(hf_dataset : datasets.Dataset, df : pt.DataFrame, split_column_name : str) -> None:
+    assert df.count() == hf_dataset.num_rows
+    assert set(df.get_column_names()) == (set(hf_dataset.features.keys()) | {split_column_name})
+
+    # immutable so we can use it as in a set
+    DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))
+    acc_dataset : Set[DatasetTuple] = set()
+    for tup in hf_dataset:
+        acc_dataset.add(DatasetTuple(**tup))
+
+    for tup in df.collect():
+        assert tup[split_column_name] in hf_dataset.split._name
+
+        encoded_tup = {}
+        for column_name,value in tup.items():
+            if column_name == split_column_name:
+                continue
+            feature_type = hf_dataset.features[column_name]
+            if isinstance(feature_type, datasets.ClassLabel):
+                assert value in feature_type.names
+                # must use the index of the class label as the value to
+                # compare with dataset iteration output.
+                value = feature_type.encode_example(value)
+
+            encoded_tup[column_name] = value
+        check_tup = DatasetTuple(**encoded_tup)
+        assert check_tup in acc_dataset
