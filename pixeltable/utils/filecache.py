@@ -15,28 +15,26 @@ from pixeltable.env import Env
 _logger = logging.getLogger('pixeltable')
 
 class CacheEntry:
-    def __init__(self, key: str, tbl_id: UUID, col_id: int, size: int, last_accessed_ts: int):
+    def __init__(self, key: str, tbl_id: UUID, col_id: int, size: int, last_accessed_ts: int, ext: str):
         self.key = key
         self.tbl_id = tbl_id
         self.col_id = col_id
         self.size = size
         self.last_accessed_ts = last_accessed_ts
-
-    def filename(self) -> str:
-        return f'{self.tbl_id.hex}_{self.col_id}_{self.key}'
+        self.ext = ext
 
     def path(self) -> Path:
-        return Env.get().file_cache_dir / self.filename()
+        return Env.get().file_cache_dir / f'{self.tbl_id.hex}_{self.col_id}_{self.key}{self.ext}'
 
     @classmethod
     def from_file(cls, path: Path) -> CacheEntry:
-        components = path.name.split('_')
+        components = path.stem.split('_')
         assert len(components) == 3
         tbl_id = UUID(components[0])
         col_id = int(components[1])
         key = components[2]
         file_info = os.stat(str(path))
-        return cls(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime)
+        return cls(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime, path.suffix)
 
 
 class FileCache:
@@ -62,13 +60,13 @@ class FileCache:
         return cls._instance
 
     def __init__(self):
-        paths = glob.glob(str(Env.get().file_cache_dir / '*'))
         self.cache: OrderedDict[str, CacheEntry] = OrderedDict()  # ordered by entry.last_accessed_ts
         self.total_size = 0
         #self.capacity = Env.get().max_filecache_size
         self.num_requests = 0
         self.num_hits = 0
         self.num_evictions = 0
+        paths = glob.glob(str(Env.get().file_cache_dir / '*'))
         entries = [CacheEntry.from_file(Path(path_str)) for path_str in paths]
         # we need to insert entries in order of last_accessed_ts
         entries.sort(key=lambda e: e.last_accessed_ts)
@@ -144,7 +142,7 @@ class FileCache:
 
     def add(self, tbl_id: UUID, col_id: int, url: str, path: Path) -> Path:
         """Adds url at 'path' to cache and returns its new path.
-        'path' will not be accessible after this call.
+        'path' will not be accessible after this call. Retains the extension of 'path'.
         """
         file_info = os.stat(str(path))
         _ = time()
@@ -170,7 +168,7 @@ class FileCache:
 
         key = self._url_hash(url)
         assert key not in self.cache
-        entry = CacheEntry(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime)
+        entry = CacheEntry(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime, path.suffix)
         self.cache[key] = entry
         self.total_size += entry.size
         new_path = entry.path()

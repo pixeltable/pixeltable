@@ -32,19 +32,19 @@ class PathDict:
             }
 
         # identify root dir
-        root_dirs = [dir for dir in self.schema_objs.values() if dir.dir_id is None]
+        root_dirs = [dir for dir in self.schema_objs.values() if dir._dir_id is None]
         assert len(root_dirs) == 1
         self.root_dir = root_dirs[0]
 
         # build dir_contents
         def record_dir(dir: Dir) -> None:
-            if dir.id in self.dir_contents:
+            if dir._id in self.dir_contents:
                 return
             else:
-                self.dir_contents[dir.id] = {}
-            if dir.dir_id is not None:
-                record_dir(self.schema_objs[dir.dir_id])
-                self.dir_contents[dir.dir_id][dir.name] = dir
+                self.dir_contents[dir._id] = {}
+            if dir._dir_id is not None:
+                record_dir(self.schema_objs[dir._dir_id])
+                self.dir_contents[dir._dir_id][dir._name] = dir
 
         for dir in self.schema_objs.values():
             record_dir(dir)
@@ -54,9 +54,9 @@ class PathDict:
             return self.root_dir
         dir = self.root_dir
         for i, component in enumerate(path.components):
-            if component not in self.dir_contents[dir.id]:
+            if component not in self.dir_contents[dir._id]:
                 raise exc.Error(f'No such path: {".".join(path.components[:i+1])}')
-            schema_obj = self.dir_contents[dir.id][component]
+            schema_obj = self.dir_contents[dir._id][component]
             if i < len(path.components) - 1:
                 if not isinstance(schema_obj, Dir):
                     raise exc.Error(f'Not a directory: {".".join(path.components[:i+1])}')
@@ -71,34 +71,34 @@ class PathDict:
 
     def add_schema_obj(self, dir_id: UUID, name: str, val: SchemaObject) -> None:
         self.dir_contents[dir_id][name] = val
-        self.schema_objs[val.id] = val
+        self.schema_objs[val._id] = val
 
     def __setitem__(self, path: Path, val: SchemaObject) -> None:
         parent_dir = self._resolve_path(path.parent)
-        assert path.name not in self.dir_contents[parent_dir.id]
-        self.schema_objs[val.id] = val
-        self.dir_contents[parent_dir.id][path.name] = val
+        assert path.name not in self.dir_contents[parent_dir._id]
+        self.schema_objs[val._id] = val
+        self.dir_contents[parent_dir._id][path.name] = val
         if isinstance(val, Dir):
-            self.dir_contents[val.id] = {}
+            self.dir_contents[val._id] = {}
 
     def __delitem__(self, path: Path) -> None:
         parent_dir = self._resolve_path(path.parent)
-        assert path.name in self.dir_contents[parent_dir.id]
-        obj = self.dir_contents[parent_dir.id][path.name]
-        del self.dir_contents[parent_dir.id][path.name]
+        assert path.name in self.dir_contents[parent_dir._id]
+        obj = self.dir_contents[parent_dir._id][path.name]
+        del self.dir_contents[parent_dir._id][path.name]
         if isinstance(obj, Dir):
-            del self.dir_contents[obj.id]
-        del self.schema_objs[obj.id]
+            del self.dir_contents[obj._id]
+        del self.schema_objs[obj._id]
 
     def move(self, from_path: Path, to_path: Path) -> None:
         from_dir = self._resolve_path(from_path.parent)
         assert isinstance(from_dir, Dir)
-        assert from_path.name in self.dir_contents[from_dir.id]
-        obj = self.dir_contents[from_dir.id][from_path.name]
-        del self.dir_contents[from_dir.id][from_path.name]
+        assert from_path.name in self.dir_contents[from_dir._id]
+        obj = self.dir_contents[from_dir._id][from_path.name]
+        del self.dir_contents[from_dir._id][from_path.name]
         to_dir = self._resolve_path(to_path.parent)
-        assert to_path.name not in self.dir_contents[to_dir.id]
-        self.dir_contents[to_dir.id][to_path.name] = obj
+        assert to_path.name not in self.dir_contents[to_dir._id]
+        self.dir_contents[to_dir._id][to_path.name] = obj
 
     def check_is_valid(self, path: Path, expected: Optional[Type[SchemaObject]]) -> None:
         """Check that path is valid and that the object at path has the expected type.
@@ -121,8 +121,8 @@ class PathDict:
             if not isinstance(parent_obj, Dir):
                 raise exc.Error(
                     f'{str(path.parent)} is a {type(parent_obj).display_name()}, not a {Dir.display_name()}')
-            if path.name in self.dir_contents[parent_obj.id]:
-                obj = self.dir_contents[parent_obj.id][path.name]
+            if path.name in self.dir_contents[parent_obj._id]:
+                obj = self.dir_contents[parent_obj._id][path.name]
                 raise exc.Error(f"{type(obj).display_name()} '{str(path)}' already exists")
 
     def get_children(self, parent: Path, child_type: Optional[Type[SchemaObject]], recursive: bool) -> List[Path]:
@@ -130,11 +130,11 @@ class PathDict:
         if not isinstance(dir, Dir):
             raise exc.Error(f'{str(parent)} is a {type(dir).display_name()}, not a directory')
         matches = [
-            obj for obj in self.dir_contents[dir.id].values() if child_type is None or isinstance(obj, child_type)
+            obj for obj in self.dir_contents[dir._id].values() if child_type is None or isinstance(obj, child_type)
         ]
-        result = [copy.copy(parent).append(obj.name) for obj in matches]
+        result = [copy.copy(parent).append(obj._name) for obj in matches]
         if recursive:
-            for dir in [obj for obj in self.dir_contents[dir.id].values() if isinstance(obj, Dir)]:
-                result.extend(self.get_children(copy.copy(parent).append(dir.name), child_type, recursive))
+            for dir in [obj for obj in self.dir_contents[dir._id].values() if isinstance(obj, Dir)]:
+                result.extend(self.get_children(copy.copy(parent).append(dir._name), child_type, recursive))
         return result
 

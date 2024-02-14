@@ -51,7 +51,7 @@ class Table(SchemaObject):
                 f"SET {schema.Table.dir_id.name} = :new_dir_id, "
                 f"    {schema.Table.md.name}['name'] = :new_name "
                 f"WHERE {schema.Table.id.name} = :id"))
-            conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self.id})
+            conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
     def version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
@@ -178,7 +178,7 @@ class Table(SchemaObject):
         self.is_dropped = True
         # update catalog
         cat = catalog.Catalog.get()
-        del cat.tbls[self.id]
+        del cat.tbls[self._id]
 
     def to_pytorch_dataset(self, image_format : str = 'pt') -> 'torch.utils.data.IterableDataset':
         """Return a PyTorch Dataset for this table.

@@ -136,15 +136,15 @@ class Catalog:
                 tbl = View(
                     tbl_record.id, tbl_record.dir_id, tbl_md.name, view_path, base_tbl,
                     snapshot_only=snapshot_only)
-                self.tbl_dependents[base_tbl.id].append(tbl)
+                self.tbl_dependents[base_tbl._id].append(tbl)
 
             else:
                 tbl_version = TableVersion(tbl_record.id, tbl_md, tbl_md.current_version, schema_version_md)
                 tbl = InsertableTable(tbl_record.dir_id, tbl_version)
 
-            self.tbls[tbl.id] = tbl
-            self.tbl_dependents[tbl.id] = []
-            self.paths.add_schema_obj(tbl.dir_id, tbl_md.name, tbl)
+            self.tbls[tbl._id] = tbl
+            self.tbl_dependents[tbl._id] = []
+            self.paths.add_schema_obj(tbl._dir_id, tbl_md.name, tbl)
 
     def _load_functions(self, session: orm.Session) -> None:
         # load Function metadata; doesn't load the actual callable, which can be large and is only done on-demand by the

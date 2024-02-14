@@ -92,15 +92,15 @@ class Client:
             Path to the SchemaObject.
         """
         path_elements: List[str] = []
-        dir_id = schema_obj.dir_id
+        dir_id = schema_obj._dir_id
         while dir_id is not None:
             dir = self.catalog.paths.get_schema_obj(dir_id)
-            if dir.dir_id is None:
+            if dir._dir_id is None:
                 # this is the root dir with name '', which we don't want to include in the path
                 break
-            path_elements.insert(0, dir.name)
-            dir_id = dir.dir_id
-        path_elements.append(schema_obj.name)
+            path_elements.insert(0, dir._name)
+            dir_id = dir._dir_id
+        path_elements.append(schema_obj._name)
         return '.'.join(path_elements)
 
     def create_table(
@@ -142,7 +142,7 @@ class Client:
                 raise excs.Error('primary_key must be a single column name or a list of column names')
 
         tbl = catalog.InsertableTable.create(
-            dir.id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions)
+            dir._id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions)
         self.catalog.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
         return tbl
@@ -202,7 +202,7 @@ class Client:
         if schema is None:
             schema = {}
         view = catalog.View.create(
-            dir.id, path.name, base=base, schema=schema, predicate=filter, is_snapshot=is_snapshot,
+            dir._id, path.name, base=base, schema=schema, predicate=filter, is_snapshot=is_snapshot,
             iterator_cls=iterator_class, iterator_args=iterator_args, num_retained_versions=num_retained_versions)
         self.catalog.paths[path] = view
         _logger.info(f'Created view {path_str}')
@@ -264,7 +264,7 @@ class Client:
         obj = self.catalog.paths[p]
         self.catalog.paths.move(p, new_p)
         new_dir = self.catalog.paths[new_p.parent]
-        obj.move(new_p.name, new_dir.id)
+        obj.move(new_p.name, new_dir._id)
 
     def list_tables(self, dir_path: str = '', recursive: bool = True) -> List[str]:
         """List the tables in a directory.
@@ -318,8 +318,8 @@ class Client:
             else:
                 raise e
         tbl = self.catalog.paths[path_obj]
-        if len(self.catalog.tbl_dependents[tbl.id]) > 0:
-            dependent_paths = [self.get_path(dep) for dep in self.catalog.tbl_dependents[tbl.id]]
+        if len(self.catalog.tbl_dependents[tbl._id]) > 0:
+            dependent_paths = [self.get_path(dep) for dep in self.catalog.tbl_dependents[tbl._id]]
             raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
         tbl._drop()
         del self.catalog.paths[path_obj]
@@ -349,11 +349,11 @@ class Client:
             assert parent is not None
             with orm.Session(Env.get().engine, future=True) as session:
                 dir_md = schema.DirMd(name=path.name)
-                dir_record = schema.Dir(parent_id=parent.id, md=dataclasses.asdict(dir_md))
+                dir_record = schema.Dir(parent_id=parent._id, md=dataclasses.asdict(dir_md))
                 session.add(dir_record)
                 session.flush()
                 assert dir_record.id is not None
-                self.catalog.paths[path] = catalog.Dir(dir_record.id, parent.id, path.name)
+                self.catalog.paths[path] = catalog.Dir(dir_record.id, parent._id, path.name)
                 session.commit()
                 _logger.info(f'Created directory {path_str}')
         except excs.Error as e:
@@ -394,7 +394,7 @@ class Client:
 
         with Env.get().engine.begin() as conn:
             dir = self.catalog.paths[path]
-            conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir.id))
+            conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir._id))
         del self.catalog.paths[path]
         _logger.info(f'Removed directory {path_str}')
 
@@ -443,8 +443,8 @@ class Client:
         self.catalog.paths.check_is_valid(path, expected=None)
         dir = self.catalog.paths[path.parent]
 
-        func.FunctionRegistry.get().create_function(fn, dir.id, path.name)
-        self.catalog.paths[path] = catalog.NamedFunction(fn.id, dir.id, path.name)
+        func.FunctionRegistry.get().create_function(fn, dir._id, path.name)
+        self.catalog.paths[path] = catalog.NamedFunction(fn.id, dir._id, path.name)
         fn.md.fqn = str(path)
         _logger.info(f'Created function {path_str}')
 
@@ -463,13 +463,13 @@ class Client:
         path = catalog.Path(path_str)
         self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
         named_fn = self.catalog.paths[path]
-        f = func.FunctionRegistry.get().get_function(id=named_fn.id)
+        f = func.FunctionRegistry.get().get_function(id=named_fn._id)
         if f.md.signature != fn.md.signature:
             raise excs.Error(
                 f'The function signature cannot be changed. The existing signature is {f.md.signature}')
         if f.is_aggregate != fn.is_aggregate:
             raise excs.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
-        func.FunctionRegistry.get().update_function(named_fn.id, fn)
+        func.FunctionRegistry.get().update_function(named_fn._id, fn)
         _logger.info(f'Updated function {path_str}')
 
     def get_function(self, path_str: str) -> func.Function:
@@ -491,7 +491,7 @@ class Client:
         self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
         named_fn = self.catalog.paths[path]
         assert isinstance(named_fn, catalog.NamedFunction)
-        fn = func.FunctionRegistry.get().get_function(id=named_fn.id)
+        fn = func.FunctionRegistry.get().get_function(id=named_fn._id)
         fn.md.fqn = str(path)
         return fn
 
@@ -517,7 +517,7 @@ class Client:
             else:
                 raise e
         named_fn = self.catalog.paths[path]
-        func.FunctionRegistry.get().delete_function(named_fn.id)
+        func.FunctionRegistry.get().delete_function(named_fn._id)
         del self.catalog.paths[path]
         _logger.info(f'Dropped function {path_str}')
 

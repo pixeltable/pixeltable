@@ -44,20 +44,20 @@ class TestVideo:
 
         # default case: computed images are not stored
         _, view = self.create_and_insert(cl, None, video_filepaths)
-        assert MediaStore.count(view.id) == 0
+        assert MediaStore.count(view.get_id()) == 0
 
         # computed images are explicitly not stored
         _, view = self.create_and_insert(cl, False, video_filepaths)
-        assert MediaStore.count(view.id) == 0
+        assert MediaStore.count(view.get_id()) == 0
 
         # computed images are stored
         tbl, view = self.create_and_insert(cl, True, video_filepaths)
-        assert MediaStore.count(view.id) == view.count()
+        assert MediaStore.count(view.get_id()) == view.count()
 
         # revert() also removes computed images
         tbl.insert([{'video': p} for p in video_filepaths])
         tbl.revert()
-        assert MediaStore.count(view.id) == view.count()
+        assert MediaStore.count(view.get_id()) == view.count()
 
     def test_query(self, test_client: pt.client) -> None:
         video_filepaths = get_video_files()
@@ -157,6 +157,6 @@ class TestVideo:
         # reload from store
         cl = pt.Client(reload=True)
         agg_fn = cl.get_function('agg_fn')
-        base_t, view_t = cl.get_table(base_t.name), cl.get_table(view_t.name)
+        base_t, view_t = cl.get_table(base_t.get_name()), cl.get_table(view_t.get_name())
         _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
         print(_)
