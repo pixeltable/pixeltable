@@ -39,7 +39,7 @@ class TestAudio:
         status = video_t.insert([{'video': p} for p in video_filepaths])
         assert status.num_rows == len(video_filepaths)
         assert status.num_excs == 0
-        assert MediaStore.count(video_t.id) == len(video_filepaths) - 1
+        assert MediaStore.count(video_t.get_id()) == len(video_filepaths) - 1
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
         assert env.Env.get().num_tmp_files() == 0
 

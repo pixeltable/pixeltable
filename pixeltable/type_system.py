@@ -5,7 +5,7 @@ import datetime
 import enum
 import json
 from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union
+from typing import Any, Optional, Tuple, Dict, Callable, List, Union, IO
 import urllib.parse
 
 import av
@@ -859,8 +859,22 @@ class AudioType(ColumnType):
             raise exc.Error(f'Not a valid audio file: {val}\n{e}') from None
 
 class DocumentType(ColumnType):
-    def __init__(self, nullable: bool = False):
+    @enum.unique
+    class DocumentFormat(enum.Enum):
+        HTML = 0
+        MD = 1
+        PDF = 2
+
+    def __init__(self, nullable: bool = False, doc_formats: Optional[str] = None):
         super().__init__(self.Type.DOCUMENT, nullable=nullable)
+        if doc_formats is not None:
+            type_strs = doc_formats.split(',')
+            for type_str in type_strs:
+                if not hasattr(self.DocumentFormat, type_str):
+                    raise ValueError(f'Invalid document type: {type_str}')
+            self._doc_formats = [self.DocumentFormat[type_str.upper()] for type_str in type_strs]
+        else:
+            self._doc_formats = [t for t in self.DocumentFormat]
 
     def to_sql(self) -> str:
         # stored as a file path
@@ -877,12 +891,13 @@ class DocumentType(ColumnType):
         self._validate_file_path(val)
 
     def validate_media(self, val: Any) -> None:
+        assert isinstance(val, str)
+        from pixeltable.utils.documents import get_document_handle
         with open(val, 'r') as fh:
-            # TODO: Env.has_nlp_extras
-            import bs4
             try:
-                doc = bs4.BeautifulSoup(fh, 'html.parser')
+                s = fh.read()
+                dh = get_document_handle(s)
+                if dh is None:
+                    raise exc.Error(f'Not a recognized document format: {val}')
             except Exception as e:
-                raise exc.Error(f'Not a valid html file: {val}\n{e}') from None
-            if doc.find() is None:
-                raise exc.Error(f'Not a valid html file, missing html tags: {val}')
+                raise exc.Error(f'Not a recognized document format: {val}') from None

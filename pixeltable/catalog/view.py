@@ -37,8 +37,8 @@ class View(Table):
             self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath, base: Table,
             snapshot_only: bool):
         super().__init__(id, dir_id, name, tbl_version_path)
-        self.base = base  # keep a reference to the base Table, so that we can keep track of its dependents
-        self.snapshot_only = snapshot_only
+        self._base = base  # keep a reference to the base Table, so that we can keep track of its dependents
+        self._snapshot_only = snapshot_only
 
     @classmethod
     def display_name(cls) -> str:
@@ -56,7 +56,7 @@ class View(Table):
         # verify that filter can be evaluated in the context of the base
         if predicate is not None:
             if not predicate.is_bound_by(base.tbl_version_path):
-                raise excs.Error(f'Filter cannot be computed in the context of the base {base.name}')
+                raise excs.Error(f'Filter cannot be computed in the context of the base {base._name}')
             # create a copy that we can modify and store
             predicate = predicate.copy()
 
@@ -67,7 +67,7 @@ class View(Table):
             # make sure that the value can be computed in the context of the base
             if col.value_expr is not None and not col.value_expr.is_bound_by(base.tbl_version_path):
                 raise excs.Error(
-                    f'Column {col.name}: value expression cannot be computed in the context of the base {base.name}')
+                    f'Column {col.name}: value expression cannot be computed in the context of the base {base._name}')
 
         if iterator_cls is not None:
             assert iterator_args is not None
@@ -155,9 +155,9 @@ class View(Table):
 
             session.commit()
             cat = Catalog.get()
-            cat.tbl_dependents[view.id] = []
-            cat.tbl_dependents[base.id].append(view)
-            cat.tbls[view.id] = view
+            cat.tbl_dependents[view._id] = []
+            cat.tbl_dependents[base._id].append(view)
+            cat.tbls[view._id] = view
             return view
 
     def get_attrs(self) -> md_schema.TableAttributes:
@@ -190,17 +190,17 @@ class View(Table):
 
     def _drop(self) -> None:
         cat = catalog.Catalog.get()
-        if self.snapshot_only:
+        if self._snapshot_only:
             # there is not TableVersion to drop
             self._check_is_dropped()
             self.is_dropped = True
             with Env.get().engine.begin() as conn:
-                TableVersion.delete_md(self.id, conn)
+                TableVersion.delete_md(self._id, conn)
             # update catalog
             cat = catalog.Catalog.get()
-            del cat.tbls[self.id]
+            del cat.tbls[self._id]
         else:
             super()._drop()
-        cat.tbl_dependents[self.base.id].remove(self)
-        del cat.tbl_dependents[self.id]
+        cat.tbl_dependents[self._base._id].remove(self)
+        del cat.tbl_dependents[self._id]
 

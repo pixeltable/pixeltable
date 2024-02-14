@@ -145,6 +145,7 @@ class NOSFunction(ExternalFunction):
         # bounding boxes as well
         scale_factors = np.ndarray((num_batch_rows, 2), dtype=np.float32)
 
+        target_res: Optional[Tuple[int, int]] = None
         if self.img_param_pos is not None:
             # for now, NOS will only receive RGB images
             arg_batches[self.img_param_pos] = \

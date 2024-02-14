@@ -27,6 +27,6 @@ class Dir(SchemaObject):
             dir_md = schema.DirMd(name=new_name)
             conn.execute(
                 sql.update(schema.Dir.__table__)
-                .values({schema.Dir.parent_id: self.dir_id, schema.Dir.md: dataclasses.asdict(dir_md)})
-                .where(schema.Dir.id == self.id))
+                .values({schema.Dir.parent_id: self._dir_id, schema.Dir.md: dataclasses.asdict(dir_md)})
+                .where(schema.Dir.id == self._id))
 

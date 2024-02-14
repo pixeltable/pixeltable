@@ -49,8 +49,8 @@ class InsertableTable(Table):
             tbl = cls(dir_id, tbl_version)
             session.commit()
             cat = Catalog.get()
-            cat.tbl_dependents[tbl.id] = []
-            cat.tbls[tbl.id] = tbl
+            cat.tbl_dependents[tbl._id] = []
+            cat.tbls[tbl._id] = tbl
 
             _logger.info(f'created table {name}, id={tbl_version.id}')
             return tbl
@@ -102,7 +102,7 @@ class InsertableTable(Table):
             f'with {result.num_excs} error{"" if result.num_excs == 1 else "s"} {cols_with_excs_str}'
         )
         print(msg)
-        _logger.info(f'InsertableTable {self.name}: {msg}')
+        _logger.info(f'InsertableTable {self._name}: {msg}')
         return result
 
     def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
