@@ -385,8 +385,8 @@ class TableVersion:
 
     def set_attrs(self, num_retained_versions: Optional[int] = None, comment: Optional[str] = None):
         self.attrs = TableAttributes(
-            num_retained_versions = self.attrs.num_retained_versions if num_retained_versions is None else num_retained_versions,
-            comment = self.attrs.comment if comment is None else comment
+            num_retained_versions=self.attrs.num_retained_versions if num_retained_versions is None else num_retained_versions,
+            comment=self.attrs.comment if comment is None else comment
         )
 
         # we're creating a new schema version
