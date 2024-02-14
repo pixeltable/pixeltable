@@ -141,7 +141,8 @@ class Env:
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
         self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
-        self._config_file = self._home / 'pixeltable.yaml'
+
+        self._config_file = self._home / 'config.yaml'
         if os.path.isfile(self._config_file):
             with open(self._config_file, 'r') as stream:
                 try:
