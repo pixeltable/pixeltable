@@ -181,7 +181,7 @@ class Table(SchemaObject):
             comment = f'{self.tbl_version.attrs.comment}\n'
         else:
             comment = ''
-        return f'{self.display_name()} \'{self.name}\'\n{comment}{description_str}'
+        return f'{self.display_name()} \'{self._name}\'\n{comment}{description_str}'
 
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()
