@@ -85,7 +85,7 @@ class TestTable:
         with pytest.raises(exc.Error):
             cl.drop_table('.test2')
 
-    def test_attributes(self, test_client: pt.Client) -> None:
+    def test_attrs(self, test_client: pt.Client) -> None:
         cl = test_client
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20
@@ -405,12 +405,12 @@ class TestTable:
         # cols computed with window functions are stored by default
         view.add_column(c5=window_fn(view.frame_idx, group_by=view.video))
 
-        attributes = view.tbl_version_path.tbl_version.attributes
+        attrs = view.get_attrs()
         # reload to make sure that metadata gets restored correctly
         cl = pt.Client(reload=True)
         tbl = cl.get_table('test_tbl')
         view = cl.get_table('test_view')
-        assert view.tbl_version_path.tbl_version.attributes == attributes
+        assert view.get_attrs() == attrs
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         status = tbl.insert([{'payload': 1, 'video': url}])

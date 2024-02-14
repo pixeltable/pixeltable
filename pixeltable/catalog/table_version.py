@@ -49,7 +49,7 @@ class TableVersion:
         self.id = id
         self.name = tbl_md.name
         self.version = version
-        self.attributes = schema_version_md.attributes
+        self.attrs = schema_version_md.attrs
         self.schema_version = schema_version_md.schema_version
         self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
         is_view = tbl_md.view_md is not None
@@ -160,9 +160,9 @@ class TableVersion:
                 pos=pos, name=col.name, col_type=col.col_type.as_dict(),
                 is_pk=col.primary_key, value_expr=value_expr_dict, stored=col.stored, is_indexed=col.is_indexed)
 
-        attributes = schema.TableAttributes(num_retained_versions, comment)
+        attrs = schema.TableAttributes(num_retained_versions, comment)
         schema_version_md = schema.TableSchemaVersionMd(
-            schema_version=0, preceding_schema_version=None, columns=column_md, attributes=attributes)
+            schema_version=0, preceding_schema_version=None, columns=column_md, attrs=attrs)
         schema_version_record = schema.TableSchemaVersion(
             tbl_id=tbl_record.id, schema_version=0, md=dataclasses.asdict(schema_version_md))
         session.add(schema_version_record)
@@ -384,9 +384,9 @@ class TableVersion:
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def set_attrs(self, num_retained_versions: Optional[int] = None, comment: Optional[str] = None):
-        self.attributes = TableAttributes(
-            num_retained_versions = self.attributes.num_retained_versions if num_retained_versions is None else num_retained_versions,
-            comment = self.attributes.comment if comment is None else comment
+        self.attrs = TableAttributes(
+            num_retained_versions = self.attrs.num_retained_versions if num_retained_versions is None else num_retained_versions,
+            comment = self.attrs.comment if comment is None else comment
         )
 
         # we're creating a new schema version
@@ -396,7 +396,8 @@ class TableVersion:
         self.schema_version = self.version
         with Env.get().engine.begin() as conn:
             self._update_md(ts, preceding_schema_version, conn)
-        _logger.info(f'Updated attributes: {self.attributes}, new version: {self.version}')
+        # TODO Log only changed attributes?
+        _logger.info(f'Updated attributes: {self.attrs}, new version: {self.version}')
 
     def insert(
             self, rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception : bool = True
@@ -616,7 +617,7 @@ class TableVersion:
                     .where(schema.TableSchemaVersion.tbl_id == self.id)
                     .where(schema.TableSchemaVersion.schema_version == self.schema_version))
             self.schema_version = preceding_schema_version
-            self.attributes = preceding_schema_version_md.attributes
+            self.attrs = preceding_schema_version_md.attrs
 
         conn.execute(
             sql.delete(schema.TableVersion.__table__)
@@ -737,4 +738,4 @@ class TableVersion:
         # preceding_schema_version to be set by the caller
         return schema.TableSchemaVersionMd(
             schema_version=self.schema_version, preceding_schema_version=preceding_schema_version,
-            columns=column_md, attributes=self.attributes)
+            columns=column_md, attrs=self.attrs)

@@ -143,7 +143,7 @@ class Table(SchemaObject):
         return {c.name: c.col_type for c in self.tbl_version_path.columns()}
 
     def get_attrs(self) -> schema.TableAttributes:
-        return self.tbl_version.attributes
+        return self.tbl_version.attrs
 
     def set_attrs(self, num_retained_versions: Optional[int] = None, comment: Optional[str] = None):
         self.tbl_version.set_attrs(num_retained_versions, comment)
@@ -177,8 +177,8 @@ class Table(SchemaObject):
 
     def __repr__(self) -> str:
         description_str = self._description().to_string(index=False)
-        if self.tbl_version.attributes.comment != '':
-            comment = f'{self.tbl_version.attributes.comment}\n'
+        if self.tbl_version.attrs.comment != '':
+            comment = f'{self.tbl_version.attrs.comment}\n'
         else:
             comment = ''
         return f'{self.display_name()} \'{self.name}\'\n{comment}{description_str}'
