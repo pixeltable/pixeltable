@@ -142,6 +142,15 @@ class Table(SchemaObject):
         """Return the names of the columns in this table."""
         return {c.name: c.col_type for c in self.tbl_version_path.columns()}
 
+    def get_attrs(self) -> schema.TableAttributes:
+        return self.tbl_version.attributes
+
+    def set_attrs(self, num_retained_versions: Optional[int] = None, comment: Optional[str] = None):
+        self.tbl_version.set_attrs(num_retained_versions, comment)
+
+    def comment(self) -> str:
+        return self.get_attrs().comment
+
     def _description(self) -> pd.DataFrame:
         cols = self.tbl_version_path.columns()
         return pd.DataFrame({

@@ -383,7 +383,7 @@ class TableVersion:
             self._update_md(ts, preceding_schema_version, conn)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
-    def update_attributes(self, num_retained_versions: Optional[int] = None, comment: Optional[str] = None):
+    def set_attrs(self, num_retained_versions: Optional[int] = None, comment: Optional[str] = None):
         self.attributes = TableAttributes(
             num_retained_versions = self.attributes.num_retained_versions if num_retained_versions is None else num_retained_versions,
             comment = self.attributes.comment if comment is None else comment

@@ -89,18 +89,18 @@ class TestTable:
         cl = test_client
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20
-        description = "This is a table."
-        tbl = cl.create_table('test_attrs', schema, num_retained_versions=num_retained_versions, description=description)
-        assert(tbl.tbl_version.attributes.num_retained_versions == num_retained_versions)
-        assert(tbl.tbl_version.attributes.description == description)
+        comment = "This is a table."
+        tbl = cl.create_table('test_attrs', schema, num_retained_versions=num_retained_versions, comment=comment)
+        assert(tbl.get_attrs().num_retained_versions == num_retained_versions)
+        assert(tbl.comment() == comment)
         new_num_retained_versions = 30
-        new_description = "This is an updated table."
-        tbl.tbl_version.update_attributes(num_retained_versions=new_num_retained_versions, description=new_description)
-        assert(tbl.tbl_version.attributes.num_retained_versions == new_num_retained_versions)
-        assert(tbl.tbl_version.attributes.description == new_description)
+        new_comment = "This is an updated table."
+        tbl.set_attrs(num_retained_versions=new_num_retained_versions, comment=new_comment)
+        assert(tbl.get_attrs().num_retained_versions == new_num_retained_versions)
+        assert(tbl.comment() == new_comment)
         tbl.revert()
-        assert(tbl.tbl_version.attributes.num_retained_versions == num_retained_versions)
-        assert(tbl.tbl_version.attributes.description == description)
+        assert(tbl.get_attrs().num_retained_versions == num_retained_versions)
+        assert(tbl.comment() == comment)
 
     def test_image_table(self, test_client: pt.Client) -> None:
         n_sample_rows = 20
