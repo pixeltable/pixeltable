@@ -172,7 +172,7 @@ class Table(SchemaObject):
             descr = f'{self.tbl_version.attributes.description}\n'
         else:
             descr = ''
-        return f'table \'{self.name}\'\n{descr}{structure_as_str}'
+        return f'{self.display_name()} \'{self.name}\'\n{descr}{structure_as_str}'
 
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()
