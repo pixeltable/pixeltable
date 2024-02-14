@@ -167,12 +167,12 @@ class Table(SchemaObject):
             print(self.__repr__())
 
     def __repr__(self) -> str:
-        structure_as_str = self._description().to_string(index=False)
-        if self.tbl_version.attributes.description != '':
-            descr = f'{self.tbl_version.attributes.description}\n'
+        description_str = self._description().to_string(index=False)
+        if self.tbl_version.attributes.comment != '':
+            comment = f'{self.tbl_version.attributes.comment}\n'
         else:
-            descr = ''
-        return f'{self.display_name()} \'{self.name}\'\n{descr}{structure_as_str}'
+            comment = ''
+        return f'{self.display_name()} \'{self.name}\'\n{comment}{description_str}'
 
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()

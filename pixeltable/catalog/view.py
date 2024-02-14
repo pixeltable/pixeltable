@@ -47,7 +47,7 @@ class View(Table):
     @classmethod
     def create(
             cls, dir_id: UUID, name: str, base: Table, schema: Dict[str, Any],
-            predicate: 'exprs.Predicate', is_snapshot: bool, num_retained_versions: int, description: str,
+            predicate: 'exprs.Predicate', is_snapshot: bool, num_retained_versions: int, comment: str,
             iterator_cls: Optional[Type[ComponentIterator]], iterator_args: Optional[Dict]
     ) -> View:
         columns = cls._create_columns(schema)
@@ -136,7 +136,7 @@ class View(Table):
                 iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None)
 
             id, tbl_version = TableVersion.create(
-                session, dir_id, name, columns, num_retained_versions, description, base_path=base_version_path, view_md=view_md)
+                session, dir_id, name, columns, num_retained_versions, comment, base_path=base_version_path, view_md=view_md)
             if tbl_version is None:
                 # this is purely a snapshot: we use the base's tbl version path
                 view = cls(id, dir_id, name, base_version_path, base, snapshot_only=True)

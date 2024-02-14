@@ -31,7 +31,7 @@ class InsertableTable(Table):
     @classmethod
     def create(
             cls, dir_id: UUID, name: str, schema: Dict[str, ts.ColumnType], primary_key: List[str],
-            num_retained_versions: int, description: str
+            num_retained_versions: int, comment: str
     ) -> InsertableTable:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
@@ -45,7 +45,7 @@ class InsertableTable(Table):
             col.primary_key = True
 
         with orm.Session(Env.get().engine, future=True) as session:
-            _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, description)
+            _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, comment)
             tbl = cls(dir_id, tbl_version)
             session.commit()
             cat = Catalog.get()

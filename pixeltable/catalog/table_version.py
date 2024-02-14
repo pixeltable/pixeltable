@@ -117,7 +117,7 @@ class TableVersion:
 
     @classmethod
     def create(
-            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int, description: str,
+            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int, comment: str,
             base_path: Optional['TableVersionPath'] = None, view_md: Optional[schema.ViewMd] = None
     ) -> Tuple[UUID, Optional[TableVersion]]:
         # assign ids
@@ -160,7 +160,7 @@ class TableVersion:
                 pos=pos, name=col.name, col_type=col.col_type.as_dict(),
                 is_pk=col.primary_key, value_expr=value_expr_dict, stored=col.stored, is_indexed=col.is_indexed)
 
-        attributes = schema.TableAttributes(num_retained_versions, description)
+        attributes = schema.TableAttributes(num_retained_versions, comment)
         schema_version_md = schema.TableSchemaVersionMd(
             schema_version=0, preceding_schema_version=None, columns=column_md, attributes=attributes)
         schema_version_record = schema.TableSchemaVersion(
@@ -383,10 +383,10 @@ class TableVersion:
             self._update_md(ts, preceding_schema_version, conn)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
-    def update_attributes(self, num_retained_versions: Optional[int] = None, description: Optional[str] = None):
+    def update_attributes(self, num_retained_versions: Optional[int] = None, comment: Optional[str] = None):
         self.attributes = TableAttributes(
             num_retained_versions = self.attributes.num_retained_versions if num_retained_versions is None else num_retained_versions,
-            description = self.attributes.description if description is None else description
+            comment = self.attributes.comment if comment is None else comment
         )
 
         # we're creating a new schema version
