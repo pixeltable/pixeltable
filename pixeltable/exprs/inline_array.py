@@ -16,8 +16,12 @@ import pixeltable.type_system as ts
 class InlineArray(Expr):
     """
     Array 'literal' which can use Exprs as values.
+
+    The literal can be cast as either a pixeltable `ArrayType` or `JsonType`. If `force_json`
+    is `True`, it will always be cast as a `JsonType`. If `force_json` is `False`, it will be cast as an
+    `ArrayType` if it is a homogenous array of scalars or arrays, or a `JsonType` otherwise.
     """
-    def __init__(self, elements: Tuple):
+    def __init__(self, elements: Tuple, force_json: bool = False):
         # we need to call this in order to populate self.components
         super().__init__(ts.ArrayType((len(elements),), ts.IntType()))
 
@@ -28,7 +32,9 @@ class InlineArray(Expr):
         for el in elements:
             el = copy.deepcopy(el)
             if isinstance(el, list):
-                el = InlineArray(tuple(el))
+                # If col_type is an ArrayType, we'll require it to be a multidimensional array
+                # of the specified underlying type
+                el = InlineArray(tuple(el), force_json)
             if isinstance(el, dict):
                 el = InlineDict(el)
             if isinstance(el, Expr):
@@ -37,25 +43,26 @@ class InlineArray(Expr):
             else:
                 self.elements.append((-1, el))
 
-        element_type = ts.InvalidType()
+        inferred_element_type = ts.InvalidType()
         for idx, val in self.elements:
             if idx >= 0:
-                element_type = ts.ColumnType.supertype(element_type, self.components[idx].col_type)
+                inferred_element_type = ts.ColumnType.supertype(inferred_element_type, self.components[idx].col_type)
             else:
-                element_type = ts.ColumnType.supertype(element_type, ts.ColumnType.infer_literal_type(val))
-            if element_type is None:
-                # there is no common element type: this is a json value, not an array
-                # TODO: make sure this doesn't contain Images
-                self.col_type = ts.JsonType()
-                return
+                inferred_element_type = ts.ColumnType.supertype(inferred_element_type, ts.ColumnType.infer_literal_type(val))
+            if inferred_element_type is None:
+                break
 
-        if element_type.is_scalar_type():
-            self.col_type = ts.ArrayType((len(self.elements),), element_type)
-        elif element_type.is_array_type():
-            assert isinstance(element_type, ts.ArrayType)
+        if force_json or inferred_element_type is None:
+            # JSON conversion is forced, or there is no common supertype
+            # TODO: make sure this doesn't contain Images
+            self.col_type = ts.JsonType()
+        elif inferred_element_type.is_scalar_type():
+            self.col_type = ts.ArrayType((len(self.elements),), inferred_element_type)
+        elif inferred_element_type.is_array_type():
+            assert isinstance(inferred_element_type, ts.ArrayType)
             self.col_type = ts.ArrayType(
-                (len(self.elements), *element_type.shape), ts.ColumnType.make_type(element_type.dtype))
-        elif element_type.is_json_type():
+                (len(self.elements), *inferred_element_type.shape), ts.ColumnType.make_type(inferred_element_type.dtype))
+        else:
             self.col_type = ts.JsonType()
 
         self.id = self._create_id()
