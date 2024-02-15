@@ -71,7 +71,7 @@ class Env:
 
         # config
         self._config_file: Optional[Path] = None
-        self._config: Optional[Dict] = None
+        self._config: Optional[Dict[str, any]] = None
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -243,8 +243,8 @@ class Env:
             func.FunctionRegistry.get().register_module(mod)
 
     def _create_openai_client(self) -> None:
-        if 'openai' in self._config and 'default' in self._config['openai'] and 'api_key' in self._config['openai']['default']:
-            api_key = self._config['openai']['default']['api_key']
+        if 'openai' in self._config and 'api_key' in self._config['openai']:
+            api_key = self._config['openai']['api_key']
         else:
             api_key = os.environ.get('OPENAI_API_KEY')
         if api_key is None:
@@ -255,8 +255,8 @@ class Env:
         self._openai_client = openai.OpenAI(api_key=api_key)
 
     def _create_together_client(self) -> None:
-        if 'together' in self._config and 'default' in self._config['together'] and 'api_key' in self._config['together']['default']:
-            api_key = self._config['together']['default']['api_key']
+        if 'together' in self._config and 'api_key' in self._config['together']:
+            api_key = self._config['together']['api_key']
         else:
             api_key = os.environ.get('TOGETHER_API_KEY')
         if api_key is None:
