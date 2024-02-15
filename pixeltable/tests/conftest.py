@@ -11,7 +11,7 @@ import pixeltable as pt
 import pixeltable.catalog as catalog
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType
-from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatypes_tbl
+from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatypes_tbl, skip_test_if_not_installed
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
@@ -25,6 +25,7 @@ def init_env(tmp_path_factory) -> None:
     shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', '~/.pixeltable')).expanduser()
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
+    os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.yaml')
     test_db = 'test'
     os.environ['PIXELTABLE_DB'] = test_db
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
@@ -115,6 +116,7 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
 #    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')
 def indexed_img_tbl(test_client: pt.Client) -> catalog.Table:
+    skip_test_if_not_installed('nos')
     cl = test_client
     schema = {
         'img': { 'type': ImageType(nullable=False), 'indexed': True },

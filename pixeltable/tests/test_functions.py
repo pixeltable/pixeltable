@@ -1,10 +1,8 @@
-import pytest
-
 import pixeltable as pt
 from pixeltable import catalog
 from pixeltable.type_system import VideoType, ImageType, IntType, StringType
 from pixeltable.functions.pil.image import blend
-from pixeltable.tests.utils import get_video_files
+from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed
 from pixeltable.iterators import FrameIterator
 
 
@@ -14,6 +12,7 @@ class TestFunctions:
         _ = t[t.img, t.img.rotate(90), blend(t.img, t.img.rotate(90), 0.5)].show()
 
     def test_eval_detections(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('nos')
         cl = test_client
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
         # create frame view
@@ -60,8 +59,8 @@ class TestFunctions:
         row = t.head()[0]
         assert row == {'input': 'MNO', 's1': 'ABC MNO', 's2': 'DEF MNO', 's3': 'GHI MNO JKL MNO'}
 
-    @pytest.mark.skip(reason='not supported yet')
     def test_openai(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('openai')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.openai import chat_completion, embedding, moderation

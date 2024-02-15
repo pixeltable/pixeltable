@@ -1,6 +1,7 @@
 import datetime
 import glob
 import os
+import pytest
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
@@ -9,6 +10,7 @@ import pandas as pd
 
 import pixeltable as pt
 from pixeltable import catalog
+from pixeltable.env import Env
 from pixeltable.type_system import \
     ColumnType, StringType, IntType, FloatType, ArrayType, BoolType, TimestampType, JsonType, ImageType, VideoType
 from pixeltable.dataframe import DataFrameResultSet
@@ -251,3 +253,7 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
             assert np.allclose(s1, s2)
         else:
             assert s1.equals(s2)
+
+def skip_test_if_not_installed(package) -> None:
+    if not Env.get().is_installed_package(package):
+        pytest.skip(f'Package `{package}` is not installed.')

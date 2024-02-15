@@ -56,8 +56,8 @@ class Env:
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
-        self._httpd : Optional[socketserver.TCPServer] = None
-        self._http_address : Optional[str] = None
+        self._httpd: Optional[socketserver.TCPServer] = None
+        self._http_address: Optional[str] = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -112,6 +112,9 @@ class Env:
         else:
             self._module_log_level[module] = level
 
+    def is_installed_package(self, package_name: str) -> bool:
+        return self._installed_packages[package_name] is not None
+
     def _log_filter(self, record: logging.LogRecord) -> bool:
         if record.name == 'pixeltable':
             # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
@@ -135,6 +138,7 @@ class Env:
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
         self._home = home
+        self._config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(self._home / 'config.yaml')))
         self._media_dir = self._home / 'media'
         self._file_cache_dir = self._home / 'file_cache'
         self._dataset_cache_dir = self._home / 'dataset_cache'
@@ -142,7 +146,7 @@ class Env:
         self._tmp_dir = self._home / 'tmp'
         self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
 
-        self._config_file = self._home / 'config.yaml'
+        # Read in the config
         if os.path.isfile(self._config_file):
             with open(self._config_file, 'r') as stream:
                 try:
@@ -308,18 +312,18 @@ class Env:
         check('boto3')
         check('pyarrow')
         check('spacy')  # TODO: deal with en-core-web-sm
-        if self._installed_packages['spacy'] is not None:
+        if self.is_installed_package('spacy'):
             import spacy
             self._spacy_nlp = spacy.load('en_core_web_sm')
         check('tiktoken')
         check('openai')
-        if self._installed_packages['openai'] is not None:
+        if self.is_installed_package('openai'):
             self._create_openai_client()
         check('together')
-        if self._installed_packages['together'] is not None:
+        if self.is_installed_package('together'):
             self._create_together_client()
         check('nos')
-        if self._installed_packages['nos'] is not None:
+        if self.is_installed_package('nos'):
             self._create_nos_client()
 
     def require_package(self, package: str, min_version: Optional[List[int]] = None) -> None:
