@@ -118,7 +118,7 @@ class FunctionCall(Expr):
             if isinstance(arg, list) or isinstance(arg, tuple):
                 try:
                     # If the column type is JsonType, force the literal to be JSON
-                    arg = InlineArray(arg, param.col_type.is_json_type())
+                    arg = InlineArray(arg, param.col_type is not None and param.col_type.is_json_type())
                     bound_args[param_name] = arg
                 except excs.Error:
                     # this didn't work, but it might be a literal

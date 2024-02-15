@@ -9,12 +9,12 @@ import jmespath
 from .signature import Signature, Parameter
 from .function_md import FunctionMd
 from .external_function import ExternalFunction
-import pixeltable.env as env
 import pixeltable.type_system as ts
 import together
 
 
 _logger = logging.getLogger('pixeltable')
+
 
 @dataclasses.dataclass
 class TogetherFunctionSpec:
@@ -33,6 +33,7 @@ class TogetherFunctionSpec:
     output_path: Optional[str]
 
 
+# TODO: Abstract out into a generalized pattern that unifies with OpenAIFunction[Spec]
 class TogetherFunction(ExternalFunction):
     def __init__(self, spec: TogetherFunctionSpec, module_name: str):
         self.spec = spec

@@ -44,6 +44,7 @@ class TestNOS:
 
     @pytest.mark.skip(reason='too slow')
     def test_sd(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('nos')
         """Test model that mixes batched with scalar parameters"""
         t = test_client.create_table('sd_test', {'prompt': pt.StringType()})
         t.insert([{'prompt': 'cat on a sofa'}])
