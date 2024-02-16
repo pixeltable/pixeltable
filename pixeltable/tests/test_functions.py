@@ -85,4 +85,5 @@ class TestFunctions:
         t.add_column(output=completion(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
         t.add_column(output_text=t.output.output.choices[0].text)
         t.insert([{'input': 'I am going to the '}])
-        _ = t.head()
+        result = t.select(t.output_text).collect()['output_text'][0]
+        assert len(result) > 0
