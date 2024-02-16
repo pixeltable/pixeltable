@@ -71,7 +71,7 @@ class Env:
 
         # config
         self._config_file: Optional[Path] = None
-        self._config: Optional[Dict[str, any]] = None
+        self._config: Optional[Dict[str, Any]] = None
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)

@@ -10,7 +10,6 @@ from .signature import Signature, Parameter
 from .function_md import FunctionMd
 from .external_function import ExternalFunction
 import pixeltable.type_system as ts
-import together
 
 
 _logger = logging.getLogger('pixeltable')
@@ -62,6 +61,7 @@ class TogetherFunction(ExternalFunction):
         return 1
 
     def invoke(self, arg_batches: List[List[Any]], kwarg_batches: Dict[str, List[Any]]) -> List[Any]:
+        import together
         endpoint = together
         for e in self.spec.call:
             endpoint = getattr(endpoint, e)
