@@ -76,3 +76,13 @@ class TestFunctions:
         t.add_column(moderation=moderation(input=t.input))
         t.insert([{'input': 'I find you really annoying'}])
         _ = t.head()
+
+    def test_together(selfself, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('together')
+        cl = test_client
+        t = cl.create_table('test_tbl', {'input': StringType()})
+        from pixeltable.functions.together import completion
+        t.add_column(output=completion(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
+        t.add_column(output_text=t.output.output.choices[0].text)
+        t.insert([{'input': 'I am going to the '}])
+        _ = t.head()
