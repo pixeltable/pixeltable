@@ -44,7 +44,7 @@ class TestFunctions:
         ## TODO: following assertion is failing on CI, 
         # It is not necessarily a bug, as assert codition is not expected to be always true
         # for k in common_classes:
-            # assert ap_a[k] <= ap_b[k]
+        # assert ap_a[k] <= ap_b[k]
 
     def test_str(self, test_client: pt.Client) -> None:
         cl = test_client
@@ -65,8 +65,8 @@ class TestFunctions:
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.openai import chat_completion, embedding, moderation
         msgs = [
-            { "role": "system", "content": "You are a helpful assistant." },
-            { "role": "user", "content": t.input }
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": t.input}
         ]
         t.add_column(input_msgs=msgs)
         t.add_column(chat_output=chat_completion(model='gpt-3.5-turbo', messages=t.input_msgs))
@@ -76,6 +76,30 @@ class TestFunctions:
         t.add_column(moderation=moderation(input=t.input))
         t.insert([{'input': 'I find you really annoying'}])
         _ = t.head()
+
+    def test_gpt_4_vision(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('openai')
+        cl = test_client
+        t = cl.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
+        from pixeltable.functions.openai import chat_completion
+        from pixeltable.functions import str_format
+        msgs = [
+            {'role': 'user',
+             'content': [
+                 {'type': 'text', 'text': t.prompt},
+                 {'type': 'image_url', 'image_url': {
+                     'url': str_format('data:image/png;base64,{0}', t.img.b64_encode())
+                 }}
+             ]}
+        ]
+        t.add_column(response=chat_completion(model='gpt-4-vision-preview', messages=msgs, max_tokens=300))
+        t.add_column(response_content=t.response.choices[0].message.content)
+        t.insert([{
+            'prompt': "What's in this image?",
+            'img': 'https://raw.githubusercontent.com/mkornacker/pixeltable/master/docs/source/data/images/000000000009.jpg'
+        }])
+        result = t.collect()['response_content'][0]
+        assert len(result) > 0
 
     def test_together(selfself, test_client: pt.Client) -> None:
         skip_test_if_not_installed('together')

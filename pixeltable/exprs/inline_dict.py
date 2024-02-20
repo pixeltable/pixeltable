@@ -17,6 +17,7 @@ class InlineDict(Expr):
     Dictionary 'literal' which can use Exprs as values.
     """
     def __init__(self, d: Dict):
+        from .inline_array import InlineArray
         super().__init__(ts.JsonType())  # we need to call this in order to populate self.components
         # dict_items contains
         # - for Expr fields: (key, index into components, None)
@@ -28,6 +29,8 @@ class InlineDict(Expr):
             val = copy.deepcopy(val)
             if isinstance(val, dict):
                 val = InlineDict(val)
+            if isinstance(val, list) or isinstance(val, tuple):
+                val = InlineArray(tuple(val), force_json=True)
             if isinstance(val, Expr):
                 self.dict_items.append((key, len(self.components), None))
                 self.components.append(val)
