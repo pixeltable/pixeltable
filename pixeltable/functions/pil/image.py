@@ -17,14 +17,14 @@ composite = func.make_library_function(
 
 # methods of PIL.Image.Image
 
-def _b64_encode(self: PIL.Image.Image) -> str:
+def _b64_encode(self: PIL.Image.Image, image_format: str = 'png') -> str:
     # Encode this image as a b64-encoded png.
     import io
     bytes_arr = io.BytesIO()
-    self.save(bytes_arr, format='png')
+    self.save(bytes_arr, format=image_format)
     b64_bytes = base64.b64encode(bytes_arr.getvalue())
     return b64_bytes.decode('utf-8')
-b64_encode = func.make_library_function(StringType(), [ImageType()], __name__, '_b64_encode')
+b64_encode = func.make_library_function(StringType(), [ImageType(), StringType()], __name__, '_b64_encode')
 
 def _caller_return_type(bound_args: Optional[Dict[str, Any]]) -> ColumnType:
     if bound_args is None:
