@@ -436,6 +436,13 @@ class StringType(ColumnType):
         if not isinstance(val, str):
             raise TypeError(f'Expected string, got {val.__class__.__name__}')
 
+    def _create_literal(self, val: Any) -> Any:
+        # Replace null byte within python string with space to avoid issues with Postgres.
+        # Use a space to avoid merging words.
+        # TODO(orm): this will also be an issue with JSON inputs, would space still be a good replacement?
+        if '\x00' in val:
+            return val.replace('\x00', ' ')
+        return val
 
 class IntType(ColumnType):
     def __init__(self, nullable: bool = False):

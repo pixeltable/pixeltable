@@ -491,6 +491,15 @@ class TestTable:
             t.insert([{'c5': np.ndarray((3, 2))}])
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
+    def test_insert_string_with_null(self, test_client: pt.Client) -> None:
+        cl = test_client
+        t = cl.create_table('test', {'c1': StringType()})
+
+        t.insert([{'c1': 'this is a python\x00string'}])
+        assert t.count() == 1
+        for tup in t.df().collect():
+            assert tup['c1'] == 'this is a python string'
+
     def test_query(self, test_client: pt.Client) -> None:
         cl = test_client
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
