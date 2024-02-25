@@ -144,11 +144,12 @@ class Table(SchemaObject):
 
     def _description(self) -> pd.DataFrame:
         cols = self.tbl_version_path.columns()
-        return pd.DataFrame({
+        df = pd.DataFrame({
             'Column Name': [c.name for c in cols],
             'Type': [str(c.col_type) for c in cols],
             'Computed With': [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in cols],
         })
+        return df
 
     def _description_html(self) -> pd.DataFrame:
         pd_df = self._description()

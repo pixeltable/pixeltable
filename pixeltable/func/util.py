@@ -14,7 +14,7 @@ def udf(*, return_type: ts.ColumnType, param_types: List[ts.ColumnType]) -> Call
     """Returns decorator to create a Function from a function definition.
 
     Example:
-        >>> @pt.udf(param_types=[pt.IntType()], return_type=pt.IntType())
+        >>> @pxt.udf(param_types=[pt.IntType()], return_type=pt.IntType())
         ... def my_function(x):
         ...    return x + 1
     """

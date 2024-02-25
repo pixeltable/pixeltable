@@ -4,6 +4,7 @@ import os
 import pytest
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
+import json
 
 import numpy as np
 import pandas as pd
@@ -239,6 +240,14 @@ def get_documents() -> List[str]:
     tests_dir = os.path.dirname(__file__)
     # for now, we can only handle .html and .md
     return [p for p in glob.glob(f'{tests_dir}/**/documents/*', recursive=True) if not p.endswith('.pdf')]
+
+def get_sentences(n: int = 100) -> List[str]:
+    tests_dir = os.path.dirname(__file__)
+    path = glob.glob(f'{tests_dir}/**/jeopardy.json', recursive=True)[0]
+    with open(path, 'r') as f:
+        questions_list = json.load(f)
+    # this dataset contains \' around the questions
+    return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
