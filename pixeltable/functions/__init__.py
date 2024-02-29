@@ -27,6 +27,14 @@ try:
 except ImportError:
     pass
 
+try:
+    import together
+    from .util import create_together_module
+    mod = create_together_module()
+    func.FunctionRegistry.get().register_module(mod)
+except ImportError:
+    pass
+
 def _str_format(format_str: str, *args, **kwargs: Any) -> str:
     """ Return a formatted version of S, using substitutions from args and kwargs.
     The substitutions are identified by braces ('{' and '}')."""

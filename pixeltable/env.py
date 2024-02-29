@@ -13,6 +13,7 @@ import http.server
 import socketserver
 import threading
 
+import yaml
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 import pgserver
 import logging
@@ -55,8 +56,8 @@ class Env:
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
-        self._httpd : Optional[socketserver.TCPServer] = None
-        self._http_address : Optional[str] = None
+        self._httpd: Optional[socketserver.TCPServer] = None
+        self._http_address: Optional[str] = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -67,6 +68,10 @@ class Env:
         self._logfilename: Optional[str] = None
         self._log_to_stdout = False
         self._module_log_level: Dict[str, int] = {}  # module name -> log level
+
+        # config
+        self._config_file: Optional[Path] = None
+        self._config: Optional[Dict[str, Any]] = None
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -107,6 +112,9 @@ class Env:
         else:
             self._module_log_level[module] = level
 
+    def is_installed_package(self, package_name: str) -> bool:
+        return self._installed_packages[package_name] is not None
+
     def _log_filter(self, record: logging.LogRecord) -> bool:
         if record.name == 'pixeltable':
             # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
@@ -130,12 +138,24 @@ class Env:
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
         self._home = home
+        self._config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(self._home / 'config.yaml')))
         self._media_dir = self._home / 'media'
         self._file_cache_dir = self._home / 'file_cache'
         self._dataset_cache_dir = self._home / 'dataset_cache'
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
         self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
+
+        # Read in the config
+        if os.path.isfile(self._config_file):
+            with open(self._config_file, 'r') as stream:
+                try:
+                    self._config = yaml.safe_load(stream)
+                except yaml.YAMLError as exc:
+                    self._logger.error(f'Could not read config file: {self._config_file}')
+                    self._config = {}
+        else:
+            self._config = {}
 
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
@@ -227,11 +247,28 @@ class Env:
             func.FunctionRegistry.get().register_module(mod)
 
     def _create_openai_client(self) -> None:
-        if not 'OPENAI_API_KEY' in os.environ:
+        if 'openai' in self._config and 'api_key' in self._config['openai']:
+            api_key = self._config['openai']['api_key']
+        else:
+            api_key = os.environ.get('OPENAI_API_KEY')
+        if api_key is None:
+            self._logger.info("OpenAI client not initialized (no API key configured).")
             return
         import openai
-        self._logger.info('connecting to OpenAI')
-        self._openai_client = openai.OpenAI(api_key=os.environ['OPENAI_API_KEY'])
+        self._logger.info('Initializing OpenAI client.')
+        self._openai_client = openai.OpenAI(api_key=api_key)
+
+    def _create_together_client(self) -> None:
+        if 'together' in self._config and 'api_key' in self._config['together']:
+            api_key = self._config['together']['api_key']
+        else:
+            api_key = os.environ.get('TOGETHER_API_KEY')
+        if api_key is None:
+            self._logger.info('Together client not initialized (no API key configured).')
+            return
+        import together
+        self._logger.info('Initializing Together client.')
+        together.api_key = api_key
 
     def _start_web_server(self) -> None:
         """
@@ -272,18 +309,23 @@ class Env:
 
         check('torch')
         check('torchvision')
+        check('transformers')
+        check('sentence_transformers')
         check('boto3')
         check('pyarrow')
         check('spacy')  # TODO: deal with en-core-web-sm
-        if self._installed_packages['spacy'] is not None:
+        if self.is_installed_package('spacy'):
             import spacy
             self._spacy_nlp = spacy.load('en_core_web_sm')
         check('tiktoken')
         check('openai')
-        if self._installed_packages['openai'] is not None:
+        if self.is_installed_package('openai'):
             self._create_openai_client()
+        check('together')
+        if self.is_installed_package('together'):
+            self._create_together_client()
         check('nos')
-        if self._installed_packages['nos'] is not None:
+        if self.is_installed_package('nos'):
             self._create_nos_client()
 
     def require_package(self, package: str, min_version: Optional[List[int]] = None) -> None:

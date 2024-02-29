@@ -2,19 +2,13 @@ import pytest
 
 import pixeltable as pt
 from pixeltable.type_system import ImageType, VideoType
-from pixeltable.tests.utils import get_video_files
+from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed
 from pixeltable.iterators import FrameIterator
 
 
-try:
-    import nos
-    has_nos = True
-except ImportError:
-    has_nos = False
-
 class TestNOS:
-    @pytest.mark.skipif(not has_nos, reason='NOS not installed')
     def test_basic(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('nos')
         cl = test_client
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
         # create frame view
@@ -32,8 +26,8 @@ class TestNOS:
         status = video_t.insert([{'video': get_video_files()[0]}])
         pass
 
-    @pytest.mark.skipif(not has_nos, reason='NOS not installed')
     def test_exceptions(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('nos')
         cl = test_client
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
         # create frame view
@@ -50,6 +44,7 @@ class TestNOS:
 
     @pytest.mark.skip(reason='too slow')
     def test_sd(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('nos')
         """Test model that mixes batched with scalar parameters"""
         t = test_client.create_table('sd_test', {'prompt': pt.StringType()})
         t.insert([{'prompt': 'cat on a sofa'}])

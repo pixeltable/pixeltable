@@ -67,6 +67,40 @@ def create_openai_module() -> types.ModuleType:
 
     return pt_module
 
+def create_together_module() -> types.ModuleType:
+    """Create module pixeltable.functions.together and populate it with functions for the Together functions"""
+    module_name = 'pixeltable.functions.together'
+    pt_module = types.ModuleType(module_name)
+    pt_module.__package__ = 'pixeltable.functions'
+    sys.modules[module_name] = pt_module
+    specs = [
+        func.TogetherFunctionSpec(
+            name='completion',
+            call=['Complete', 'create'],
+            params={
+                'prompt': ts.StringType(),
+                'model': ts.StringType(),
+                'max_tokens': ts.IntType(nullable=True),
+                'repetition_penalty': ts.FloatType(nullable=True),
+                'response_format': ts.JsonType(nullable=True),
+                'seed': ts.IntType(nullable=True),
+                'stop': ts.JsonType(nullable=True),
+                'top_k': ts.IntType(nullable=True),
+                'top_p': ts.FloatType(nullable=True),
+                'temperature': ts.FloatType(nullable=True),
+            },
+            batch_params=[],
+            output_path=None,
+            output_type=ts.JsonType(nullable=False),
+        ),
+    ]
+
+    for spec in specs:
+        fn = func.TogetherFunction(spec, module_name=module_name)
+        setattr(pt_module, spec.name, fn)
+
+    return pt_module
+
 def create_nos_modules() -> List[types.ModuleType]:
     """Create module pixeltable.functions.nos with one submodule per task and return the submodules"""
     models = env.Env.get().nos_client.ListModels()

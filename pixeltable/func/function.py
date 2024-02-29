@@ -148,10 +148,15 @@ class Function:
             del kwargs['group_by']
 
         bound_args = self.py_signature.bind(*args, **kwargs)
+        self.verify_call(bound_args.arguments)
         return exprs.FunctionCall(
             self, bound_args.arguments,
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],
             group_by_clause=[group_by_clause] if group_by_clause is not None else [])
+
+    def verify_call(self, bound_args: Dict[str, Any]) -> None:
+        """Override this to do custom verification of the arguments"""
+        pass
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
@@ -175,6 +180,16 @@ class Function:
         print(self.md.src)
 
     def as_dict(self) -> Dict:
+        """
+        Turn Function object into a dict that can be passed to json.dumps().
+        Subclasses override _as_dict().
+        """
+        return {
+            '_classname': self.__class__.__name__,
+            **self._as_dict(),
+        }
+
+    def _as_dict(self) -> Dict:
         if not self.is_library_function and self.id is None:
             # this is not a library function and the absence of an assigned id indicates that it's not in the store yet
             from .function_registry import FunctionRegistry
@@ -189,6 +204,16 @@ class Function:
 
     @classmethod
     def from_dict(cls, d: Dict) -> Function:
+        """
+        Turn dict that was produced by calling as_dict() into an instance of the correct Function subclass.
+        """
+        assert '_classname' in d
+        func_module = importlib.import_module(cls.__module__.rsplit('.', 1)[0])
+        type_class = getattr(func_module, d['_classname'])
+        return type_class._from_dict(d)
+
+    @classmethod
+    def _from_dict(cls, d: Dict) -> Function:
         assert 'id' in d
         assert 'fqn' in d
         from .function_registry import FunctionRegistry
@@ -197,7 +222,8 @@ class Function:
         else:
             assert d['fqn'] is not None
             # this is a library function; make sure we have the module loaded
-            module_name = '.'.join(d['fqn'].split('.')[:-1])
-            _ = importlib.import_module(module_name)
-            return FunctionRegistry.get().get_function(fqn=d['fqn'])
-
+            fqn_elems = d['fqn'].split('.')
+            module_name = '.'.join(fqn_elems[:-1])
+            fn = resolve_symbol(module_name, fqn_elems[-1])
+            assert isinstance(fn, Function)
+            return fn

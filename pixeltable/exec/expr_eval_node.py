@@ -134,6 +134,8 @@ class ExprEvalNode(ExecNode):
         batch_start_idx = 0  # start row of the current sub-batch
         # for multi-resolution models, we re-assess the correct ext fn batch size for each input batch
         ext_batch_size = cohort.ext_function.get_batch_size() if cohort.ext_function is not None else None
+        if ext_batch_size is not None:
+            cohort.batch_size = ext_batch_size
 
         while batch_start_idx < len(rows):
             num_batch_rows = min(cohort.batch_size, len(rows) - batch_start_idx)

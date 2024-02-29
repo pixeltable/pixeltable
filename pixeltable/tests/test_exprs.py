@@ -14,7 +14,7 @@ from pixeltable.functions.pil.image import blend
 from pixeltable import exceptions as exc
 from pixeltable import exprs
 import pixeltable.func as func
-from pixeltable.tests.utils import get_image_files
+from pixeltable.tests.utils import get_image_files, skip_test_if_not_installed
 from pixeltable.iterators import FrameIterator
 
 
@@ -379,6 +379,7 @@ class TestExprs:
         _ = result._repr_html_()
 
     def test_img_functions(self, img_tbl) -> None:
+        skip_test_if_not_installed('nos')
         t = img_tbl
         from pixeltable.functions.pil.image import resize
         result = t[t.img.resize((224, 224))].show(0)
@@ -405,6 +406,7 @@ class TestExprs:
         print(result)
 
     def test_similarity(self, indexed_img_tbl: catalog.Table) -> None:
+        skip_test_if_not_installed('nos')
         t = indexed_img_tbl
         _ = t.show(30)
         probe = t.select(t.img, t.category).show(1)

@@ -107,6 +107,7 @@ class FunctionCall(Expr):
         Convert literals to the correct type and update bound_args in place, if necessary.
         """
         for param_name, arg in bound_args.items():
+            param = signature.parameters[param_name]
             if isinstance(arg, dict):
                 try:
                     arg = InlineDict(arg)
@@ -116,7 +117,8 @@ class FunctionCall(Expr):
                     pass
             if isinstance(arg, list) or isinstance(arg, tuple):
                 try:
-                    arg = InlineArray(arg)
+                    # If the column type is JsonType, force the literal to be JSON
+                    arg = InlineArray(arg, force_json=param.col_type is not None and param.col_type.is_json_type())
                     bound_args[param_name] = arg
                 except excs.Error:
                     # this didn't work, but it might be a literal
@@ -130,7 +132,7 @@ class FunctionCall(Expr):
                     raise excs.Error(f"Argument for parameter '{param_name}' is not json-serializable: {arg}")
                 if arg is not None:
                     try:
-                        param_type = signature.parameters[param_name].col_type
+                        param_type = param.col_type
                         bound_args[param_name] = param_type.create_literal(arg)
                     except TypeError as e:
                         msg = str(e)
@@ -138,7 +140,6 @@ class FunctionCall(Expr):
                 continue
 
             # variable parameters don't get type-checked, but they both need to be json-typed
-            param = signature.parameters[param_name]
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
                 assert isinstance(arg, InlineArray)
                 arg.col_type = ts.JsonType()

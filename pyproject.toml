@@ -58,6 +58,8 @@ en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/down
 tiktoken = ">=0.3"
 beautifulsoup4 = "^4.0.0"
 autonomi-nos = "^0.0.9"
+sentence-transformers = "^2.0.0"
+transformers = "^4.20"
 
 [build-system]
 requires = ["poetry-core"]

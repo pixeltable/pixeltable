@@ -13,7 +13,7 @@ from pixeltable import catalog
 from pixeltable import exceptions as exc
 import pixeltable as pt
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files, get_audio_files
+from pixeltable.tests.utils import get_video_files, get_audio_files, skip_test_if_not_installed
 
 class TestDataFrame:
     def test_select_where(self, test_tbl: catalog.Table) -> None:
@@ -157,6 +157,7 @@ class TestDataFrame:
         _ = df._repr_html_()
 
     def test_count(self, test_tbl: catalog.Table, indexed_img_tbl: catalog.Table) -> None:
+        skip_test_if_not_installed('nos')
         t = test_tbl
         cnt = t.count()
         assert cnt == 100
@@ -379,6 +380,7 @@ class TestDataFrame:
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
     def test_to_coco(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('nos')
         cl = test_client
         base_t = cl.create_table('videos', {'video': pt.VideoType()})
         args = {'video': base_t.video, 'fps': 1}
