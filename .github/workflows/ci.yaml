@@ -1,5 +1,9 @@
 name: Run unit tests on commit
 
+on:
+  pull_request:
+    branches: [master]
+
 jobs:
   ci:
     strategy:
