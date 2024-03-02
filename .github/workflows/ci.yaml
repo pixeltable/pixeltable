@@ -1,4 +1,4 @@
-name: Run unit tests on commit
+name: Run unit tests on PR or commit
 
 on:
   pull_request:
@@ -32,7 +32,7 @@ jobs:
           # change, the cache will be invalidated
           path: ./.venv
           key: venv-${{ hashFiles('poetry.lock') }}
-      #- name: Install the project dependencies
-      #  run: poetry install
-      #- name: Run the unit tests
-      #  run: poetry run pytest -v
+      - name: Install the project dependencies
+        run: poetry install
+      - name: Run the unit tests
+        run: poetry run pytest -v
