@@ -1,4 +1,4 @@
-name: Run unit tests on PR or commit
+name: Run the unit tests on PR or commit
 
 on:
   pull_request:
@@ -10,9 +10,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        # Note: pixeltable currently fails on python 3.12.
+        python-version: ["3.9", "3.10", "3.11"]
         poetry-version: ["1.7.1"]
-        os: [ubuntu-22.04, macos-latest]
+        # Note: pixeltable currently fails on macos-latest (due to docker dependency).
+        os: [ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repo
@@ -28,11 +30,11 @@ jobs:
       - name: Define a venv cache
         uses: actions/cache@v3
         with:
-          # The cache is keyed to the poetry.lock file, so that if the dependencies
-          # change, the cache will be invalidated
+          # The cache is keyed to the poetry.lock and related .toml files, so that
+          # if the dependencies or poetry config change, the cache will be invalidated
           path: ./.venv
-          key: venv-${{ hashFiles('poetry.lock') }}
+          key: venv-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
       - name: Install the project dependencies
-        run: poetry install --with dev
+        run: poetry install --with opt --with dev
       - name: Run the unit tests
         run: poetry run pytest -v
