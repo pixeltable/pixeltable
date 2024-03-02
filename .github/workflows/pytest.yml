@@ -13,8 +13,7 @@ jobs:
         # Note: pixeltable currently fails on python 3.12.
         python-version: ["3.9", "3.10", "3.11"]
         poetry-version: ["1.7.1"]
-        # Note: pixeltable currently fails on macos-latest (due to docker dependency).
-        os: [ubuntu-22.04]
+        os: [ubuntu-22.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repo
