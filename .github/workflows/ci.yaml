@@ -3,6 +3,7 @@ name: Run unit tests on commit
 on:
   pull_request:
     branches: [master]
+  push:
 
 jobs:
   ci:
