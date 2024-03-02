@@ -35,6 +35,9 @@ jobs:
           path: ./.venv
           key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
       - name: Install the project dependencies
-        run: poetry install --with dev --extras "torch misc transformers"
+        run: poetry install --with dev --extras "torch misc transformers openai"
       - name: Run the unit tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
         run: poetry run pytest -v
