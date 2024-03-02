@@ -10,10 +10,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-22.04, macos-latest]
         # Note: pixeltable currently fails on python 3.12.
         python-version: ["3.9", "3.10", "3.11"]
         poetry-version: ["1.7.1"]
-        os: [ubuntu-22.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repo
@@ -32,7 +32,7 @@ jobs:
           # The cache is keyed to the poetry.lock and related .toml files, so that
           # if the dependencies or poetry config change, the cache will be invalidated
           path: ./.venv
-          key: venv-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
+          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
       - name: Install the project dependencies
         run: poetry install --with dev --extras "torch misc"
       - name: Run the unit tests
