@@ -1,4 +1,4 @@
-name: CI
+name: Run unit tests on commit
 
 jobs:
   ci:
