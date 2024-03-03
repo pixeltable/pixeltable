@@ -6,13 +6,6 @@ on:
   push:
     branches: [master]
 
-env:
-  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-  TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-  IS_PULL_REQUEST: ${{ startsWith(github.ref, 'refs/pull') }}
-  # Don't include extras that rely on secret API keys when running CI for a PR
-  PXT_POETRY_EXTRAS: ${{ startsWith(github.ref, 'refs/pull') && 'torch misc transformers' || 'torch misc transformers openai' }}
-
 jobs:
   ci:
     strategy:
@@ -37,11 +30,22 @@ jobs:
       - name: Define a venv cache
         uses: actions/cache@v4
         with:
-          # The cache is keyed to the poetry.lock and related .toml files, so that
-          # if the dependencies or poetry config change, the cache will be invalidated
+          # The cache is keyed to the following:
+          # - Matrix parameters
+          # - env.IS_PULL_REQUEST (since PR CI uses a thinner set of dependencies)
+          # - poetry.lock and related .toml files (so that if the dependencies
+          #   or poetry config change, the cache will be invalidated)
           path: ./.venv
-          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
+          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ env.IS_PULL_REQUEST }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
+          env:
+            IS_PULL_REQUEST: ${{ startsWith(github.ref, 'refs/pull') }}
       - name: Install the project dependencies
         run: poetry install --with dev --extras "${{ env.PXT_POETRY_EXTRAS }}"
+        env:
+          # Don't include extras that rely on secret API keys when running CI for a PR
+          PXT_POETRY_EXTRAS: ${{ startsWith(github.ref, 'refs/pull') && 'torch misc transformers' || 'torch misc transformers openai' }}
       - name: Run the unit tests
         run: poetry run pytest -v
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
