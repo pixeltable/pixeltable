@@ -37,7 +37,7 @@ jobs:
       - name: Install the project dependencies
         env:
           # Don't include extras that rely on secret API keys when running CI for a PR
-          PXT_POETRY_EXTRAS: ${{ startsWith(github.ref, 'refs/pull') && "torch misc transformers" || "torch misc transformers openai" }}
+          PXT_POETRY_EXTRAS: ${{ startsWith(github.ref, 'refs/pull') && 'torch misc transformers' || 'torch misc transformers openai' }}
         run: poetry install --with dev --extras "$PXT_POETRY_EXTRAS"
       - name: Run the unit tests
         env:
