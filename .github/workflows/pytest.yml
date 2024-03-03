@@ -6,6 +6,13 @@ on:
   push:
     branches: [master]
 
+env:
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+  IS_PULL_REQUEST: ${{ startsWith(github.ref, 'refs/pull' }}
+  # Don't include extras that rely on secret API keys when running CI for a PR
+  PXT_POETRY_EXTRAS: ${{ IS_PULL_REQUEST && 'torch misc transformers' || 'torch misc transformers openai' }}
+
 jobs:
   ci:
     strategy:
@@ -34,13 +41,9 @@ jobs:
           # if the dependencies or poetry config change, the cache will be invalidated
           path: ./.venv
           key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
+      - name: Show CI configuration
+        run: 'echo "Using poetry extras: $PXT_POETRY_EXTRAS"'
       - name: Install the project dependencies
-        env:
-          # Don't include extras that rely on secret API keys when running CI for a PR
-          PXT_POETRY_EXTRAS: ${{ startsWith(github.ref, 'refs/pull') && 'torch misc transformers' || 'torch misc transformers openai' }}
         run: poetry install --with dev --extras "$PXT_POETRY_EXTRAS"
       - name: Run the unit tests
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
         run: poetry run pytest -v
