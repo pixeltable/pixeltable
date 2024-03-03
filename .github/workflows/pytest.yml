@@ -35,8 +35,10 @@ jobs:
           path: ./.venv
           key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
       - name: Install the project dependencies
-        # TODO: Dependencies on external APIs are currently not working in CI
-        run: poetry install --with dev --extras "torch misc transformers"
+        env:
+          # Don't include extras that rely on secret API keys when running CI for a PR
+          PXT_POETRY_EXTRAS: ${{ startsWith(github.ref, 'refs/pull') && "torch misc transformers" || "torch misc transformers openai" }}
+        run: poetry install --with dev --extras "$PXT_POETRY_EXTRAS"
       - name: Run the unit tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
