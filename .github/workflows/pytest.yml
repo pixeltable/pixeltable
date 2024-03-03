@@ -11,7 +11,7 @@ env:
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
   IS_PULL_REQUEST: ${{ startsWith(github.ref, 'refs/pull') }}
   # Don't include extras that rely on secret API keys when running CI for a PR
-  PXT_POETRY_EXTRAS: ${{ IS_PULL_REQUEST && 'torch misc transformers' || 'torch misc transformers openai' }}
+  PXT_POETRY_EXTRAS: ${{ $IS_PULL_REQUEST && 'torch misc transformers' || 'torch misc transformers openai' }}
 
 jobs:
   ci:
