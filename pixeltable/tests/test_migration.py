@@ -1,14 +1,13 @@
 import glob
 import logging
+import os
 import subprocess
 
+import pgserver
 from sqlalchemy.orm import declarative_base
-from sqlalchemy_utils.functions import create_database, database_exists, drop_database
 
 import pixeltable as pt
 from pixeltable.env import Env
-
-import sqlalchemy as sql
 
 _logger = logging.getLogger('pixeltable')
 
@@ -27,9 +26,12 @@ class TestMigration:
             sql_md = declarative_base().metadata
             sql_md.reflect(Env.get().engine)
             sql_md.drop_all(bind=Env.get().engine)
+            pg_package_dir = os.path.dirname(pgserver.__file__)
+            pg_restore_binary = f'{pg_package_dir}/pginstall/bin/pg_restore'
+            _logger.info(f'Using pg_restore binary at: {pg_restore_binary}')
             with open(dump_file, 'r') as dump:
                 subprocess.run(
-                    ['/usr/local/bin/pg_restore', '-d', env.db_url, '-U', 'postgres'],
+                    [pg_restore_binary, '-d', env.db_url, '-U', 'postgres'],
                     stdin=dump,
                     check=True
                 )
