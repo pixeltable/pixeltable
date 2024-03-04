@@ -1,4 +1,4 @@
-name: Run the unit tests on PR or commit
+name: Run pytest
 
 on:
   pull_request:
