@@ -55,6 +55,7 @@ class Env:
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
+        self._has_together_client: bool = False
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
         self._httpd: Optional[socketserver.TCPServer] = None
         self._http_address: Optional[str] = None
@@ -272,6 +273,7 @@ class Env:
         import together
         self._logger.info('Initializing Together client.')
         together.api_key = api_key
+        self._has_together_client = True
 
     def _start_web_server(self) -> None:
         """
@@ -394,6 +396,10 @@ class Env:
     @property
     def openai_client(self) -> Any:
         return self._openai_client
+
+    @property
+    def has_together_client(self) -> bool:
+        return self._has_together_client
 
     @property
     def spacy_nlp(self) -> Any:

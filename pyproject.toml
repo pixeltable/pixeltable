@@ -29,27 +29,11 @@ pgvector = "^0.2.1"
 av = ">=10.0.0"
 pgserver = "0.0.4"
 
-# Optional dependencies (for extras)
-torch = { version = "^2.0.0", optional = true }
-torchvision = { version = "^0.16.1", optional = true }
-pyarrow = { version = ">=13.0.0", optional = true }
-boto3 = { version = "^1.17", optional = true }
-spacy = { version = "^3.0", optional = true }
-en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl", optional = true }
-tiktoken = { version = ">=0.3", optional = true }
-beautifulsoup4 = { version = "^4.0.0", optional = true }
-sentence-transformers = { version = "^2.0.0", optional = true }
-transformers = { version = "^4.20", optional = true }
-openai = { version = "^1.0.0", optional = true }
-autonomi-nos = { version = "^0.0.9", optional = true }
+[tool.poetry.group.nos]
+optional = true
 
-[tool.poetry.extras]
-# TODO (@aaron-siegel): I'm not sure these are the right groupings; @mkornacker to review
-misc = ["pyarrow", "boto3", "spacy", "en-core-web-sm", "tiktoken", "beautifulsoup4"]
-torch = ["torch", "torchvision"]
-transformers = ["transformers", "sentence-transformers"]
-openai = ["openai"]
-nos = ["autonomi-nos"]
+[tool.poetry.group.nos.dependencies]
+autonomi-nos = "^0.0.9"
 
 [tool.poetry.group.dev]
 optional = true
@@ -69,6 +53,18 @@ mkdocs-jupyter = "^0.24"
 black = "^23.12.1"
 bs4 = "^0.0.2"
 requests = "^2.31.0"
+# packages required by various optional pieces of the codebase
+torch = "^2.0.0"
+torchvision = "^0.16.1"
+pyarrow = ">=13.0.0"
+openai = "^1.0.0"
+boto3 = "^1.17"
+spacy = "^3.0"
+en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
+tiktoken = ">=0.3"
+beautifulsoup4 = "^4.0.0"
+sentence-transformers = "^2.0.0"
+transformers = "^4.20"
 
 [build-system]
 requires = ["poetry-core"]
