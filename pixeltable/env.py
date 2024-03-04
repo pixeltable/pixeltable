@@ -55,6 +55,7 @@ class Env:
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
+        self._has_together_client: bool = False
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
         self._httpd: Optional[socketserver.TCPServer] = None
         self._http_address: Optional[str] = None
@@ -254,7 +255,7 @@ class Env:
             api_key = self._config['openai']['api_key']
         else:
             api_key = os.environ.get('OPENAI_API_KEY')
-        if api_key is None:
+        if api_key is None or api_key == '':
             self._logger.info("OpenAI client not initialized (no API key configured).")
             return
         import openai
@@ -266,12 +267,13 @@ class Env:
             api_key = self._config['together']['api_key']
         else:
             api_key = os.environ.get('TOGETHER_API_KEY')
-        if api_key is None:
+        if api_key is None or api_key == '':
             self._logger.info('Together client not initialized (no API key configured).')
             return
         import together
         self._logger.info('Initializing Together client.')
         together.api_key = api_key
+        self._has_together_client = True
 
     def _start_web_server(self) -> None:
         """
@@ -394,6 +396,10 @@ class Env:
     @property
     def openai_client(self) -> Any:
         return self._openai_client
+
+    @property
+    def has_together_client(self) -> bool:
+        return self._has_together_client
 
     @property
     def spacy_nlp(self) -> Any:
