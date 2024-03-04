@@ -58,6 +58,8 @@ class Dumper:
         with open(info_file, 'w') as info:
             toml.dump(info_dict, info)
 
+    # TODO: Add additional features to the test DB dump (ideally it should exercise
+    # every major pixeltable DB feature)
     def create_tables(self) -> None:
         schema = {
             'c1': StringType(nullable=False),
