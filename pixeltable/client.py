@@ -522,24 +522,3 @@ class Client:
         func.FunctionRegistry.get().delete_function(named_fn._id)
         del self.catalog.paths[path]
         _logger.info(f'Dropped function {path_str}')
-
-    def reset_catalog(self) -> None:
-        """Delete everything. Test-only.
-
-        :meta private:
-        """
-        with Env.get().engine.begin() as conn:
-            conn.execute(sql.delete(schema.TableSchemaVersion.__table__))
-            conn.execute(sql.delete(schema.TableVersion.__table__))
-            conn.execute(sql.delete(schema.Table.__table__))
-            conn.execute(sql.delete(schema.Function.__table__))
-            conn.execute(sql.delete(schema.Dir.__table__))
-
-        # delete all data tables
-        tbl_paths = [
-            p for p in self.catalog.paths.get_children(
-                catalog.Path('', empty_is_valid=True), catalog.InsertableTable, recursive=True)
-        ]
-        for tbl_path in tbl_paths:
-            tbl = self.catalog.paths[tbl_path]
-            #tbl._drop()
