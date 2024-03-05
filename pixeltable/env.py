@@ -38,7 +38,7 @@ class Env:
         return cls._instance
 
     def __init__(self):
-        self._home : Optional[Path] = None
+        self._home: Optional[Path] = None
         self._media_dir: Optional[Path] = None  # computed media files
         self._file_cache_dir: Optional[Path] = None  # cached media files with external URL
         self._dataset_cache_dir: Optional[Path] = None  # cached datasets (eg, pytorch or COCO)
