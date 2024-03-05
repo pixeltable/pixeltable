@@ -12,7 +12,7 @@ exclude = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.8.1"
 numpy = "^1.24.1"
 pandas = "^1.5.3"
 pillow = "^9.4.0"
@@ -53,6 +53,8 @@ mkdocs-jupyter = "^0.24"
 black = "^23.12.1"
 bs4 = "^0.0.2"
 requests = "^2.31.0"
+pylint = "^3.1.0"
+flake8 = "^7.0.0"
 # packages required by various optional pieces of the codebase
 torch = "^2.0.0"
 torchvision = "^0.16.1"
