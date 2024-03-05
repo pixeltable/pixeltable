@@ -1,12 +1,14 @@
 from typing import Dict, Any
+
 import pytest
 
 import pixeltable as pt
 from pixeltable import catalog
-from pixeltable.type_system import VideoType, StringType, JsonType, ImageType, BoolType, FloatType, ArrayType
+from pixeltable.env import Env
 from pixeltable.functions.pil.image import blend
-from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed, get_sentences, get_image_files
 from pixeltable.iterators import FrameIterator
+from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed, get_sentences, get_image_files
+from pixeltable.type_system import VideoType, StringType, JsonType, ImageType, BoolType, FloatType, ArrayType
 
 
 class TestFunctions:
@@ -64,6 +66,9 @@ class TestFunctions:
 
     def test_openai(self, test_client: pt.Client) -> None:
         skip_test_if_not_installed('openai')
+        TestFunctions.skip_test_if_no_openai_client()
+        if Env.get().openai_client is None:
+            pytest.skip(f'OpenAI client does not exist (missing API key?).')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.openai import chat_completion, embedding, moderation
@@ -83,6 +88,7 @@ class TestFunctions:
 
     def test_gpt_4_vision(self, test_client: pt.Client) -> None:
         skip_test_if_not_installed('openai')
+        TestFunctions.skip_test_if_no_openai_client()
         cl = test_client
         t = cl.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
         from pixeltable.functions.openai import chat_completion
@@ -105,8 +111,15 @@ class TestFunctions:
         result = t.collect()['response_content'][0]
         assert len(result) > 0
 
+    @staticmethod
+    def skip_test_if_no_openai_client() -> None:
+        if Env.get().openai_client is None:
+            pytest.skip(f'OpenAI client does not exist (missing API key?)')
+
     def test_together(selfself, test_client: pt.Client) -> None:
         skip_test_if_not_installed('together')
+        if not Env.get().has_together_client:
+            pytest.skip(f'Together client does not exist (missing API key?)')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.together import completion

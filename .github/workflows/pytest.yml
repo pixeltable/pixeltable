@@ -1,0 +1,46 @@
+name: Run pytest
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+jobs:
+  ci:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest]
+        # TODO: pixeltable currently fails on python 3.12.
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+        poetry-version: ["1.7.1"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Install python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install poetry
+        uses: abatilo/actions-poetry@v2
+        with:
+          poetry-version: ${{ matrix.poetry-version }}
+      - name: Define a venv cache
+        uses: actions/cache@v4
+        with:
+          # The cache is keyed to the following:
+          # - Matrix parameters
+          # - poetry.lock and related .toml files (so that if the dependencies
+          #   or poetry config change, the cache will be invalidated)
+          path: ./.venv
+          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
+      - name: Install the project dependencies
+        run: poetry install --with dev
+      - name: Run the unit tests
+        run: poetry run pytest -v
+        env:
+          # In a PR, these secrets will be empty, and the relevant tests will be skipped
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}

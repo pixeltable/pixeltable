@@ -55,6 +55,7 @@ class Env:
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional[Any] = None
+        self._has_together_client: bool = False
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
         self._httpd: Optional[socketserver.TCPServer] = None
         self._http_address: Optional[str] = None
@@ -129,7 +130,7 @@ class Env:
         else:
             return False
 
-    def set_up(self, echo: bool = False) -> None:
+    def set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
             return
         
@@ -165,9 +166,10 @@ class Env:
             # we don't have our logger set up yet, so print to stdout
             print(msg)
             self._home.mkdir()
-            init_home_dir = True
-        else:
-            init_home_dir = False
+            # TODO (asiegel) This is the existing behavior, but it seems scary. If something happens to
+            # self._home, it will cause the DB to be destroyed even if pgdata is in an alternate location.
+            # PROPOSAL: require `reinit_db` to be set explicitly to destroy the DB.
+            reinit_db = True
 
         if not self._media_dir.exists():
             self._media_dir.mkdir()
@@ -200,7 +202,7 @@ class Env:
         self._db_server = pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
         self._db_url = self._db_server.get_uri(database=self._db_name)
 
-        if init_home_dir:
+        if reinit_db:
             if database_exists(self.db_url):
                 drop_database(self.db_url)
 
@@ -218,11 +220,13 @@ class Env:
             self._logger.info(f'found database {self.db_url}')
             if self._sa_engine is None:
                 self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
-            metadata.upgrade_md(self._sa_engine)
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
         self.log_to_stdout(False)
+
+    def upgrade_metadata(self) -> None:
+        metadata.upgrade_md(self._sa_engine)
 
     def _create_nos_client(self) -> None:
         import nos
@@ -251,7 +255,7 @@ class Env:
             api_key = self._config['openai']['api_key']
         else:
             api_key = os.environ.get('OPENAI_API_KEY')
-        if api_key is None:
+        if api_key is None or api_key == '':
             self._logger.info("OpenAI client not initialized (no API key configured).")
             return
         import openai
@@ -263,12 +267,13 @@ class Env:
             api_key = self._config['together']['api_key']
         else:
             api_key = os.environ.get('TOGETHER_API_KEY')
-        if api_key is None:
+        if api_key is None or api_key == '':
             self._logger.info('Together client not initialized (no API key configured).')
             return
         import together
         self._logger.info('Initializing Together client.')
         together.api_key = api_key
+        self._has_together_client = True
 
     def _start_web_server(self) -> None:
         """
@@ -391,6 +396,10 @@ class Env:
     @property
     def openai_client(self) -> Any:
         return self._openai_client
+
+    @property
+    def has_together_client(self) -> bool:
+        return self._has_together_client
 
     @property
     def spacy_nlp(self) -> Any:

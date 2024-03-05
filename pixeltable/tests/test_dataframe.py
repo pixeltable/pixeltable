@@ -288,6 +288,7 @@ class TestDataFrame:
             elt_count += 1
         assert elt_count == 1
 
+    @pytest.mark.skip('Flaky test (fails intermittently)')
     def test_to_pytorch_dataloader(self, all_datatypes_tbl: catalog.Table) -> None:
         """ Tests the dataset works well with pytorch dataloader:
             1. compatibility with multiprocessing

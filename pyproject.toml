@@ -29,6 +29,12 @@ pgvector = "^0.2.1"
 av = ">=10.0.0"
 pgserver = "0.0.4"
 
+[tool.poetry.group.nos]
+optional = true
+
+[tool.poetry.group.nos.dependencies]
+autonomi-nos = "^0.0.9"
+
 [tool.poetry.group.dev]
 optional = true
 
@@ -57,7 +63,6 @@ spacy = "^3.0"
 en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
 tiktoken = ">=0.3"
 beautifulsoup4 = "^4.0.0"
-autonomi-nos = "^0.0.9"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 
