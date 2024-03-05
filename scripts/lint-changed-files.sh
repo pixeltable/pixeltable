@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 PYLINT_ARGS="--max-line-length 120"
 
 FLAKE8_ARGS="--max-line-length 120"
@@ -20,7 +22,7 @@ DISABLED_PYLINT_MESSAGES="C0114,C0116,E1121,R0401,R0801,R0902,R0913,R0914,W0511"
 
 # This will lint ONLY the files that differ from master. If run against a PR as
 # part of CI, it will lint just the files affected by the PR.
-PY_FILES="$(git diff --name-only --diff-filter=ACMRTUXB master | grep -E '.py$')"
+PY_FILES="$(git diff --name-only --diff-filter=ACMRTUXB origin/master | grep -E '.py$')"
 
 SCRIPT_DIR="$(dirname "$0")"
 
