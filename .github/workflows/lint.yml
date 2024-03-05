@@ -11,7 +11,8 @@ jobs:
       matrix:
         python-version: ["3.11"]
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repo
+      uses: actions/checkout@v4
     - name: Install python
       uses: actions/setup-python@v5
       with:
