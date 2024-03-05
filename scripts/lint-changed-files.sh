@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e
-
 PYLINT_ARGS="--max-line-length 120"
 
 FLAKE8_ARGS="--max-line-length 120"
