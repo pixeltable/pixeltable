@@ -388,7 +388,7 @@ class Expr(abc.ABC):
         assert False, 'not implemented'
 
     def astype(self, new_type: ts.ColumnType) -> Expr:
-        from exprs import TypeCast
+        from pixeltable.exprs import TypeCast
         return TypeCast(self, new_type)
 
     def __getitem__(self, index: object) -> Expr:

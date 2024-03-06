@@ -1,3 +1,4 @@
+import json
 from typing import List, Dict
 import urllib.parse
 
@@ -6,7 +7,8 @@ import pytest
 
 import pixeltable as pt
 from pixeltable import catalog
-from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType, VideoType
+from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType, \
+    VideoType, JsonType
 from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import dict_map, cast, sum, count
@@ -355,6 +357,28 @@ class TestExprs:
         print(_)
         _ = t[t.array_col[:, 0]].show()
         print(_)
+
+    def test_type_cast(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        # For each column c2, ..., c7, we create a new column ci_as_str that casts it to
+        # a string, then check that each row is correctly converted
+        for col_id in range(2, 8):
+            col_name = f'c{col_id}'
+            as_str_col_name = f'c{col_id}_as_str'
+            t.add_column(**{as_str_col_name: getattr(t, col_name).astype(StringType())})
+            data = t.select(*[getattr(t, col_name), getattr(t, as_str_col_name)]).collect()
+            is_json_type = getattr(t, col_name).col_type.is_json_type()
+            for row in data:
+                expected = json.dumps(row[col_name]) if is_json_type else str(row[col_name])
+                assert row[as_str_col_name] == expected
+            # If its a JsonType() test column, test that we can convert the string back to JSON
+            # and get a JSON structure that is identical to the original
+            if is_json_type:
+                back_to_json_col_name = f'c{col_id}_back_to_json'
+                t.add_column(**{back_to_json_col_name: getattr(t, as_str_col_name).astype(JsonType())})
+                data = t.select(*[getattr(t, col_name), getattr(t, back_to_json_col_name)]).collect()
+                for row in data:
+                    assert row[col_name] == row[back_to_json_col_name]
 
     def test_select_list(self, img_tbl) -> None:
         t = img_tbl
