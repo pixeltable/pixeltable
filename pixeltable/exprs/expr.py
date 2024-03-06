@@ -387,6 +387,10 @@ class Expr(abc.ABC):
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert False, 'not implemented'
 
+    def astype(self, new_type: ts.ColumnType) -> Expr:
+        from exprs import TypeCast
+        return TypeCast(self, new_type)
+
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             from .json_path import JsonPath
