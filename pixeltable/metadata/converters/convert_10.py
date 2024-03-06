@@ -10,8 +10,8 @@ def convert_10(engine: sql.engine.Engine) -> None:
         # Because `parameters` wasn't actually used for anything,
         # we can simply delete it without any data loss.
         conn.execute(sql.update(Table).values(md=Table.md - 'parameters'))
-        # Add `attrs` to all elements of schematableversions.
-        conn.execute(sql.update(TableSchemaVersion).values(md=Table.md.concat(default_table_attrs)))
+        # Add `table_attrs` to all instances of tableschemaversions.md.
+        conn.execute(sql.update(TableSchemaVersion).values(md=TableSchemaVersion.md.concat(default_table_attrs)))
     return
 
 
