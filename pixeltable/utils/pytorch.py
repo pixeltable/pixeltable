@@ -1,18 +1,20 @@
+import datetime
 import io
+import json
+import math
+from pathlib import Path
+from typing import Any, Dict, Generator, Tuple
+
+import numpy as np
+import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
 import torch.utils.data
-import math
-from pathlib import Path
-import PIL.Image
-import json
-from typing import Dict, Tuple, Generator, Any
-import datetime
 
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.parquet import get_part_metadata
-import numpy as np
+
 
 def _cumsum(lst):
     acc = [0]
