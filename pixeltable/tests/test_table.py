@@ -97,13 +97,13 @@ class TestTable:
         new_num_retained_versions = 30
         new_comment = "This is an updated table."
         tbl.num_retained_versions = new_num_retained_versions
-        tbl.comment = new_comment
         assert tbl.num_retained_versions == new_num_retained_versions
+        tbl.comment = new_comment
         assert tbl.comment == new_comment
-        tbl.revert()    # We made two schema-inducing changes, so we need to revert twice
+        tbl.revert()
+        assert tbl.comment == comment
         tbl.revert()
         assert tbl.num_retained_versions == num_retained_versions
-        assert tbl.comment == comment
 
     def test_image_table(self, test_client: pt.Client) -> None:
         n_sample_rows = 20
