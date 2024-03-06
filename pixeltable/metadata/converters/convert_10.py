@@ -5,7 +5,7 @@ from pixeltable.metadata import register_converter
 
 
 def convert_10(engine: sql.engine.Engine) -> None:
-    default_table_attrs = {"attrs": {"comment": "", "num_retained_versions": 10}}
+    default_table_attrs = {"table_attrs": {"comment": None, "num_retained_versions": 10}}
     with engine.begin() as conn:
         # Because `parameters` wasn't actually used for anything,
         # we can simply delete it without any data loss.

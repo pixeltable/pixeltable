@@ -49,8 +49,8 @@ class TableVersion:
         self.id = id
         self.name = tbl_md.name
         self.version = version
-        self.comment = schema_version_md.attrs.comment
-        self.num_retained_versions = schema_version_md.attrs.num_retained_versions
+        self.comment = schema_version_md.table_attrs.comment
+        self.num_retained_versions = schema_version_md.table_attrs.num_retained_versions
         self.schema_version = schema_version_md.schema_version
         self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
         is_view = tbl_md.view_md is not None
@@ -163,7 +163,7 @@ class TableVersion:
 
         table_attrs = schema.TableAttributes(num_retained_versions, comment)
         schema_version_md = schema.TableSchemaVersionMd(
-            schema_version=0, preceding_schema_version=None, columns=column_md, attrs=table_attrs)
+            schema_version=0, preceding_schema_version=None, columns=column_md, table_attrs=table_attrs)
         schema_version_record = schema.TableSchemaVersion(
             tbl_id=tbl_record.id, schema_version=0, md=dataclasses.asdict(schema_version_md))
         session.add(schema_version_record)
@@ -622,8 +622,8 @@ class TableVersion:
                     .where(schema.TableSchemaVersion.tbl_id == self.id)
                     .where(schema.TableSchemaVersion.schema_version == self.schema_version))
             self.schema_version = preceding_schema_version
-            self.comment = preceding_schema_version_md.attrs.comment
-            self.num_retained_versions = preceding_schema_version_md.attrs.num_retained_versions
+            self.comment = preceding_schema_version_md.table_attrs.comment
+            self.num_retained_versions = preceding_schema_version_md.table_attrs.num_retained_versions
 
         conn.execute(
             sql.delete(schema.TableVersion.__table__)
@@ -745,4 +745,4 @@ class TableVersion:
         table_attrs = schema.TableAttributes(self.num_retained_versions, self.comment)
         return schema.TableSchemaVersionMd(
             schema_version=self.schema_version, preceding_schema_version=preceding_schema_version,
-            columns=column_md, attrs=table_attrs)
+            columns=column_md, table_attrs=table_attrs)

@@ -180,7 +180,7 @@ class TableSchemaVersionMd:
     schema_version: int
     preceding_schema_version: Optional[int]
     columns: Dict[int, SchemaColumn]  # col_id -> SchemaColumn
-    attrs: TableAttributes
+    table_attrs: TableAttributes
 
 
 # versioning: each table schema change results in a new record
