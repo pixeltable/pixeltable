@@ -142,14 +142,21 @@ class Table(SchemaObject):
         """Return the names of the columns in this table."""
         return {c.name: c.col_type for c in self.tbl_version_path.columns()}
 
-    def get_attrs(self) -> schema.TableAttributes:
-        return self.tbl_version.attrs
-
-    def set_attrs(self, num_retained_versions: Optional[int] = None, comment: Optional[str] = None):
-        self.tbl_version.set_attrs(num_retained_versions, comment)
-
+    @property
     def comment(self) -> str:
-        return self.get_attrs().comment
+        return self.tbl_version.comment
+
+    @comment.setter
+    def comment(self, new_comment: Optional[str]):
+        self.tbl_version.set_comment(new_comment)
+
+    @property
+    def num_retained_versions(self):
+        return self.tbl_version.num_retained_versions
+
+    @num_retained_versions.setter
+    def num_retained_versions(self, new_num_retained_versions: int):
+        self.tbl_version.set_num_retained_versions(new_num_retained_versions)
 
     def _description(self) -> pd.DataFrame:
         cols = self.tbl_version_path.columns()
@@ -176,12 +183,13 @@ class Table(SchemaObject):
         except NameError:
             print(self.__repr__())
 
+    # TODO: Display comments in _repr_html()
     def __repr__(self) -> str:
         description_str = self._description().to_string(index=False)
-        if self.tbl_version.attrs.comment != '':
-            comment = f'{self.tbl_version.attrs.comment}\n'
-        else:
+        if self.comment is None:
             comment = ''
+        else:
+            comment = f'{self.comment}\n'
         return f'{self.display_name()} \'{self._name}\'\n{comment}{description_str}'
 
     def _repr_html_(self) -> str:

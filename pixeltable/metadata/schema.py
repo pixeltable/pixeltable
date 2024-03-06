@@ -87,7 +87,7 @@ class ColumnHistory:
 class TableAttributes:
     # garbage-collect old versions beyond this point, unless they are referenced in a snapshot
     num_retained_versions: int = 10
-    comment: str = ''
+    comment: str = None
 
 
 @dataclasses.dataclass

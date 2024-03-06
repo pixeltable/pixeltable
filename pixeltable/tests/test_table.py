@@ -86,22 +86,24 @@ class TestTable:
         with pytest.raises(exc.Error):
             cl.drop_table('.test2')
 
-    def test_attrs(self, test_client: pt.Client) -> None:
+    def test_table_attrs(self, test_client: pt.Client) -> None:
         cl = test_client
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20
         comment = "This is a table."
-        tbl = cl.create_table('test_attrs', schema, num_retained_versions=num_retained_versions, comment=comment)
-        assert(tbl.get_attrs().num_retained_versions == num_retained_versions)
-        assert(tbl.comment() == comment)
+        tbl = cl.create_table('test_table_attrs', schema, num_retained_versions=num_retained_versions, comment=comment)
+        assert tbl.num_retained_versions == num_retained_versions
+        assert tbl.comment == comment
         new_num_retained_versions = 30
         new_comment = "This is an updated table."
-        tbl.set_attrs(num_retained_versions=new_num_retained_versions, comment=new_comment)
-        assert(tbl.get_attrs().num_retained_versions == new_num_retained_versions)
-        assert(tbl.comment() == new_comment)
+        tbl.num_retained_versions = new_num_retained_versions
+        tbl.comment = new_comment
+        assert tbl.num_retained_versions == new_num_retained_versions
+        assert tbl.comment == new_comment
+        tbl.revert()    # We made two schema-inducing changes, so we need to revert twice
         tbl.revert()
-        assert(tbl.get_attrs().num_retained_versions == num_retained_versions)
-        assert(tbl.comment() == comment)
+        assert tbl.num_retained_versions == num_retained_versions
+        assert tbl.comment == comment
 
     def test_image_table(self, test_client: pt.Client) -> None:
         n_sample_rows = 20
@@ -409,12 +411,10 @@ class TestTable:
         # cols computed with window functions are stored by default
         view.add_column(c5=window_fn(view.frame_idx, group_by=view.video))
 
-        attrs = view.get_attrs()
         # reload to make sure that metadata gets restored correctly
         cl = pt.Client(reload=True)
         tbl = cl.get_table('test_tbl')
         view = cl.get_table('test_view')
-        assert view.get_attrs() == attrs
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         status = tbl.insert([{'payload': 1, 'video': url}])
@@ -1074,9 +1074,11 @@ class TestTable:
         fn = lambda c2: np.full((3, 4), c2)
         t.add_column(computed1=fn, type=ArrayType((3, 4), dtype=IntType()))
         t.describe()
+        t.comment = 'This is a comment.'
+        t.describe()
 
         # TODO: how to you check the output of these?
-        _ = t.__repr__()
+        _ = repr(t)
         _ = t._repr_html_()
 
     def test_common_col_names(self, test_client: pt.Client) -> None:

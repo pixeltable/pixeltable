@@ -160,9 +160,6 @@ class View(Table):
             cat.tbls[view._id] = view
             return view
 
-    def get_attrs(self) -> md_schema.TableAttributes:
-        return self.tbl_version_path.tbl_version.attrs
-
     @classmethod
     def _verify_column(cls, col: Column, existing_column_names: Set[str]) -> None:
         # make sure that columns are nullable or have a default
