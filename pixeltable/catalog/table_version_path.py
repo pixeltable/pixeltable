@@ -15,6 +15,7 @@ import sqlalchemy.orm as orm
 from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier
 from .column import Column
 from .table_version import TableVersion
+import pixeltable
 from pixeltable import exceptions as exc
 from pixeltable.env import Env
 import pixeltable.func as func

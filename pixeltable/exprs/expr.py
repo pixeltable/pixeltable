@@ -12,6 +12,7 @@ import sqlalchemy as sql
 
 from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
 from .data_row import DataRow
+import pixeltable
 import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
 import pixeltable.type_system as ts
@@ -400,7 +401,7 @@ class Expr(abc.ABC):
             return ArraySlice(self, index)
         raise excs.Error(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> Union['ImageMemberAccess', 'JsonPath']:
+    def __getattr__(self, name: str) -> Union['pixeltable.exprs.ImageMemberAccess', 'pixeltable.exprs.JsonPath']:
         """
         ex.: <img col>.rotate(60)
         """
@@ -416,32 +417,32 @@ class Expr(abc.ABC):
         raise TypeError(
             'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)')
 
-    def __lt__(self, other: object) -> 'Comparison':
+    def __lt__(self, other: object) -> 'pixeltable.exprs.Comparison':
         return self._make_comparison(ComparisonOperator.LT, other)
 
-    def __le__(self, other: object) -> 'Comparison':
+    def __le__(self, other: object) -> 'pixeltable.exprs.Comparison':
         return self._make_comparison(ComparisonOperator.LE, other)
 
-    def __eq__(self, other: object) -> 'Comparison':
+    def __eq__(self, other: object) -> 'pixeltable.exprs.Comparison':
         if other is None:
             from .is_null import IsNull
             return IsNull(self)
         return self._make_comparison(ComparisonOperator.EQ, other)
 
-    def __ne__(self, other: object) -> 'Comparison':
+    def __ne__(self, other: object) -> 'pixeltable.exprs.Comparison':
         if other is None:
             from .compound_predicate import CompoundPredicate
             from .is_null import IsNull
             return CompoundPredicate(LogicalOperator.NOT, [IsNull(self)])
         return self._make_comparison(ComparisonOperator.NE, other)
 
-    def __gt__(self, other: object) -> 'Comparison':
+    def __gt__(self, other: object) -> 'pixeltable.exprs.Comparison':
         return self._make_comparison(ComparisonOperator.GT, other)
 
-    def __ge__(self, other: object) -> 'Comparison':
+    def __ge__(self, other: object) -> 'pixeltable.exprs.Comparison':
         return self._make_comparison(ComparisonOperator.GE, other)
 
-    def _make_comparison(self, op: ComparisonOperator, other: object) -> 'Comparison':
+    def _make_comparison(self, op: ComparisonOperator, other: object) -> 'pixeltable.exprs.Comparison':
         """
         other: Union[Expr, LiteralPythonTypes]
         """
@@ -454,22 +455,22 @@ class Expr(abc.ABC):
             return Comparison(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
-    def __add__(self, other: object) -> 'ArithmeticExpr':
+    def __add__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
-    def __sub__(self, other: object) -> 'ArithmeticExpr':
+    def __sub__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> 'ArithmeticExpr':
+    def __mul__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
-    def __truediv__(self, other: object) -> 'ArithmeticExpr':
+    def __truediv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.DIV, other)
 
-    def __mod__(self, other: object) -> 'ArithmeticExpr':
+    def __mod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MOD, other)
 
-    def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'ArithmeticExpr':
+    def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         """
         other: Union[Expr, LiteralPythonTypes]
         """

@@ -3,6 +3,7 @@ from typing import Optional, List, Tuple, Callable
 
 from .expr import Expr
 from .globals import LogicalOperator
+import pixeltable
 import pixeltable.type_system as ts
 
 
@@ -21,7 +22,7 @@ class Predicate(Expr):
         else:
             return [], self
 
-    def __and__(self, other: object) -> 'CompoundPredicate':
+    def __and__(self, other: object) -> 'pixeltable.exprs.CompoundPredicate':
         if not isinstance(other, Expr):
             raise TypeError(f'Other needs to be an expression: {type(other)}')
         if not other.col_type.is_bool_type():
@@ -29,7 +30,7 @@ class Predicate(Expr):
         from .compound_predicate import CompoundPredicate
         return CompoundPredicate(LogicalOperator.AND, [self, other])
 
-    def __or__(self, other: object) -> 'CompoundPredicate':
+    def __or__(self, other: object) -> 'pixeltable.exprs.CompoundPredicate':
         if not isinstance(other, Expr):
             raise TypeError(f'Other needs to be an expression: {type(other)}')
         if not other.col_type.is_bool_type():
@@ -37,7 +38,7 @@ class Predicate(Expr):
         from .compound_predicate import CompoundPredicate
         return CompoundPredicate(LogicalOperator.OR, [self, other])
 
-    def __invert__(self) -> 'CompoundPredicate':
+    def __invert__(self) -> 'pixeltable.exprs.CompoundPredicate':
         from .compound_predicate import CompoundPredicate
         return CompoundPredicate(LogicalOperator.NOT, [self])
 
