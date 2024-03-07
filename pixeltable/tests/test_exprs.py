@@ -360,14 +360,15 @@ class TestExprs:
 
     def test_type_cast(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        # For each column c2, ..., c7, we create a new column ci_as_str that casts it to
+        # For each column c1, ..., c7, we create a new column ci_as_str that casts it to
         # a string, then check that each row is correctly converted
-        for col_id in range(2, 8):
+        # (For c1 this is the no-op string-to-string conversion)
+        for col_id in range(1, 8):
             col_name = f'c{col_id}'
             as_str_col_name = f'c{col_id}_as_str'
             status = t.add_column(**{as_str_col_name: t[col_name].astype(StringType())})
             assert status.num_excs == 0
-            data = t.select(*[t[col_name], t[as_str_col_name]]).collect()
+            data = t.select(t[col_name], t[as_str_col_name]).collect()
             is_json_type = t[col_name].col_type.is_json_type()
             for row in data:
                 expected = json.dumps(row[col_name]) if is_json_type else str(row[col_name])
@@ -376,8 +377,9 @@ class TestExprs:
             # and get a JSON structure that is identical to the original
             if is_json_type:
                 back_to_json_col_name = f'c{col_id}_back_to_json'
-                t.add_column(**{back_to_json_col_name: t[as_str_col_name].astype(JsonType())})
-                data = t.select(*[t[col_name], t[back_to_json_col_name]]).collect()
+                status = t.add_column(**{back_to_json_col_name: t[as_str_col_name].astype(JsonType())})
+                assert status.num_excs == 0
+                data = t.select(t[col_name], t[back_to_json_col_name]).collect()
                 for row in data:
                     assert row[col_name] == row[back_to_json_col_name]
 
