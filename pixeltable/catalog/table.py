@@ -9,7 +9,6 @@ import json
 
 import pandas as pd
 import sqlalchemy as sql
-import torch
 
 from .schema_object import SchemaObject
 from .column import Column
@@ -183,6 +182,8 @@ class Table(SchemaObject):
         cat = catalog.Catalog.get()
         del cat.tbls[self._id]
 
+    # TODO Factor this out into a separate module.
+    # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
     def to_pytorch_dataset(self, image_format : str = 'pt') -> 'torch.utils.data.IterableDataset':
         """Return a PyTorch Dataset for this table.
             See DataFrame.to_pytorch_dataset()

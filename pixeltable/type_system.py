@@ -11,7 +11,6 @@ import urllib.parse
 import av
 import numpy as np
 import PIL.Image
-import pyarrow
 import sqlalchemy as sql
 
 from pixeltable import exceptions as exc
