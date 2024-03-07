@@ -16,6 +16,7 @@ from .table_version_path import TableVersionPath
 from .table_version import TableVersion
 from .globals import is_valid_identifier, is_system_column_name
 from pixeltable import exceptions as exc
+import pixeltable
 import pixeltable.type_system as ts
 import pixeltable.catalog as catalog
 import pixeltable.env as env
@@ -181,6 +182,8 @@ class Table(SchemaObject):
         cat = catalog.Catalog.get()
         del cat.tbls[self._id]
 
+    # TODO Factor this out into a separate module.
+    # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
     def to_pytorch_dataset(self, image_format : str = 'pt') -> 'torch.utils.data.IterableDataset':
         """Return a PyTorch Dataset for this table.
             See DataFrame.to_pytorch_dataset()
