@@ -387,7 +387,7 @@ class Expr(abc.ABC):
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert False, 'not implemented'
 
-    def astype(self, new_type: ts.ColumnType) -> Expr:
+    def astype(self, new_type: ts.ColumnType) -> 'pixeltable.exprs.TypeCast':
         from pixeltable.exprs import TypeCast
         return TypeCast(self, new_type)
 

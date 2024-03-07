@@ -35,7 +35,7 @@ class TypeCast(Expr):
     def _underlying(self):
         return self.components[0]
 
-    def _equals(self, other: Expr) -> bool:
+    def _equals(self, other: 'TypeCast') -> bool:
         # `TypeCast` has no properties beyond those captured by `Expr`.
         return True
 
