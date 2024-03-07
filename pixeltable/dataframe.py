@@ -579,6 +579,8 @@ class DataFrame:
         else:
             return write_coco_dataset(self, dest_path)
 
+    # TODO Factor this out into a separate module.
+    # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """
         Convert the dataframe to a pytorch IterableDataset suitable for parallel loading

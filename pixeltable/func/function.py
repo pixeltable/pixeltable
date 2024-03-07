@@ -7,6 +7,7 @@ import importlib
 
 from .function_md import FunctionMd
 from .globals import resolve_symbol
+import pixeltable
 import pixeltable.exceptions as excs
 
 class Function:
