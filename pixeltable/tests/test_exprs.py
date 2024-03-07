@@ -365,9 +365,10 @@ class TestExprs:
         for col_id in range(2, 8):
             col_name = f'c{col_id}'
             as_str_col_name = f'c{col_id}_as_str'
-            t.add_column(**{as_str_col_name: getattr(t, col_name).astype(StringType())})
-            data = t.select(*[getattr(t, col_name), getattr(t, as_str_col_name)]).collect()
-            is_json_type = getattr(t, col_name).col_type.is_json_type()
+            status = t.add_column(**{as_str_col_name: t[col_name].astype(StringType())})
+            assert status.num_excs == 0
+            data = t.select(*[t[col_name], t[as_str_col_name]]).collect()
+            is_json_type = t[col_name].col_type.is_json_type()
             for row in data:
                 expected = json.dumps(row[col_name]) if is_json_type else str(row[col_name])
                 assert row[as_str_col_name] == expected
@@ -375,8 +376,8 @@ class TestExprs:
             # and get a JSON structure that is identical to the original
             if is_json_type:
                 back_to_json_col_name = f'c{col_id}_back_to_json'
-                t.add_column(**{back_to_json_col_name: getattr(t, as_str_col_name).astype(JsonType())})
-                data = t.select(*[getattr(t, col_name), getattr(t, back_to_json_col_name)]).collect()
+                t.add_column(**{back_to_json_col_name: t[as_str_col_name].astype(JsonType())})
+                data = t.select(*[t[col_name], t[back_to_json_col_name]]).collect()
                 for row in data:
                     assert row[col_name] == row[back_to_json_col_name]
 

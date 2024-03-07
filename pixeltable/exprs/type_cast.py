@@ -3,19 +3,20 @@ from typing import Optional, Dict, List, Tuple, Any
 
 import sqlalchemy as sql
 
-from pixeltable.exprs import DataRow, Expr, RowBuilder
-from pixeltable.type_system import ColumnType
+import pixeltable.type_system as ts
+from .expr import DataRow, Expr
+from .row_builder import RowBuilder
 
 
 class TypeCast(Expr):
 
-    def __init__(self, underlying: Expr, new_type: ColumnType):
+    def __init__(self, underlying: Expr, new_type: ts.ColumnType):
         super().__init__(new_type)
         if self.col_type.is_string_type() \
                 or self.col_type.is_json_type() and underlying.col_type.is_string_type():
             # It's a valid type conversion
-            self.components = [underlying]
-            self.id = self._create_id
+            self.components: List[Expr] = [underlying]
+            self.id: Optional[int] = self._create_id()
         else:
             raise RuntimeError(f'Expression of type `{self._underlying.col_type}` cannot be cast to `{self.col_type}`')
 
@@ -24,10 +25,8 @@ class TypeCast(Expr):
         return self.components[0]
 
     def _equals(self, other: Expr) -> bool:
-        if isinstance(other, TypeCast):
-            return self._underlying == other._underlying and self.col_type == other.col_type
-        else:
-            return False
+        # `TypeCast` has no properties beyond those captured by `Expr`.
+        return True
 
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         return super()._id_attrs() + [('new_type', self.col_type)]
@@ -62,7 +61,7 @@ class TypeCast(Expr):
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'new_type' in d
         assert len(components) == 1
-        return cls(components[0], ColumnType.from_dict(d['new_type']))
+        return cls(components[0], ts.ColumnType.from_dict(d['new_type']))
 
     def __str__(self) -> str:
         return f'{self._underlying}.astype({self.col_type})'
