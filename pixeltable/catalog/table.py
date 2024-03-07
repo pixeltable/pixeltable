@@ -9,6 +9,7 @@ import json
 
 import pandas as pd
 import sqlalchemy as sql
+import torch
 
 from .schema_object import SchemaObject
 from .column import Column
@@ -16,6 +17,7 @@ from .table_version_path import TableVersionPath
 from .table_version import TableVersion
 from .globals import is_valid_identifier, is_system_column_name
 from pixeltable import exceptions as exc
+import pixeltable
 import pixeltable.type_system as ts
 import pixeltable.catalog as catalog
 import pixeltable.env as env

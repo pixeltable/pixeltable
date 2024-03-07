@@ -14,6 +14,7 @@ import hashlib
 import importlib.util
 import logging
 import mimetypes
+import torch
 
 import pixeltable.type_system as ts
 import pixeltable.catalog as catalog
