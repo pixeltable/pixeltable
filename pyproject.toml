@@ -111,7 +111,7 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["F", "E", "W", "C", "I", "N", "B", "A", "ICN", "PYI", "SIM", "TD002", "PL", "RUF"]
-ignore = ["PLC0415", "PLR0904", "PLR0912", "PLR0915"]
+ignore = ["PLC0415", "PLR0904", "PLR0912", "PLR0913", "PLR0914", "PLR0915"]
 preview = true
 
 [tool.ruff.lint.isort]
