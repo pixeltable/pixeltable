@@ -6,4 +6,4 @@ if [ -z "$PY_FILES" ]; then
   exit 0
 fi
 
-ruff format "$PY_FILES"
+ruff format $PY_FILES

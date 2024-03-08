@@ -15,20 +15,20 @@ fi
 
 echo -e '\n============= The following files differ from `master` and will be linted:\n'
 
-echo "$PY_FILES"
+echo $PY_FILES
 
 echo -e '\n============= Running `mypy` on changed files.\n'
 
-mypy "$PY_FILES"
+mypy $PY_FILES
 
 echo -e '\n============= Running `pylint` on changed files.\n'
 
-pylint "$PY_FILES"
+pylint $PY_FILES
 
 echo -e '\n============= Running `ruff check` on changed files.\n'
 
-ruff check "$PY_FILES"
+ruff check $PY_FILES
 
 echo -e '\n============= Running `ruff format --check` on changed files.\n'
 
-ruff format --check "$PY_FILES"
+ruff format --check $PY_FILES
