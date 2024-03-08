@@ -1,3 +1,7 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
 [tool.poetry]
 name = "pixeltable"
 version = "0.1.2"
@@ -39,22 +43,27 @@ autonomi-nos = "^0.0.9"
 optional = true
 
 [tool.poetry.group.dev.dependencies]
+# pytest-related
 pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
-pycocotools = "^2.0.7"
-ipykernel = "^6.27.1"
-nbmake = "^1.4.6"
-mypy = "^1.7.1"
+# mypy-related
+mypy = "^1.8.0"
 types-pillow = "^10.1.0.2"
+types-pyyaml = "^6.0.1"
+# linting
+pylint = "^3.1.0"
+ruff = "^0.3.1"
+# mkdocs-related
 mkdocs = "^1.5.3"
 mkdocstrings = {extras = ["python"], version = "^0.24.0"}
 mkdocs-material = "^9.5.3"
 mkdocs-jupyter = "^0.24"
-black = "^23.12.1"
+# other
+pycocotools = "^2.0.7"
+ipykernel = "^6.27.1"
+nbmake = "^1.4.6"
 bs4 = "^0.0.2"
 requests = "^2.31.0"
-pylint = "^3.1.0"
-flake8 = "^7.0.0"
 # packages required by various optional pieces of the codebase
 torch = "^2.0.0"
 torchvision = "^0.16.1"
@@ -67,11 +76,16 @@ tiktoken = ">=0.3"
 beautifulsoup4 = "^4.0.0"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
-ruff = "^0.3.1"
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.mypy]
+plugins = "sqlalchemy.ext.mypy.plugin"
+disallow_untyped_defs = "True"
+disallow_any_unimported = "True"
+no_implicit_optional = "True"
+check_untyped_defs = "True"
+warn_return_any = "True"
+warn_unused_ignores = "True"
+show_error_codes = "True"
 
 [tool.pylint.main]
 max-line-length = 120
