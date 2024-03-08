@@ -15,7 +15,7 @@ fi
 
 echo -e '\n============= The following files differ from `master` and will be linted:\n'
 
-echo $PY_FILES
+echo "$PY_FILES"
 
 echo -e '\n============= Running `mypy` on changed files.\n'
 
