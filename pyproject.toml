@@ -96,7 +96,8 @@ disable = ["C0114","C0116","C0415","E1121","R0401","R0801","R0902","R0913","R091
 line-length = 120
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "C", "I", "N", "RUF"]
+select = ["F", "E", "W", "C", "I", "N", "B", "A", "ICN", "PYI", "SIM", "TD002", "PL", "RUF"]
+ignore = ["PLC0415", "PLR0904", "PLR0912", "PLR0915"]
 preview = true
 
 [tool.ruff.lint.isort]
