@@ -76,7 +76,7 @@ class Expr(abc.ABC):
                 result = c_scope
         return result
 
-    def bind_rel_paths(self, mapper: Optional['JsonMapper'] = None) -> None:
+    def bind_rel_paths(self, mapper: Optional['pixeltable.exprs.JsonMapper'] = None) -> None:
         """
         Binds relative JsonPaths to mapper.
         This needs to be done in a separate phase after __init__(), because RelativeJsonPath()(-1) cannot be resolved
@@ -322,7 +322,7 @@ class Expr(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def eval(self, data_row: DataRow, row_builder: 'RowBuilder') -> None:
+    def eval(self, data_row: DataRow, row_builder: 'pixeltable.exprs.RowBuilder') -> None:
         """
         Compute the expr value for data_row and store the result in data_row[slot_idx].
         Not called if sql_expr() != None (exception: Literal).
