@@ -358,6 +358,17 @@ class TestExprs:
         _ = t[t.array_col[:, 0]].show()
         print(_)
 
+    def test_astype(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        # Convert int to float
+        status = t.add_column(c2_as_float=t.c2.astype(FloatType()))
+        assert status.num_excs == 0
+        data = t.select(t.c2, t.c2_as_float).collect()
+        for row in data:
+            assert isinstance(row['c2'], int)
+            assert isinstance(row['c2_as_float'], float)
+            assert row['c2'] == row['c2_as_float']
+
     def test_apply(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
