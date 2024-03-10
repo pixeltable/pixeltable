@@ -152,8 +152,10 @@ class Expr(abc.ABC):
     def copy_list(cls, expr_list: List[Expr]) -> List[Expr]:
         return [e.copy() for e in expr_list]
 
-    def __deepcopy__(self, memo={}) -> Expr:
+    def __deepcopy__(self, memo=None) -> Expr:
         # we don't need to create an actual deep copy because all state other than execution state is read-only
+        if memo is None:
+            memo = {}
         result = self.copy()
         memo[id(self)] = result
         return result
@@ -168,13 +170,15 @@ class Expr(abc.ABC):
             self.components[i] = self.components[i].substitute(old, new)
         return self
 
-    def resolve_computed_cols(self, resolve_cols: Set[catalog.Column] = set()) -> Expr:
+    def resolve_computed_cols(self, resolve_cols: Set[catalog.Column] = None) -> Expr:
         """
         Recursively replace ColRefs to unstored computed columns with their value exprs.
         Also replaces references to stored computed columns in resolve_cols.
         """
         from .expr_set import ExprSet
         from .column_ref import ColumnRef
+        if resolve_cols is None:
+            resolve_cols = set()
         result = self
         while True:
             target_col_refs = ExprSet([

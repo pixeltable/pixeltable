@@ -55,10 +55,12 @@ class DocumentSplitter(ComponentIterator):
 
     def __init__(
             self, document: str, *, separators: str, limit: int = 0, overlap: int = 0, metadata: str = '',
-            html_skip_tags: List[str] = ['nav'], tiktoken_encoding: Optional[str] = 'cl100k_base',
+            html_skip_tags: List[str] = None, tiktoken_encoding: Optional[str] = 'cl100k_base',
             tiktoken_target_model: Optional[str] = None
     ):
         import bs4
+        if html_skip_tags is None:
+            html_skip_tags = ['nav']
         with open(document, 'r') as fh:
             s = fh.read()
             self._doc_handle = get_document_handle(s)

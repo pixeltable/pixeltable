@@ -429,7 +429,7 @@ class TableVersion:
         return result
 
     def update(
-            self, update_targets: List[Tuple[Column, 'pixeltable.exprs.Expr']] = [],
+            self, update_targets: List[Tuple[Column, 'pixeltable.exprs.Expr']] = None,
             where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
@@ -439,6 +439,8 @@ class TableVersion:
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
         """
+        if update_targets is None:
+            update_targets = []
         assert not self.is_snapshot
         from pixeltable.plan import Planner
         plan, updated_cols, recomputed_cols = \

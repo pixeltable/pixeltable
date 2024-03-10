@@ -19,8 +19,12 @@ import pixeltable.type_system as ts
 
 class FunctionCall(Expr):
     def __init__(
-            self, fn: func.Function, bound_args: Dict[str, Any], order_by_clause: List[Any] = [],
-            group_by_clause: List[Any] = [], is_method_call: bool = False):
+            self, fn: func.Function, bound_args: Dict[str, Any], order_by_clause: List[Any] = None,
+            group_by_clause: List[Any] = None, is_method_call: bool = False):
+        if group_by_clause is None:
+            group_by_clause = []
+        if order_by_clause is None:
+            order_by_clause = []
         signature = fn.md.signature
         super().__init__(signature.get_return_type(bound_args))
         self.fn = fn
