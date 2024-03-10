@@ -1,21 +1,23 @@
 from __future__ import annotations
+
 import abc
+import hashlib
+import importlib
+import json
 import sys
 import typing
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Type
-import json
 from uuid import UUID
-import hashlib
-import importlib
 
 import sqlalchemy as sql
 
-from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
-from .data_row import DataRow
 import pixeltable
-import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.func import make_function
+from .data_row import DataRow
+from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
 
 
 class ExprScope:
@@ -392,6 +394,32 @@ class Expr(abc.ABC):
         from pixeltable.exprs import TypeCast
         return TypeCast(self, new_type)
 
+    def apply(self, fn: Callable, *, col_type: Optional[ts.ColumnType] = None) -> 'pixeltable.exprs.FunctionCall':
+
+        if col_type is not None:
+            # col_type is specified explicitly
+            fn_type = col_type
+        elif fn in known_applicator_types:
+            # For convenience, various built-ins and other Python functions that don't
+            # have type hints are hardcoded
+            fn_type = known_applicator_types[fn]
+        elif 'return_type' in typing.get_type_hints(fn):
+            # Attempt to infer the column type from the return type of the callable;
+            # this will set fn_type to None if it cannot be inferred
+            return_type = typing.get_type_hints(fn)['return_type']
+            fn_type = ts.ColumnType.infer_literal_type(return_type)
+        else:
+            # No type hint
+            fn_type = None
+
+        if fn_type is None:
+            raise RuntimeError(
+                f'Column type of `{fn.__name__}` cannot be inferred. Use `.apply({fn.__name__}, col_type=...)` to specify.'
+            )
+
+        function = make_function(return_type=fn_type, param_types=[self.col_type], eval_fn=lambda x: fn(x))
+        return function(self)
+
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             from .json_path import JsonPath
@@ -483,3 +511,9 @@ class Expr(abc.ABC):
             return ArithmeticExpr(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
+
+known_applicator_types = {
+    str: ts.StringType(),
+    json.dumps: ts.StringType(),
+    json.loads: ts.JsonType(),
+}

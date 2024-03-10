@@ -358,30 +358,32 @@ class TestExprs:
         _ = t[t.array_col[:, 0]].show()
         print(_)
 
-    def test_type_cast(self, test_tbl: catalog.Table) -> None:
+    def test_apply(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        # For each column c1, ..., c7, we create a new column ci_as_str that casts it to
+        # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
         # a string, then check that each row is correctly converted
         # (For c1 this is the no-op string-to-string conversion)
-        for col_id in range(1, 8):
+        for col_id in range(1, 6):
             col_name = f'c{col_id}'
-            as_str_col_name = f'c{col_id}_as_str'
-            status = t.add_column(**{as_str_col_name: t[col_name].astype(StringType())})
+            str_col_name = f'c{col_id}_str'
+            status = t.add_column(**{str_col_name: t[col_name].apply(str)})
             assert status.num_excs == 0
-            data = t.select(t[col_name], t[as_str_col_name]).collect()
-            is_json_type = t[col_name].col_type.is_json_type()
+            data = t.select(t[col_name], t[str_col_name]).collect()
             for row in data:
-                expected = json.dumps(row[col_name]) if is_json_type else str(row[col_name])
-                assert row[as_str_col_name] == expected
-            # If its a JsonType() test column, test that we can convert the string back to JSON
-            # and get a JSON structure that is identical to the original
-            if is_json_type:
-                back_to_json_col_name = f'c{col_id}_back_to_json'
-                status = t.add_column(**{back_to_json_col_name: t[as_str_col_name].astype(JsonType())})
-                assert status.num_excs == 0
-                data = t.select(t[col_name], t[back_to_json_col_name]).collect()
-                for row in data:
-                    assert row[col_name] == row[back_to_json_col_name]
+                assert row[str_col_name] == str(row[col_name])
+        # For columns c6, c7, try using json.dumps and json.loads to emit and parse JSON <-> str
+        for col_id in range(6, 8):
+            col_name = f'c{col_id}'
+            str_col_name = f'c{col_id}_str'
+            back_to_json_col_name = f'c{col_id}_back_to_json'
+            status = t.add_column(**{str_col_name: t[col_name].apply(json.dumps)})
+            assert status.num_excs == 0
+            status = t.add_column(**{back_to_json_col_name: t[str_col_name].apply(json.loads)})
+            assert status.num_excs == 0
+            data = t.select(t[col_name], t[str_col_name], t[back_to_json_col_name]).collect()
+            for row in data:
+                assert row[str_col_name] == json.dumps(row[col_name])
+                assert row[back_to_json_col_name] == row[col_name]
 
     def test_select_list(self, img_tbl) -> None:
         t = img_tbl
