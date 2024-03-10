@@ -271,7 +271,7 @@ class RowBuilder:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def create_eval_ctx(self, targets: List[Expr], exclude: List[Expr] = None) -> EvalCtx:
+    def create_eval_ctx(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> EvalCtx:
         """Return EvalCtx for targets"""
         if exclude is None:
             exclude = []
