@@ -399,10 +399,10 @@ class Expr(abc.ABC):
         if col_type is not None:
             # col_type is specified explicitly
             fn_type = col_type
-        elif fn in known_applicator_types:
+        elif fn in _known_applicator_types:
             # For convenience, various built-ins and other Python functions that don't
             # have type hints are hardcoded
-            fn_type = known_applicator_types[fn]
+            fn_type = _known_applicator_types[fn]
         elif 'return_type' in typing.get_type_hints(fn):
             # Attempt to infer the column type from the return type of the callable;
             # this will set fn_type to None if it cannot be inferred
@@ -512,7 +512,7 @@ class Expr(abc.ABC):
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
 
-known_applicator_types = {
+_known_applicator_types = {
     str: ts.StringType(),
     json.dumps: ts.StringType(),
     json.loads: ts.JsonType(),
