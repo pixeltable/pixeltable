@@ -25,16 +25,14 @@ jobs:
         python -m pip install mypy sqlalchemy[mypy] pylint ruff
     - name: Analyze code with mypy
       # This will type check ONLY the files that are affected by the PR.
-      # For now, it always succeeds (report-only).
-      run: |
-        ./scripts/analyze-changed-files.sh mypy
-        exit 0
+      # For now, ignore failures (report-only).
+      run: ./scripts/analyze-changed-files.sh mypy
+      continue-on-error: true
     - name: Analyze code with pylint
       # This will lint ONLY the files that are affected by the PR.
-      # For now, it always succeeds (report-only).
-      run: |
-        ./scripts/analyze-changed-files.sh pylint
-        exit 0
+      # For now, ignore failures (report-only).
+      run: ./scripts/analyze-changed-files.sh pylint
+      continue-on-error: true
     - name: Analyze code with ruff
       # This step will fail if the code has not been properly formatted, but
       # is report-only on other linting errors.
