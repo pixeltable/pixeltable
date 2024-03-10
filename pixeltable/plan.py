@@ -40,12 +40,12 @@ class Analyzer:
 
     def __init__(
             self, tbl: catalog.TableVersionPath, select_list: List[exprs.Expr],
-            where_clause: Optional[exprs.Predicate] = None, group_by_clause: List[exprs.Expr] = None,
-            order_by_clause: List[Tuple[exprs.Expr, bool]] = None):
-        if order_by_clause is None:
-            order_by_clause = []
+            where_clause: Optional[exprs.Predicate] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
+            order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None):
         if group_by_clause is None:
             group_by_clause = []
+        if order_by_clause is None:
+            order_by_clause = []
         self.tbl = tbl
 
         # remove references to unstored computed cols
@@ -530,23 +530,23 @@ class Planner:
 
     @classmethod
     def create_query_plan(
-            cls, tbl: catalog.TableVersionPath, select_list: List[exprs.Expr] = None,
-            where_clause: Optional[exprs.Predicate] = None, group_by_clause: List[exprs.Expr] = None,
-            order_by_clause: List[Tuple[exprs.Expr, bool]] = None, limit: Optional[int] = None,
-            with_pk: bool = False, ignore_errors: bool = False, exact_version_only: List[catalog.TableVersion] = None
+            cls, tbl: catalog.TableVersionPath, select_list: Optional[List[exprs.Expr]] = None,
+            where_clause: Optional[exprs.Predicate] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
+            order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None, limit: Optional[int] = None,
+            with_pk: bool = False, ignore_errors: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
     ) -> exec.ExecNode:
         """Return plan for executing a query.
         Updates 'select_list' in place to make it executable.
         TODO: make exact_version_only a flag and use the versions from tbl
         """
-        if exact_version_only is None:
-            exact_version_only = []
-        if order_by_clause is None:
-            order_by_clause = []
-        if group_by_clause is None:
-            group_by_clause = []
         if select_list is None:
             select_list = []
+        if group_by_clause is None:
+            group_by_clause = []
+        if order_by_clause is None:
+            order_by_clause = []
+        if exact_version_only is None:
+            exact_version_only = []
         analyzer = Analyzer(
             tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
             order_by_clause=order_by_clause)
@@ -565,7 +565,7 @@ class Planner:
     @classmethod
     def _create_query_plan(
             cls, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder, analyzer: Analyzer,
-            limit: Optional[int] = None, with_pk: bool = False, exact_version_only: List[catalog.TableVersion] = None
+            limit: Optional[int] = None, with_pk: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
     ) -> exec.ExecNode:
         """
         Args:

@@ -249,7 +249,7 @@ class RowBuilder:
                 unique_ids.add(unique_expr.slot_idx)
                 i += 1
 
-    def get_dependencies(self, targets: List[Expr], exclude: List[Expr] = None) -> List[Expr]:
+    def get_dependencies(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> List[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
         The exprs given in 'exclude' are excluded.

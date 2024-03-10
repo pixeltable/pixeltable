@@ -105,7 +105,7 @@ class HuggingFaceFunction(ExternalFunction):
 
 def huggingface_fn(
         *, return_type: ts.ColumnType, param_types: List[ts.ColumnType], subclass: Type[HuggingFaceFunction],
-        batch_size: int = 1, constant_params: List[str] = None
+        batch_size: int = 1, constant_params: Optional[List[str]] = None
 ) -> Callable:
     """Returns decorator to create an instance of a subclass of HuggingfaceFunction.
     The purpose of this decorator is purely to simplify constructing the FunctionMd and inspect.Signature objects.

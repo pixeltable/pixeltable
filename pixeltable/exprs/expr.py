@@ -170,7 +170,7 @@ class Expr(abc.ABC):
             self.components[i] = self.components[i].substitute(old, new)
         return self
 
-    def resolve_computed_cols(self, resolve_cols: Set[catalog.Column] = None) -> Expr:
+    def resolve_computed_cols(self, resolve_cols: Optional[Set[catalog.Column]] = None) -> Expr:
         """
         Recursively replace ColRefs to unstored computed columns with their value exprs.
         Also replaces references to stored computed columns in resolve_cols.
