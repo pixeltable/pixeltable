@@ -88,10 +88,12 @@ class InsertableTable(Table):
         print_stats = kwargs.pop('print_stats', False)
         fail_on_exception = kwargs.pop('fail_on_exception', True)
         if len(args) > 0:
-            # There's a positional parameter; this means `rows` is expressed as a
+            # There's a positional argument; this means `rows` is expressed as a
             # list of dicts (multi-insert)
             rows = args[0]
         else:
+            # No positional argument; this means we're inserting a single row
+            # using kwargs syntax
             rows = [kwargs]
 
         if not isinstance(rows, list):
