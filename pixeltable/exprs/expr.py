@@ -405,11 +405,11 @@ class Expr(abc.ABC):
             # For convenience, various built-ins and other Python functions that don't
             # have type hints are hardcoded
             fn_type = _known_applicator_types[fn]
-        elif 'return_type' in typing.get_type_hints(fn):
+        elif 'return' in typing.get_type_hints(fn):
             # Attempt to infer the column type from the return type of the callable;
             # this will set fn_type to None if it cannot be inferred
-            return_type = typing.get_type_hints(fn)['return_type']
-            fn_type = ts.ColumnType.infer_literal_type(return_type)
+            return_type = typing.get_type_hints(fn)['return']
+            fn_type = ts.ColumnType.from_python_type(return_type)
         else:
             # No type hint
             fn_type = None
@@ -422,16 +422,20 @@ class Expr(abc.ABC):
         try:
             # If `fn` is not a builtin, we can do some basic validation to ensure it's
             # compatible with `apply`.
-            signature = inspect.signature(fn)
-            params = signature.parameters
+            params = inspect.signature(fn).parameters
             params_iter = iter(params.values())
+            first_param = next(params_iter) if len(params) >= 1 else None
+            second_param = next(params_iter) if len(params) >= 2 else None
             # Check that fn has at least one positional parameter
-            if len(params) == 0 or next(params_iter).kind == inspect.Parameter.KEYWORD_ONLY:
+            if len(params) == 0 or first_param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD):
                 raise RuntimeError(
                     f'Function `{fn.__name__}` has no positional parameters.'
                 )
-            # Check that fn has at most one required parameter
-            if len(params) > 1 and next(params_iter).default == inspect.Parameter.empty:
+            # Check that fn has at most one required parameter, i.e., its second parameter
+            # has no default and is not a varargs
+            if len(params) >= 2 and \
+                    second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD) and \
+                    second_param.default == inspect.Parameter.empty:
                 raise RuntimeError(
                     f'Function `{fn.__name__}` has multiple required parameters.'
                 )
@@ -548,11 +552,11 @@ class Expr(abc.ABC):
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
 
-# This is a dictionary of result types of various stdlib functions that are
+# A dictionary of result types of various stdlib functions that are
 # commonly used in computed columns. stdlib does not have type hints, so these
 # are used to infer their result types (as pixeltable types) to avoid having
 # to specify them explicitly in Expr.apply().
-_known_applicator_types = {
+_known_applicator_types: dict[Callable, ts.ColumnType] = {
     str: ts.StringType(),
     json.dumps: ts.StringType(),
     json.loads: ts.JsonType(),
