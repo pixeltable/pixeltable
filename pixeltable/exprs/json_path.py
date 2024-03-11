@@ -9,18 +9,21 @@ from .expr import Expr
 from .json_mapper import JsonMapper
 from .data_row import DataRow
 from .row_builder import RowBuilder
+import pixeltable
 import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
 import pixeltable.type_system as ts
 
 
 class JsonPath(Expr):
-    def __init__(self, anchor: Optional['ColumnRef'], path_elements: List[str] = [], scope_idx: int = 0):
+    def __init__(self, anchor: Optional['pixeltable.exprs.ColumnRef'], path_elements: Optional[List[str]] = None, scope_idx: int = 0):
         """
         anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
         scope_idx: for relative paths, index of referenced JsonMapper
         (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
         """
+        if path_elements is None:
+            path_elements = []
         super().__init__(ts.JsonType())
         if anchor is not None:
             self.components = [anchor]

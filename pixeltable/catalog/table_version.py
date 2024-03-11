@@ -42,7 +42,7 @@ class TableVersion:
 
     def __init__(
             self, id: UUID, tbl_md: schema.TableMd, version: int, schema_version_md: schema.TableSchemaVersionMd,
-            base: Optional[TableVersion] = None, base_path: Optional['TableVersionPath'] = None,
+            base: Optional[TableVersion] = None, base_path: Optional['pixeltable.catalog.TableVersionPath'] = None,
             is_snapshot: Optional[bool] = None
     ):
         # only one of base and base_path can be non-None
@@ -120,7 +120,7 @@ class TableVersion:
     @classmethod
     def create(
             cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int, comment: str,
-            base_path: Optional['TableVersionPath'] = None, view_md: Optional[schema.ViewMd] = None
+            base_path: Optional['pixeltable.catalog.TableVersionPath'] = None, view_md: Optional[schema.ViewMd] = None
     ) -> Tuple[UUID, Optional[TableVersion]]:
         # assign ids
         cols_by_name: Dict[str, Column] = {}
@@ -450,7 +450,7 @@ class TableVersion:
         return result
 
     def update(
-            self, update_targets: List[Tuple[Column, 'pixeltable.exprs.Expr']] = [],
+            self, update_targets: Optional[List[Tuple[Column, 'pixeltable.exprs.Expr']]] = None,
             where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
@@ -460,6 +460,8 @@ class TableVersion:
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
         """
+        if update_targets is None:
+            update_targets = []
         assert not self.is_snapshot
         from pixeltable.plan import Planner
         plan, updated_cols, recomputed_cols = \

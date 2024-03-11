@@ -33,9 +33,9 @@ and to ensure reproducibility.
 
 ## First Steps
 
-[This tutorial](https://mkornacker.github.io/pixeltable/tutorials/pixeltable_basics/)
+[This tutorial](https://pixeltable.github.io/pixeltable/tutorials/pixeltable_basics/)
 gives you a 10-minute overview of Pixeltable.
 
 If you are interested in working with video and how to interact with videos at the frame level through Pixeltable,
-take a look at [this tutorial](https://mkornacker.github.io/pixeltable/tutorials/comparing_object_detection_models_for_video/).
+take a look at [this tutorial](https://pixeltable.github.io/pixeltable/tutorials/comparing_object_detection_models_for_video/).
 
