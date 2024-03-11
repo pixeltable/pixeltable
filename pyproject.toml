@@ -33,12 +33,6 @@ pgvector = "^0.2.1"
 av = ">=10.0.0"
 pgserver = "0.0.4"
 
-[tool.poetry.group.nos]
-optional = true
-
-[tool.poetry.group.nos.dependencies]
-autonomi-nos = "^0.0.9"
-
 [tool.poetry.group.dev]
 optional = true
 
@@ -69,6 +63,7 @@ torch = "^2.0.0"
 torchvision = "^0.16.1"
 pyarrow = ">=13.0.0"
 openai = "^1.0.0"
+together = "^0.2.11"
 boto3 = "^1.17"
 spacy = "^3.0"
 en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}

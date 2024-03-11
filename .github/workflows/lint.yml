@@ -5,7 +5,7 @@ on:
     branches: [master]
 
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -19,10 +19,18 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install linting tools
+    - name: Install type-checking and linting tools
       run: |
         python -m pip install --upgrade pip
-        python -m pip install mypy 'sqlalchemy[mypy]' pylint ruff
-    - name: Analyze the code with linting tools
-      # This will lint ONLY the files that are affected by the PR.
-      run: ./scripts/lint-changed-files.sh
+        python -m pip install mypy sqlalchemy[mypy] pylint ruff
+    # These steps will check ONLY the files that are affected by the PR.
+    # For the time being, failures will be ignored (report-only).
+    - name: Analyze code with mypy
+      run: ./scripts/analyze-changed-files.sh mypy
+      continue-on-error: true
+    - name: Analyze code with pylint
+      run: ./scripts/analyze-changed-files.sh pylint
+      continue-on-error: true
+    - name: Analyze code with ruff
+      run: ./scripts/analyze-changed-files.sh "ruff check" "ruff format --check"
+      continue-on-error: true

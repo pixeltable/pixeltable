@@ -3,7 +3,7 @@ import glob
 import os
 import pytest
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import json
 
 import numpy as np
@@ -31,13 +31,17 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
         return TimestampType()
     assert False
 
-def make_tbl(cl: pt.Client, name: str = 'test', col_names: List[str] = ['c1']) -> catalog.InsertableTable:
+def make_tbl(cl: pt.Client, name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
+    if col_names is None:
+        col_names = ['c1']
     schema: Dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
         schema[f'{col_name}'] = make_default_type(ColumnType.Type(i % 5))
     return cl.create_table(name, schema)
 
-def create_table_data(t: catalog.Table, col_names: List[str] = [], num_rows: int = 10) -> List[Dict[str, Any]]:
+def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, num_rows: int = 10) -> List[Dict[str, Any]]:
+    if col_names is None:
+        col_names = []
     data: Dict[str, Any] = {}
 
     sample_dict = {
@@ -197,7 +201,7 @@ def create_all_datatypes_tbl(test_client: pt.Client) -> catalog.Table:
     tbl.insert(example_rows)
     return tbl
 
-def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []) -> List[Dict[str, Any]]:
+def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """
     Locate dir_name, create df out of file_name.
     path_col_names: col names in csv file that contain file names; those will be converted to absolute paths
@@ -205,6 +209,8 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: List[str] = []
     Returns:
         tuple of (list of rows, list of column names)
     """
+    if path_col_names is None:
+        path_col_names = []
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/{dir_name}', recursive=True)
     assert len(glob_result) == 1, f'Could not find {dir_name}'
