@@ -249,13 +249,15 @@ class RowBuilder:
                 unique_ids.add(unique_expr.slot_idx)
                 i += 1
 
-    def get_dependencies(self, targets: List[Expr], exclude: List[Expr] = []) -> List[Expr]:
+    def get_dependencies(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> List[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
         The exprs given in 'exclude' are excluded.
         Returns:
             list of Exprs from unique_exprs (= with slot_idx set)
         """
+        if exclude is None:
+            exclude = []
         if len(targets) == 0:
             return []
         # make sure we only refer to recorded exprs
@@ -269,8 +271,10 @@ class RowBuilder:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def create_eval_ctx(self, targets: List[Expr], exclude: List[Expr] = []) -> EvalCtx:
+    def create_eval_ctx(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> EvalCtx:
         """Return EvalCtx for targets"""
+        if exclude is None:
+            exclude = []
         if len(targets) == 0:
             return self.EvalCtx([], [], [], [])
         dependencies = self.get_dependencies(targets, exclude)
