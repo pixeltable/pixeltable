@@ -3,9 +3,11 @@ from __future__ import annotations
 import abc
 import hashlib
 import importlib
+import inspect
 import json
 import sys
 import typing
+from itertools import islice
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Type
 from uuid import UUID
 
@@ -417,7 +419,34 @@ class Expr(abc.ABC):
                 f'Column type of `{fn.__name__}` cannot be inferred. Use `.apply({fn.__name__}, col_type=...)` to specify.'
             )
 
+        try:
+            # If `fn` is not a builtin, we can do some basic validation to ensure it's
+            # compatible with `apply`.
+            signature = inspect.signature(fn)
+            params = signature.parameters
+            params_iter = iter(params.values())
+            # Check that fn has at least one positional parameter
+            if len(params) == 0 or next(params_iter).kind == inspect.Parameter.KEYWORD_ONLY:
+                raise RuntimeError(
+                    f'Function `{fn.__name__}` has no positional parameters.'
+                )
+            # Check that fn has at most one required parameter
+            if len(params) > 1 and next(params_iter).default == inspect.Parameter.empty:
+                raise RuntimeError(
+                    f'Function `{fn.__name__}` has multiple required parameters.'
+                )
+        except ValueError:
+            # inspect.signature(fn) will raise a `ValueError` if `fn` is a builtin; I don't
+            # know of any way to get the signature of a builtin, nor to check for this in
+            # advance (without the try/except pattern). For now, builtins will not be
+            # validated.
+            pass
+
+        # Since `fn` might have optional parameters, we wrap it in a lambda to get a unary
+        # equivalent, so that its signature is understood by `make_function`. This also
+        # ensures that `eval_fn` is never a builtin.
         function = make_function(return_type=fn_type, param_types=[self.col_type], eval_fn=lambda x: fn(x))
+        # Return a `FunctionCall` obtained by passing this `Expr` to the new `function`.
         return function(self)
 
     def __getitem__(self, index: object) -> Expr:
