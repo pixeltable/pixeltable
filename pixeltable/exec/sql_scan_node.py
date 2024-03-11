@@ -20,9 +20,9 @@ class SqlScanNode(ExecNode):
             self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
             select_list: Iterable[exprs.Expr],
             where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Predicate] = None,
-            order_by_items: List[Tuple[exprs.Expr, bool]] = [],
+            order_by_items: Optional[List[Tuple[exprs.Expr, bool]]] = None,
             similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None,
-            limit: int = 0, set_pk: bool = False, exact_version_only: List[catalog.TableVersion] = []
+            limit: int = 0, set_pk: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
     ):
         """
         Args:
@@ -34,6 +34,10 @@ class SqlScanNode(ExecNode):
             exact_version_only: tables for which we only want to see rows created at the current version
         """
         # create Select stmt
+        if order_by_items is None:
+            order_by_items = []
+        if exact_version_only is None:
+            exact_version_only = []
         super().__init__(row_builder, [], [], None)
         self.tbl = tbl
         target = tbl.tbl_version  # the stored table we're scanning
@@ -103,8 +107,8 @@ class SqlScanNode(ExecNode):
 
     @classmethod
     def create_from_clause(
-            cls, tbl: catalog.TableVersionPath, stmt: sql.Select, refd_tbl_ids: Set[UUID] = {},
-            exact_version_only: Set[UUID] = {}
+            cls, tbl: catalog.TableVersionPath, stmt: sql.Select, refd_tbl_ids: Optional[Set[UUID]] = None,
+            exact_version_only: Optional[Set[UUID]] = None
     ) -> sql.Select:
         """Add From clause to stmt for tables/views referenced by materialized_exprs
         Args:
@@ -116,6 +120,10 @@ class SqlScanNode(ExecNode):
             augmented stmt
         """
         # we need to include at least the root
+        if refd_tbl_ids is None:
+            refd_tbl_ids = {}
+        if exact_version_only is None:
+            exact_version_only = {}
         candidates = tbl.get_tbl_versions()
         assert len(candidates) > 0
         joined_tbls: List[catalog.TableVersion] = [candidates[0]]

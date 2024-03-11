@@ -53,10 +53,14 @@ class DataRowBatch:
         return self.rows[index]
 
     def flush_imgs(
-            self, idx_range: Optional[slice] = None, stored_img_info: List[exprs.ColumnSlotIdx] = [],
-            flushed_slot_idxs: List[int] = []
+            self, idx_range: Optional[slice] = None, stored_img_info: Optional[List[exprs.ColumnSlotIdx]] = None,
+            flushed_slot_idxs: Optional[List[int]] = None
     ) -> None:
         """Flushes images in the given range of rows."""
+        if stored_img_info is None:
+            stored_img_info = []
+        if flushed_slot_idxs is None:
+            flushed_slot_idxs = []
         if len(stored_img_info) == 0 and len(flushed_slot_idxs) == 0:
             return
         if idx_range is None:
