@@ -5,7 +5,7 @@ on:
     branches: [master]
 
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -23,17 +23,14 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         python -m pip install mypy sqlalchemy[mypy] pylint ruff
+    # These steps will check ONLY the files that are affected by the PR.
+    # For the time being, failures will be ignored (report-only).
     - name: Analyze code with mypy
-      # This will type check ONLY the files that are affected by the PR.
-      # For now, ignore failures (report-only).
       run: ./scripts/analyze-changed-files.sh mypy
       continue-on-error: true
     - name: Analyze code with pylint
-      # This will lint ONLY the files that are affected by the PR.
-      # For now, ignore failures (report-only).
       run: ./scripts/analyze-changed-files.sh pylint
       continue-on-error: true
     - name: Analyze code with ruff
-      # This step will fail if the code has not been properly formatted, but
-      # is report-only on other linting errors.
       run: ./scripts/analyze-changed-files.sh "ruff check" "ruff format --check"
+      continue-on-error: true
