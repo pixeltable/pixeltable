@@ -59,7 +59,7 @@ class InsertableTable(Table):
     def insert(self, rows: List[Dict[str, Any]], /, print_stats: bool = False, fail_on_exception: bool = True): ...
 
     @overload
-    def insert(self, **kwargs): ...
+    def insert(self, print_stats: bool = False, fail_on_exception: bool = True, **kwargs): ...
 
     def insert(self, *args, **kwargs) -> Table.UpdateStatus:
         """Insert rows into table.
@@ -85,16 +85,14 @@ class InsertableTable(Table):
 
             >>> tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])
         """
+        print_stats = kwargs.pop('print_stats', False)
+        fail_on_exception = kwargs.pop('fail_on_exception', True)
         if len(args) > 0:
             # There's a positional parameter; this means `rows` is expressed as a
             # list of dicts (multi-insert)
             rows = args[0]
-            print_stats = kwargs['print_stats'] if 'print_stats' in kwargs else False
-            fail_on_exception = kwargs['fail_on_exception'] if 'fail_on_exception' in kwargs else True
         else:
             rows = [kwargs]
-            print_stats = False
-            fail_on_exception = True
 
         if not isinstance(rows, list):
             raise exc.Error('rows must be a list of dictionaries')
