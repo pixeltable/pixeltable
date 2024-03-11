@@ -30,7 +30,8 @@ class Function:
             eval_fn: Optional[Callable] = None,
             init_fn: Optional[Callable] = None, update_fn: Optional[Callable] = None,
             value_fn: Optional[Callable] = None,
-            py_signature: Optional[inspect.Signature] = None
+            py_signature: Optional[inspect.Signature] = None,
+            display_name: Optional[str] = None
     ):
         self.id = id
         self.module_name = module_name
@@ -69,6 +70,21 @@ class Function:
             else:
                 self.py_signature = inspect.signature(self.eval_fn)
 
+        if display_name is not None:
+            self._display_name = display_name
+        else:
+            if self.md.fqn is None:
+                if self.eval_fn is not None:
+                    self._display_name = self.eval_fn.__name__
+                else:
+                    self._display_name = ''
+            else:
+                ptf_prefix = 'pixeltable.functions.'
+                if self.md.fqn.startswith(ptf_prefix):
+                    self._display_name = self.md.fqn[len(ptf_prefix):]
+                else:
+                    self._display_name = self.md.fqn
+
     @property
     def name(self) -> bool:
         return self.md.fqn.split('.')[-1]
@@ -95,15 +111,7 @@ class Function:
 
     @property
     def display_name(self) -> str:
-        if self.md.fqn is None:
-            if self.eval_fn is not None:
-                return self.eval_fn.__name__
-            else:
-                return ''
-        ptf_prefix = 'pixeltable.functions.'
-        if self.md.fqn.startswith(ptf_prefix):
-            return self.md.fqn[len(ptf_prefix):]
-        return self.md.fqn
+        return self._display_name
 
     def help_str(self) -> str:
         res = self.display_name + str(self.md.signature)

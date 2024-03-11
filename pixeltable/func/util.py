@@ -1,13 +1,13 @@
 from __future__ import annotations
-from typing import List, Callable, Union
+
 import inspect
+from typing import List, Callable, Union, Optional
 
-
-from .globals import resolve_symbol
-from .signature import Signature, Parameter
-from .function_md import FunctionMd
-from .function import Function
 import pixeltable.type_system as ts
+from .function import Function
+from .function_md import FunctionMd
+from .globals import resolve_symbol
+from .signature import Signature
 
 
 def udf(*, return_type: ts.ColumnType, param_types: List[ts.ColumnType]) -> Callable:
@@ -23,7 +23,7 @@ def udf(*, return_type: ts.ColumnType, param_types: List[ts.ColumnType]) -> Call
         return make_function(return_type, param_types, fn)
     return decorator
 
-def make_function(return_type: ts.ColumnType, param_types: List[ts.ColumnType], eval_fn: Callable) -> Function:
+def make_function(return_type: ts.ColumnType, param_types: List[ts.ColumnType], eval_fn: Callable, display_name: Optional[str] = None) -> Function:
     assert eval_fn is not None
     signature = Signature.create(eval_fn, False, param_types, return_type)
     md = FunctionMd(signature, False, False)
@@ -31,7 +31,7 @@ def make_function(return_type: ts.ColumnType, param_types: List[ts.ColumnType], 
         md.src = inspect.getsource(eval_fn)
     except OSError as e:
         pass
-    return Function(md, eval_fn=eval_fn)
+    return Function(md, eval_fn=eval_fn, display_name=display_name)
 
 def make_aggregate_function(
         return_type: ts.ColumnType, param_types: List[ts.ColumnType],

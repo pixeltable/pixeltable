@@ -445,7 +445,14 @@ class Expr(abc.ABC):
         # Since `fn` might have optional parameters, we wrap it in a lambda to get a unary
         # equivalent, so that its signature is understood by `make_function`. This also
         # ensures that `eval_fn` is never a builtin.
-        function = make_function(return_type=fn_type, param_types=[self.col_type], eval_fn=lambda x: fn(x))
+        # We also set the display_name explicitly, so that the `FunctionCall` gets the
+        # name of `eval_fn`, not the lambda.
+        function = make_function(
+            return_type=fn_type,
+            param_types=[self.col_type],
+            eval_fn=lambda x: fn(x),
+            display_name=fn.__name__
+        )
         # Return a `FunctionCall` obtained by passing this `Expr` to the new `function`.
         return function(self)
 
@@ -541,6 +548,10 @@ class Expr(abc.ABC):
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
 
+# This is a dictionary of result types of various stdlib functions that are
+# commonly used in computed columns. stdlib does not have type hints, so these
+# are used to infer their result types (as pixeltable types) to avoid having
+# to specify them explicitly in Expr.apply().
 _known_applicator_types = {
     str: ts.StringType(),
     json.dumps: ts.StringType(),
