@@ -519,6 +519,15 @@ class Expr(abc.ABC):
                 f'Column type of `{fn.__name__}` cannot be inferred. Use `.apply({fn.__name__}, col_type=...)` to specify.'
             )
 
+        # TODO(aaron-siegel) Currently we assume that `fn` has exactly one required parameter
+        # and all optional parameters take their default values. Should we provide a more
+        # flexible API? For example, by defining
+        # expr.apply(fn, my_kw=my_arg)
+        # to mean: transform each x by calling
+        # fn(x, my_kw=my_arg)
+        # In the current implementation, a lambda is needed in order to specify this pattern:
+        # expr.apply(lambda x: fn(x, my_kw=my_arg))
+
         try:
             # If `fn` is not a builtin, we can do some basic validation to ensure it's
             # compatible with `apply`.
