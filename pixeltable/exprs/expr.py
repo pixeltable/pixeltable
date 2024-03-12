@@ -401,66 +401,7 @@ class Expr(abc.ABC):
         return TypeCast(self, new_type)
 
     def apply(self, fn: Callable, *, col_type: Optional[ts.ColumnType] = None) -> 'pixeltable.exprs.FunctionCall':
-
-        if col_type is not None:
-            # col_type is specified explicitly
-            fn_type = col_type
-        elif fn in _known_applicator_types:
-            # For convenience, various built-ins and other Python functions that don't
-            # have type hints are hardcoded
-            fn_type = _known_applicator_types[fn]
-        elif 'return' in typing.get_type_hints(fn):
-            # Attempt to infer the column type from the return type of the callable;
-            # this will set fn_type to None if it cannot be inferred
-            return_type = typing.get_type_hints(fn)['return']
-            fn_type = ts.ColumnType.from_python_type(return_type)
-        else:
-            # No type hint
-            fn_type = None
-
-        if fn_type is None:
-            raise RuntimeError(
-                f'Column type of `{fn.__name__}` cannot be inferred. Use `.apply({fn.__name__}, col_type=...)` to specify.'
-            )
-
-        try:
-            # If `fn` is not a builtin, we can do some basic validation to ensure it's
-            # compatible with `apply`.
-            params = inspect.signature(fn).parameters
-            params_iter = iter(params.values())
-            first_param = next(params_iter) if len(params) >= 1 else None
-            second_param = next(params_iter) if len(params) >= 2 else None
-            # Check that fn has at least one positional parameter
-            if len(params) == 0 or first_param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD):
-                raise RuntimeError(
-                    f'Function `{fn.__name__}` has no positional parameters.'
-                )
-            # Check that fn has at most one required parameter, i.e., its second parameter
-            # has no default and is not a varargs
-            if len(params) >= 2 and \
-                    second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD) and \
-                    second_param.default == inspect.Parameter.empty:
-                raise RuntimeError(
-                    f'Function `{fn.__name__}` has multiple required parameters.'
-                )
-        except ValueError:
-            # inspect.signature(fn) will raise a `ValueError` if `fn` is a builtin; I don't
-            # know of any way to get the signature of a builtin, nor to check for this in
-            # advance (without the try/except pattern). For now, builtins will not be
-            # validated.
-            pass
-
-        # Since `fn` might have optional parameters, we wrap it in a lambda to get a unary
-        # equivalent, so that its signature is understood by `make_function`. This also
-        # ensures that `eval_fn` is never a builtin.
-        # We also set the display_name explicitly, so that the `FunctionCall` gets the
-        # name of `eval_fn`, not the lambda.
-        function = make_function(
-            return_type=fn_type,
-            param_types=[self.col_type],
-            eval_fn=lambda x: fn(x),
-            display_name=fn.__name__
-        )
+        function = self._make_applicator_function(fn, col_type)
         # Return a `FunctionCall` obtained by passing this `Expr` to the new `function`.
         return function(self)
 
@@ -555,11 +496,76 @@ class Expr(abc.ABC):
             return ArithmeticExpr(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
+    def _make_applicator_function(self, fn: Callable, col_type: Optional[ts.ColumnType]) -> 'pixeltable.func.Function':
+
+        if col_type is not None:
+            # col_type is specified explicitly
+            fn_type = col_type
+        elif fn in _known_applicator_types:
+            # For convenience, various built-ins and other Python functions that don't
+            # have type hints are hardcoded
+            fn_type = _known_applicator_types[fn]
+        elif 'return' in typing.get_type_hints(fn):
+            # Attempt to infer the column type from the return type of the callable;
+            # this will set fn_type to None if it cannot be inferred
+            return_type = typing.get_type_hints(fn)['return']
+            fn_type = ts.ColumnType.from_python_type(return_type)
+        else:
+            # No type hint
+            fn_type = None
+
+        if fn_type is None:
+            raise RuntimeError(
+                f'Column type of `{fn.__name__}` cannot be inferred. Use `.apply({fn.__name__}, col_type=...)` to specify.'
+            )
+
+        try:
+            # If `fn` is not a builtin, we can do some basic validation to ensure it's
+            # compatible with `apply`.
+            params = inspect.signature(fn).parameters
+            params_iter = iter(params.values())
+            first_param = next(params_iter) if len(params) >= 1 else None
+            second_param = next(params_iter) if len(params) >= 2 else None
+            # Check that fn has at least one positional parameter
+            if len(params) == 0 or first_param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD):
+                raise RuntimeError(
+                    f'Function `{fn.__name__}` has no positional parameters.'
+                )
+            # Check that fn has at most one required parameter, i.e., its second parameter
+            # has no default and is not a varargs
+            if len(params) >= 2 and \
+                    second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD) and \
+                    second_param.default == inspect.Parameter.empty:
+                raise RuntimeError(
+                    f'Function `{fn.__name__}` has multiple required parameters.'
+                )
+        except ValueError:
+            # inspect.signature(fn) will raise a `ValueError` if `fn` is a builtin; I don't
+            # know of any way to get the signature of a builtin, nor to check for this in
+            # advance (without the try/except pattern). For now, builtins will not be
+            # validated.
+            pass
+
+        # Since `fn` might have optional parameters, we wrap it in a lambda to get a unary
+        # equivalent, so that its signature is understood by `make_function`. This also
+        # ensures that `eval_fn` is never a builtin.
+        # We also set the display_name explicitly, so that the `FunctionCall` gets the
+        # name of `eval_fn`, not the lambda.
+        return make_function(
+            return_type=fn_type,
+            param_types=[self.col_type],
+            eval_fn=lambda x: fn(x),
+            display_name=fn.__name__
+        )
+
 
 # A dictionary of result types of various stdlib functions that are
 # commonly used in computed columns. stdlib does not have type hints, so these
 # are used to infer their result types (as pixeltable types) to avoid having
 # to specify them explicitly in Expr.apply().
+# This is purely for convenience and does not impact the supported functionality
+# (it's always possible to specify a result type explicitly for a function
+# that does not have type hints and is not present in this dict).
 _known_applicator_types: dict[Callable, ts.ColumnType] = {
     str: ts.StringType(),
     json.dumps: ts.StringType(),
