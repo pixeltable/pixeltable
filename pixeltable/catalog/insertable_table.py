@@ -64,8 +64,17 @@ class InsertableTable(Table):
     def insert(self, *args, **kwargs) -> Table.UpdateStatus:
         """Insert rows into table.
 
+        To insert multiple rows at a time:
+
+        ``insert(rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception: bool = True)``
+
+        To insert just a single row, you can use the more convenient syntax:
+        ``insert(print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
+
         Args:
-            rows: A list of rows to insert, each of which is a dictionary mapping column names to values.
+            rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
+                names to values.
+            kwargs: (if inserting a single row) keyword-argument pairs representing column names and values.
             print_stats: If ``True``, print statistics about the cost of computed columns.
             fail_on_exception:
                 Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
@@ -84,6 +93,10 @@ class InsertableTable(Table):
             Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Column ``c`` is nullable.
 
             >>> tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])
+
+            Insert a single row into a table with three int columns ``a``, ``b``, and ``c``.
+
+            >>> tbl.insert(a=1, b=1, c=1)
         """
         print_stats = kwargs.pop('print_stats', False)
         fail_on_exception = kwargs.pop('fail_on_exception', True)
