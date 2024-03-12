@@ -414,18 +414,19 @@ class TestExprs:
             return str(x)
 
         # Now test that a function without a return type throws an exception ...
-        with pytest.raises(RuntimeError):
-            t['c2'].apply(f1)
+        with pytest.raises(exc.Error) as exc_info:
+            t.c2.apply(f1)
+        assert 'Column type of `f1` cannot be inferred.' in str(exc_info.value)
 
         # ... but works if the type is specified explicitly.
-        status = t.add_column(c2_str_f1=t['c2'].apply(f1, col_type=StringType()))
+        status = t.add_column(c2_str_f1=t.c2.apply(f1, col_type=StringType()))
         assert status.num_excs == 0
 
         # Test that the return type of a function can be successfully inferred.
         def f2(x) -> str:
             return str(x)
 
-        status = t.add_column(c2_str_f2=t['c2'].apply(f2))
+        status = t.add_column(c2_str_f2=t.c2.apply(f2))
         assert status.num_excs == 0
 
         # Test various validation failures.
@@ -433,37 +434,40 @@ class TestExprs:
         def f3(x, y) -> str:
             return f'{x}{y}'
 
-        with pytest.raises(RuntimeError):
-            t['c2'].apply(f3)       # Too many required parameters
+        with pytest.raises(exc.Error) as exc_info:
+            t.c2.apply(f3)  # Too many required parameters
+        assert str(exc_info.value) == 'Function `f3` has multiple required parameters.'
 
         def f4() -> str:
             return "pixeltable"
 
-        with pytest.raises(RuntimeError):
-            t['c2'].apply(f4)       # No positional parameters
+        with pytest.raises(exc.Error) as exc_info:
+            t.c2.apply(f4)  # No positional parameters
+        assert str(exc_info.value) == 'Function `f4` has no positional parameters.'
 
         def f5(**kwargs) -> str:
             return ""
 
-        with pytest.raises(RuntimeError):
-            t['c2'].apply(f5)       # No positional parameters
+        with pytest.raises(exc.Error) as exc_info:
+            t.c2.apply(f5)  # No positional parameters
+        assert str(exc_info.value) == 'Function `f5` has no positional parameters.'
 
         # Ensure these varargs signatures are acceptable
 
         def f6(x, **kwargs) -> str:
             return x
 
-        t['c2'].apply(f6)
+        t.c2.apply(f6)
 
         def f7(x, *args) -> str:
             return x
 
-        t['c2'].apply(f7)
+        t.c2.apply(f7)
 
         def f8(*args) -> str:
             return ''
 
-        t['c2'].apply(f8)
+        t.c2.apply(f8)
 
     def test_select_list(self, img_tbl) -> None:
         t = img_tbl
