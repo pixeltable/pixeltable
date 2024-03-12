@@ -396,6 +396,13 @@ class TestExprs:
             for row in data:
                 assert row[str_col_name] == str(row[col_name])
 
+        # Test a compound expression with apply
+        status = t.add_column(c2_plus_1_str=(t.c2 + 1).apply(str))
+        assert status.num_excs == 0
+        data = t.select(t.c2, t.c2_plus_1_str).collect()
+        for row in data:
+            assert row['c2_plus_1_str'] == str(row['c2'] + 1)
+
         # For columns c6, c7, try using json.dumps and json.loads to emit and parse JSON <-> str
         for col_id in range(6, 8):
             col_name = f'c{col_id}'
