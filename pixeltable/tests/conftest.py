@@ -1,4 +1,4 @@
-import dataclasses
+import json
 import logging
 import os
 import pathlib
@@ -6,14 +6,13 @@ from typing import List
 
 import numpy as np
 import pytest
-import sqlalchemy as sql
 
 import pixeltable as pt
 import pixeltable.catalog as catalog
 from pixeltable import exprs
 from pixeltable import functions as ptf
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
-from pixeltable.metadata import SystemInfoMd, VERSION, SystemInfo, create_system_info
+from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
 from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatypes_tbl, skip_test_if_not_installed
 from pixeltable.type_system import \
@@ -107,6 +106,15 @@ def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List
         (t.c2 > 5) | (t.c1 == 'test'),
         t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
         t.c8[0, 1:],
+        t.c2.astype(FloatType()),
+        (t.c2 + 1).astype(FloatType()),
+        t.c2.apply(str),
+        (t.c2 + 1).apply(str),
+        t.c3.apply(str),
+        t.c4.apply(str),
+        t.c5.apply(str),
+        t.c6.apply(str),
+        t.c1.apply(json.loads),
         t.c8.errortype,
         t.c8.errormsg,
         ptf.sum(t.c2, group_by=t.c4, order_by=t.c3),

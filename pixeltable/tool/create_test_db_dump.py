@@ -78,6 +78,10 @@ class Dumper:
         t = self.cl.create_table('sample_table', schema, primary_key='c2')
         t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
 
+        # Add columns for .astype converters to ensure they're persisted properly
+        t.add_column(c6_as_string=t.c6.astype(StringType()))
+        t.add_column(c6_back_to_json=t.c6_as_string.astype(JsonType()))
+
         num_rows = 100
         d1 = {
             'f1': 'test string 1',
