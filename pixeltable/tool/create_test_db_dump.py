@@ -1,5 +1,4 @@
 import datetime
-import importlib.resources as pkg_resources
 import logging
 import os
 import pathlib
@@ -35,14 +34,19 @@ class Dumper:
 
     def dump_db(self) -> None:
         md_version = metadata.VERSION
-        dump_file = self.output_dir / f'pixeltable-v{md_version:03d}-test.dump'
+        dump_file = self.output_dir / f'pixeltable-v{md_version:03d}-test.dump.gz'
         _logger.info(f'Creating database dump at: {dump_file}')
         pg_package_dir = os.path.dirname(pgserver.__file__)
         pg_dump_binary = f'{pg_package_dir}/pginstall/bin/pg_dump'
         _logger.info(f'Using pg_dump binary at: {pg_dump_binary}')
-        with open(dump_file, 'w') as dump:
-            subprocess.run(
+        with open(dump_file, 'wb') as dump:
+            pg_dump_process = subprocess.Popen(
                 [pg_dump_binary, Env.get().db_url, '-U', 'postgres', '-Fc'],
+                stdout=subprocess.PIPE
+            )
+            subprocess.run(
+                ["gzip", "-9"],
+                stdin=pg_dump_process.stdout,
                 stdout=dump,
                 check=True
             )
