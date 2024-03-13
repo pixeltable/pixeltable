@@ -10,6 +10,7 @@ from .table_version import TableVersion
 from .table_version_path import TableVersionPath
 from .table import Table
 from .catalog import Catalog
+import pixeltable
 from pixeltable.env import Env
 from pixeltable import exceptions as exc
 import pixeltable.type_system as ts
