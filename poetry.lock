@@ -5566,6 +5566,20 @@ files = [
 ]
 
 [[package]]
+name = "types-sqlalchemy-utils"
+version = "1.0.1"
+description = "Type Stubs for sqlalchemy-utils"
+optional = false
+python-versions = ">=3.7, <4"
+files = [
+    {file = "types-sqlalchemy-utils-1.0.1.tar.gz", hash = "sha256:37016333faa0abab7d253805ecf9f605c24ea107b32dd3643014efb8e49be76d"},
+    {file = "types_sqlalchemy_utils-1.0.1-py3-none-any.whl", hash = "sha256:95bc90db15ec4af5b13d64f04a7d31a7e851931250419fc7859354644ab3ea98"},
+]
+
+[package.extras]
+dev = ["mypy (==0.971)", "pipenv-setup (==3.2.0)", "sqlalchemy-utils (==0.38.3)", "sqlalchemy2-stubs (==0.0.2a25)", "twine (==4.0.1)"]
+
+[[package]]
 name = "typing-extensions"
 version = "4.9.0"
 description = "Backported and Experimental Type Hints for Python 3.8+"
@@ -5827,4 +5841,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8.1"
-content-hash = "544df73cfed7d0d4e1c7a79013e55078c1dbe94462d7910b099abdada72aa743"
+content-hash = "b76c11700d2a0b42e155fcf60418da2826a6590f690bc77ce69767955fe983d3"

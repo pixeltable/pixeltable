@@ -1,28 +1,27 @@
 from __future__ import annotations
+
 import datetime
-import os
-from typing import Optional, Dict, Any, List
-import types
-from pathlib import Path
-import sqlalchemy as sql
-import uuid
+import glob
+import http.server
 import importlib
 import importlib.util
-
-import http.server
+import logging
+import os
 import socketserver
+import sys
 import threading
+import uuid
+from pathlib import Path
+from typing import Optional, Dict, Any, List
 
+import pgserver
+import sqlalchemy as sql
 import yaml
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
-import pgserver
-import logging
-import sys
-import platform
-import glob
 
-from pixeltable import metadata
 import pixeltable.exceptions as excs
+from pixeltable import metadata
+
 
 class Env:
     """
@@ -37,7 +36,7 @@ class Env:
             cls._instance = Env()
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._home: Optional[Path] = None
         self._media_dir: Optional[Path] = None  # computed media files
         self._file_cache_dir: Optional[Path] = None  # cached media files with external URL
@@ -226,6 +225,7 @@ class Env:
         self.log_to_stdout(False)
 
     def upgrade_metadata(self) -> None:
+        assert self._sa_engine is not None
         metadata.upgrade_md(self._sa_engine)
 
     def _create_nos_client(self) -> None:
@@ -251,6 +251,7 @@ class Env:
             func.FunctionRegistry.get().register_module(mod)
 
     def _create_openai_client(self) -> None:
+        assert self._config is not None
         if 'openai' in self._config and 'api_key' in self._config['openai']:
             api_key = self._config['openai']['api_key']
         else:
@@ -263,6 +264,7 @@ class Env:
         self._openai_client = openai.OpenAI(api_key=api_key)
 
     def _create_together_client(self) -> None:
+        assert self._config is not None
         if 'together' in self._config and 'api_key' in self._config['together']:
             api_key = self._config['together']['api_key']
         else:
@@ -286,13 +288,14 @@ class Env:
         # Port 0 means OS picks one for us.
         address = ("127.0.0.1", 0)
         class FixedRootHandler(http.server.SimpleHTTPRequestHandler):
-            def __init__(self, *args, **kwargs):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
                 super().__init__(*args, directory='/', **kwargs)        
         self._httpd = socketserver.TCPServer(address, FixedRootHandler)
         port = self._httpd.server_address[1]
         self._http_address = f'http://127.0.0.1:{port}'
 
-        def run_server():
+        def run_server() -> None:
+            assert self._httpd is not None
             logging.log(logging.INFO, f'running web server at {self._http_address}')
             self._httpd.serve_forever()
 
@@ -346,17 +349,18 @@ class Env:
             module_version = [int(x) for x in m.__version__.split('.')]
             self._installed_packages[package] = module_version
         installed_version = self._installed_packages[package]
-        if len(min_version) < len(installed_version):
-            normalized_min_version = min_version + [0] * (len(installed_version) - len(min_version))
+        assert installed_version is not None
+        normalized_min_version = min_version + [0] * (len(installed_version) - len(min_version))
         if any([a < b for a, b in zip(installed_version, normalized_min_version)]):
             raise excs.Error((
-                f'The installed version of package {package} is {".".join([str[v] for v in installed_version])}, '
-                f'but version  >={".".join([str[v] for v in min_version])} is required'))
+                f'The installed version of package {package} is {".".join([str(v) for v in installed_version])}, '
+                f'but version  >={".".join([str(v) for v in min_version])} is required'))
 
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
 
     def create_tmp_path(self, extension: str = '') -> Path:
+        assert self._tmp_dir is not None
         return self._tmp_dir / f'{uuid.uuid4()}{extension}'
 
     @property
