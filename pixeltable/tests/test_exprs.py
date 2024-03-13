@@ -1,3 +1,5 @@
+import json
+import typing
 from typing import List, Dict
 import urllib.parse
 
@@ -6,7 +8,8 @@ import pytest
 
 import pixeltable as pt
 from pixeltable import catalog
-from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType, VideoType
+from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType, \
+    VideoType, JsonType
 from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import dict_map, cast, sum, count
@@ -355,6 +358,123 @@ class TestExprs:
         print(_)
         _ = t[t.array_col[:, 0]].show()
         print(_)
+
+    def test_astype(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        # Convert int to float
+        status = t.add_column(c2_as_float=t.c2.astype(FloatType()))
+        assert status.num_excs == 0
+        data = t.select(t.c2, t.c2_as_float).collect()
+        for row in data:
+            assert isinstance(row['c2'], int)
+            assert isinstance(row['c2_as_float'], float)
+            assert row['c2'] == row['c2_as_float']
+        # Compound expression
+        status = t.add_column(compound_as_float=(t.c2 + 1).astype(FloatType()))
+        assert status.num_excs == 0
+        data = t.select(t.c2, t.compound_as_float).collect()
+        for row in data:
+            assert isinstance(row['compound_as_float'], float)
+            assert row['c2'] + 1 == row['compound_as_float']
+        # Type conversion error
+        status = t.add_column(c2_as_string=t.c2.astype(StringType()))
+        assert status.num_excs == t.count()
+
+    def test_apply(self, test_tbl: catalog.Table) -> None:
+
+        t = test_tbl
+
+        # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
+        # a string, then check that each row is correctly converted
+        # (For c1 this is the no-op string-to-string conversion)
+        for col_id in range(1, 6):
+            col_name = f'c{col_id}'
+            str_col_name = f'c{col_id}_str'
+            status = t.add_column(**{str_col_name: t[col_name].apply(str)})
+            assert status.num_excs == 0
+            data = t.select(t[col_name], t[str_col_name]).collect()
+            for row in data:
+                assert row[str_col_name] == str(row[col_name])
+
+        # Test a compound expression with apply
+        status = t.add_column(c2_plus_1_str=(t.c2 + 1).apply(str))
+        assert status.num_excs == 0
+        data = t.select(t.c2, t.c2_plus_1_str).collect()
+        for row in data:
+            assert row['c2_plus_1_str'] == str(row['c2'] + 1)
+
+        # For columns c6, c7, try using json.dumps and json.loads to emit and parse JSON <-> str
+        for col_id in range(6, 8):
+            col_name = f'c{col_id}'
+            str_col_name = f'c{col_id}_str'
+            back_to_json_col_name = f'c{col_id}_back_to_json'
+            status = t.add_column(**{str_col_name: t[col_name].apply(json.dumps)})
+            assert status.num_excs == 0
+            status = t.add_column(**{back_to_json_col_name: t[str_col_name].apply(json.loads)})
+            assert status.num_excs == 0
+            data = t.select(t[col_name], t[str_col_name], t[back_to_json_col_name]).collect()
+            for row in data:
+                assert row[str_col_name] == json.dumps(row[col_name])
+                assert row[back_to_json_col_name] == row[col_name]
+
+        def f1(x):
+            return str(x)
+
+        # Now test that a function without a return type throws an exception ...
+        with pytest.raises(exc.Error) as exc_info:
+            t.c2.apply(f1)
+        assert 'Column type of `f1` cannot be inferred.' in str(exc_info.value)
+
+        # ... but works if the type is specified explicitly.
+        status = t.add_column(c2_str_f1=t.c2.apply(f1, col_type=StringType()))
+        assert status.num_excs == 0
+
+        # Test that the return type of a function can be successfully inferred.
+        def f2(x) -> str:
+            return str(x)
+
+        status = t.add_column(c2_str_f2=t.c2.apply(f2))
+        assert status.num_excs == 0
+
+        # Test various validation failures.
+
+        def f3(x, y) -> str:
+            return f'{x}{y}'
+
+        with pytest.raises(exc.Error) as exc_info:
+            t.c2.apply(f3)  # Too many required parameters
+        assert str(exc_info.value) == 'Function `f3` has multiple required parameters.'
+
+        def f4() -> str:
+            return "pixeltable"
+
+        with pytest.raises(exc.Error) as exc_info:
+            t.c2.apply(f4)  # No positional parameters
+        assert str(exc_info.value) == 'Function `f4` has no positional parameters.'
+
+        def f5(**kwargs) -> str:
+            return ""
+
+        with pytest.raises(exc.Error) as exc_info:
+            t.c2.apply(f5)  # No positional parameters
+        assert str(exc_info.value) == 'Function `f5` has no positional parameters.'
+
+        # Ensure these varargs signatures are acceptable
+
+        def f6(x, **kwargs) -> str:
+            return x
+
+        t.c2.apply(f6)
+
+        def f7(x, *args) -> str:
+            return x
+
+        t.c2.apply(f7)
+
+        def f8(*args) -> str:
+            return ''
+
+        t.c2.apply(f8)
 
     def test_select_list(self, img_tbl) -> None:
         t = img_tbl

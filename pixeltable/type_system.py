@@ -234,6 +234,15 @@ class ColumnType:
                 return None
         return None
 
+
+    @classmethod
+    def from_python_type(cls, t: type) -> Optional[ColumnType]:
+        if t in _python_type_to_column_type:
+            return _python_type_to_column_type[t]
+        else:
+            return None
+
+
     def validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
         if val is None:
@@ -901,3 +910,19 @@ class DocumentType(ColumnType):
                     raise exc.Error(f'Not a recognized document format: {val}')
             except Exception as e:
                 raise exc.Error(f'Not a recognized document format: {val}') from None
+
+
+# A dictionary mapping various Python types to their respective ColumnTypes.
+# This can be used to infer Pixeltable ColumnTypes from type hints on Python
+# functions. (Since Python functions do not necessarily have type hints, this
+# should always be an optional/convenience inference.)
+_python_type_to_column_type: dict[type, ColumnType] = {
+    str: StringType(),
+    int: IntType(),
+    float: FloatType(),
+    bool: BoolType(),
+    datetime.datetime: TimestampType(),
+    datetime.date: TimestampType(),
+    list: JsonType(),
+    dict: JsonType()
+}

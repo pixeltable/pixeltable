@@ -20,3 +20,4 @@ from .predicate import Predicate
 from .row_builder import RowBuilder, ColumnSlotIdx, ExecProfile
 from .rowid_ref import RowidRef
 from .expr_set import ExprSet
+from .type_cast import TypeCast
