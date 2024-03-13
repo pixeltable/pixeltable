@@ -497,7 +497,15 @@ class Expr(abc.ABC):
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def _make_applicator_function(self, fn: Callable, col_type: Optional[ts.ColumnType]) -> 'pixeltable.func.Function':
+        """
+        Creates a unary pixeltable ``Function`` that encapsulates a python ``Callable``. The result type of
+        the new ``Function`` is given by ``col_type``, and its parameter type will be ``self.col_type``.
 
+        Args:
+            fn: The ``Callable`` to encapsulate. Must have at least one parameter, and at most one required
+                parameter.
+            col_type: The pixeltable result type of the new ``Function``.
+        """
         if col_type is not None:
             # col_type is specified explicitly
             fn_type = col_type
