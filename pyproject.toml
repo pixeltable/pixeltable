@@ -42,6 +42,7 @@ pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 # mypy-related
 mypy = "^1.8.0"
+pandas-stubs = "^2.0.0"
 types-pillow = "^10.1.0.2"
 types-pyyaml = "^6.0.1"
 types-sqlalchemy-utils = "^1.0.1"

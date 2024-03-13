@@ -2998,6 +2998,21 @@ pytz = ">=2020.1"
 test = ["hypothesis (>=5.5.3)", "pytest (>=6.0)", "pytest-xdist (>=1.31)"]
 
 [[package]]
+name = "pandas-stubs"
+version = "2.0.2.230605"
+description = "Type annotations for pandas"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "pandas_stubs-2.0.2.230605-py3-none-any.whl", hash = "sha256:39106b602f3cb6dc5f728b84e1b32bde6ecf41ee34ee714c66228009609fbada"},
+    {file = "pandas_stubs-2.0.2.230605.tar.gz", hash = "sha256:624c7bb06d38145a44b61be459ccd19b038e0bf20364a025ecaab78fea65e858"},
+]
+
+[package.dependencies]
+numpy = ">=1.24.3"
+types-pytz = ">=2022.1.1"
+
+[[package]]
 name = "pandocfilters"
 version = "1.5.0"
 description = "Utilities for writing pandoc filters in python"
@@ -5555,6 +5570,17 @@ files = [
 ]
 
 [[package]]
+name = "types-pytz"
+version = "2024.1.0.20240203"
+description = "Typing stubs for pytz"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-pytz-2024.1.0.20240203.tar.gz", hash = "sha256:c93751ee20dfc6e054a0148f8f5227b9a00b79c90a4d3c9f464711a73179c89e"},
+    {file = "types_pytz-2024.1.0.20240203-py3-none-any.whl", hash = "sha256:9679eef0365db3af91ef7722c199dbb75ee5c1b67e3c4dd7bfbeb1b8a71c21a3"},
+]
+
+[[package]]
 name = "types-pyyaml"
 version = "6.0.12.12"
 description = "Typing stubs for PyYAML"
@@ -5841,4 +5867,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8.1"
-content-hash = "b76c11700d2a0b42e155fcf60418da2826a6590f690bc77ce69767955fe983d3"
+content-hash = "b0ed195393618fad68f7d469cc6d404897ec15173febe696175cbf61dbdba495"

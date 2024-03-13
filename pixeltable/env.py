@@ -272,7 +272,7 @@ class Env:
         if api_key is None or api_key == '':
             self._logger.info('Together client not initialized (no API key configured).')
             return
-        import together
+        import together  # type: ignore
         self._logger.info('Initializing Together client.')
         together.api_key = api_key
         self._has_together_client = True

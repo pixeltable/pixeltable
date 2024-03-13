@@ -7,6 +7,7 @@ from collections import defaultdict
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
+from pandas.io.formats.style import Styler
 
 from pixeltable.metadata import schema
 from pixeltable.env import Env
@@ -55,15 +56,15 @@ class Client:
         if level is not None:
             Env.get().set_log_level(level)
         if add is not None:
-            for module, level in [t.split(':') for t in add.split(',')]:
-                Env.get().set_module_log_level(module, int(level))
+            for module, level_str in [t.split(':') for t in add.split(',')]:
+                Env.get().set_module_log_level(module, int(level_str))
         if remove is not None:
             for module in remove.split(','):
                 Env.get().set_module_log_level(module, None)
         if to_stdout is None and level is None and add is None and remove is None:
             Env.get().print_log_config()
 
-    def list_functions(self) -> pd.DataFrame:
+    def list_functions(self) -> Styler:
         """Returns information about all registered functions.
 
         Returns:
@@ -80,9 +81,9 @@ class Client:
             ],
             'Return Type': [str(info.signature.get_return_type()) for info in func_info],
         })
-        pd_df = pd_df.style.set_properties(**{'text-align': 'left'}) \
+        pd_df_styled = pd_df.style.set_properties(**{'text-align': 'left'}) \
             .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])  # center-align headings
-        return pd_df.hide(axis='index')
+        return pd_df_styled.hide(axis='index')
 
     def get_path(self, schema_obj: catalog.SchemaObject) -> str:
         """Returns the path to a SchemaObject.
@@ -97,6 +98,7 @@ class Client:
         dir_id = schema_obj._dir_id
         while dir_id is not None:
             dir = self.catalog.paths.get_schema_obj(dir_id)
+            assert dir is not None
             if dir._dir_id is None:
                 # this is the root dir with name '', which we don't want to include in the path
                 break
@@ -210,7 +212,7 @@ class Client:
         _logger.info(f'Created view {path_str}')
         return view
 
-    def get_table(self, path: str) -> catalog.Table:
+    def get_table(self, path: str) -> catalog.SchemaObject:
         """Get a handle to a table (including views and snapshots).
 
         Args:
@@ -446,6 +448,7 @@ class Client:
         dir = self.catalog.paths[path.parent]
 
         func.FunctionRegistry.get().create_function(fn, dir._id, path.name)
+        assert fn.id is not None
         self.catalog.paths[path] = catalog.NamedFunction(fn.id, dir._id, path.name)
         fn.md.fqn = str(path)
         _logger.info(f'Created function {path_str}')
