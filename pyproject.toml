@@ -47,6 +47,7 @@ pyarrow-stubs = "^10.0.0"
 types-pillow = "^10.1.0.2"
 types-pyyaml = "^6.0.1"
 types-sqlalchemy-utils = "^1.0.1"
+types-tqdm = "^4.66"
 # linting
 pylint = "^3.1.0"
 ruff = "^0.3.1"

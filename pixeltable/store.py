@@ -67,12 +67,16 @@ class StoreBase:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
             col.create_sa_cols()
+            assert col.sa_col is not None
             all_cols.append(col.sa_col)
             if col.records_errors:
+                assert col.sa_errormsg_col is not None
                 all_cols.append(col.sa_errormsg_col)
+                assert col.sa_errortype_col is not None
                 all_cols.append(col.sa_errortype_col)
 
             if col.is_indexed:
+                assert col.sa_idx_col is not None
                 all_cols.append(col.sa_idx_col)
 
             # we create an index for:
@@ -83,6 +87,7 @@ class StoreBase:
                     or (col.col_type.is_media_type() and not col.is_computed):
                 # index names need to be unique within the Postgres instance
                 idx_name = f'idx_{col.id}_{self.tbl_version.id.hex}'
+                assert col.sa_col is not None
                 idxs.append(sql.Index(idx_name, col.sa_col))
 
         if self.sa_tbl is not None:
@@ -113,7 +118,7 @@ class StoreBase:
         """Return the name of the data store table"""
         pass
 
-    def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column, v_min: int) -> str:
+    def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column, v_min: int) -> Optional[str]:
         """Move tmp media file with given url to Env.media_dir and return new url, or given url if not a tmp_dir file"""
         pxt_tmp_dir = str(env.Env.get().tmp_dir)
         if file_url is None:
@@ -127,6 +132,7 @@ class StoreBase:
             # not a tmp file
             return file_url
         _, ext = os.path.splitext(file_path)
+        assert col.id is not None
         new_path = str(MediaStore.prepare_media_path(self.tbl_version.id, col.id, v_min, ext=ext))
         os.rename(file_path, new_path)
         new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(new_path))
@@ -161,9 +167,10 @@ class StoreBase:
 
         return table_row, num_excs
 
-    def count(self) -> None:
+    def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
-        stmt = sql.select(sql.func.count('*'))\
+        assert self.sa_tbl is not None
+        stmt = sql.select(sql.func.count(sql.literal_column('*')))\
             .select_from(self.sa_tbl)\
             .where(self.v_min_col <= self.tbl_version.version)\
             .where(self.v_max_col > self.tbl_version.version)
@@ -186,9 +193,9 @@ class StoreBase:
         message).
         """
         assert col.is_stored
-        stmt = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.storage_name()} {col.col_type.to_sql()}')
-        log_stmt(_logger, stmt)
-        conn.execute(stmt)
+        clause = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.storage_name()} {col.col_type.to_sql()}')
+        log_stmt(_logger, clause)
+        conn.execute(clause)
         added_storage_cols = [col.storage_name()]
         if col.records_errors:
             # we also need to create the errormsg and errortype storage cols
@@ -234,12 +241,15 @@ class StoreBase:
                 values_dict: Dict[sql.Column, Any] = {}
 
                 if col.is_computed:
+                    assert col.sa_col is not None
                     if result_row.has_exc(value_expr_slot_idx):
                         num_excs += 1
                         value_exc = result_row.get_exc(value_expr_slot_idx)
                         # we store a NULL value and record the exception/exc type
                         error_type = type(value_exc).__name__
                         error_msg = str(value_exc)
+                        assert col.sa_errortype_col is not None
+                        assert col.sa_errormsg_col is not None
                         values_dict = {
                             col.sa_col: None,
                             col.sa_errortype_col: error_type,
@@ -256,8 +266,10 @@ class StoreBase:
                     assert not result_row.has_exc(embedding_slot_idx)
                     # don't use get_stored_val() here, we need to pass the ndarray
                     embedding = result_row[embedding_slot_idx]
-                    values_dict[col.sa_index_col] = embedding
+                    assert col.sa_idx_col is not None
+                    values_dict[col.sa_idx_col] = embedding
 
+                assert self.sa_tbl is not None
                 update_stmt = sql.update(self.sa_tbl).values(values_dict)
                 for pk_col, pk_val in zip(self.pk_columns(), result_row.pk):
                     update_stmt = update_stmt.where(pk_col == pk_val)
@@ -274,6 +286,7 @@ class StoreBase:
             number of inserted rows, number of exceptions, set of column ids that have exceptions
         """
         assert v_min is not None
+        assert exec_plan.ctx is not None
         exec_plan.ctx.conn = conn
         batch_size = 16  # TODO: is this a good batch size?
         # TODO: total?
@@ -300,6 +313,7 @@ class StoreBase:
                             progress_bar = tqdm(desc='Inserting rows into table', unit='rows')
                         progress_bar.update(1)
                     self._move_tmp_media_files(table_rows, media_cols, v_min)
+                    assert self.sa_tbl is not None
                     conn.execute(sql.insert(self.sa_tbl), table_rows)
             if progress_bar is not None:
                 progress_bar.close()
@@ -370,6 +384,7 @@ class StoreTable(StoreBase):
 class StoreView(StoreBase):
     def __init__(self, catalog_view: catalog.TableVersion):
         assert catalog_view.is_view()
+        assert catalog_view.base is not None
         self.base = catalog_view.base.store_tbl
         super().__init__(catalog_view)
 
