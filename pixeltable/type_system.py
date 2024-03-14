@@ -4,16 +4,20 @@ import abc
 import datetime
 import enum
 import json
+import typing
 from pathlib import Path
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union, IO
 import urllib.parse
 
-import av
+import av  # type: ignore
 import numpy as np
 import PIL.Image
 import sqlalchemy as sql
 
 from pixeltable import exceptions as exc
+
+if typing.TYPE_CHECKING:
+    import pyarrow
 
 class ColumnType:
     @enum.unique
@@ -35,10 +39,10 @@ class ColumnType:
 
         @classmethod
         def supertype(
-                cls, type1: 'Type', type2: 'Type',
+                cls, type1: ColumnType.Type, type2: ColumnType.Type,
                 # we need to pass this in because we can't easily append it as a class member
-                common_supertypes: Dict[Tuple['Type', 'Type'], 'Type']
-        ) -> Optional['Type']:
+                common_supertypes: Dict[Tuple[ColumnType.Type, ColumnType.Type], ColumnType.Type]
+        ) -> Optional[ColumnType.Type]:
             if type1 == type2:
                 return type1
             t = common_supertypes.get((type1, type2))
@@ -122,6 +126,7 @@ class ColumnType:
         Default implementation: simply invoke c'tor
         """
         assert 'nullable' in d
+        # TODO(aaron-siegel) Missing required positional argument:
         return cls(nullable=d['nullable'])
 
     @classmethod
@@ -152,7 +157,7 @@ class ColumnType:
         return self._type.name.lower()
 
     def __eq__(self, other: object) -> bool:
-        return self.matches(other) and self.nullable == other.nullable
+        return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
 
     def is_supertype_of(self, other: ColumnType) -> bool:
         if type(self) != type(other):
@@ -161,11 +166,11 @@ class ColumnType:
             return True
         return self._is_supertype_of(other)
 
-    @abc.abstractmethod
+    # @abc.abstractmethod
     def _is_supertype_of(self, other: ColumnType) -> bool:
         return False
 
-    def matches(self, other: object) -> bool:
+    def matches(self, other: ColumnType) -> bool:
         """Two types match if they're equal, aside from nullability"""
         if not isinstance(other, ColumnType):
             pass
@@ -201,7 +206,7 @@ class ColumnType:
         return None
 
     @classmethod
-    @abc.abstractmethod
+    # @abc.abstractmethod
     def _supertype(cls, type1: ColumnType, type2: ColumnType) -> Optional[ColumnType]:
         """
         Class-specific implementation of determining the supertype. type1 and type2 are from the same subclass of
@@ -277,7 +282,7 @@ class ColumnType:
         """Raise TypeError if val is not a valid literal for this type"""
         pass
 
-    @abc.abstractmethod
+    # @abc.abstractmethod
     def _create_literal(self, val : Any) -> Any:
         """Create a literal of this type from val, including any needed conversions.
              val is guaranteed to be non-None"""
@@ -375,7 +380,7 @@ class ColumnType:
 
     @abc.abstractmethod
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        import pyarrow as pa 
         assert False, f'Have not implemented {self.__class__.__name__} to Arrow'
  
     @staticmethod
@@ -420,7 +425,7 @@ class StringType(ColumnType):
     def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
         if not target.is_timestamp_type():
             return None
-        def convert(val: str) -> Optional[datetime]:
+        def convert(val: str) -> Optional[datetime.datetime]:
             try:
                 dt = datetime.datetime.fromisoformat(val)
                 return dt
@@ -431,11 +436,11 @@ class StringType(ColumnType):
     def to_sql(self) -> str:
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.String
     
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        import pyarrow as pa 
         return pa.string()
 
     def print_value(self, val: Any) -> str:
@@ -453,11 +458,11 @@ class IntType(ColumnType):
     def to_sql(self) -> str:
         return 'BIGINT'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.BigInteger
     
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        import pyarrow as pa 
         return pa.int64() # to be consistent with bigint above
 
     def _validate_literal(self, val: Any) -> None:
@@ -472,7 +477,7 @@ class FloatType(ColumnType):
     def to_sql(self) -> str:
         return 'FLOAT'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.Float
     
     def to_arrow_type(self) -> 'pyarrow.DataType':
@@ -495,11 +500,11 @@ class BoolType(ColumnType):
     def to_sql(self) -> str:
         return 'BOOLEAN'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.Boolean
     
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        import pyarrow as pa 
         return pa.bool_()
 
     def _validate_literal(self, val: Any) -> None:
@@ -518,12 +523,12 @@ class TimestampType(ColumnType):
     def to_sql(self) -> str:
         return 'INTEGER'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.TIMESTAMP
     
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.timestamp('us') # postgres timestamp is microseconds
+        import pyarrow as pa 
+        return pa.timestamp('us')  # postgres timestamp is microseconds
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
@@ -559,15 +564,16 @@ class JsonType(ColumnType):
     def to_sql(self) -> str:
         return 'JSONB'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.dialects.postgresql.JSONB
     
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        import pyarrow as pa 
         return pa.string() # TODO: weight advantage of pa.struct type.
 
     def print_value(self, val: Any) -> str:
         val_type = self.infer_literal_type(val)
+        assert val_type is not None
         if val_type == self:
             return str(val)
         return val_type.print_value(val)
@@ -623,7 +629,7 @@ class ArrayType(ColumnType):
         # determine our dtype
         assert isinstance(val, np.ndarray)
         if np.issubdtype(val.dtype, np.integer):
-            dtype = IntType()
+            dtype: ColumnType = IntType()
         elif np.issubdtype(val.dtype, np.floating):
             dtype = FloatType()
         elif val.dtype == np.bool_:
@@ -666,11 +672,11 @@ class ArrayType(ColumnType):
     def to_sql(self) -> str:
         return 'BYTEA'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.LargeBinary
     
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        import pyarrow as pa 
         if any([n is None for n in self.shape]):
             raise TypeError(f'Cannot convert array with unknown shape to Arrow')        
         return pa.fixed_shape_tensor(pa.from_numpy_dtype(self.numpy_dtype()), self.shape)
@@ -698,12 +704,12 @@ class ImageType(ColumnType):
         super().__init__(self.Type.IMAGE, nullable=nullable)
         assert not(width is not None and size is not None)
         assert not(height is not None and size is not None)
-        if size is not None:
-            self.width = size[0]
-            self.height = size[1]
-        else:
+        if size is None:
             self.width = width
             self.height = height
+        else:
+            self.width = size[0]
+            self.height = size[1]
         self.mode = mode
 
     def __str__(self) -> str:
@@ -731,6 +737,7 @@ class ImageType(ColumnType):
             return True
         if self.width != other.width and self.height != other.height:
             return False
+        raise RuntimeError("TODO(aaron-siegel): What's the right fallback behavior here?")
 
     @property
     def size(self) -> Optional[Tuple[int, int]]:
@@ -740,6 +747,7 @@ class ImageType(ColumnType):
 
     @property
     def num_channels(self) -> Optional[int]:
+        # TODO(aaron-siegel): This is clearly a bug (mode is a str); what should happen here?
         return None if self.mode is None else self.mode.num_channels()
 
     def _as_dict(self) -> Dict:
@@ -767,9 +775,13 @@ class ImageType(ColumnType):
             # nothing to do
             return self.no_conversion
         def convert(img: PIL.Image.Image) -> PIL.Image.Image:
+            assert isinstance(target, ImageType)
             if self.width != target.width or self.height != target.height:
+                assert target.width is not None
+                assert target.height is not None
                 img = img.resize((target.width, target.height))
             if self.mode != target.mode:
+                # TODO(aaron-siegel) target.mode is a str; what's this supposed to do?
                 img = img.convert(target.mode.to_pil())
             return img
         return convert
@@ -777,11 +789,11 @@ class ImageType(ColumnType):
     def to_sql(self) -> str:
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.String
     
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        import pyarrow as pa 
         return pa.binary()
 
     def _validate_literal(self, val: Any) -> None:
@@ -804,11 +816,11 @@ class VideoType(ColumnType):
         # stored as a file path
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.String
     
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
+        import pyarrow as pa 
         return pa.string()
 
     def _validate_literal(self, val: Any) -> None:
@@ -842,11 +854,11 @@ class AudioType(ColumnType):
         # stored as a file path
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.String
 
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa  # pylint: disable=import-outside-toplevel
+        import pyarrow as pa  
         return pa.string()
 
     def _validate_literal(self, val: Any) -> None:
@@ -889,11 +901,11 @@ class DocumentType(ColumnType):
         # stored as a file path
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
+    def to_sa_type(self) -> type:
         return sql.String
 
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa  # pylint: disable=import-outside-toplevel
+        import pyarrow as pa  
         return pa.string()
 
     def _validate_literal(self, val: Any) -> None:

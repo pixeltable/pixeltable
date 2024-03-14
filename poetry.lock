@@ -3478,6 +3478,16 @@ files = [
 numpy = ">=1.16.6"
 
 [[package]]
+name = "pyarrow-stubs"
+version = "10.0.1.7"
+description = "Type annotations for pyarrow"
+optional = false
+python-versions = ">=3.7,<4.0"
+files = [
+    {file = "pyarrow_stubs-10.0.1.7-py3-none-any.whl", hash = "sha256:cccc7a46eddeea4e3cb85330eb8972c116a615da6188b8ae1f7a44cb724b21ac"},
+]
+
+[[package]]
 name = "pycocotools"
 version = "2.0.7"
 description = "Official APIs for the MS-COCO dataset"
@@ -5867,4 +5877,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8.1"
-content-hash = "b0ed195393618fad68f7d469cc6d404897ec15173febe696175cbf61dbdba495"
+content-hash = "297b101b5ce20677f099f1de60ad121a62fe0f2fac25442383bbcc7ecc2db47d"
