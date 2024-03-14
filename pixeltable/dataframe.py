@@ -1,6 +1,7 @@
 from __future__ import annotations
 import base64
 import io
+import typing
 from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 from pathlib import Path
 import pandas as pd
@@ -23,6 +24,9 @@ import pixeltable.exprs as exprs
 import pixeltable.exceptions as exc
 from pixeltable.plan import Planner
 from pixeltable.catalog import is_valid_identifier
+
+if typing.TYPE_CHECKING:
+    import torch.utils.data as torch_data
 
 __all__ = [
     'DataFrame'
@@ -120,7 +124,7 @@ class DataFrameResultSet:
     def __iter__(self) -> DataFrameResultSetIterator:
         return DataFrameResultSetIterator(self)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, DataFrameResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())
@@ -155,7 +159,6 @@ class AnalysisInfo:
         self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
         self.has_frame_col: bool = False  # True if we're referencing the frame col
 
-        self.evaluator: Optional[exprs.Evaluator] = None
         self.sql_scan_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of SQL scan stage
         self.agg_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of agg stage
         self.filter_eval_ctx: List[exprs.Expr] = []
@@ -231,7 +234,7 @@ class DataFrame:
             a pair composed of the list of expressions and the list of corresponding names
         """
         if select_list is None:
-            expanded_list = [(exprs.ColumnRef(col), None) for col in tbl.columns()]
+            expanded_list: list[tuple[exprs.Expr, str | None]] = [(exprs.ColumnRef(col), None) for col in tbl.columns()]
         else:
             expanded_list = select_list
 
@@ -285,6 +288,7 @@ class DataFrame:
             limit=self.limit_val if self.limit_val is not None else 0)  # limit_val == 0: no limit_val
 
         with Env.get().engine.begin() as conn:
+            assert plan.ctx is not None
             plan.ctx.conn = conn
             plan.open()
             try:
@@ -417,27 +421,27 @@ class DataFrame:
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()
 
-    def select(self, *items: Any, **named_items : Any) -> DataFrame:
+    def select(self, *items: exprs.Expr, **named_items: exprs.Expr) -> DataFrame:
         if self.select_list is not None:
             raise exc.Error(f'Select list already specified')
         for (name, _) in named_items.items():
             if not isinstance(name, str) or not is_valid_identifier(name):
                 raise exc.Error(f'Invalid name: {name}')
-        base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
+        base_list = [(expr, None) for expr in items] + [(expr, k) for k, expr in named_items.items()]
         if len(base_list) == 0:
             raise exc.Error(f'Empty select list')
         
         # analyze select list; wrap literals with the corresponding expressions
         select_list = []
-        for raw_expr, name in base_list:
+        for raw_expr, name_opt in base_list:
             if isinstance(raw_expr, exprs.Expr):
-                select_list.append((raw_expr, name))
+                select_list.append((raw_expr, name_opt))
             elif isinstance(raw_expr, dict):
-                select_list.append((exprs.InlineDict(raw_expr), name))
+                select_list.append((exprs.InlineDict(raw_expr), name_opt))
             elif isinstance(raw_expr, list):
-                select_list.append((exprs.InlineArray(raw_expr), name))
+                select_list.append((exprs.InlineArray(raw_expr), name_opt))
             else:
-                select_list.append((exprs.Literal(raw_expr), name))
+                select_list.append((exprs.Literal(raw_expr), name_opt))
             expr = select_list[-1][0]
             if expr.col_type.is_invalid_type():
                 raise exc.Error(f'Invalid type: {raw_expr}')
@@ -579,9 +583,7 @@ class DataFrame:
         else:
             return write_coco_dataset(self, dest_path)
 
-    # TODO Factor this out into a separate module.
-    # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
-    def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
+    def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch_data.IterableDataset':
         """
         Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
         with torch.utils.data.DataLoader.
