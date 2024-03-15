@@ -109,7 +109,7 @@ class Client:
 
     def create_table(
             self, path_str: str, schema: Dict[str, Any], primary_key: Optional[Union[str, List[str]]] = None,
-            num_retained_versions: int = 10,
+            num_retained_versions: int = 10, comment: str = ''
     ) -> catalog.InsertableTable:
         """Create a new `InsertableTable`.
 
@@ -146,7 +146,7 @@ class Client:
                 raise excs.Error('primary_key must be a single column name or a list of column names')
 
         tbl = catalog.InsertableTable.create(
-            dir._id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions)
+            dir._id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
         self.catalog.paths[path] = tbl
         _logger.info(f'Created table {path_str}')
         return tbl
@@ -155,7 +155,7 @@ class Client:
             self, path_str: str, base: catalog.Table, *, schema: Optional[Dict[str, Any]] = None,
             filter: Optional[Predicate] = None,
             is_snapshot: bool = False, iterator_class: Optional[Type[ComponentIterator]] = None,
-            iterator_args: Optional[Dict[str, Any]] = None, num_retained_versions: int = 10,
+            iterator_args: Optional[Dict[str, Any]] = None, num_retained_versions: int = 10, comment: str = '',
             ignore_errors: bool = False) -> catalog.View:
         """Create a new `View`.
 
@@ -207,7 +207,7 @@ class Client:
             schema = {}
         view = catalog.View.create(
             dir._id, path.name, base=base, schema=schema, predicate=filter, is_snapshot=is_snapshot,
-            iterator_cls=iterator_class, iterator_args=iterator_args, num_retained_versions=num_retained_versions)
+            iterator_cls=iterator_class, iterator_args=iterator_args, num_retained_versions=num_retained_versions, comment=comment)
         self.catalog.paths[path] = view
         _logger.info(f'Created view {path_str}')
         return view
@@ -525,24 +525,3 @@ class Client:
         func.FunctionRegistry.get().delete_function(named_fn._id)
         del self.catalog.paths[path]
         _logger.info(f'Dropped function {path_str}')
-
-    def reset_catalog(self) -> None:
-        """Delete everything. Test-only.
-
-        :meta private:
-        """
-        with Env.get().engine.begin() as conn:
-            conn.execute(sql.delete(schema.TableSchemaVersion.__table__))
-            conn.execute(sql.delete(schema.TableVersion.__table__))
-            conn.execute(sql.delete(schema.Table.__table__))
-            conn.execute(sql.delete(schema.Function.__table__))
-            conn.execute(sql.delete(schema.Dir.__table__))
-
-        # delete all data tables
-        tbl_paths = [
-            p for p in self.catalog.paths.get_children(
-                catalog.Path('', empty_is_valid=True), catalog.InsertableTable, recursive=True)
-        ]
-        for tbl_path in tbl_paths:
-            tbl = self.catalog.paths[tbl_path]
-            #tbl._drop()
