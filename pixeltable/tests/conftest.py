@@ -47,9 +47,9 @@ def test_client(init_env) -> pt.Client:
     yield cl
 
 
-def clean_db(restore_tables=True):
+def clean_db(restore_tables: bool = True) -> None:
     from pixeltable.env import Env
-    # (aaron-siegel) The logic from Client.reset_catalog() has been moved here, so that it
+    # The logic from Client.reset_catalog() has been moved here, so that it
     # does not rely on instantiating a Client object. As before, UUID-named data tables will
     # not be cleaned. If in the future it is desirable to clean out data tables as well,
     # the commented lines may be used to drop ALL tables from the test db.
