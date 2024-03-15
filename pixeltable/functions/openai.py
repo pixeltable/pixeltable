@@ -1,5 +1,6 @@
 import base64
 import io
+import types
 from typing import Optional
 
 import PIL.Image
@@ -107,7 +108,6 @@ def moderations_create(input: str, model: Optional[str] = None) -> dict:
     return result.dict()
 
 
-# TODO(aaron-siegel): Derive the return type from parameterized type hint
 # TODO(aaron-siegel): Implement batching
 @pxt.udf(return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
 def embedding(input: str, model: str) -> np.ndarray:
@@ -116,5 +116,5 @@ def embedding(input: str, model: str) -> np.ndarray:
         model=model,
         encoding_format='float'
     )
-    embeddings = list(map(lambda x: x.embedding, result.data))
-    return np.array(embeddings, dtype=np.float64)
+    embedding = result.data[0].embedding
+    return np.array(embedding, dtype=np.float64)
