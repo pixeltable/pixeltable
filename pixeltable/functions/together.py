@@ -26,8 +26,3 @@ def completion_create(
         top_p=top_p,
         temperature=temperature
     )
-
-
-def moderations_create(input: str, model: Optional[str] = None) -> dict:
-    result = env.Env().get().openai_client.moderations.create(input=input, model=model)
-    return result.dict()

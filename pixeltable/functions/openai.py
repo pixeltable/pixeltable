@@ -116,5 +116,5 @@ def embedding(input: str, model: str) -> np.ndarray:
         model=model,
         encoding_format='float'
     )
-    embedding = result.data[0].embedding
-    return np.array(embedding, dtype=np.float64)
+    emb = result.data[0].embedding
+    return np.array(emb, dtype=np.float64)
