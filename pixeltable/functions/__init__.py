@@ -1,30 +1,24 @@
-import os
-from typing import Callable, List, Optional, Union, Any
-import inspect
-from pathlib import Path
 import tempfile
+from pathlib import Path
+from typing import Optional, Union, Any
 
 import PIL.Image
-import numpy as np
-
-from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
-import pixeltable.func as func
-from pixeltable import exprs
-import pixeltable.env as env
-# import all standard function modules here so they get registered with the FunctionRegistry
-import pixeltable.functions.pil
-import pixeltable.functions.pil.image
 import av
 import av.container
 import av.stream
+import numpy as np
 
+import pixeltable.env as env
+import pixeltable.func as func
+# import all standard function modules here so they get registered with the FunctionRegistry
+import pixeltable.functions.pil
+import pixeltable.functions.pil.image
+from pixeltable import exprs
+from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
 
 try:
     import openai
     from .openai import completions_create, embedding, moderations_create
-    #from .util import create_openai_module
-    #mod = create_openai_module()
-    #func.FunctionRegistry.get().register_module(mod)
 except ImportError:
     pass
 

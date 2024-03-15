@@ -7,66 +7,6 @@ import pixeltable.type_system as ts
 import pixeltable.env as env
 
 
-def create_openai_module() -> types.ModuleType:
-    """Create module pixeltable.functions.openai and populate it with functions for the OpenAPI functions"""
-    module_name = 'pixeltable.functions.openai'
-    pt_module = types.ModuleType(module_name)
-    pt_module.__package__ = 'pixeltable.functions'
-    sys.modules[module_name] = pt_module
-    specs = [
-        func.OpenAIFunctionSpec(
-            name='chat_completion',
-            call=['chat', 'completions', 'create'],
-            params={
-                'messages': ts.JsonType(nullable=False),
-                'model': ts.StringType(nullable=False),
-                'frequency_penalty': ts.FloatType(nullable=True),
-                'logit_bias': ts.JsonType(nullable=True),
-                'max_tokens': ts.IntType(nullable=True),
-                'n': ts.IntType(nullable=True),
-                'presence_penalty': ts.FloatType(nullable=True),
-                'response_format': ts.JsonType(nullable=True),
-                'seed': ts.IntType(nullable=True),
-                # tool_choice: ChatCompletionToolChoiceOptionParam | NotGiven = NOT_GIVEN,
-                # tools: List[ChatCompletionToolParam] | NotGiven = NOT_GIVEN,
-                'top_p': ts.FloatType(nullable=True),
-                'temperature': ts.FloatType(nullable=True),
-            },
-            batch_params=[],
-            output_path=None,
-            output_type=ts.JsonType(nullable=False),
-        ),
-        func.OpenAIFunctionSpec(
-            name='embedding',
-            call=['embeddings', 'create'],
-            params={
-                'input': ts.StringType(nullable=False),
-                'model': ts.StringType(nullable=False),  # TODO: defaults? text-embedding-ada-002
-                'encoding_format': ts.StringType(nullable=True),
-            },
-            batch_params=['input'],
-            output_path='data[].embedding',
-            output_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
-        ),
-        func.OpenAIFunctionSpec(
-            name='moderation',
-            call=['moderations', 'create'],
-            params={
-                'input': ts.StringType(nullable=False),
-                'model': ts.StringType(nullable=True),
-            },
-            batch_params=[],
-            output_path='results[0]',
-            output_type=ts.JsonType(nullable=False),
-        ),
-    ]
-
-    for spec in specs:
-        fn = func.OpenAIFunction(spec, module_name=module_name)
-        setattr(pt_module, spec.name, fn)
-
-    return pt_module
-
 def create_together_module() -> types.ModuleType:
     """Create module pixeltable.functions.together and populate it with functions for the Together functions"""
     module_name = 'pixeltable.functions.together'
