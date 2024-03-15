@@ -31,7 +31,7 @@ sqlalchemy = {extras = ["mypy"], version = "^2.0.23"}
 sqlalchemy-utils = "^0.41.1"
 pgvector = "^0.2.1"
 av = ">=10.0.0"
-pgserver = "0.0.4"
+pgserver = "0.0.5"
 
 [tool.poetry.group.dev]
 optional = true
