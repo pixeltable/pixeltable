@@ -4,6 +4,7 @@ import inspect
 import typing
 from typing import List, Callable, Union, Optional
 
+import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from .function import Function
@@ -12,18 +13,25 @@ from .globals import resolve_symbol
 from .signature import Signature
 
 
-def udf(*, return_type: Optional[ts.ColumnType] = None, param_types: Optional[List[ts.ColumnType]] = None) -> Callable:
-    """Returns decorator to create a Function from a function definition.
+class udf:  # noqa: invalid-class-name
+    """A decorator to create a Function from a function definition.
 
-    Example:
-        >>> @pxt.udf(param_types=[pt.IntType()], return_type=pt.IntType())
+    Examples:
+        >>> @pxt.udf()
+        ... def my_function(x: int) -> int:
+        ...    return x + 1
+
+        >>> @pxt.udf(param_types=[pxt.IntType()], return_type=pxt.IntType())
         ... def my_function(x):
         ...    return x + 1
     """
-    from .function import Function
-    def decorator(fn: Callable) -> Function:
-        return make_function(return_type, param_types, fn)
-    return decorator
+    def __init__(self, *, return_type: Optional[ts.ColumnType] = None, param_types: Optional[List[ts.ColumnType]] = None):
+        self.return_type = return_type
+        self.param_types = param_types
+
+    def __call__(self, fn: Callable) -> Function:
+        return make_function(self.return_type, self.param_types, fn)
+
 
 def make_function(
     return_type: Optional[ts.ColumnType],
