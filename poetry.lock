@@ -2998,6 +2998,21 @@ pytz = ">=2020.1"
 test = ["hypothesis (>=5.5.3)", "pytest (>=6.0)", "pytest-xdist (>=1.31)"]
 
 [[package]]
+name = "pandas-stubs"
+version = "2.0.2.230605"
+description = "Type annotations for pandas"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "pandas_stubs-2.0.2.230605-py3-none-any.whl", hash = "sha256:39106b602f3cb6dc5f728b84e1b32bde6ecf41ee34ee714c66228009609fbada"},
+    {file = "pandas_stubs-2.0.2.230605.tar.gz", hash = "sha256:624c7bb06d38145a44b61be459ccd19b038e0bf20364a025ecaab78fea65e858"},
+]
+
+[package.dependencies]
+numpy = ">=1.24.3"
+types-pytz = ">=2022.1.1"
+
+[[package]]
 name = "pandocfilters"
 version = "1.5.0"
 description = "Utilities for writing pandoc filters in python"
@@ -3461,6 +3476,16 @@ files = [
 
 [package.dependencies]
 numpy = ">=1.16.6"
+
+[[package]]
+name = "pyarrow-stubs"
+version = "10.0.1.7"
+description = "Type annotations for pyarrow"
+optional = false
+python-versions = ">=3.7,<4.0"
+files = [
+    {file = "pyarrow_stubs-10.0.1.7-py3-none-any.whl", hash = "sha256:cccc7a46eddeea4e3cb85330eb8972c116a615da6188b8ae1f7a44cb724b21ac"},
+]
 
 [[package]]
 name = "pycocotools"
@@ -5555,6 +5580,17 @@ files = [
 ]
 
 [[package]]
+name = "types-pytz"
+version = "2024.1.0.20240203"
+description = "Typing stubs for pytz"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-pytz-2024.1.0.20240203.tar.gz", hash = "sha256:c93751ee20dfc6e054a0148f8f5227b9a00b79c90a4d3c9f464711a73179c89e"},
+    {file = "types_pytz-2024.1.0.20240203-py3-none-any.whl", hash = "sha256:9679eef0365db3af91ef7722c199dbb75ee5c1b67e3c4dd7bfbeb1b8a71c21a3"},
+]
+
+[[package]]
 name = "types-pyyaml"
 version = "6.0.12.12"
 description = "Typing stubs for PyYAML"
@@ -5563,6 +5599,31 @@ python-versions = "*"
 files = [
     {file = "types-PyYAML-6.0.12.12.tar.gz", hash = "sha256:334373d392fde0fdf95af5c3f1661885fa10c52167b14593eb856289e1855062"},
     {file = "types_PyYAML-6.0.12.12-py3-none-any.whl", hash = "sha256:c05bc6c158facb0676674b7f11fe3960db4f389718e19e62bd2b84d6205cfd24"},
+]
+
+[[package]]
+name = "types-sqlalchemy-utils"
+version = "1.0.1"
+description = "Type Stubs for sqlalchemy-utils"
+optional = false
+python-versions = ">=3.7, <4"
+files = [
+    {file = "types-sqlalchemy-utils-1.0.1.tar.gz", hash = "sha256:37016333faa0abab7d253805ecf9f605c24ea107b32dd3643014efb8e49be76d"},
+    {file = "types_sqlalchemy_utils-1.0.1-py3-none-any.whl", hash = "sha256:95bc90db15ec4af5b13d64f04a7d31a7e851931250419fc7859354644ab3ea98"},
+]
+
+[package.extras]
+dev = ["mypy (==0.971)", "pipenv-setup (==3.2.0)", "sqlalchemy-utils (==0.38.3)", "sqlalchemy2-stubs (==0.0.2a25)", "twine (==4.0.1)"]
+
+[[package]]
+name = "types-tqdm"
+version = "4.66.0.20240106"
+description = "Typing stubs for tqdm"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-tqdm-4.66.0.20240106.tar.gz", hash = "sha256:7acf4aade5bad3ded76eb829783f9961b1c2187948eaa6dd1ae8644dff95a938"},
+    {file = "types_tqdm-4.66.0.20240106-py3-none-any.whl", hash = "sha256:7459b0f441b969735685645a5d8480f7912b10d05ab45f99a2db8a8e45cb550b"},
 ]
 
 [[package]]
@@ -5827,4 +5888,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8.1"
-content-hash = "664498553a40170aa64b3ad6798074c1d1928d4b8d13c088c3a6ab8a4655389e"
+content-hash = "8a55f364115396919f098d639a974dd2bf95ecd880ecc83dcb7b074b29c58389"
