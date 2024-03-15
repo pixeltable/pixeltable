@@ -193,18 +193,18 @@ class StoreBase:
         message).
         """
         assert col.is_stored
-        clause = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.storage_name()} {col.col_type.to_sql()}')
-        log_stmt(_logger, clause)
-        conn.execute(clause)
+        stmt = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.storage_name()} {col.col_type.to_sql()}')
+        log_stmt(_logger, stmt)
+        conn.execute(stmt)
         added_storage_cols = [col.storage_name()]
         if col.records_errors:
             # we also need to create the errormsg and errortype storage cols
-            stmt = (f'ALTER TABLE {self._storage_name()} '
+            stmt = sql.text(f'ALTER TABLE {self._storage_name()} '
                     f'ADD COLUMN {col.errormsg_storage_name()} {StringType().to_sql()} DEFAULT NULL')
-            conn.execute(sql.text(stmt))
-            stmt = (f'ALTER TABLE {self._storage_name()} '
+            conn.execute(stmt)
+            stmt = sql.text(f'ALTER TABLE {self._storage_name()} '
                     f'ADD COLUMN {col.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
-            conn.execute(sql.text(stmt))
+            conn.execute(stmt)
         added_storage_cols.extend([col.errormsg_storage_name(), col.errortype_storage_name()])
         self._create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')

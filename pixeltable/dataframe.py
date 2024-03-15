@@ -421,7 +421,7 @@ class DataFrame:
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()
 
-    def select(self, *items: exprs.Expr, **named_items: exprs.Expr) -> DataFrame:
+    def select(self, *items: Any, **named_items: Any) -> DataFrame:
         if self.select_list is not None:
             raise exc.Error(f'Select list already specified')
         for (name, _) in named_items.items():
@@ -439,7 +439,7 @@ class DataFrame:
             elif isinstance(raw_expr, dict):
                 select_list.append((exprs.InlineDict(raw_expr), name_opt))
             elif isinstance(raw_expr, list):
-                select_list.append((exprs.InlineArray(raw_expr), name_opt))
+                select_list.append((exprs.InlineArray(tuple(raw_expr)), name_opt))
             else:
                 select_list.append((exprs.Literal(raw_expr), name_opt))
             expr = select_list[-1][0]

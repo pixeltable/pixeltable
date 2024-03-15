@@ -212,7 +212,7 @@ class Client:
         _logger.info(f'Created view {path_str}')
         return view
 
-    def get_table(self, path: str) -> catalog.SchemaObject:
+    def get_table(self, path: str) -> catalog.Table:
         """Get a handle to a table (including views and snapshots).
 
         Args:
@@ -240,6 +240,7 @@ class Client:
         p = catalog.Path(path)
         self.catalog.paths.check_is_valid(p, expected=catalog.Table)
         obj = self.catalog.paths[p]
+        assert isinstance(obj, catalog.Table)
         return obj
 
     def move(self, path: str, new_path: str) -> None:
