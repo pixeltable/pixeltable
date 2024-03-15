@@ -468,6 +468,20 @@ class TestTable:
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
 
+        # alternate (kwargs) insert syntax
+        status = t.insert(
+            c1='string',
+            c2=91,
+            c3=1.0,
+            c4=True,
+            c5=np.ones((2, 3), dtype=np.dtype(np.int64)),
+            c6={'key': 'val'},
+            c7=get_image_files()[0],
+            c8=get_video_files()[0]
+        )
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+
         # empty input
         with pytest.raises(exc.Error) as exc_info:
             t.insert([])
