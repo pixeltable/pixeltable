@@ -12,6 +12,7 @@ import av
 import numpy as np
 import PIL.Image
 import sqlalchemy as sql
+import typing
 
 from pixeltable import exceptions as exc
 
@@ -239,6 +240,13 @@ class ColumnType:
     def from_python_type(cls, t: type) -> Optional[ColumnType]:
         if t in _python_type_to_column_type:
             return _python_type_to_column_type[t]
+        elif isinstance(t, typing._UnionGenericAlias) and t.__args__[1] is type(None):
+            underlying = _python_type_to_column_type[t.__args__[0]]
+            if underlying is None:
+                return None
+            else:
+                underlying.nullable = True
+                return underlying
         else:
             return None
 
@@ -924,5 +932,6 @@ _python_type_to_column_type: dict[type, ColumnType] = {
     datetime.datetime: TimestampType(),
     datetime.date: TimestampType(),
     list: JsonType(),
-    dict: JsonType()
+    dict: JsonType(),
+    PIL.Image.Image: ImageType()
 }

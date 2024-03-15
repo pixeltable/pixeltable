@@ -21,9 +21,10 @@ import av.stream
 
 try:
     import openai
-    from .util import create_openai_module
-    mod = create_openai_module()
-    func.FunctionRegistry.get().register_module(mod)
+    from .openai import completions_create, embedding, moderations_create
+    #from .util import create_openai_module
+    #mod = create_openai_module()
+    #func.FunctionRegistry.get().register_module(mod)
 except ImportError:
     pass
 

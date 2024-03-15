@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import inspect
+import typing
 from typing import List, Callable, Union, Optional
 
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from .function import Function
 from .function_md import FunctionMd
@@ -10,7 +12,7 @@ from .globals import resolve_symbol
 from .signature import Signature
 
 
-def udf(*, return_type: ts.ColumnType, param_types: List[ts.ColumnType]) -> Callable:
+def udf(*, return_type: Optional[ts.ColumnType] = None, param_types: Optional[List[ts.ColumnType]] = None) -> Callable:
     """Returns decorator to create a Function from a function definition.
 
     Example:
@@ -23,8 +25,31 @@ def udf(*, return_type: ts.ColumnType, param_types: List[ts.ColumnType]) -> Call
         return make_function(return_type, param_types, fn)
     return decorator
 
-def make_function(return_type: ts.ColumnType, param_types: List[ts.ColumnType], eval_fn: Callable, display_name: Optional[str] = None) -> Function:
+def make_function(
+    return_type: Optional[ts.ColumnType],
+    param_types: Optional[List[ts.ColumnType]],
+    eval_fn: Callable,
+    display_name: Optional[str] = None
+) -> Function:
     assert eval_fn is not None
+    if return_type is None:
+        if 'return' in typing.get_type_hints(eval_fn):
+            py_return_type = typing.get_type_hints(eval_fn)['return']
+            if py_return_type is not None:
+                return_type = ts.ColumnType.from_python_type(py_return_type)
+        if return_type is None:
+            raise excs.Error(f'Cannot infer pixeltable result type. Specify `return_type` explicitly?')
+    if param_types is None:
+        py_signature = inspect.signature(eval_fn)
+        param_types = []
+        for param_name, py_type in typing.get_type_hints(eval_fn).items():
+            if param_name != 'return':
+                col_type = ts.ColumnType.from_python_type(py_type)
+                if col_type is None:
+                    raise excs.Error(f'Cannot infer pixeltable type of parameter: `{param_name}`. Specify `param_types` explicitly?')
+                param_types.append(col_type)
+        if len(param_types) != len(py_signature.parameters):
+            raise excs.Error(f'Cannot infer pixeltable types of parameters. Specify `param_types` explicitly?')
     signature = Signature.create(eval_fn, False, param_types, return_type)
     md = FunctionMd(signature, False, False)
     try:
