@@ -49,6 +49,8 @@ class TableVersion:
         self.id = id
         self.name = tbl_md.name
         self.version = version
+        self.comment = schema_version_md.comment
+        self.num_retained_versions = schema_version_md.num_retained_versions
         self.schema_version = schema_version_md.schema_version
         self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
         is_view = tbl_md.view_md is not None
@@ -72,7 +74,6 @@ class TableVersion:
             self.next_col_id = tbl_md.next_col_id
             self.next_rowid = tbl_md.next_row_id
         self.column_history = tbl_md.column_history
-        self.parameters = tbl_md.parameters
 
         # view-specific initialization
         from pixeltable import exprs
@@ -117,7 +118,7 @@ class TableVersion:
 
     @classmethod
     def create(
-            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int,
+            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int, comment: str,
             base_path: Optional['pixeltable.catalog.TableVersionPath'] = None, view_md: Optional[schema.ViewMd] = None
     ) -> Tuple[UUID, Optional[TableVersion]]:
         # assign ids
@@ -130,8 +131,6 @@ class TableVersion:
             if col.is_computed:
                 col.check_value_expr()
 
-        params = schema.TableParameters(num_retained_versions)
-
         ts = time.time()
         # create schema.Table
         column_history = {
@@ -139,7 +138,7 @@ class TableVersion:
             for col in cols
         }
         table_md = schema.TableMd(
-            name=name, parameters=params, current_version=0, current_schema_version=0,
+            name=name, current_version=0, current_schema_version=0,
             next_col_id=len(cols), next_row_id=0, column_history=column_history,
             view_md=view_md)
         tbl_record = schema.Table(dir_id=dir_id, md=dataclasses.asdict(table_md))
@@ -163,7 +162,8 @@ class TableVersion:
                 is_pk=col.primary_key, value_expr=value_expr_dict, stored=col.stored, is_indexed=col.is_indexed)
 
         schema_version_md = schema.TableSchemaVersionMd(
-            schema_version=0, preceding_schema_version=None, columns=column_md)
+            schema_version=0, preceding_schema_version=None, columns=column_md,
+            num_retained_versions=num_retained_versions, comment=comment)
         schema_version_record = schema.TableSchemaVersion(
             tbl_id=tbl_record.id, schema_version=0, md=dataclasses.asdict(schema_version_md))
         session.add(schema_version_record)
@@ -383,6 +383,26 @@ class TableVersion:
         with Env.get().engine.begin() as conn:
             self._update_md(ts, preceding_schema_version, conn)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
+
+    def set_comment(self, new_comment: Optional[str]):
+        _logger.info(f'[{self.name}] Updating comment: {new_comment}')
+        self.comment = new_comment
+        self._commit_new_schema_version()
+
+    def set_num_retained_versions(self, new_num_retained_versions: int):
+        _logger.info(f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} (was {self.num_retained_versions})')
+        self.num_retained_versions = new_num_retained_versions
+        self._commit_new_schema_version()
+
+    def _commit_new_schema_version(self):
+        # we're creating a new schema version
+        ts = time.time()
+        self.version += 1
+        preceding_schema_version = self.schema_version
+        self.schema_version = self.version
+        with Env.get().engine.begin() as conn:
+            self._update_md(ts, preceding_schema_version, conn)
+        _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
     def insert(
             self, rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception : bool = True
@@ -604,6 +624,8 @@ class TableVersion:
                     .where(schema.TableSchemaVersion.tbl_id == self.id)
                     .where(schema.TableSchemaVersion.schema_version == self.schema_version))
             self.schema_version = preceding_schema_version
+            self.comment = preceding_schema_version_md.comment
+            self.num_retained_versions = preceding_schema_version_md.num_retained_versions
 
         conn.execute(
             sql.delete(schema.TableVersion.__table__)
@@ -709,7 +731,7 @@ class TableVersion:
         return schema.TableMd(
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
             next_col_id=self.next_col_id, next_row_id=self.next_rowid, column_history=self.column_history,
-            parameters=self.parameters, view_md=self.view_md)
+            view_md=self.view_md)
 
     def _create_version_md(self, ts: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(created_at=ts, version=self.version, schema_version=self.schema_version)
@@ -724,4 +746,4 @@ class TableVersion:
         # preceding_schema_version to be set by the caller
         return schema.TableSchemaVersionMd(
             schema_version=self.schema_version, preceding_schema_version=preceding_schema_version,
-            columns=column_md)
+            columns=column_md, num_retained_versions=self.num_retained_versions, comment=self.comment)
