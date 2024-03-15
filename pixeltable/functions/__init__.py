@@ -24,9 +24,7 @@ except ImportError:
 
 try:
     import together
-    from .util import create_together_module
-    mod = create_together_module()
-    func.FunctionRegistry.get().register_module(mod)
+    from .together import completion_create
 except ImportError:
     pass
 

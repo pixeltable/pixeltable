@@ -1,0 +1,33 @@
+from typing import Optional
+
+import together
+
+import pixeltable as pxt
+
+
+@pxt.udf()
+def completion_create(
+        prompt: str,
+        model: str,
+        max_tokens: Optional[int] = None,
+        repetition_penalty: Optional[float] = None,
+        stop: Optional[list] = None,
+        top_k: Optional[int] = None,
+        top_p: Optional[float] = None,
+        temperature: Optional[float] = None
+) -> dict:
+    return together.Complete.create(
+        prompt,
+        model,
+        max_tokens=max_tokens,
+        repetition_penalty=repetition_penalty,
+        stop=stop,
+        top_k=top_k,
+        top_p=top_p,
+        temperature=temperature
+    )
+
+
+def moderations_create(input: str, model: Optional[str] = None) -> dict:
+    result = env.Env().get().openai_client.moderations.create(input=input, model=model)
+    return result.dict()

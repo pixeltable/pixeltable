@@ -116,14 +116,14 @@ class TestFunctions:
         if Env.get().openai_client is None:
             pytest.skip(f'OpenAI client does not exist (missing API key?)')
 
-    def test_together(selfself, test_client: pt.Client) -> None:
+    def test_together(self, test_client: pt.Client) -> None:
         skip_test_if_not_installed('together')
         if not Env.get().has_together_client:
             pytest.skip(f'Together client does not exist (missing API key?)')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.together import completion
-        t.add_column(output=completion(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
+        from pixeltable.functions.together import completion_create
+        t.add_column(output=completion_create(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
         t.add_column(output_text=t.output.output.choices[0].text)
         t.insert([{'input': 'I am going to the '}])
         result = t.select(t.output_text).collect()['output_text'][0]
