@@ -1,22 +1,22 @@
 import json
-from typing import List
-import numpy as np
-import pandas as pd
-import datetime
-import os
 import logging
+import os
+import pathlib
+from typing import List
 
+import numpy as np
 import pytest
 
 import pixeltable as pt
 import pixeltable.catalog as catalog
-from pixeltable.type_system import \
-    StringType, IntType, FloatType, BoolType, TimestampType, ImageType, JsonType
-from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatypes_tbl, skip_test_if_not_installed
 from pixeltable import exprs
-from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable import functions as ptf
-import pathlib
+from pixeltable.exprs import RELATIVE_PATH_ROOT as R
+from pixeltable.metadata import SystemInfo, create_system_info
+from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
+from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatypes_tbl, skip_test_if_not_installed
+from pixeltable.type_system import StringType, ImageType, FloatType
+
 
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory) -> None:
@@ -38,10 +38,40 @@ def init_env(tmp_path_factory) -> None:
 
 @pytest.fixture(scope='function')
 def test_client(init_env) -> pt.Client:
+    # Clean the DB *before* instantiating a client object. This is because some tests
+    # (such as test_migration.py) may leave the DB in a broken state, from which the
+    # client is uninstantiable.
+    clean_db()
     cl = pt.Client(reload=True)
     cl.logging(level=logging.DEBUG, to_stdout=True)
     yield cl
-    cl.reset_catalog()
+
+
+def clean_db(restore_tables: bool = True) -> None:
+    from pixeltable.env import Env
+    # The logic from Client.reset_catalog() has been moved here, so that it
+    # does not rely on instantiating a Client object. As before, UUID-named data tables will
+    # not be cleaned. If in the future it is desirable to clean out data tables as well,
+    # the commented lines may be used to drop ALL tables from the test db.
+    # sql_md = declarative_base().metadata
+    # sql_md.reflect(Env.get().engine)
+    # sql_md.drop_all(bind=Env.get().engine)
+    engine = Env.get().engine
+    SystemInfo.__table__.drop(engine, checkfirst=True)
+    TableSchemaVersion.__table__.drop(engine, checkfirst=True)
+    TableVersion.__table__.drop(engine, checkfirst=True)
+    Table.__table__.drop(engine, checkfirst=True)
+    Function.__table__.drop(engine, checkfirst=True)
+    Dir.__table__.drop(engine, checkfirst=True)
+    if restore_tables:
+        Dir.__table__.create(engine)
+        Function.__table__.create(engine)
+        Table.__table__.create(engine)
+        TableVersion.__table__.create(engine)
+        TableSchemaVersion.__table__.create(engine)
+        SystemInfo.__table__.create(engine)
+        create_system_info(engine)
+
 
 @pytest.fixture(scope='function')
 def test_tbl(test_client: pt.Client) -> catalog.Table:

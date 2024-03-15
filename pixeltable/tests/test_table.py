@@ -86,6 +86,25 @@ class TestTable:
         with pytest.raises(exc.Error):
             cl.drop_table('.test2')
 
+    def test_table_attrs(self, test_client: pt.Client) -> None:
+        cl = test_client
+        schema = {'c': StringType(nullable=False)}
+        num_retained_versions = 20
+        comment = "This is a table."
+        tbl = cl.create_table('test_table_attrs', schema, num_retained_versions=num_retained_versions, comment=comment)
+        assert tbl.num_retained_versions == num_retained_versions
+        assert tbl.comment == comment
+        new_num_retained_versions = 30
+        new_comment = "This is an updated table."
+        tbl.num_retained_versions = new_num_retained_versions
+        assert tbl.num_retained_versions == new_num_retained_versions
+        tbl.comment = new_comment
+        assert tbl.comment == new_comment
+        tbl.revert()
+        assert tbl.comment == comment
+        tbl.revert()
+        assert tbl.num_retained_versions == num_retained_versions
+
     def test_image_table(self, test_client: pt.Client) -> None:
         n_sample_rows = 20
         cl = test_client
@@ -1069,9 +1088,11 @@ class TestTable:
         fn = lambda c2: np.full((3, 4), c2)
         t.add_column(computed1=fn, type=ArrayType((3, 4), dtype=IntType()))
         t.describe()
+        t.comment = 'This is a comment.'
+        t.describe()
 
         # TODO: how to you check the output of these?
-        _ = t.__repr__()
+        _ = repr(t)
         _ = t._repr_html_()
 
     def test_common_col_names(self, test_client: pt.Client) -> None:

@@ -1,5 +1,5 @@
 import datetime
-import importlib.resources as pkg_resources
+import json
 import logging
 import os
 import pathlib
@@ -35,14 +35,19 @@ class Dumper:
 
     def dump_db(self) -> None:
         md_version = metadata.VERSION
-        dump_file = self.output_dir / f'pixeltable-v{md_version:03d}-test.dump'
+        dump_file = self.output_dir / f'pixeltable-v{md_version:03d}-test.dump.gz'
         _logger.info(f'Creating database dump at: {dump_file}')
         pg_package_dir = os.path.dirname(pgserver.__file__)
         pg_dump_binary = f'{pg_package_dir}/pginstall/bin/pg_dump'
         _logger.info(f'Using pg_dump binary at: {pg_dump_binary}')
-        with open(dump_file, 'w') as dump:
-            subprocess.run(
+        with open(dump_file, 'wb') as dump:
+            pg_dump_process = subprocess.Popen(
                 [pg_dump_binary, Env.get().db_url, '-U', 'postgres', '-Fc'],
+                stdout=subprocess.PIPE
+            )
+            subprocess.run(
+                ["gzip", "-9"],
+                stdin=pg_dump_process.stdout,
                 stdout=dump,
                 check=True
             )
@@ -75,8 +80,12 @@ class Dumper:
         t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
 
         # Add columns for .astype converters to ensure they're persisted properly
-        t.add_column(c6_as_string=t.c6.astype(StringType()))
-        t.add_column(c6_back_to_json=t.c6_as_string.astype(JsonType()))
+        t.add_column(c2_as_float=t.c2.astype(FloatType()))
+
+        # Add columns for .apply
+        t.add_column(c2_to_string=t.c2.apply(str))
+        t.add_column(c6_to_string=t.c6.apply(json.dumps))
+        t.add_column(c6_back_to_json=t.c6_to_string.apply(json.loads))
 
         num_rows = 100
         d1 = {
