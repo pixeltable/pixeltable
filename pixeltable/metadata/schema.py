@@ -189,12 +189,14 @@ class TableSchemaVersion(Base):
 @dataclasses.dataclass
 class FunctionMd:
     name: str
-    md: dict  # Function.md
+    py_version: str  # platform.python_version
+    class_name: str  # name of the Function subclass
+    md: dict  # part of the output of Function.to_store()
 
 
 class Function(Base):
     """
-    User-defined functions that are not library functions (ie, aren't available at runtime as a symbol in a known
+    User-defined functions that are not module functions (ie, aren't available at runtime as a symbol in a known
     module).
     Functions without a name are anonymous functions used in the definition of a computed column.
     Functions that have names are also assigned to a database and directory.
@@ -206,9 +208,4 @@ class Function(Base):
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
     dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md = sql.Column(JSONB, nullable=False)  # FunctionMd
-    eval_obj = sql.Column(LargeBinary, nullable=True)  # Function.eval_fn
-    init_obj = sql.Column(LargeBinary, nullable=True)  # Function.init_fn
-    update_obj = sql.Column(LargeBinary, nullable=True)  # Function.update_fn
-    value_obj = sql.Column(LargeBinary, nullable=True)  # Function.value_fn
-    python_version = sql.Column(
-        String, nullable=False, default=platform.python_version, onupdate=platform.python_version)
+    binary_obj = sql.Column(LargeBinary, nullable=True)

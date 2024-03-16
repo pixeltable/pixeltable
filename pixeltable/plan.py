@@ -1,17 +1,17 @@
-from typing import Tuple, Optional, List, Set, Any, Dict, Union
+from typing import Tuple, Optional, List, Set, Any, Dict
 from uuid import UUID
 
 import sqlalchemy as sql
 
-from pixeltable import catalog
-from pixeltable import exprs
 import pixeltable.exec as exec
-from pixeltable import exceptions as exc
 import pixeltable.func as func
+from pixeltable import catalog
+from pixeltable import exceptions as exc
+from pixeltable import exprs
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
-    return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call
+    return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call and not e.is_window_fn_call
 
 def _get_combined_ordering(
         o1: List[Tuple[exprs.Expr, bool]], o2: List[Tuple[exprs.Expr, bool]]
@@ -98,9 +98,7 @@ class Analyzer:
 
     def _analyze_agg(self) -> None:
         """Check semantic correctness of aggregation and fill in agg-specific fields of Analyzer"""
-        self.agg_fn_calls = [
-            e for e in self.all_exprs if isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call
-        ]
+        self.agg_fn_calls = [e for e in self.all_exprs if _is_agg_fn_call(e)]
         if len(self.agg_fn_calls) == 0:
             # nothing to do
             return

@@ -17,7 +17,7 @@ import pixeltable
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable.func import make_function
+import pixeltable.func as func
 from .data_row import DataRow
 from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
 
@@ -523,9 +523,10 @@ class Expr(abc.ABC):
             fn_type = None
 
         if fn_type is None:
-            raise excs.Error(
-                f'Column type of `{fn.__name__}` cannot be inferred. Use `.apply({fn.__name__}, col_type=...)` to specify.'
-            )
+            raise excs.Error((
+                f'Column type of `{fn.__name__}` cannot be inferred. '
+                f'Use `.apply({fn.__name__}, col_type=...)` to specify.'
+            ))
 
         # TODO(aaron-siegel) Currently we assume that `fn` has exactly one required parameter
         # and all optional parameters take their default values. Should we provide a more
@@ -568,12 +569,8 @@ class Expr(abc.ABC):
         # ensures that `eval_fn` is never a builtin.
         # We also set the display_name explicitly, so that the `FunctionCall` gets the
         # name of `eval_fn`, not the lambda.
-        return make_function(
-            return_type=fn_type,
-            param_types=[self.col_type],
-            eval_fn=lambda x: fn(x),
-            display_name=fn.__name__
-        )
+        return func.make_callable_function(
+            py_fn=lambda x: fn(x), return_type=fn_type, param_types=[self.col_type], function_name=fn.__name__)
 
 
 # A dictionary of result types of various stdlib functions that are

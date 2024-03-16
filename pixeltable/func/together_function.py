@@ -1,16 +1,14 @@
-from typing import Optional, Any, Dict, List, Tuple
-import logging
-import inspect
 import dataclasses
+import inspect
+import logging
+from typing import Optional, Any, Dict, List
 
-import numpy as np
 import jmespath
+import numpy as np
 
-from .signature import Signature, Parameter
-from .function_md import FunctionMd
-from .external_function import ExternalFunction
 import pixeltable.type_system as ts
-
+from .batched_function import BatchedFunction
+from .signature import Signature, Parameter
 
 _logger = logging.getLogger('pixeltable')
 
@@ -33,15 +31,14 @@ class TogetherFunctionSpec:
 
 
 # TODO: Abstract out into a generalized pattern that unifies with OpenAIFunction[Spec]
-class TogetherFunction(ExternalFunction):
-    def __init__(self, spec: TogetherFunctionSpec, module_name: str):
+class TogetherFunction(BatchedFunction):
+    def __init__(self, spec: TogetherFunctionSpec, self_path: str):
         self.spec = spec
         parameters = [
             Parameter(name, col_type, inspect.Parameter.KEYWORD_ONLY)
             for name, col_type in spec.params.items()
         ]
-        sig = Signature(return_type=spec.output_type, parameters=parameters)
-        md = FunctionMd(signature=sig, is_agg=False, is_library_fn=True)
+        signature = Signature(return_type=spec.output_type, parameters=parameters)
         # construct inspect.Signature
         required_params = [
             inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY)
@@ -52,7 +49,7 @@ class TogetherFunction(ExternalFunction):
             for name, col_type in spec.params.items() if col_type.nullable
         ]
         py_signature = inspect.Signature(required_params + opt_params)
-        super().__init__(md, module_name=module_name, py_signature=py_signature)
+        super().__init__(signature, py_signature=py_signature, self_path=self_path)
 
         self.compiled_output_path = \
             jmespath.compile(self.spec.output_path) if self.spec.output_path is not None else None

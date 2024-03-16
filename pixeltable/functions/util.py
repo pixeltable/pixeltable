@@ -62,7 +62,7 @@ def create_openai_module() -> types.ModuleType:
     ]
 
     for spec in specs:
-        fn = func.OpenAIFunction(spec, module_name=module_name)
+        fn = func.OpenAIFunction(spec, self_path=f'{module_name}.{spec.name}')
         setattr(pt_module, spec.name, fn)
 
     return pt_module
@@ -96,7 +96,7 @@ def create_together_module() -> types.ModuleType:
     ]
 
     for spec in specs:
-        fn = func.TogetherFunction(spec, module_name=module_name)
+        fn = func.TogetherFunction(spec, self_path=f'{module_name}.{spec.name}')
         setattr(pt_module, spec.name, fn)
 
     return pt_module
@@ -129,7 +129,7 @@ def create_nos_modules() -> List[types.ModuleType]:
 
         # add a Function for this model to the module
         model_id = info.name.replace("/", "_").replace("-", "_")
-        pt_func = func.NOSFunction(info, module_name)
+        pt_func = func.NOSFunction(info, f'{submodule_name}.{model_id}')
         setattr(sub_module, model_id, pt_func)
 
     return new_modules

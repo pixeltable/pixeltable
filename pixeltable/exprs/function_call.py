@@ -25,11 +25,19 @@ class FunctionCall(Expr):
             order_by_clause = []
         if group_by_clause is None:
             group_by_clause = []
-        signature = fn.md.signature
+        signature = fn.signature
         super().__init__(signature.get_return_type(bound_args))
         self.fn = fn
         self.is_method_call = is_method_call
         self.check_args(signature, bound_args)
+
+        self.agg_init_args: Dict[str, Any] = {}
+        if self.is_agg_fn_call:
+            # we separate out the init args for the aggregator
+            self.agg_init_args = {
+                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names
+            }
+            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names}
 
         # construct components, args, kwargs
         self.components: List[Expr] = []
@@ -64,7 +72,6 @@ class FunctionCall(Expr):
                 self.kwargs[param_name] = (len(self.components), None)
                 self.components.append(arg.copy())
             else:
-                # TODO: make sure it's json-serializable
                 self.kwargs[param_name] = (-1, arg)
             if fn.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                 self.kwarg_types[param_name] = signature.parameters[param_name].col_type
@@ -73,7 +80,6 @@ class FunctionCall(Expr):
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
         self.group_by_start_idx, self.group_by_stop_idx = 0, 0
         if len(group_by_clause) > 0:
-            # TODO: analyze group_by_clause
             if isinstance(group_by_clause[0], catalog.Table):
                 group_by_exprs = self._create_rowid_refs(group_by_clause[0])
             else:
@@ -231,7 +237,7 @@ class FunctionCall(Expr):
 
     @property
     def is_window_fn_call(self) -> bool:
-        return self.fn.is_aggregate and self.fn.allows_window and \
+        return isinstance(self.fn, func.AggregateFunction) and self.fn.allows_window and \
             (not self.fn.allows_std_agg \
              or self.has_group_by() \
              or (len(self.order_by) > 0 and not self.fn.requires_order_by))
@@ -241,7 +247,7 @@ class FunctionCall(Expr):
 
     @property
     def is_agg_fn_call(self) -> bool:
-        return self.fn.is_aggregate and not self.is_window_fn_call
+        return isinstance(self.fn, func.AggregateFunction)
 
     def get_agg_order_by(self) -> List[Expr]:
         assert self.is_agg_fn_call
@@ -256,7 +262,8 @@ class FunctionCall(Expr):
         Init agg state
         """
         assert self.is_agg_fn_call
-        self.aggregator = self.fn.init_fn()
+        assert isinstance(self.fn, func.AggregateFunction)
+        self.aggregator = self.fn.agg_cls(**self.agg_init_args)
 
     def update(self, data_row: DataRow) -> None:
         """
@@ -264,14 +271,14 @@ class FunctionCall(Expr):
         """
         assert self.is_agg_fn_call
         args, kwargs = self._make_args(data_row)
-        self.fn.update_fn(*[self.aggregator, *args], **kwargs)
+        self.aggregator.update(*args, **kwargs)
 
     def _make_args(self, data_row: DataRow) -> Tuple[List[Any], Dict[str, Any]]:
         """Return args and kwargs, constructed for data_row"""
         kwargs: Dict[str, Any] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
             val = arg if component_idx == -1 else data_row[self.components[component_idx].slot_idx]
-            param = self.fn.md.signature.parameters[param_name]
+            param = self.fn.signature.parameters[param_name]
             if param.kind == inspect.Parameter.VAR_KEYWORD:
                 # expand **kwargs parameter
                 kwargs.update(val)
@@ -282,7 +289,7 @@ class FunctionCall(Expr):
         args: List[Any] = []
         for param_idx, (component_idx, arg) in enumerate(self.args):
             val = arg if component_idx == -1 else data_row[self.components[component_idx].slot_idx]
-            param = self.fn.md.signature.parameters_by_pos[param_idx]
+            param = self.fn.signature.parameters_by_pos[param_idx]
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
                 # expand *args parameter
                 assert isinstance(val, list)
@@ -297,7 +304,7 @@ class FunctionCall(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         args, kwargs = self._make_args(data_row)
-        signature = self.fn.md.signature
+        signature = self.fn.signature
         if signature.parameters is not None:
             # check for nulls
             for i in range(len(self.arg_types)):
@@ -311,8 +318,8 @@ class FunctionCall(Expr):
                     data_row[self.slot_idx] = None
                     return
 
-        if not self.fn.is_aggregate:
-            data_row[self.slot_idx] = self.fn.eval_fn(*args, **kwargs)
+        if isinstance(self.fn, func.CallableFunction):
+            data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:
             if self.has_group_by():
                 if self.current_partition_vals is None:
@@ -320,15 +327,15 @@ class FunctionCall(Expr):
                 partition_vals = [data_row[e.slot_idx] for e in self.group_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
-                    self.aggregator = self.fn.init_fn()
+                    self.aggregator = self.fn.agg_cls(**self.agg_init_args)
                     self.current_partition_vals = partition_vals
             elif self.aggregator is None:
-                self.aggregator = self.fn.init_fn()
-            self.fn.update_fn(self.aggregator, *args)
-            data_row[self.slot_idx] = self.fn.value_fn(self.aggregator)
+                self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+            self.aggregator.update(*args)
+            data_row[self.slot_idx] = self.aggregator.value()
         else:
             assert self.is_agg_fn_call
-            data_row[self.slot_idx] = self.fn.value_fn(self.aggregator)
+            data_row[self.slot_idx] = self.aggregator.value()
 
     def _as_dict(self) -> Dict:
         result = {
@@ -346,7 +353,7 @@ class FunctionCall(Expr):
         assert 'kwargs' in d
         # reassemble bound args
         fn = func.Function.from_dict(d['fn'])
-        param_names = list(fn.md.signature.parameters.keys())
+        param_names = list(fn.signature.parameters.keys())
         bound_args = {param_names[i]: arg if idx == -1 else components[idx] for i, (idx, arg) in enumerate(d['args'])}
         bound_args.update(
             {param_name: val if idx == -1 else components[idx] for param_name, (idx, val) in d['kwargs'].items()})
