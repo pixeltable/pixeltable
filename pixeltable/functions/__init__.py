@@ -1,96 +1,76 @@
-import os
-from typing import Callable, List, Optional, Union, Any
-import inspect
-from pathlib import Path
 import tempfile
+from pathlib import Path
+from typing import Optional, Union
 
 import PIL.Image
-import numpy as np
-
-from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
-import pixeltable.func as func
-from pixeltable import exprs
-import pixeltable.env as env
-# import all standard function modules here so they get registered with the FunctionRegistry
-import pixeltable.functions.pil
-import pixeltable.functions.pil.image
 import av
 import av.container
 import av.stream
+import numpy as np
 
+import pixeltable.env as env
+import pixeltable.func as func
+# import all standard function modules here so they get registered with the FunctionRegistry
+import pixeltable.functions.pil.image
+from pixeltable import exprs
+from pixeltable.type_system import IntType, ColumnType, FloatType, ImageType, VideoType
+
+# automatically import all submodules so that the udfs get registered
+from . import image
+from . import string
+from . import video
 
 try:
     import openai
     from .util import create_openai_module
-    mod = create_openai_module()
-    func.FunctionRegistry.get().register_module(mod)
+    _mod = create_openai_module()
+    #func.FunctionRegistry.get().register_module(_mod)
 except ImportError:
     pass
 
 try:
     import together
     from .util import create_together_module
-    mod = create_together_module()
-    func.FunctionRegistry.get().register_module(mod)
+    _mod = create_together_module()
+    #func.FunctionRegistry.get().register_module(_mod)
 except ImportError:
     pass
 
-def _str_format(format_str: str, *args, **kwargs: Any) -> str:
-    """ Return a formatted version of S, using substitutions from args and kwargs.
-    The substitutions are identified by braces ('{' and '}')."""
-    return format_str.format(*args, **kwargs)
-str_format = func.make_library_function(StringType(), [StringType()], __name__, '_str_format')
-func.FunctionRegistry.get().register_function(__name__, 'str_format', str_format)
-
+# TODO: remove and replace calls with astype()
 def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
     expr.col_type = target_type
     return expr
 
-dict_map = func.make_function(IntType(), [StringType(), JsonType()], lambda s, d: d[s])
-
-class SumAggregator:
+@func.uda(
+    update_types=[IntType()], value_type=IntType(), name='sum', allows_window=True, requires_order_by=False)
+class SumAggregator(func.Aggregator):
     def __init__(self):
         self.sum: Union[int, float] = 0
-    @classmethod
-    def make_aggregator(cls) -> 'SumAggregator':
-        return cls()
     def update(self, val: Union[int, float]) -> None:
         if val is not None:
             self.sum += val
     def value(self) -> Union[int, float]:
         return self.sum
 
-sum = func.make_library_aggregate_function(
-    IntType(), [IntType()],
-    'pixeltable.functions', 'SumAggregator.make_aggregator', 'SumAggregator.update', 'SumAggregator.value',
-    allows_std_agg=True, allows_window=True)
-func.FunctionRegistry.get().register_function(__name__, 'sum', sum)
 
-class CountAggregator:
+@func.uda(
+    update_types=[IntType()], value_type=IntType(), name='count', allows_window = True, requires_order_by = False)
+class CountAggregator(func.Aggregator):
     def __init__(self):
         self.count = 0
-    @classmethod
-    def make_aggregator(cls) -> 'CountAggregator':
-        return cls()
     def update(self, val: int) -> None:
         if val is not None:
             self.count += 1
     def value(self) -> int:
         return self.count
 
-count = func.make_library_aggregate_function(
-    IntType(), [IntType()],
-    'pixeltable.functions', 'CountAggregator.make_aggregator', 'CountAggregator.update', 'CountAggregator.value',
-    allows_std_agg = True, allows_window = True)
-func.FunctionRegistry.get().register_function(__name__, 'count', count)
 
-class MeanAggregator:
+@func.uda(
+    update_types=[IntType()], value_type=FloatType(), name='mean', allows_window=False, requires_order_by=False)
+class MeanAggregator(func.Aggregator):
     def __init__(self):
         self.sum = 0
         self.count = 0
-    @classmethod
-    def make_aggregator(cls) -> 'MeanAggregator':
-        return cls()
     def update(self, val: int) -> None:
         if val is not None:
             self.sum += val
@@ -100,22 +80,16 @@ class MeanAggregator:
             return None
         return self.sum / self.count
 
-mean = func.make_library_aggregate_function(
-    FloatType(), [IntType()],
-    'pixeltable.functions', 'MeanAggregator.make_aggregator', 'MeanAggregator.update', 'MeanAggregator.value',
-    allows_std_agg = True, allows_window = True)
-func.FunctionRegistry.get().register_function(__name__, 'mean', mean)
 
-class VideoAggregator:
-    def __init__(self):
+@func.uda(
+    init_types=[IntType()], update_types=[ImageType()], value_type=VideoType(), name='make_video',
+    requires_order_by=True, allows_window=False)
+class VideoAggregator(func.Aggregator):
+    def __init__(self, fps: int = 25):
         """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
-        self.container : Optional[av.container.OutputContainer] = None
-        self.stream : Optional[av.stream.Stream] = None
-        self.fps : float = 25
-
-    @classmethod
-    def make_aggregator(cls) -> 'VideoAggregator':
-        return cls()
+        self.container: Optional[av.container.OutputContainer] = None
+        self.stream: Optional[av.stream.Stream] = None
+        self.fps = fps
 
     def update(self, frame: PIL.Image.Image) -> None:
         if frame is None:
@@ -138,22 +112,3 @@ class VideoAggregator:
             self.container.mux(packet)
         self.container.close()
         return str(self.out_file)
-
-make_video = func.make_library_aggregate_function(
-    VideoType(), [ImageType()],  # params: frame
-    module_name = 'pixeltable.functions',
-    init_symbol = 'VideoAggregator.make_aggregator',
-    update_symbol = 'VideoAggregator.update',
-    value_symbol = 'VideoAggregator.value',
-    requires_order_by=True, allows_std_agg=True, allows_window=False)
-func.FunctionRegistry.get().register_function(__name__, 'make_video', make_video)
-
-__all__ = [
-    #udf_call,
-    cast,
-    dict_map,
-    sum,
-    count,
-    mean,
-    make_video
-]

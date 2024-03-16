@@ -30,7 +30,15 @@ _format_defaults = { # format -> (codec, ext)
 #     for packet in output_stream.encode():
 #         output_container.mux(packet)
 
-def _extract_audio(
+
+_extract_audio_param_types = [
+    ts.VideoType(nullable=False),
+    ts.IntType(nullable=False),
+    ts.StringType(nullable=False),
+    ts.StringType(nullable=False)
+]
+@func.udf(return_type=ts.AudioType(nullable=True), param_types=_extract_audio_param_types)
+def extract_audio(
         video_path: str, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
 ) -> Optional[str]:
     """Extract an audio stream from a video file, save it as a media file and return its path"""
@@ -52,14 +60,3 @@ def _extract_audio(
                     output_container.mux(output_stream.encode(frame))
 
         return output_filename
-
-_extract_audio_param_types = [
-    ts.VideoType(nullable=False),
-    ts.IntType(nullable=False),
-    ts.StringType(nullable=False),
-    ts.StringType(nullable=False)
-]
-extract_audio = func.make_library_function(
-    ts.AudioType(nullable=True), _extract_audio_param_types, __name__, '_extract_audio')
-
-func.FunctionRegistry.get().register_module(sys.modules[__name__])

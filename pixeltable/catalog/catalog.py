@@ -27,7 +27,7 @@ class Catalog:
             cls._instance = cls()
             with orm.Session(env.Env.get().engine, future=True) as session:
                 cls._instance._load_table_versions(session)
-                cls._instance._load_functions(session)
+                #cls._instance._load_functions(session)
         return cls._instance
 
     @classmethod
@@ -146,14 +146,14 @@ class Catalog:
             self.tbl_dependents[tbl._id] = []
             self.paths.add_schema_obj(tbl._dir_id, tbl_md.name, tbl)
 
-    def _load_functions(self, session: orm.Session) -> None:
-        # load Function metadata; doesn't load the actual callable, which can be large and is only done on-demand by the
-        # FunctionRegistry
-        q = session.query(schema.Function.id, schema.Function.dir_id, schema.Function.md) \
-            .where(sql.text(f"({schema.Function.__table__}.md->>'name')::text IS NOT NULL"))
-        for id, dir_id, md in q.all():
-            assert 'name' in md
-            name = md['name']
-            assert name is not None
-            named_fn = NamedFunction(id, dir_id, name)
-            self.paths.add_schema_obj(dir_id, name, named_fn)
+    # def _load_functions(self, session: orm.Session) -> None:
+    #     # load Function metadata; doesn't load the actual callable, which can be large and is only done on-demand by the
+    #     # FunctionRegistry
+    #     q = session.query(schema.Function.id, schema.Function.dir_id, schema.Function.md) \
+    #         .where(sql.text(f"({schema.Function.__table__}.md->>'name')::text IS NOT NULL"))
+    #     for id, dir_id, md in q.all():
+    #         assert 'name' in md
+    #         name = md['name']
+    #         assert name is not None
+    #         named_fn = NamedFunction(id, dir_id, name)
+    #         self.paths.add_schema_obj(dir_id, name, named_fn)
