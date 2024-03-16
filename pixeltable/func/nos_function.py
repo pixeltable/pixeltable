@@ -5,9 +5,8 @@ import sys
 
 import numpy as np
 
-from .function_md import FunctionMd
 from .signature import Signature, Parameter
-from .external_function import ExternalFunction
+from .batched_function import BatchedFunction
 import pixeltable.env as env
 import pixeltable.type_system as ts
 import pixeltable.exceptions as excs
@@ -15,8 +14,8 @@ import pixeltable.exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 
-class NOSFunction(ExternalFunction):
-    def __init__(self, model_spec: 'nos.common.ModelSpec', module_name: Optional[str] = None):
+class NOSFunction(BatchedFunction):
+    def __init__(self, model_spec: 'nos.common.ModelSpec', self_path: str):
         return_type, param_types = self._convert_nos_signature(model_spec.signature)
         param_names = list(model_spec.signature.get_inputs_spec().keys())
         params = [
@@ -24,7 +23,6 @@ class NOSFunction(ExternalFunction):
             for name, col_type in zip(param_names, param_types)
         ]
         signature = Signature(return_type, params)
-        md = FunctionMd(signature, False, True)
 
         # construct inspect.Signature
         py_params = [
@@ -32,7 +30,7 @@ class NOSFunction(ExternalFunction):
             for name, col_type in zip(param_names, param_types)
         ]
         py_signature = inspect.Signature(py_params)
-        super().__init__(md, module_name=module_name, py_signature=py_signature)
+        super().__init__(signature, py_signature=py_signature, self_path=self_path)
 
         self.model_spec = model_spec
         self.nos_param_names = model_spec.signature.get_inputs_spec().keys()

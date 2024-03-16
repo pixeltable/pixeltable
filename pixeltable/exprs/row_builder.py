@@ -103,7 +103,7 @@ class RowBuilder:
             # we assume that the parameter of the embedding function is a ref to an image column
             assert col.col_type.is_image_type()
             # construct expr to compute embedding; explicitly resize images to the required size
-            target_img_type = next(iter(embedding_fn.md.signature.parameters.values())).col_type
+            target_img_type = next(iter(embedding_fn.signature.parameters.values())).col_type
             expr = embedding_fn(ColumnRef(col).resize(target_img_type.size))
             expr = self._record_unique_expr(expr, recursive=True)
             self.output_exprs.append(expr)

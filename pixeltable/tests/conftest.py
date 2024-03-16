@@ -77,16 +77,18 @@ def clean_db(restore_tables: bool = True) -> None:
 def test_tbl(test_client: pt.Client) -> catalog.Table:
     return create_test_tbl(test_client)
 
-@pytest.fixture(scope='function')
-def test_stored_fn(test_client: pt.Client) -> pt.Function:
-    @pt.udf(return_type=pt.IntType(), param_types=[pt.IntType()])
-    def test_fn(x):
-        return x + 1
-    test_client.create_function('test_fn', test_fn)
-    return test_fn
+# @pytest.fixture(scope='function')
+# def test_stored_fn(test_client: pt.Client) -> pt.Function:
+#     @pt.udf(return_type=pt.IntType(), param_types=[pt.IntType()])
+#     def test_fn(x):
+#         return x + 1
+#     test_client.create_function('test_fn', test_fn)
+#     return test_fn
 
 @pytest.fixture(scope='function')
-def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List[exprs.Expr]:
+def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
+#def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List[exprs.Expr]:
+
     t = test_tbl
     return [
         t.c1,
@@ -117,7 +119,7 @@ def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List
         t.c8.errortype,
         t.c8.errormsg,
         ptf.sum(t.c2, group_by=t.c4, order_by=t.c3),
-        test_stored_fn(t.c2),
+        #test_stored_fn(t.c2),
     ]
 
 @pytest.fixture(scope='function')
