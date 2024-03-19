@@ -5,7 +5,7 @@ import together
 import pixeltable as pxt
 
 
-@pxt.udf()
+@pxt.udf
 def completion_create(
         prompt: str,
         model: str,

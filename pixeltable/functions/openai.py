@@ -12,7 +12,7 @@ from pixeltable import env
 import pixeltable.type_system as ts
 
 
-@pxt.udf()
+@pxt.udf
 def completions_create(
         messages: list,
         model: str,
@@ -42,7 +42,7 @@ def completions_create(
     return result.dict()
 
 
-@pxt.udf()
+@pxt.udf
 def assistant(
         prompt: str,
         model: str,
@@ -76,7 +76,7 @@ def assistant(
     return result.dict()['choices'][0]['message']['content']
 
 
-@pxt.udf()
+@pxt.udf
 def vision(
         prompt: str,
         image: PIL.Image.Image,
@@ -102,7 +102,7 @@ def vision(
     return result.choices[0].message.content
 
 
-@pxt.udf()
+@pxt.udf
 def moderations_create(input: str, model: Optional[str] = None) -> dict:
     result = env.Env().get().openai_client.moderations.create(input=input, model=model)
     return result.dict()

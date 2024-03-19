@@ -9,7 +9,7 @@ import pixeltable.exceptions as excs
 from pixeltable import env
 
 
-@pxt.udf()
+@pxt.udf
 def completion_create(
         prompt: str,
         model: str,

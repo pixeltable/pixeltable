@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import typing
-from typing import List, Callable, Union, Optional
+from typing import List, Callable, Union, Optional, overload
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -13,11 +13,21 @@ from .globals import resolve_symbol
 from .signature import Signature
 
 
-class udf:  # noqa: invalid-class-name
+# Decorator invoked without parentheses: @pxt.udf
+@overload
+def udf(fn: Callable) -> Function: ...
+
+
+# Decorator invoked with parentheses: @pxt.udf(**kwargs)
+@overload
+def udf(*, param_types: List[ts.ColumnType], return_type: ts.ColumnType) -> Callable: ...
+
+
+def udf(*args, **kwargs):
     """A decorator to create a Function from a function definition.
 
     Examples:
-        >>> @pxt.udf()
+        >>> @pxt.udf
         ... def my_function(x: int) -> int:
         ...    return x + 1
 
@@ -25,12 +35,21 @@ class udf:  # noqa: invalid-class-name
         ... def my_function(x):
         ...    return x + 1
     """
-    def __init__(self, *, return_type: Optional[ts.ColumnType] = None, param_types: Optional[List[ts.ColumnType]] = None):
-        self.return_type = return_type
-        self.param_types = param_types
 
-    def __call__(self, fn: Callable) -> Function:
-        return make_function(self.return_type, self.param_types, fn)
+    if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
+
+        # Decorator invoked without parentheses: @pxt.udf
+        return make_function(None, None, args[0])
+
+    else:
+
+        # Decorator invoked with parentheses: @pxt.udf(**kwargs)
+        return_type = kwargs.pop('return_type', None)
+        param_types = kwargs.pop('param_types', None)
+
+        def expander(fn: Callable):
+            return make_function(return_type, param_types, fn)
+        return expander
 
 
 def make_function(
