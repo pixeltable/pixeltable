@@ -1080,6 +1080,23 @@ testing = ["covdefaults (>=2.3)", "coverage (>=7.3.2)", "diff-cover (>=8)", "pyt
 typing = ["typing-extensions (>=4.8)"]
 
 [[package]]
+name = "fireworks-ai"
+version = "0.13.0"
+description = "Python client library for the Fireworks.ai Generative AI Platform"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "fireworks-ai-0.13.0.tar.gz", hash = "sha256:d6db1e60f65f237b6e87e3e9c028681be0ba77496df398db386ae2876dab54e0"},
+    {file = "fireworks_ai-0.13.0-py3-none-any.whl", hash = "sha256:900559d7eeea8a86dc5789f9034b3873684a685a2e96b56a63e6be3a04803eb6"},
+]
+
+[package.dependencies]
+httpx = "*"
+httpx-sse = "*"
+Pillow = "*"
+pydantic = "*"
+
+[[package]]
 name = "fonttools"
 version = "4.47.0"
 description = "Tools to manipulate font files"
@@ -1422,6 +1439,17 @@ brotli = ["brotli", "brotlicffi"]
 cli = ["click (==8.*)", "pygments (==2.*)", "rich (>=10,<14)"]
 http2 = ["h2 (>=3,<5)"]
 socks = ["socksio (==1.*)"]
+
+[[package]]
+name = "httpx-sse"
+version = "0.4.0"
+description = "Consume Server-Sent Event (SSE) messages with HTTPX."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "httpx-sse-0.4.0.tar.gz", hash = "sha256:1e81a3a3070ce322add1d3529ed42eb5f70817f45ed6ec915ab753f961139721"},
+    {file = "httpx_sse-0.4.0-py3-none-any.whl", hash = "sha256:f329af6eae57eaa2bdfd962b42524764af68075ea87370a2de920af5341e318f"},
+]
 
 [[package]]
 name = "huggingface-hub"
@@ -5827,4 +5855,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8.1"
-content-hash = "664498553a40170aa64b3ad6798074c1d1928d4b8d13c088c3a6ab8a4655389e"
+content-hash = "b4237db131ab501c68bf17e7416dca69e22cc2eb1f64bf842af0e40ab382cc03"

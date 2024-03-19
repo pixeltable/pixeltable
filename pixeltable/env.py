@@ -87,6 +87,10 @@ class Env:
         self._initialized = False
 
     @property
+    def config(self):
+        return self._config
+
+    @property
     def db_url(self) -> str:
         assert self._db_url is not None
         return self._db_url
