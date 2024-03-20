@@ -16,7 +16,7 @@ def sentence_transformer(sentences: Batch[str], *, model_id: str, normalize_embe
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import SentenceTransformer
 
-    model = _lookup_model(model_id, SentenceTransformer, lambda x: SentenceTransformer(x))
+    model = _lookup_model(model_id, SentenceTransformer)
 
     array = model.encode(sentences, normalize_embeddings=normalize_embeddings)
     return [array[i] for i in range(array.shape[0])]
@@ -28,7 +28,7 @@ def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embed
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import SentenceTransformer
 
-    model = _lookup_model(model_id, SentenceTransformer, lambda x: SentenceTransformer(x))
+    model = _lookup_model(model_id, SentenceTransformer)
 
     array = model.encode(sentences, normalize_embeddings=normalize_embeddings)
     return [array[i].tolist() for i in range(array.shape[0])]
@@ -40,7 +40,7 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import CrossEncoder
 
-    model = _lookup_model(model_id, CrossEncoder, lambda x: CrossEncoder(x))
+    model = _lookup_model(model_id, CrossEncoder)
 
     array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
     return array.tolist()
@@ -52,7 +52,7 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import CrossEncoder
 
-    model = _lookup_model(model_id, CrossEncoder, lambda x: CrossEncoder(x))
+    model = _lookup_model(model_id, CrossEncoder)
 
     array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
     return array.tolist()
@@ -63,8 +63,8 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 
     env.Env.get().require_package('transformers')
 
-    model = _lookup_model(model_id, transformers.CLIPModel, lambda x: transformers.CLIPModel.from_pretrained(x))
-    processor = _lookup_processor(model_id, transformers.CLIPProcessor, lambda x: transformers.CLIPProcessor.from_pretrained(x))
+    model = _lookup_model(model_id, transformers.CLIPModel.from_pretrained)
+    processor = _lookup_processor(model_id, transformers.CLIPProcessor.from_pretrained)
 
     inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
     embeddings = model.get_text_features(**inputs).detach().numpy()
@@ -76,23 +76,23 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
 
     env.Env.get().require_package('transformers')
 
-    model = _lookup_model(model_id, transformers.CLIPModel, lambda x: transformers.CLIPModel.from_pretrained(x))
-    processor = _lookup_processor(model_id, transformers.CLIPProcessor, lambda x: transformers.CLIPProcessor.from_pretrained(x))
+    model = _lookup_model(model_id, transformers.CLIPModel.from_pretrained)
+    processor = _lookup_processor(model_id, transformers.CLIPProcessor.from_pretrained)
 
     inputs = processor(images=image, return_tensors='pt', padding=True)
     embeddings = model.get_image_features(**inputs).detach().numpy()
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
-def _lookup_model(model_id: str, model_class: type, create: Callable) -> Any:
-    key = (model_id, model_class)
+def _lookup_model(model_id: str, create: Callable) -> Any:
+    key = (model_id, create)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
         _model_cache[key] = create(model_id)
     return _model_cache[key]
 
 
-def _lookup_processor(model_id: str, model_class: type, create: Callable) -> Any:
-    key = (model_id, model_class)
+def _lookup_processor(model_id: str, create: Callable) -> Any:
+    key = (model_id, create)  # For safety, include the `create` callable in the cache key
     if key not in _processor_cache:
         _processor_cache[key] = create(model_id)
     return _processor_cache[key]
