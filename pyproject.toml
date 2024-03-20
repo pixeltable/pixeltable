@@ -16,10 +16,10 @@ exclude = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8.1"
-numpy = "^1.24.1"
-pandas = "^1.5.3"
-pillow = "^9.4.0"
+python = "^3.9"
+numpy = "^1.26.0"
+pandas = "^2.2.0"
+pillow = "^10.2.0"
 opencv-python-headless = "^4.7.0.68"
 tqdm = "^4.64.1"
 jmespath = "^1.0.1"
@@ -42,7 +42,7 @@ pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 # mypy-related
 mypy = "^1.8.0"
-types-pillow = "^10.1.0.2"
+types-pillow = "^10.2.0"
 types-pyyaml = "^6.0.1"
 # linting
 pylint = "^3.1.0"
@@ -59,8 +59,8 @@ nbmake = "^1.4.6"
 bs4 = "^0.0.2"
 requests = "^2.31.0"
 # packages required by various optional pieces of the codebase
-torch = "^2.0.0"
-torchvision = "^0.16.1"
+torch = "^2.2.0"
+torchvision = "^0.17.0"
 pyarrow = ">=13.0.0"
 openai = "^1.0.0"
 together = "^0.2.11"

@@ -4,7 +4,7 @@ from typing import Dict, Any, Tuple, Optional
 
 import PIL.Image
 
-from pixeltable.type_system import FloatType, ImageType, IntType, ArrayType, ColumnType, StringType, JsonType
+from pixeltable.type_system import FloatType, ImageType, IntType, ArrayType, ColumnType, StringType, JsonType, BoolType
 import pixeltable.func as func
 
 
@@ -107,7 +107,7 @@ transform = func.make_library_function(
 effect_spread = func.make_library_function(
     _caller_return_type, [ImageType(), FloatType()], 'PIL.Image', 'Image.effect_spread')
 getbbox = func.make_library_function(
-    ArrayType((4,), dtype=IntType()), [ImageType()], 'PIL.Image', 'Image.getbbox')
+    ArrayType((4,), dtype=IntType()), [ImageType(), BoolType()], 'PIL.Image', 'Image.getbbox')
 getcolors = func.make_library_function(
     JsonType(), [ImageType(), IntType()], 'PIL.Image', 'Image.getcolors')
 getextrema = func.make_library_function(JsonType(), [ImageType()], 'PIL.Image', 'Image.getextrema')
