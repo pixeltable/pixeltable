@@ -37,3 +37,13 @@ class ExplicitExternalFunction(ExternalFunction):
         kwargs = {k: v[0] for k, v in kwarg_batches.items() if k in self.constant_params}
         kwarg_batches = {k: v for k, v in kwarg_batches.items() if k not in self.constant_params}
         return self.invoker_fn(*arg_batches, **kwargs, **kwarg_batches)
+
+    def verify_call(self, bound_args: Dict[str, Any]) -> None:
+        """Verify constant parameters"""
+        import pixeltable.exprs as exprs
+        for param_name in self.constant_params:
+            if param_name in bound_args and isinstance(bound_args[param_name], exprs.Expr):
+                raise ValueError((
+                    f'{self.display_name}(): ',
+                    f'parameter {param_name} must be a constant value, not a Pixeltable expression'
+                ))

@@ -1,4 +1,4 @@
-from typing import Optional, List, Any, Callable
+from typing import Any, Callable
 
 import PIL.Image
 import numpy as np
@@ -6,13 +6,12 @@ import transformers
 
 import pixeltable as pxt
 import pixeltable.env as env
-import pixeltable.func.huggingface_function as hf
 import pixeltable.type_system as ts
 from pixeltable.func import Batch
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
-def sentence_transformer_2(sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False) -> Batch[np.ndarray]:
+def sentence_transformer(sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False) -> Batch[np.ndarray]:
 
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import SentenceTransformer
@@ -24,7 +23,7 @@ def sentence_transformer_2(sentences: Batch[str], *, model_id: str, normalize_em
 
 
 @pxt.udf
-def sentence_transformer_list_2(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
+def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
 
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import SentenceTransformer
@@ -36,7 +35,7 @@ def sentence_transformer_list_2(sentences: list, *, model_id: str, normalize_emb
 
 
 @pxt.udf(batch_size=32)
-def cross_encoder_2(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
+def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
 
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import CrossEncoder
@@ -48,7 +47,7 @@ def cross_encoder_2(sentences1: Batch[str], sentences2: Batch[str], *, model_id:
 
 
 @pxt.udf
-def cross_encoder_list_2(sentence1: str, sentences2: list, *, model_id: str) -> list:
+def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> list:
 
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import CrossEncoder
@@ -101,45 +100,3 @@ def _lookup_processor(model_id: str, model_class: type, create: Callable) -> Any
 
 _model_cache = {}
 _processor_cache = {}
-
-@hf.huggingface_fn(
-    return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
-    param_types=[ts.StringType(), ts.StringType(), ts.BoolType()],
-    batch_size=32,
-    constant_params=['normalize_embeddings'],
-    subclass=hf.SentenceTransformerFunction)
-def sentence_transformer(sentence: str, *, model_id: str, normalize_embeddings: bool = True):
-    pass
-
-@hf.huggingface_fn(
-    return_type=ts.JsonType(),
-    param_types=[ts.JsonType(), ts.StringType(), ts.BoolType()],
-    batch_size=1,
-    constant_params=['normalize_embeddings'],
-    subclass=hf.SentenceTransformerFunction)
-def sentence_transformer_list(sentence: List[str], *, model_id: str, normalize_embeddings: bool = True):
-    pass
-
-@hf.huggingface_fn(
-    return_type=ts.FloatType(),
-    param_types=[ts.StringType(), ts.StringType(), ts.StringType()],
-    batch_size=32,
-    subclass=hf.CrossEncoderFunction)
-def cross_encoder(sent1: str, sent2: str, *, model_id: str):
-    pass
-
-@hf.huggingface_fn(
-    return_type=ts.JsonType(),  # list of floats
-    param_types=[ts.StringType(), ts.JsonType(), ts.StringType()],
-    batch_size=1,
-    subclass=hf.CrossEncoderFunction)
-def cross_encoder_list(sent1: str, sent2: List[str], *, model_id: str):
-    pass
-
-@hf.huggingface_fn(
-    return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
-    param_types=[ts.StringType(nullable=False), ts.StringType(nullable=True), ts.ImageType(nullable=True)],
-    batch_size=32,
-    subclass=hf.ClipFunction)
-def clip(*, model_id: str, text: Optional[str] = None, img: Optional[PIL.Image.Image] = None):
-    pass
