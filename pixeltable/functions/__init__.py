@@ -16,24 +16,6 @@ import pixeltable.functions.pil.image
 from pixeltable import exprs
 from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
 
-try:
-    import openai
-    from .openai import completions_create, embedding, moderations_create
-except ImportError:
-    pass
-
-try:
-    import together
-    from .together import completion_create
-except ImportError:
-    pass
-
-try:
-    import fireworks
-    from .fireworks import completion_create
-except ImportError:
-    pass
-
 def _str_format(format_str: str, *args, **kwargs: Any) -> str:
     """ Return a formatted version of S, using substitutions from args and kwargs.
     The substitutions are identified by braces ('{' and '}')."""
