@@ -79,8 +79,6 @@ def make_function(
                     # batch_size specified
                     if not isinstance(py_return_type, Iterable):
                         raise excs.Error(f'`batch_size is specified; Python return type must be an `Iterable`')
-                    print(py_return_type)
-                    print(typing.get_args(py_return_type))
                     return_type = ts.ColumnType.from_python_type(typing.get_args(py_return_type)[0])
         if return_type is None:
             raise excs.Error(f'Cannot infer pixeltable result type. Specify `return_type` explicitly?')

@@ -2,6 +2,7 @@ from typing import Optional, List, Any, Callable, Iterable
 
 import PIL.Image
 import numpy as np
+import transformers
 
 import pixeltable as pxt
 import pixeltable.env as env
@@ -57,6 +58,32 @@ def cross_encoder_list_2(sentence1: str, sentences2: list, *, model_id: str) -> 
     return array.tolist()
 
 
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
+def clip_text(text: Iterable[str], *, model_id: str) -> Iterable[np.ndarray]:
+
+    env.Env.get().require_package('transformers')
+
+    model = _lookup_model(model_id, transformers.CLIPModel, lambda x: transformers.CLIPModel.from_pretrained(x))
+    processor = _lookup_processor(model_id, transformers.CLIPProcessor, lambda x: transformers.CLIPProcessor.from_pretrained(x))
+
+    inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
+    embeddings = model.get_text_features(**inputs).detach().numpy()
+    return [embeddings[i] for i in range(embeddings.shape[0])]
+
+
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
+def clip_image(image: Iterable[PIL.Image.Image], *, model_id: str) -> Iterable[np.ndarray]:
+
+    env.Env.get().require_package('transformers')
+
+    model = _lookup_model(model_id, transformers.CLIPModel, lambda x: transformers.CLIPModel.from_pretrained(x))
+    processor = _lookup_processor(model_id, transformers.CLIPProcessor, lambda x: transformers.CLIPProcessor.from_pretrained(x))
+
+    inputs = processor(images=image, return_tensors='pt', padding=True)
+    embeddings = model.get_image_features(**inputs).detach().numpy()
+    return [embeddings[i] for i in range(embeddings.shape[0])]
+
+
 def _lookup_model(model_id: str, model_class: type, create: Callable) -> Any:
     key = (model_id, model_class)
     if key not in _model_cache:
@@ -64,8 +91,15 @@ def _lookup_model(model_id: str, model_class: type, create: Callable) -> Any:
     return _model_cache[key]
 
 
-_model_cache = {}
+def _lookup_processor(model_id: str, model_class: type, create: Callable) -> Any:
+    key = (model_id, model_class)
+    if key not in _processor_cache:
+        _processor_cache[key] = create(model_id)
+    return _processor_cache[key]
 
+
+_model_cache = {}
+_processor_cache = {}
 
 @hf.huggingface_fn(
     return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),

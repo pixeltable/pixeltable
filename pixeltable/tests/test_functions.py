@@ -235,14 +235,14 @@ class TestFunctions:
         assert status.num_excs == 0
 
         # run multiple models one at a time in order to exercise batching
-        from pixeltable.functions.huggingface import clip
+        from pixeltable.functions.huggingface import clip_text, clip_image
         model_ids = ['openai/clip-vit-base-patch32', 'laion/CLIP-ViT-B-32-laion2B-s34B-b79K']
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed_text{idx}'
-            t[col_name] = clip(text=t.text, model_id=model_id)
+            t[col_name] = clip_text(t.text, model_id=model_id)
             assert t.column_types()[col_name] == ArrayType((None,), dtype=FloatType(), nullable=False)
             col_name = f'embed_img{idx}'
-            t[col_name] = clip(img=t.img, model_id=model_id)
+            t[col_name] = clip_image(t.img, model_id=model_id)
             assert t.column_types()[col_name] == ArrayType((None,), dtype=FloatType(), nullable=False)
 
         def verify_row(row: Dict[str, Any]) -> None:
@@ -259,7 +259,3 @@ class TestFunctions:
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
-
-        with pytest.raises(ValueError) as exc_info:
-            t.add_column(embed=clip(text=t.text, img=t.img, model_id=model_ids[0]))
-        assert 'only one of' in str(exc_info.value)
