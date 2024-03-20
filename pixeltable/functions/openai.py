@@ -1,15 +1,15 @@
 import base64
 import io
-import types
 from typing import Optional
 
 import PIL.Image
 import numpy as np
-from openai._types import NotGiven, NOT_GIVEN
+from openai._types import NOT_GIVEN
 
 import pixeltable as pxt
-from pixeltable import env
 import pixeltable.type_system as ts
+from pixeltable import env
+from pixeltable.func import Batch
 
 
 @pxt.udf
@@ -108,13 +108,15 @@ def moderations_create(input: str, model: Optional[str] = None) -> dict:
     return result.dict()
 
 
-# TODO(aaron-siegel): Implement batching
-@pxt.udf(return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
-def embedding(input: str, model: str) -> np.ndarray:
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
+def embedding(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
     result = env.Env().get().openai_client.embeddings.create(
         input=input,
         model=model,
         encoding_format='float'
     )
-    emb = result.data[0].embedding
-    return np.array(emb, dtype=np.float64)
+    embeddings = [
+        np.array(data.embedding, dtype=np.float64)
+        for data in result.data
+    ]
+    return embeddings
