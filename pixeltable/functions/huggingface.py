@@ -33,6 +33,30 @@ def sentence_transformer_list_2(sentences: list, *, model_id: str, normalize_emb
     return [array[i].tolist() for i in range(array.shape[0])]
 
 
+@pxt.udf(batch_size=32)
+def cross_encoder_2(sentences1: Iterable[str], sentences2: Iterable[str], *, model_id: str) -> Iterable[float]:
+
+    env.Env.get().require_package('sentence_transformers')
+    from sentence_transformers import CrossEncoder
+
+    model = _lookup_model(model_id, CrossEncoder, lambda x: CrossEncoder(x))
+
+    array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
+    return array.tolist()
+
+
+@pxt.udf
+def cross_encoder_list_2(sentence1: str, sentences2: list, *, model_id: str) -> list:
+
+    env.Env.get().require_package('sentence_transformers')
+    from sentence_transformers import CrossEncoder
+
+    model = _lookup_model(model_id, CrossEncoder, lambda x: CrossEncoder(x))
+
+    array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
+    return array.tolist()
+
+
 def _lookup_model(model_id: str, model_class: type, create: Callable) -> Any:
     key = (model_id, model_class)
     if key not in _model_cache:
