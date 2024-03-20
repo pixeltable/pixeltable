@@ -161,16 +161,16 @@ class TestFunctions:
         assert status.num_excs == 0
 
         # run multiple models one at a time in order to exercise batching
-        from pixeltable.functions.huggingface import sentence_transformer, sentence_transformer_list
+        from pixeltable.functions.huggingface import sentence_transformer_2, sentence_transformer_list_2
         model_ids = ['sentence-transformers/all-mpnet-base-v2', 'BAAI/bge-reranker-base']
         num_dims = [768, 768]
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
-            t[col_name] = sentence_transformer(t.input, model_id=model_id, normalize_embeddings=True)
+            t[col_name] = sentence_transformer_2(t.input, model_id=model_id, normalize_embeddings=True)
             assert t.column_types()[col_name] == ArrayType((None,), dtype=FloatType(), nullable=False)
             list_col_name = f'embed_list{idx}'
-            t[list_col_name] = sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)
-            assert t.column_types()[list_col_name] == JsonType()
+            t[list_col_name] = sentence_transformer_list_2(t.input_list, model_id=model_id, normalize_embeddings=True)
+            assert t.column_types()[list_col_name] == JsonType(nullable=True)
 
         def verify_row(row: Dict[str, Any]) -> None:
             for idx, (_, d) in enumerate(zip(model_ids, num_dims)):

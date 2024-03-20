@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import inspect
 import typing
-from typing import List, Callable, Union, Optional, overload
+from typing import List, Callable, Union, Optional, Iterable, overload
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from . import ExternalFunction
+from .external_function import ExplicitExternalFunction
 from .function import Function
 from .function_md import FunctionMd
 from .globals import resolve_symbol
@@ -20,7 +22,12 @@ def udf(fn: Callable) -> Function: ...
 
 # Decorator invoked with parentheses: @pxt.udf(**kwargs)
 @overload
-def udf(*, param_types: List[ts.ColumnType], return_type: ts.ColumnType) -> Callable: ...
+def udf(
+        *,
+        param_types: Optional[List[ts.ColumnType]] = None,
+        return_type: Optional[ts.ColumnType] = None,
+        batch_size: Optional[int] = None
+) -> Callable: ...
 
 
 def udf(*args, **kwargs):
@@ -39,6 +46,7 @@ def udf(*args, **kwargs):
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
 
         # Decorator invoked without parentheses: @pxt.udf
+        # Simply call make_function with defaults.
         return make_function(None, None, args[0])
 
     else:
@@ -46,34 +54,51 @@ def udf(*args, **kwargs):
         # Decorator invoked with parentheses: @pxt.udf(**kwargs)
         return_type = kwargs.pop('return_type', None)
         param_types = kwargs.pop('param_types', None)
+        batch_size = kwargs.pop('batch_size', None)
 
-        def expander(fn: Callable):
-            return make_function(return_type, param_types, fn)
-        return expander
+        def decorator(fn: Callable):
+            return make_function(return_type, param_types, fn, batch_size=batch_size)
+        return decorator
 
 
 def make_function(
     return_type: Optional[ts.ColumnType],
     param_types: Optional[List[ts.ColumnType]],
     eval_fn: Callable,
-    display_name: Optional[str] = None
+    display_name: Optional[str] = None,
+    batch_size: Optional[int] = None
 ) -> Function:
     assert eval_fn is not None
     if return_type is None:
         if 'return' in typing.get_type_hints(eval_fn):
             py_return_type = typing.get_type_hints(eval_fn)['return']
             if py_return_type is not None:
-                return_type = ts.ColumnType.from_python_type(py_return_type)
+                if batch_size is None:
+                    return_type = ts.ColumnType.from_python_type(py_return_type)
+                else:
+                    # batch_size specified
+                    if not isinstance(py_return_type, Iterable):
+                        raise excs.Error(f'`batch_size is specified; Python return type must be an `Iterable`')
+                    print(py_return_type)
+                    print(typing.get_args(py_return_type))
+                    return_type = ts.ColumnType.from_python_type(typing.get_args(py_return_type)[0])
         if return_type is None:
             raise excs.Error(f'Cannot infer pixeltable result type. Specify `return_type` explicitly?')
+    constant_params = []
     if param_types is None:
         py_signature = inspect.signature(eval_fn)
         param_types = []
         for param_name, py_type in typing.get_type_hints(eval_fn).items():
             if param_name != 'return':
-                col_type = ts.ColumnType.from_python_type(py_type)
-                if col_type is None:
-                    raise excs.Error(f'Cannot infer pixeltable type of parameter: `{param_name}`. Specify `param_types` explicitly?')
+                if batch_size is not None and isinstance(py_type, Iterable):
+                    col_type = ts.ColumnType.from_python_type(typing.get_args(py_type)[0])
+                    if col_type is None:
+                        raise excs.Error(f'Cannot infer pixeltable type of parameter: `{param_name}`. Specify `param_types` explicitly?')
+                else:
+                    constant_params.append(param_name)
+                    col_type = ts.ColumnType.from_python_type(py_type)
+                    if col_type is None:
+                        raise excs.Error(f'Cannot infer pixeltable type of parameter: `{param_name}`. Specify `param_types` explicitly?')
                 param_types.append(col_type)
         if len(param_types) != len(py_signature.parameters):
             raise excs.Error(f'Cannot infer pixeltable types of parameters. Specify `param_types` explicitly?')
@@ -83,7 +108,12 @@ def make_function(
         md.src = inspect.getsource(eval_fn)
     except OSError as e:
         pass
-    return Function(md, eval_fn=eval_fn, display_name=display_name)
+    if batch_size is None:
+        return Function(md, eval_fn=eval_fn, display_name=display_name)
+    else:
+        # batch_size is specified
+        return ExplicitExternalFunction(md, batch_size=batch_size, invoker_fn=eval_fn, constant_params=constant_params, display_name=display_name)
+
 
 def make_aggregate_function(
         return_type: ts.ColumnType, param_types: List[ts.ColumnType],

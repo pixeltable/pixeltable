@@ -1,6 +1,6 @@
 from .signature import Signature, Parameter
 from .function import Function
-from .external_function import ExternalFunction
+from .external_function import ExternalFunction, ExplicitExternalFunction
 from .nos_function import NOSFunction
 from .huggingface_function import SentenceTransformerFunction, CrossEncoderFunction, ClipFunction
 from .function_registry import FunctionRegistry
