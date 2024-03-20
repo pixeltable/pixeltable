@@ -2,7 +2,6 @@ from typing import Any, Callable
 
 import PIL.Image
 import numpy as np
-import transformers
 
 import pixeltable as pxt
 import pixeltable.env as env
@@ -62,9 +61,10 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
 def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 
     env.Env.get().require_package('transformers')
+    from transformers import CLIPModel, CLIPProcessor
 
-    model = _lookup_model(model_id, transformers.CLIPModel.from_pretrained)
-    processor = _lookup_processor(model_id, transformers.CLIPProcessor.from_pretrained)
+    model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
     inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
     embeddings = model.get_text_features(**inputs).detach().numpy()
@@ -75,9 +75,10 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
 
     env.Env.get().require_package('transformers')
+    from transformers import CLIPModel, CLIPProcessor
 
-    model = _lookup_model(model_id, transformers.CLIPModel.from_pretrained)
-    processor = _lookup_processor(model_id, transformers.CLIPProcessor.from_pretrained)
+    model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
     inputs = processor(images=image, return_tensors='pt', padding=True)
     embeddings = model.get_image_features(**inputs).detach().numpy()
