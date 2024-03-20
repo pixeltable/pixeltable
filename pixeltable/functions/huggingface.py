@@ -1,4 +1,4 @@
-from typing import Optional, List, Any, Callable, Iterable
+from typing import Optional, List, Any, Callable
 
 import PIL.Image
 import numpy as np
@@ -8,10 +8,11 @@ import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.func.huggingface_function as hf
 import pixeltable.type_system as ts
+from pixeltable.func import Batch
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
-def sentence_transformer_2(sentences: Iterable[str], *, model_id: str, normalize_embeddings: bool = False) -> Iterable[np.ndarray]:
+def sentence_transformer_2(sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False) -> Batch[np.ndarray]:
 
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import SentenceTransformer
@@ -35,7 +36,7 @@ def sentence_transformer_list_2(sentences: list, *, model_id: str, normalize_emb
 
 
 @pxt.udf(batch_size=32)
-def cross_encoder_2(sentences1: Iterable[str], sentences2: Iterable[str], *, model_id: str) -> Iterable[float]:
+def cross_encoder_2(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
 
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import CrossEncoder
@@ -59,7 +60,7 @@ def cross_encoder_list_2(sentence1: str, sentences2: list, *, model_id: str) -> 
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
-def clip_text(text: Iterable[str], *, model_id: str) -> Iterable[np.ndarray]:
+def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 
     env.Env.get().require_package('transformers')
 
@@ -72,7 +73,7 @@ def clip_text(text: Iterable[str], *, model_id: str) -> Iterable[np.ndarray]:
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
-def clip_image(image: Iterable[PIL.Image.Image], *, model_id: str) -> Iterable[np.ndarray]:
+def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
 
     env.Env.get().require_package('transformers')
 

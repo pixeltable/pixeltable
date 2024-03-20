@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import inspect
 import typing
-from typing import List, Callable, Union, Optional, Iterable, overload
+from typing import List, Callable, Union, Optional, overload
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from . import ExternalFunction
 from .external_function import ExplicitExternalFunction
 from .function import Function
 from .function_md import FunctionMd
@@ -20,7 +19,7 @@ from .signature import Signature
 def udf(fn: Callable) -> Function: ...
 
 
-# Decorator invoked with parentheses: @pxt.udf(**kwargs)
+# Decorator schema invoked with parentheses: @pxt.udf(**kwargs)
 @overload
 def udf(
         *,
@@ -61,6 +60,20 @@ def udf(*args, **kwargs):
         return decorator
 
 
+T = typing.TypeVar('T')
+Batch = typing.Annotated[list[T], 'pxt-batch']
+
+
+def _unpack_batch_type(t: type) -> Optional[type]:
+    if typing.get_origin(t) == typing.Annotated:
+        batch_args = typing.get_args(t)
+        if len(batch_args) == 2 and batch_args[1] == 'pxt-batch':
+            assert typing.get_origin(batch_args[0]) == list
+            list_args = typing.get_args(batch_args[0])
+            return list_args[0]
+    return None
+
+
 def make_function(
     return_type: Optional[ts.ColumnType],
     param_types: Optional[List[ts.ColumnType]],
@@ -71,25 +84,27 @@ def make_function(
     assert eval_fn is not None
     if return_type is None:
         if 'return' in typing.get_type_hints(eval_fn):
-            py_return_type = typing.get_type_hints(eval_fn)['return']
+            py_return_type = typing.get_type_hints(eval_fn, include_extras=True)['return']
             if py_return_type is not None:
                 if batch_size is None:
                     return_type = ts.ColumnType.from_python_type(py_return_type)
                 else:
                     # batch_size specified
-                    if not isinstance(py_return_type, Iterable):
-                        raise excs.Error(f'`batch_size is specified; Python return type must be an `Iterable`')
-                    return_type = ts.ColumnType.from_python_type(typing.get_args(py_return_type)[0])
+                    batch_type = _unpack_batch_type(py_return_type)
+                    if batch_type is None:
+                        raise excs.Error(f'`batch_size is specified; Python return type must be a `Batch`')
+                    return_type = ts.ColumnType.from_python_type(batch_type)
         if return_type is None:
             raise excs.Error(f'Cannot infer pixeltable result type. Specify `return_type` explicitly?')
     constant_params = []
     if param_types is None:
         py_signature = inspect.signature(eval_fn)
         param_types = []
-        for param_name, py_type in typing.get_type_hints(eval_fn).items():
+        for param_name, py_type in typing.get_type_hints(eval_fn, include_extras=True).items():
             if param_name != 'return':
-                if batch_size is not None and isinstance(py_type, Iterable):
-                    col_type = ts.ColumnType.from_python_type(typing.get_args(py_type)[0])
+                batch_type = _unpack_batch_type(py_type)
+                if batch_size is not None and batch_type is not None:
+                    col_type = ts.ColumnType.from_python_type(batch_type)
                     if col_type is None:
                         raise excs.Error(f'Cannot infer pixeltable type of parameter: `{param_name}`. Specify `param_types` explicitly?')
                 else:
