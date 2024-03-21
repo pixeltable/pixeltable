@@ -10,15 +10,14 @@ from pixeltable.exceptions import Error
 from pixeltable.env import Env
 from pixeltable.utils.documents import get_document_handle
 
-
 _logger = logging.getLogger('pixeltable')
-
 
 class ChunkMetadata(enum.Enum):
     TITLE = 1
     HEADINGS = 2
     SOURCELINE = 3
-
+    PAGE_NUMBER = 4
+    BOUNDING_BOX = 5
 
 class Separator(enum.Enum):
     HEADING = 1
@@ -29,44 +28,59 @@ class Separator(enum.Enum):
 
 
 @dataclasses.dataclass
-class DocumentSectionMd:
+class DocumentSectionMetadata:
     """Metadata for a subsection of a document (ie, a structural element like a heading or paragraph)"""
     source_line: int
-
     # the stack of headings up to the most recently observed one;
     # eg, if the most recent one was an h2, 'headings' would contain keys 1 and 2, but nothing below that
     headings: Dict[int, str]
+
+    # pdf-specific metadata
+    page_number: int = 0
+    bbox: Optional[Dict[str,float]] = None
 
 
 @dataclasses.dataclass
 class DocumentSection:
     """A single document chunk, according to some of the splitting criteria"""
     text: Optional[str]
-    md: Optional[DocumentSectionMd]
+    metadata: Optional[DocumentSectionMetadata]
 
 
 class DocumentSplitter(ComponentIterator):
-    """"Iterator over pieces of a document"""
-    MD_COLUMN_TYPES = {
+    """Iterator over pieces of a document. The document is split into chunks based on the specified separators.
+    The iterator output tuples are of schema {'text': StringType()}, but can include additional metadata fields if specified
+    in the `metadata` argument as explained below.
+
+    Args:
+        `metadata`: which additional metadata fields to include in the output schema:
+             'title', 'headings' (HTML and Markdown), 'sourceline' (HTML), 'page_number' (PDF), 'bounding_box' (PDF).
+             The input can be a comma-separated string of these values eg. 'title,headings,sourceline'.
+        `separators`: which separators to use to split the document into rows. Options are:
+             'heading', 'paragraph', 'sentence', 'token_limit', 'char_limit'. As with metadata, this is can be a
+                comma-separated string eg. 'heading,token_limit'.
+        `limit`: the maximum number of tokens or characters in each chunk if 'token_limit' or 'char_limit' is specified.
+    """
+    METADATA_COLUMN_TYPES = {
         ChunkMetadata.TITLE: StringType(),
         ChunkMetadata.HEADINGS: JsonType(),
-        ChunkMetadata.SOURCELINE: IntType()
+        ChunkMetadata.SOURCELINE: IntType(),
+        ChunkMetadata.PAGE_NUMBER: IntType(),
+        ChunkMetadata.BOUNDING_BOX: JsonType(),
     }
 
     def __init__(
             self, document: str, *, separators: str, limit: int = 0, overlap: int = 0, metadata: str = '',
-            html_skip_tags: List[str] = None, tiktoken_encoding: Optional[str] = 'cl100k_base',
+            html_skip_tags: Optional[List[str]] = None, tiktoken_encoding: Optional[str] = 'cl100k_base',
             tiktoken_target_model: Optional[str] = None
     ):
         import bs4
         if html_skip_tags is None:
             html_skip_tags = ['nav']
-        with open(document, 'r', encoding='utf8') as fh:
-            s = fh.read()
-            self._doc_handle = get_document_handle(s)
-            assert self._doc_handle is not None
-        self._separators = [Separator[s.upper()] for s in separators.split(',')]
-        self._md_fields = [ChunkMetadata[m.upper()] for m in metadata.split(',')] if len(metadata) > 0 else []
+        self._doc_handle = get_document_handle(document)
+        assert self._doc_handle is not None
+        self._separators = [Separator[s.strip().upper()] for s in separators.split(',')]
+        self._metadata_fields = [ChunkMetadata[m.strip().upper()] for m in metadata.split(',')] if len(metadata) > 0 else []
         self._doc_title = \
             self._doc_handle.bs_doc.title.get_text().strip() if self._doc_handle.bs_doc is not None else ''
         self._limit = limit
@@ -79,9 +93,13 @@ class DocumentSplitter(ComponentIterator):
         if self._doc_handle.format == DocumentType.DocumentFormat.HTML:
             assert self._doc_handle.bs_doc is not None
             self._sections = self._html_sections()
-        else:
+        elif self._doc_handle.format == DocumentType.DocumentFormat.MD:
             assert self._doc_handle.md_ast is not None
             self._sections = self._markdown_sections()
+        else:
+            assert self._doc_handle.pdf_doc is not None
+            self._sections = self._pdf_sections()
+
         if Separator.SENTENCE in self._separators:
             self._sections = self._sentence_sections(self._sections)
         if Separator.TOKEN_LIMIT in self._separators:
@@ -106,14 +124,14 @@ class DocumentSplitter(ComponentIterator):
     def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, ColumnType], List[str]]:
         schema = {'text': StringType()}
         if 'metadata' in kwargs and len(kwargs['metadata']) > 0:
-            md_fields = kwargs['metadata'].split(',')
+            md_fields = [field.strip() for field in kwargs['metadata'].split(',')]
             for md_field in md_fields:
                 if not hasattr(ChunkMetadata, md_field.upper()):
                     raise Error(f'Invalid metadata field {md_field}')
-                schema[md_field.lower()] = cls.MD_COLUMN_TYPES[ChunkMetadata[md_field.upper()]]
+                schema[md_field.lower()] = cls.METADATA_COLUMN_TYPES[ChunkMetadata[md_field.upper()]]
 
         assert 'separators' in kwargs
-        separators = kwargs['separators'].split(',')
+        separators = [sep.strip() for sep in kwargs['separators'].split(',')]
         for separator in separators:
             if not hasattr(Separator, separator.upper()):
                 raise Error(f'Invalid separator {separator}')
@@ -145,13 +163,17 @@ class DocumentSplitter(ComponentIterator):
             if section.text is None:
                 continue
             result = {'text': section.text}
-            for md_field in self._md_fields:
+            for md_field in self._metadata_fields:
                 if md_field == ChunkMetadata.TITLE:
                     result[md_field.name.lower()] = self._doc_title
                 elif md_field == ChunkMetadata.HEADINGS:
-                    result[md_field.name.lower()] = section.md.headings
+                    result[md_field.name.lower()] = section.metadata.headings
                 elif md_field == ChunkMetadata.SOURCELINE:
-                    result[md_field.name.lower()] = section.md.source_line
+                    result[md_field.name.lower()] = section.metadata.source_line
+                elif md_field == ChunkMetadata.PAGE_NUMBER:
+                    result[md_field.name.lower()] = section.metadata.page_number
+                elif md_field == ChunkMetadata.BOUNDING_BOX:
+                    result[md_field.name.lower()] = section.metadata.bbox
             return result
 
     def _html_sections(self) -> Generator[DocumentSection, None, None]:
@@ -164,7 +186,7 @@ class DocumentSplitter(ComponentIterator):
         headings: Dict[int, str] = {}   # current state of observed headings (level -> text)
         sourceline = 0  # most recently seen sourceline
 
-        def update_md(el: bs4.Tag) -> None:
+        def update_metadata(el: bs4.Tag) -> None:
             # update current state
             nonlocal headings, sourceline
             sourceline = el.sourceline
@@ -179,8 +201,8 @@ class DocumentSplitter(ComponentIterator):
         def emit() -> None:
             nonlocal text_section, headings, sourceline
             if len(text_section) > 0:
-                md = DocumentSectionMd(sourceline, headings.copy())
-                yield DocumentSection(text=text_section, md=md)
+                md = DocumentSectionMetadata(sourceline, headings.copy())
+                yield DocumentSection(text=text_section, metadata=md)
                 text_section = ''
 
         def process_element(el: bs4.PageElement) -> Generator[DocumentSection, None, None]:
@@ -199,11 +221,11 @@ class DocumentSplitter(ComponentIterator):
             if el.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 if emit_on_heading:
                     yield from emit()
-                update_md(el)
+                update_metadata(el)
             elif el.name == 'p':
                 if emit_on_paragraph:
                     yield from emit()
-                update_md(el)
+                update_metadata(el)
             for child in el.children:
                 yield from process_element(child)
 
@@ -234,8 +256,8 @@ class DocumentSplitter(ComponentIterator):
         def emit() -> None:
             nonlocal text_section, headings
             if len(text_section) > 0:
-                md = DocumentSectionMd(0, headings.copy())
-                yield DocumentSection(text=text_section, md=md)
+                md = DocumentSectionMetadata(0, headings.copy())
+                yield DocumentSection(text=text_section, metadata=md)
                 text_section = ''
 
         def process_element(el: Dict) -> Generator[DocumentSection, None, None]:
@@ -266,13 +288,40 @@ class DocumentSplitter(ComponentIterator):
             yield from process_element(el)
         yield from emit()
 
+    def _pdf_sections(self) -> Generator[DocumentSection, None, None]:
+        """Create DocumentSections reflecting the pdf-specific separators"""
+        import pdfminer
+        import pdfminer.high_level
+        import pdfminer.layout
+
+        assert self._doc_handle.pdf_doc is not None
+
+        # see https://pdfminersix.readthedocs.io/en/latest/topic/converting_pdf_to_text.html#topic-pdf-to-text-layout
+        # for conceptual layout structure for page
+        #
+        # see https://pdfminersix.readthedocs.io/en/latest/tutorial/extract_pages.html
+        # for usage
+        for page_number, page_layout in enumerate(pdfminer.high_level.extract_pages(self._doc_handle.pdf_doc)):
+            for _, element in enumerate(page_layout, start=1):
+                if isinstance(element, pdfminer.layout.LTTextContainer):
+                    # note LTText includes many other types as long as they have text
+                    text = element.get_text().strip()
+                    if len(text) > 0:
+                        # extract from type Rect
+                        (x0, y0, x1, y1) = element.bbox
+                        bbox = {'x0': x0, 'y0': y0,
+                                'x1': x1, 'y1': y1}
+                        metadata = DocumentSectionMetadata(0, headings={}, page_number=page_number, bbox=bbox)
+                        yield DocumentSection(text=text, metadata=metadata)
+
+
     def _sentence_sections(self, input_sections: Iterable[DocumentSection]) -> Generator[DocumentSection, None, None]:
         """Split the input sections into sentences"""
         for section in input_sections:
             if section.text is not None:
                 doc = Env.get().spacy_nlp(section.text)
                 for sent in doc.sents:
-                    yield DocumentSection(text=sent.text, md=section.md)
+                    yield DocumentSection(text=sent.text, metadata=section.metadata)
 
     def _token_chunks(self, input: Iterable[DocumentSection]) -> Generator[DocumentSection, None, None]:
         import tiktoken
@@ -290,7 +339,7 @@ class DocumentSplitter(ComponentIterator):
             while start_idx < len(tokens):
                 end_idx = min(start_idx + self._limit, len(tokens))
                 text = encoding.decode(tokens[start_idx:end_idx])
-                yield DocumentSection(text=text, md=section.md)
+                yield DocumentSection(text=text, metadata=section.metadata)
                 start_idx += self._limit - self._overlap
 
     def _char_chunks(self, input: Iterable[DocumentSection]) -> Generator[DocumentSection, None, None]:
@@ -301,7 +350,7 @@ class DocumentSplitter(ComponentIterator):
             while start_idx < len(section.text):
                 end_idx = min(start_idx + self._limit, len(section.text))
                 text = section.text[start_idx:end_idx]
-                yield DocumentSection(text=text, md=section.md)
+                yield DocumentSection(text=text, metadata=section.metadata)
                 start_idx += self._limit - self._overlap
 
     def close(self) -> None:

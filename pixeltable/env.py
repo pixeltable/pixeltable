@@ -325,6 +325,7 @@ class Env:
         check('transformers')
         check('sentence_transformers')
         check('boto3')
+        check('pdfminer')
         check('pyarrow')
         check('spacy')  # TODO: deal with en-core-web-sm
         if self.is_installed_package('spacy'):
