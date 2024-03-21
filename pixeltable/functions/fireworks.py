@@ -39,6 +39,7 @@ def completion_create(
 
 def initialize():
 
+    global _is_fireworks_initialized
     if _is_fireworks_initialized:
         return
 
@@ -50,11 +51,11 @@ def initialize():
         api_key = config['fireworks']['api_key']
     else:
         api_key = os.environ.get('FIREWORKS_API_KEY')
-
     if api_key is None or api_key == '':
         raise excs.Error('Fireworks client not initialized (no API key configured).')
 
     fireworks.client.api_key = api_key
+    _is_fireworks_initialized = True
 
 
 _logger = logging.getLogger('pixeltable')

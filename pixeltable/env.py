@@ -340,6 +340,7 @@ class Env:
         check('together')
         if self.is_installed_package('together'):
             self._create_together_client()
+        check('fireworks')
         check('nos')
         if self.is_installed_package('nos'):
             self._create_nos_client()

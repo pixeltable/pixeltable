@@ -129,6 +129,16 @@ class TestFunctions:
         result = t.select(t.output_text).collect()['output_text'][0]
         assert len(result) > 0
 
+    def test_fireworks(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('fireworks')
+        cl = test_client
+        t = cl.create_table('test_tbl', {'input': StringType()})
+        from pixeltable.functions.fireworks import completion_create
+        t['output'] = completion_create(prompt=t.input, model='accounts/fireworks/models/llama-v2-7b-chat', max_tokens=256).choices[0].text
+        t.insert(input='I am going to the ')
+        result = t.select(t.output).collect()['output'][0]
+        assert len(result) > 0
+
     def test_hf_function(self, test_client: pt.Client) -> None:
         skip_test_if_not_installed('sentence_transformers')
         cl = test_client
