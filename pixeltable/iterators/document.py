@@ -61,10 +61,8 @@ class DocumentSplitter(ComponentIterator):
         import bs4
         if html_skip_tags is None:
             html_skip_tags = ['nav']
-        with open(document, 'r') as fh:
-            s = fh.read()
-            self._doc_handle = get_document_handle(s)
-            assert self._doc_handle is not None
+        self._doc_handle = get_document_handle(document)
+        assert self._doc_handle is not None
         self._separators = [Separator[s.upper()] for s in separators.split(',')]
         self._md_fields = [ChunkMetadata[m.upper()] for m in metadata.split(',')] if len(metadata) > 0 else []
         self._doc_title = \
@@ -79,9 +77,13 @@ class DocumentSplitter(ComponentIterator):
         if self._doc_handle.format == DocumentType.DocumentFormat.HTML:
             assert self._doc_handle.bs_doc is not None
             self._sections = self._html_sections()
-        else:
+        elif self._doc_handle.format == DocumentType.DocumentFormat.MD:
             assert self._doc_handle.md_ast is not None
             self._sections = self._markdown_sections()
+        else:
+            assert self._doc_handle.pdf_doc is not None
+            self._sections = self._pdf_sections()
+
         if Separator.SENTENCE in self._separators:
             self._sections = self._sentence_sections(self._sections)
         if Separator.TOKEN_LIMIT in self._separators:
@@ -265,6 +267,34 @@ class DocumentSplitter(ComponentIterator):
         for el in self._doc_handle.md_ast:
             yield from process_element(el)
         yield from emit()
+
+    def _pdf_sections(self) -> Generator[DocumentSection, None, None]:
+        """Create DocumentSections reflecting the pdf-specific separators"""
+        import pdfminer
+        import pdfminer.high_level
+        import pdfminer.layout
+
+        assert self._doc_handle.pdf_doc is not None
+        ## for now just splitting on paragraph
+        # emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
+        # emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
+
+        # see https://pdfminersix.readthedocs.io/en/latest/topic/converting_pdf_to_text.html#topic-pdf-to-text-layout
+        # for conceptual layout structure for page
+        #
+        # see https://pdfminersix.readthedocs.io/en/latest/tutorial/extract_pages.html
+        # for usage
+        for page_layout in pdfminer.high_level.extract_pages(self._doc_handle.pdf_doc):
+            for _, element in enumerate(page_layout, start=1):
+                if isinstance(element, pdfminer.layout.LTText):
+                    # not traversing right now, just emitting top level grouping
+                    # note LTText includes many other types as long as they have text
+                    text = element.get_text().strip()
+                    if len(text) > 0:
+                        # not sure where to add page_no etc.
+                        # also got element.bbox available, which maybe useful
+                        yield DocumentSection(text=text, md=None)
+
 
     def _sentence_sections(self, input_sections: Iterable[DocumentSection]) -> Generator[DocumentSection, None, None]:
         """Split the input sections into sentences"""
