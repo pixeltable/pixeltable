@@ -146,7 +146,7 @@ class Client:
         tbl = catalog.InsertableTable.create(
             dir._id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
         self.catalog.paths[path] = tbl
-        _logger.info(f'Created table {path_str}')
+        _logger.info(f'Created table `{path_str}`.')
         return tbl
 
     def create_view(
@@ -207,7 +207,7 @@ class Client:
             dir._id, path.name, base=base, schema=schema, predicate=filter, is_snapshot=is_snapshot,
             iterator_cls=iterator_class, iterator_args=iterator_args, num_retained_versions=num_retained_versions, comment=comment)
         self.catalog.paths[path] = view
-        _logger.info(f'Created view {path_str}')
+        _logger.info(f'Created view `{path_str}`.')
         return view
 
     def get_table(self, path: str) -> catalog.Table:
@@ -316,6 +316,7 @@ class Client:
             self.catalog.paths.check_is_valid(path_obj, expected=catalog.Table)
         except Exception as e:
             if ignore_errors:
+                _logger.info(f'Skipped table `{path}` (does not exist).')
                 return
             else:
                 raise e
@@ -325,7 +326,7 @@ class Client:
             raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
         tbl._drop()
         del self.catalog.paths[path_obj]
-        _logger.info(f'Dropped table {path}')
+        _logger.info(f'Dropped table `{path}`.')
 
     def create_dir(self, path_str: str, ignore_errors: bool = False) -> None:
         """Create a directory.
@@ -357,7 +358,8 @@ class Client:
                 assert dir_record.id is not None
                 self.catalog.paths[path] = catalog.Dir(dir_record.id, parent._id, path.name)
                 session.commit()
-                _logger.info(f'Created directory {path_str}')
+                _logger.info(f'Created directory `{path_str}`.')
+                print(f'Created directory `{path_str}`.')
         except excs.Error as e:
             if ignore_errors:
                 return
