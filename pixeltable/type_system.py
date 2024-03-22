@@ -587,9 +587,12 @@ class JsonType(ColumnType):
 
 class ArrayType(ColumnType):
     def __init__(
-            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
+            self, shape: Union[int, Tuple[Union[int, None], ...]], dtype: ColumnType, nullable: bool = False):
         super().__init__(self.Type.ARRAY, nullable=nullable)
-        self.shape = shape
+        if isinstance(shape, int):
+            self.shape = tuple(None for i in range(0, shape))
+        else:
+            self.shape = shape
         assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
         self.dtype = dtype._type
 
@@ -608,7 +611,12 @@ class ArrayType(ColumnType):
         return result
 
     def __str__(self) -> str:
-        return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name})'
+        if all(self.shape[n] is None for n in range(0, len(self.shape))):
+            # Display shorthand if all dimensions are unspecified
+            shape_repr = len(self.shape)
+        else:
+            shape_repr = self.shape
+        return f'{self._type.name.lower()}({shape_repr}, dtype={self.dtype.name})'
 
     @classmethod
     def _from_dict(cls, d: Dict) -> ColumnType:
