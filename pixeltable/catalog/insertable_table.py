@@ -125,11 +125,11 @@ class InsertableTable(Table):
             cols_with_excs_str = ''
         else:
             cols_with_excs_str = \
-                f'across {len(result.cols_with_excs)} column{"" if len(result.cols_with_excs) == 1 else "s"}'
+                f' across {len(result.cols_with_excs)} column{"" if len(result.cols_with_excs) == 1 else "s"}'
             cols_with_excs_str += f' ({", ".join(result.cols_with_excs)})'
         msg = (
             f'Inserted {result.num_rows} row{"" if result.num_rows == 1 else "s"} '
-            f'with {result.num_excs} error{"" if result.num_excs == 1 else "s"} {cols_with_excs_str}.'
+            f'with {result.num_excs} error{"" if result.num_excs == 1 else "s"}{cols_with_excs_str}.'
         )
         print(msg)
         _logger.info(f'InsertableTable {self._name}: {msg}')
