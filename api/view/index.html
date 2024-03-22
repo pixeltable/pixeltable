@@ -921,14 +921,7 @@ is simply a reference to a specific set of base versions.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">add_column</span><span class="p">(</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="nb">type</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.ColumnType">ColumnType</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">stored</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">indexed</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.table.Table.UpdateStatus">UpdateStatus</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">add_column</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="nb">type</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.ColumnType">ColumnType</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">stored</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">indexed</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.table.Table.UpdateStatus">UpdateStatus</span></span>
 </code></pre></div>
 
   <div class="doc doc-contents ">
@@ -1188,11 +1181,7 @@ to be indexed:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">update</span><span class="p">(</span>
-    <span class="n">value_spec</span><span class="p">:</span> <span class="n"><span title="typing.Dict">Dict</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="s2">&quot;pixeltable.exprs.Expr&quot;</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span>
-    <span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s2">&quot;pixeltable.exprs.Predicate&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.table.Table.UpdateStatus">UpdateStatus</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">update</span><span class="p">(</span><span class="n">value_spec</span><span class="p">:</span> <span class="n"><span title="typing.Dict">Dict</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="s1">&#39;pixeltable.exprs.Expr&#39;</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span> <span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s1">&#39;pixeltable.exprs.Predicate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.table.Table.UpdateStatus">UpdateStatus</span></span>
 </code></pre></div>
 
   <div class="doc doc-contents ">
