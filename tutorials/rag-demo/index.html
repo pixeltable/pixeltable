@@ -11,10 +11,10 @@
       
       
       
-        <link rel="prev" href="../object_detection_in_videos/">
+        <link rel="prev" href="../openai_demo/">
       
       
-        <link rel="next" href="../rag-demo/">
+        <link rel="next" href="../../howto/working_with_external_files/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -22,7 +22,7 @@
     
     
       
-        <title>Using the OpenAI API with Pixeltable - Pixeltable</title>
+        <title>RAG Operations in Pixeltable - Pixeltable</title>
       
     
     
@@ -66,7 +66,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#using-the-openai-api-with-pixeltable" class="md-skip">
+        <a href="#rag-operations-in-pixeltable" class="md-skip">
           Skip to content
         </a>
       
@@ -102,7 +102,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Using the OpenAI API with Pixeltable
+              RAG Operations in Pixeltable
             
           </span>
         </div>
@@ -358,6 +358,27 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../openai_demo/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Using the OpenAI API with Pixeltable
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -370,29 +391,18 @@
         
       
       
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
   
   <span class="md-ellipsis">
-    Using the OpenAI API with Pixeltable
+    RAG Operations in Pixeltable
   </span>
   
 
-      </a>
+          <span class="md-nav__icon md-icon"></span>
+        </label>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../rag-demo/" class="md-nav__link">
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -401,6 +411,80 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-the-table-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Set Up the Table Structure
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-tables-and-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      Creating Tables and Views
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-ingestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      Data Ingestion
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experimenting-with-chunking" class="md-nav__link">
+    <span class="md-ellipsis">
+      Experimenting with Chunking
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#further-experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      Further Experiments
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-embeddings" class="md-nav__link">
+    <span class="md-ellipsis">
+      Adding embeddings
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -647,6 +731,68 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-the-table-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Set Up the Table Structure
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-tables-and-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      Creating Tables and Views
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-ingestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      Data Ingestion
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#experimenting-with-chunking" class="md-nav__link">
+    <span class="md-ellipsis">
+      Experimenting with Chunking
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#further-experiments" class="md-nav__link">
+    <span class="md-ellipsis">
+      Further Experiments
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-embeddings" class="md-nav__link">
+    <span class="md-ellipsis">
+      Adding embeddings
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -658,7 +804,7 @@
               <article class="md-content__inner md-typeset">
                 
 
-    <a href="openai_demo.ipynb" title="Download Notebook" class="md-content__button md-icon">
+    <a href="rag-demo.ipynb" title="Download Notebook" class="md-content__button md-icon">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7 7-7Z"/></svg>
     </a>
 
@@ -1071,35 +1217,26 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2da74129">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f4c59543-f758-4210-aae1-8ffa175f3e3d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="using-the-openai-api-with-pixeltable">Using the OpenAI API with Pixeltable<a class="anchor-link" href="#using-the-openai-api-with-pixeltable">¶</a></h1>
+<h1 id="rag-operations-in-pixeltable">RAG Operations in Pixeltable<a class="anchor-link" href="#rag-operations-in-pixeltable">¶</a></h1><p>Authors: Marcel Kornacker, Aaron Siegel</p>
+<p>In this tutorial, we'll explore Pixeltable's flexible handling of RAG operations on unstructured text. In a traditional AI workflow, such operations might be implemented as a Python script that runs on a periodic schedule or in response to certain events. In Pixeltable, as with everything else, they are implemented as persistent table operations that update incrementally as new data becomes available. In our tutorial workflow, we'll chunk Wikipedia articles in various ways with a document splitter, then apply several kinds of embeddings to the chunks.</p>
+<p>This tutorial is an interactive notebook, and you can follow along by executing the cells one at a time. You'll need to install Pixeltable first, if you haven't already (TODO: link to installation tutorial?), along with the Huggingface <code>sentence_transformers</code> package.</p>
+<h2 id="set-up-the-table-structure">Set Up the Table Structure<a class="anchor-link" href="#set-up-the-table-structure">¶</a></h2><p>We start by creating a Pixeltable client object.</p>
 </div>
 </div>
 </div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3e777354">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>PixelTable helps users unify data and computation into a table interface. This notebook shows how we can use the OpenAI API via pixeltable.
-We will keep all artifacts within the <code>demos</code> directory.</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=9bdc613f">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=53a2cca4">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [1]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-1">
@@ -1114,67 +1251,32 @@ We will keep all artifacts within the <code>demos</code> directory.</p>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span> <span class="nn">pixeltable</span> <span class="k">as</span> <span class="nn">pxt</span>
 <span class="n">cl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Client</span><span class="p">()</span>
-<span class="n">cl</span><span class="o">.</span><span class="n">create_dir</span><span class="p">(</span><span class="s1">'demos'</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">path</span> <span class="o">=</span> <span class="s1">'demos.chat_completion_demo'</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">import pixeltable as pxt
-cl = pxt.Client()
-cl.create_dir('demos', ignore_errors=True)
-path = 'demos.chat_completion_demo'</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>2024-01-29 14:50:16,598 INFO pixeltable env.py:188: found database postgresql://postgres:@/pixeltable?host=/run/user/1000/python_PostgresServer/8fd7da6a31
-2024-01-29 14:50:16,692 INFO pixeltable env.py:199: connecting to NOS
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/marcel/pixeltable/pixeltable/exec/expr_eval_node.py:6: TqdmExperimentalWarning: Using `tqdm.autonotebook.tqdm` in notebook mode. Use `tqdm.tqdm` instead to force console mode (e.g. in jupyter console)
-  from tqdm.autonotebook import tqdm
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre><span class="ansi-green-fg">2024-01-29 14:50:16.714</span> | <span class="ansi-bold">INFO    </span> | <span class="ansi-cyan-fg">nos.server</span>:<span class="ansi-cyan-fg">init</span>:<span class="ansi-cyan-fg">131</span> - <span class="ansi-bold">Inference server already running (name=nos-inference-service-gpu, image=&lt;Image: 'autonomi/nos:0.0.9-gpu'&gt;, id=d4255c36b739).</span>
-2024-01-29 14:50:16,715 INFO pixeltable env.py:202: waiting for NOS
-2024-01-29 14:50:16,727 INFO pixeltable env.py:223: connecting to OpenAI
-</pre>
+cl = pxt.Client()</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=aa71d21e">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3dbd7ddf-efd3-4f2e-a520-042a16f8f378">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="creating-a-table-with-inputs">Creating a table with inputs<a class="anchor-link" href="#creating-a-table-with-inputs">¶</a></h1>
+<p>The next few commands create a Pixeltable workspace <code>rag_demo</code> (if it doesn't already exist) and set up the table structure for our new workflow.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a6a7bd0d">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a6e5554a-440e-4573-be78-624d012948de">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [2]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-2">
@@ -1187,27 +1289,50 @@ path = 'demos.chat_completion_demo'</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">if</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">cl</span><span class="o">.</span><span class="n">list_tables</span><span class="p">():</span>
-    <span class="n">cl</span><span class="o">.</span><span class="n">drop_table</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Create the Pixeltable workspace</span>
+<span class="n">cl</span><span class="o">.</span><span class="n">create_dir</span><span class="p">(</span><span class="s1">'rag_demo'</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
-<span class="n">t</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="p">{</span><span class="s1">'id'</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">IntType</span><span class="p">(),</span> <span class="s1">'input'</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">StringType</span><span class="p">()})</span>
+<span class="c1"># Clean the database to ensure we're using fresh table instances</span>
+<span class="c1"># (in case this demo has been run before)</span>
+<span class="n">cl</span><span class="o">.</span><span class="n">drop_table</span><span class="p">(</span><span class="s1">'rag_demo.short_char_chunks'</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">cl</span><span class="o">.</span><span class="n">drop_table</span><span class="p">(</span><span class="s1">'rag_demo.short_chunks'</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">cl</span><span class="o">.</span><span class="n">drop_table</span><span class="p">(</span><span class="s1">'rag_demo.chunks'</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">cl</span><span class="o">.</span><span class="n">drop_table</span><span class="p">(</span><span class="s1">'rag_demo.sentences'</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">cl</span><span class="o">.</span><span class="n">drop_table</span><span class="p">(</span><span class="s1">'rag_demo.docs'</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-2">if path in cl.list_tables():
-    cl.drop_table(path)
+<div class="clipboard-copy-txt" id="cell-2"># Create the Pixeltable workspace
+cl.create_dir('rag_demo', ignore_errors=True)
 
-t = cl.create_table(path, {'id': pxt.IntType(), 'input': pxt.StringType()})</div>
+# Clean the database to ensure we're using fresh table instances
+# (in case this demo has been run before)
+cl.drop_table('rag_demo.short_char_chunks', ignore_errors=True)
+cl.drop_table('rag_demo.short_chunks', ignore_errors=True)
+cl.drop_table('rag_demo.chunks', ignore_errors=True)
+cl.drop_table('rag_demo.sentences', ignore_errors=True)
+cl.drop_table('rag_demo.docs', ignore_errors=True)</div>
 </div>
 </div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=90639ba7">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="creating-tables-and-views">Creating Tables and Views<a class="anchor-link" href="#creating-tables-and-views">¶</a></h2><p>Now we'll create the tables that represent our workflow, starting with a table to hold references to source documents. The table contains a single column <code>source_doc</code> whose elements have type <code>pxt.DocumentType</code>, representing a general document instance. In this tutorial, we'll be working with HTML documents, but Pixeltable supports a range of other document types, such as Markdown and PDF.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=342407c1">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=c8371827">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-3">
@@ -1220,37 +1345,32 @@ t = cl.create_table(path, {'id': pxt.IntType(), 'input': pxt.StringType()})</div
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># text from https://en.wikipedia.org/wiki/Global_financial_crisis_in_September_2008</span>
-<span class="n">wikipedia_text</span> <span class="o">=</span> <span class="s1">'''On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.</span>
-<span class="s1">The significance of the Lehman Brothers bankruptcy is disputed with some assigning it a pivotal role in the unfolding of subsequent events.</span>
-<span class="s1">The principals involved, Ben Bernanke and Henry Paulson, dispute this view, citing a volume of toxic assets at Lehman which made a rescue impossible.[16][17] Immediately following the bankruptcy, JPMorgan Chase provided the broker dealer unit of Lehman Brothers with $138 billion to "settle securities transactions with customers of Lehman and its clearance parties" according to a statement made in a New York City Bankruptcy court filing.[18]</span>
-<span class="s1">The same day, the sale of Merrill Lynch to Bank of America was announced.[19] The beginning of the week was marked by extreme instability in global stock markets, with dramatic drops in market values on Monday, September 15, and Wednesday, September 17.</span>
-<span class="s1">On September 16, the large insurer American International Group (AIG), a significant participant in the credit default swaps markets, suffered a liquidity crisis following the downgrade of its credit rating.</span>
-<span class="s1">The Federal Reserve, at AIG's request, and after AIG had shown that it could not find lenders willing to save it from insolvency, created a credit facility for up to US$85 billion in exchange for a 79.9</span><span class="si">% e</span><span class="s1">quity interest, and the right to suspend dividends to previously issued common and preferred stock.[20]'''</span>
-
-<span class="n">sample_inputs</span> <span class="o">=</span> <span class="n">wikipedia_text</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">'</span><span class="se">\n</span><span class="s1">'</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">docs</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">'rag_demo.docs'</span><span class="p">,</span> <span class="p">{</span><span class="s1">'source_doc'</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">DocumentType</span><span class="p">()})</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3"># text from https://en.wikipedia.org/wiki/Global_financial_crisis_in_September_2008
-wikipedia_text = '''On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.
-The significance of the Lehman Brothers bankruptcy is disputed with some assigning it a pivotal role in the unfolding of subsequent events.
-The principals involved, Ben Bernanke and Henry Paulson, dispute this view, citing a volume of toxic assets at Lehman which made a rescue impossible.[16][17] Immediately following the bankruptcy, JPMorgan Chase provided the broker dealer unit of Lehman Brothers with $138 billion to "settle securities transactions with customers of Lehman and its clearance parties" according to a statement made in a New York City Bankruptcy court filing.[18]
-The same day, the sale of Merrill Lynch to Bank of America was announced.[19] The beginning of the week was marked by extreme instability in global stock markets, with dramatic drops in market values on Monday, September 15, and Wednesday, September 17.
-On September 16, the large insurer American International Group (AIG), a significant participant in the credit default swaps markets, suffered a liquidity crisis following the downgrade of its credit rating.
-The Federal Reserve, at AIG's request, and after AIG had shown that it could not find lenders willing to save it from insolvency, created a credit facility for up to US$85 billion in exchange for a 79.9% equity interest, and the right to suspend dividends to previously issued common and preferred stock.[20]'''
-
-sample_inputs = wikipedia_text.split('\n')</div>
+<div class="clipboard-copy-txt" id="cell-3">docs = cl.create_table('rag_demo.docs', {'source_doc': pxt.DocumentType()})</div>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=c5f0b862">
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=275d07fd-1f16-47b4-b42a-39c613c3bf5c">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>If we take a peek at the <code>docs</code> table, we see its very simple structure. Run the following command:</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=d0644d63-991f-4bf4-82d3-7f887eadadbb">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-4">
@@ -1263,74 +1383,33 @@ sample_inputs = wikipedia_text.split('\n')</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># example row inserted, persisted to table.</span>
-<span class="n">t</span><span class="o">.</span><span class="n">insert</span><span class="p">([{</span><span class="s1">'id'</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s1">'input'</span><span class="p">:</span> <span class="n">sample_inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]}])</span>
-<span class="n">t</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">docs</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4"># example row inserted, persisted to table.
-t.insert([{'id': 0, 'input': sample_inputs[0]}])
-t.show()</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserting rows into table: 0rows [00:00, ?rows/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>inserted 1 row with 0 errors 
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th>id</th>
-<th>input</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.</td>
-</tr>
-</tbody>
-</table>
+<div class="clipboard-copy-txt" id="cell-4">docs</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8b08ecc3">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4e1a701e-5f9d-4f56-a306-c31ff9da6ee7">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="making-openai-api-calls">Making OpenAI API calls<a class="anchor-link" href="#making-openai-api-calls">¶</a></h1><p>Calling OpenAI API endpoints involves constructing a message object, which we express in Pixeltable by adding a new computed column,i.e., a column that represents a computation.</p>
+<p>Next we create a view to represent chunks of our HTML documents. A Pixeltable view is a virtual table, which is dynamically derived from a source table by applying a transformation and/or selecting a subset of data. In this case, our view represents a one-to-many transformation from source documents into individual sentences. This is achived using Pixeltable's built-in <code>DocumentSplitter</code> class.</p>
+<p>Note that the <code>docs</code> table is currently empty, so creating this view doesn't actually <em>do</em> anything yet: it simply defines an operation that we want Pixeltable to execute when it sees new data.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=12197f4e">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=d074b305">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-5">
@@ -1343,71 +1422,52 @@ t.show()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">prompt</span> <span class="o">=</span> <span class="s2">"For the following sentence, extract all company names from the text."</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span> <span class="nn">pixeltable.iterators.document</span> <span class="kn">import</span> <span class="n">DocumentSplitter</span>
 
-<span class="n">msgs</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="p">{</span> <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"system"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span> <span class="p">},</span>
-    <span class="p">{</span> <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">t</span><span class="o">.</span><span class="n">input</span> <span class="p">}</span>
-<span class="p">]</span>
-
-<span class="n">t</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">input_msgs</span><span class="o">=</span><span class="n">msgs</span><span class="p">)</span>
+<span class="n">sentences</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span>
+    <span class="s1">'rag_demo.sentences'</span><span class="p">,</span>  <span class="c1"># Name of the view</span>
+    <span class="n">docs</span><span class="p">,</span>  <span class="c1"># Table from which the view is derived</span>
+    <span class="n">iterator_class</span><span class="o">=</span><span class="n">DocumentSplitter</span><span class="p">,</span>
+    <span class="n">iterator_args</span><span class="o">=</span><span class="p">{</span>
+        <span class="s1">'document'</span><span class="p">:</span> <span class="n">docs</span><span class="o">.</span><span class="n">source_doc</span><span class="p">,</span>
+        <span class="s1">'separators'</span><span class="p">:</span> <span class="s1">'sentence'</span><span class="p">,</span>  <span class="c1"># Chunk docs into sentences</span>
+        <span class="s1">'metadata'</span><span class="p">:</span> <span class="s1">'title,headings,sourceline'</span><span class="p">,</span>
+    <span class="p">})</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">prompt = "For the following sentence, extract all company names from the text."
+<div class="clipboard-copy-txt" id="cell-5">from pixeltable.iterators.document import DocumentSplitter
 
-msgs = [
-    { "role": "system", "content": prompt },
-    { "role": "user", "content": t.input }
-]
-
-t.add_column(input_msgs=msgs)</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Computing cells:   0%|          | 0/1 [00:00&lt;?, ?cells/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>added 1 column values with 0 errors
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>UpdateStatus(num_rows=1, num_computed_values=1, num_excs=0, updated_cols=[], cols_with_excs=[])</pre>
+sentences = cl.create_view(
+    'rag_demo.sentences',  # Name of the view
+    docs,  # Table from which the view is derived
+    iterator_class=DocumentSplitter,
+    iterator_args={
+        'document': docs.source_doc,
+        'separators': 'sentence',  # Chunk docs into sentences
+        'metadata': 'title,headings,sourceline',
+    })</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=92068113">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9badf052-7e8d-43b2-9aea-0b20a9409a83">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Unlike the values of the<code>input</code> column, which users provide, the <code>t.input_msgs</code> column is computed automatically from the <code>t.input</code> column values:</p>
+<p>Let's take a peek at the new <code>sentences</code> view. Run the following command:</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=249592fc">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=29b07709">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-6">
@@ -1420,60 +1480,59 @@ t.add_column(input_msgs=msgs)</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">sentences</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">t.show()</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th>id</th>
-<th>input</th>
-<th>input_msgs</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.</td>
-<td>[{'role': 'system', 'content': 'For the following sentence, extract all company names from the text.'}, {'role': 'user', 'content': 'On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.'}]</td>
-</tr>
-</tbody>
-</table>
+<div class="clipboard-copy-txt" id="cell-6">sentences</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7cea0186">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9641a8a0-a7fe-46b8-a2e8-3589e0df2bae">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>In Pixeltable, OpenAI API calls are exposed as Pixeltable functions, which can be used to create computed columns.</p>
-<p>For the following command to work, you must have set <code>os.environ['OPENAI_API_KEY']</code>.</p>
+<p>We see that <code>sentences</code> inherits the <code>source_doc</code> column from <code>docs</code>, together with some new fields:</p>
+<ul>
+<li><code>pos</code>: The position in the source document where the sentence appears.</li>
+<li><code>text</code>: The text of the sentence.</li>
+<li><code>title</code>, <code>headings</code>, and <code>sourceline</code>: The metadata we requested when we set up the view.</li>
+</ul>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d0aaed0e">
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=e53392cb">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="data-ingestion">Data Ingestion<a class="anchor-link" href="#data-ingestion">¶</a></h2>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0aec54a3-f5a8-483e-b3b9-c9111929ec74">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Ok, now it's time to insert some data into our workflow. A document in Pixeltable is just a URL; the following command inserts a single row into the <code>docs</code> table with the <code>source_doc</code> field set to the specified URL:</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a718a299">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-7">
@@ -1486,78 +1545,33 @@ t.add_column(input_msgs=msgs)</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span> <span class="nn">pixeltable.functions.openai</span> <span class="kn">import</span> <span class="n">chat_completion</span>
-<span class="n">t</span><span class="p">[</span><span class="s1">'chat_output'</span><span class="p">]</span> <span class="o">=</span> <span class="n">chat_completion</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s1">'gpt-3.5-turbo'</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">t</span><span class="o">.</span><span class="n">input_msgs</span><span class="p">)</span>
-<span class="n">t</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">docs</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">source_doc</span><span class="o">=</span><span class="s1">'https://en.wikipedia.org/wiki/Marc_Chagall'</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">from pixeltable.functions.openai import chat_completion
-t['chat_output'] = chat_completion(model='gpt-3.5-turbo', messages=t.input_msgs)
-t.show()</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Computing cells:   0%|          | 0/1 [00:00&lt;?, ?cells/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>added 1 column values with 0 errors
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th>id</th>
-<th>input</th>
-<th>input_msgs</th>
-<th>chat_output</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.</td>
-<td>[{'role': 'system', 'content': 'For the following sentence, extract all company names from the text.'}, {'role': 'user', 'content': 'On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.'}]</td>
-<td>{'id': 'chatcmpl-8mUkDEuZVPzk6k4veHCYEHSrpLvTM', 'model': 'gpt-3.5-turbo-0613', 'usage': {'total_tokens': 65, 'prompt_tokens': 61, 'completion_tokens': 4}, 'object': 'chat.completion', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'Lehman Brothers', 'tool_calls': None, 'function_call': None}, 'logprobs': None, 'finish_reason': 'stop'}], 'created': 1706568617, 'system_fingerprint': None}</td>
-</tr>
-</tbody>
-</table>
+<div class="clipboard-copy-txt" id="cell-7">docs.insert(source_doc='https://en.wikipedia.org/wiki/Marc_Chagall')</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=004723a6">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=542f97cd-08b9-4001-9d38-10f47bfdd5d0">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>The result objects of the OpenAI API calls are generally complex JSON structures, which require some navigation to extract the response. We can express this as JSON path expressions and create another computed column:</p>
+<p>We can see that two things happened. First, a single row was inserted into <code>docs</code>, containing the URL representing our source document. Then, the view <code>sentences</code> was incrementally updated by applying the <code>DocumentSplitter</code> according to the definition of the view. This illustrates an important principle in Pixeltable: anytime Pixeltable sees new data, the update is incrementally propagated to any downstream views or computed columns.</p>
+<p>We can see the effect of the insertion with the <code>select</code> command. There's a single row in <code>docs</code>:</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=06e15905">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=0bbe8e86-3cec-499f-a30f-58c5073ab42b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-8">
@@ -1570,78 +1584,32 @@ t.show()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="p">[</span><span class="s1">'response'</span><span class="p">]</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">chat_output</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span>
-<span class="n">t</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">docs</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">docs</span><span class="o">.</span><span class="n">source_doc</span><span class="o">.</span><span class="n">fileurl</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8">t['response'] = t.chat_output.choices[0].message.content
-t.show()</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Computing cells:   0%|          | 0/1 [00:00&lt;?, ?cells/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>added 1 column values with 0 errors
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th>id</th>
-<th>input</th>
-<th>input_msgs</th>
-<th>chat_output</th>
-<th>response</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0</td>
-<td>On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.</td>
-<td>[{'role': 'system', 'content': 'For the following sentence, extract all company names from the text.'}, {'role': 'user', 'content': 'On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.'}]</td>
-<td>{'id': 'chatcmpl-8mUkDEuZVPzk6k4veHCYEHSrpLvTM', 'model': 'gpt-3.5-turbo-0613', 'usage': {'total_tokens': 65, 'prompt_tokens': 61, 'completion_tokens': 4}, 'object': 'chat.completion', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'Lehman Brothers', 'tool_calls': None, 'function_call': None}, 'logprobs': None, 'finish_reason': 'stop'}], 'created': 1706568617, 'system_fingerprint': None}</td>
-<td>Lehman Brothers</td>
-</tr>
-</tbody>
-</table>
+<div class="clipboard-copy-txt" id="cell-8">docs.select(docs.source_doc.fileurl).show()</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=96d19ca5">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=a2dd8f07-6f5c-426b-a829-51dd8e26f888">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Let's run a query to look only at the input and output:</p>
+<p>And here are the first 50 rows in <code>sentences</code>. The content of the article is broken into individual sentences, as expected.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=4313dbb1">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=42199e16-559f-4827-940c-1726f83452e5">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-9">
@@ -1654,57 +1622,43 @@ t.show()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">input</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">response</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">sentences</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">sentences</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">sentences</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">t.select(t.input, t.response).show()</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th>input</th>
-<th>response</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.</td>
-<td>Lehman Brothers</td>
-</tr>
-</tbody>
-</table>
+<div class="clipboard-copy-txt" id="cell-9">sentences.select(sentences.text, sentences.headings).show(50)</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3ae2854d">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9e3abbdd">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Once we have defined these computed columns, much like with a spreadsheet, newly inserted <code>t.input</code> values trigger computation of all derived columns, such as <code>t.response</code>:</p>
+<h2 id="experimenting-with-chunking">Experimenting with Chunking<a class="anchor-link" href="#experimenting-with-chunking">¶</a></h2>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d5144a35">
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2d229545-79b6-4fdd-be54-f786669533eb">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Of course, chunking into sentences isn't the only way to split a document. Perhaps we want to experiment with different chunking methodologies, in order to see which one performs best in a particular application. Pixeltable makes it easy to do this, by creating several views of the same source table. Here are a few examples. Notice that as each new view is created, it is initially populated from the data already in <code>docs</code>.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=887389a1">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-10">
@@ -1717,52 +1671,37 @@ t.show()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="o">.</span><span class="n">insert</span><span class="p">([{</span><span class="s1">'id'</span><span class="p">:</span> <span class="n">i</span><span class="p">,</span> <span class="s1">'input'</span><span class="p">:</span> <span class="n">sample_inputs</span><span class="p">[</span><span class="n">i</span><span class="p">]}</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">sample_inputs</span><span class="p">))])</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">chunks</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span>
+    <span class="s1">'rag_demo.chunks'</span><span class="p">,</span> <span class="n">docs</span><span class="p">,</span> <span class="n">iterator_class</span><span class="o">=</span><span class="n">DocumentSplitter</span><span class="p">,</span>
+    <span class="n">iterator_args</span><span class="o">=</span><span class="p">{</span>
+        <span class="s1">'document'</span><span class="p">:</span> <span class="n">docs</span><span class="o">.</span><span class="n">source_doc</span><span class="p">,</span>
+        <span class="s1">'separators'</span><span class="p">:</span> <span class="s1">'paragraph,token_limit'</span><span class="p">,</span>
+        <span class="s1">'limit'</span><span class="p">:</span> <span class="mi">2048</span><span class="p">,</span>
+        <span class="s1">'overlap'</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">'metadata'</span><span class="p">:</span> <span class="s1">'title,headings,sourceline'</span><span class="p">,</span>
+    <span class="p">})</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-10">t.insert([{'id': i, 'input': sample_inputs[i]} for i in range(1, len(sample_inputs))])</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Computing cells:   0%|          | 0/15 [00:00&lt;?, ?cells/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserting rows into table: 0rows [00:00, ?rows/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>inserted 5 rows with 0 errors 
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[10]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>UpdateStatus(num_rows=5, num_computed_values=15, num_excs=0, updated_cols=[], cols_with_excs=[])</pre>
+<div class="clipboard-copy-txt" id="cell-10">chunks = cl.create_view(
+    'rag_demo.chunks', docs, iterator_class=DocumentSplitter,
+    iterator_args={
+        'document': docs.source_doc,
+        'separators': 'paragraph,token_limit',
+        'limit': 2048,
+        'overlap': 0,
+        'metadata': 'title,headings,sourceline',
+    })</div>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=729713aa">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=fd4c8b8b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-11">
@@ -1775,79 +1714,37 @@ t.show()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">input</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">response</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">short_chunks</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span>
+    <span class="s1">'rag_demo.short_chunks'</span><span class="p">,</span> <span class="n">docs</span><span class="p">,</span> <span class="n">iterator_class</span><span class="o">=</span><span class="n">DocumentSplitter</span><span class="p">,</span>
+    <span class="n">iterator_args</span><span class="o">=</span><span class="p">{</span>
+        <span class="s1">'document'</span><span class="p">:</span> <span class="n">docs</span><span class="o">.</span><span class="n">source_doc</span><span class="p">,</span>
+        <span class="s1">'separators'</span><span class="p">:</span> <span class="s1">'paragraph,token_limit'</span><span class="p">,</span>
+        <span class="s1">'limit'</span><span class="p">:</span> <span class="mi">72</span><span class="p">,</span>
+        <span class="s1">'overlap'</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">'metadata'</span><span class="p">:</span> <span class="s1">'title,headings,sourceline'</span><span class="p">,</span>
+    <span class="p">})</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-11">t.select(t.input, t.response).show()</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[11]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th>input</th>
-<th>response</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.</td>
-<td>Lehman Brothers</td>
-</tr>
-<tr>
-<td>The significance of the Lehman Brothers bankruptcy is disputed with some assigning it a pivotal role in the unfolding of subsequent events.</td>
-<td>Lehman Brothers</td>
-</tr>
-<tr>
-<td>The principals involved, Ben Bernanke and Henry Paulson, dispute this view, citing a volume of toxic assets at Lehman which made a rescue impossible.[16][17] Immediately following the bankruptcy, JPMorgan Chase provided the broker dealer unit of Lehman Brothers with $138 billion to "settle securities transactions with customers of Lehman and its clearance parties" according to a statement made in a New York City Bankruptcy court filing.[18]</td>
-<td>Lehman Brothers, JPMorgan Chase</td>
-</tr>
-<tr>
-<td>The same day, the sale of Merrill Lynch to Bank of America was announced.[19] The beginning of the week was marked by extreme instability in global stock markets, with dramatic drops in market values on Monday, September 15, and Wednesday, September 17.</td>
-<td>Merrill Lynch, Bank of America</td>
-</tr>
-<tr>
-<td>On September 16, the large insurer American International Group (AIG), a significant participant in the credit default swaps markets, suffered a liquidity crisis following the downgrade of its credit rating.</td>
-<td>American International Group (AIG)</td>
-</tr>
-<tr>
-<td>The Federal Reserve, at AIG's request, and after AIG had shown that it could not find lenders willing to save it from insolvency, created a credit facility for up to US$85 billion in exchange for a 79.9% equity interest, and the right to suspend dividends to previously issued common and preferred stock.[20]</td>
-<td>AIG, Federal Reserve</td>
-</tr>
-</tbody>
-</table>
+<div class="clipboard-copy-txt" id="cell-11">short_chunks = cl.create_view(
+    'rag_demo.short_chunks', docs, iterator_class=DocumentSplitter,
+    iterator_args={
+        'document': docs.source_doc,
+        'separators': 'paragraph,token_limit',
+        'limit': 72,
+        'overlap': 0,
+        'metadata': 'title,headings,sourceline',
+    })</div>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=a0cfe126">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="adding-ground-truth-data">Adding ground truth data<a class="anchor-link" href="#adding-ground-truth-data">¶</a></h1><p>Computed table columns are stored and persisted, avoiding repeated computation.
-Pixeltable can be used to conduct experiments, for example to compare prompt variations:</p>
-<p>We'll start by creating our ground-truth data manually:</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=6d4f8611">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=096df773">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-12">
@@ -1860,98 +1757,37 @@ Pixeltable can be used to conduct experiments, for example to compare prompt var
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="p">[</span><span class="s1">'ground_truth'</span><span class="p">]</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">StringType</span><span class="p">(</span><span class="n">nullable</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-<span class="n">ground_truth</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s1">'Lehman Brothers'</span><span class="p">,</span>
-    <span class="s1">'Lehman Brothers'</span><span class="p">,</span>
-    <span class="s1">'JP Morgan Chase, Lehman Brothers'</span><span class="p">,</span>
-    <span class="s1">'Merill Lynch, Bank of America'</span><span class="p">,</span>
-    <span class="s1">'American International Group'</span><span class="p">,</span>
-    <span class="s1">'American International Group'</span><span class="p">,</span>
-<span class="p">]</span>
-
-<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">gt</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">ground_truth</span><span class="p">):</span>
-    <span class="n">t</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">'ground_truth'</span><span class="p">:</span> <span class="n">gt</span><span class="p">},</span> <span class="n">where</span><span class="o">=</span><span class="p">(</span><span class="n">t</span><span class="p">[</span><span class="s1">'id'</span><span class="p">]</span> <span class="o">==</span> <span class="n">i</span><span class="p">))</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">short_char_chunks</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span>
+    <span class="s1">'rag_demo.short_char_chunks'</span><span class="p">,</span> <span class="n">docs</span><span class="p">,</span> <span class="n">iterator_class</span><span class="o">=</span><span class="n">DocumentSplitter</span><span class="p">,</span>
+    <span class="n">iterator_args</span><span class="o">=</span><span class="p">{</span>
+        <span class="s1">'document'</span><span class="p">:</span> <span class="n">docs</span><span class="o">.</span><span class="n">source_doc</span><span class="p">,</span>
+        <span class="s1">'separators'</span><span class="p">:</span> <span class="s1">'paragraph,char_limit'</span><span class="p">,</span>
+        <span class="s1">'limit'</span><span class="p">:</span> <span class="mi">72</span><span class="p">,</span>
+        <span class="s1">'overlap'</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="s1">'metadata'</span><span class="p">:</span> <span class="s1">'title,headings,sourceline'</span><span class="p">,</span>
+    <span class="p">})</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-12">t['ground_truth'] = pxt.StringType(nullable=True)
-
-ground_truth = [
-    'Lehman Brothers',
-    'Lehman Brothers',
-    'JP Morgan Chase, Lehman Brothers',
-    'Merill Lynch, Bank of America',
-    'American International Group',
-    'American International Group',
-]
-
-for i, gt in enumerate(ground_truth):
-    t.update({'ground_truth': gt}, where=(t['id'] == i))</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserting rows into table: 0rows [00:00, ?rows/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserting rows into table: 0rows [00:00, ?rows/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserting rows into table: 0rows [00:00, ?rows/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserting rows into table: 0rows [00:00, ?rows/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserting rows into table: 0rows [00:00, ?rows/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserting rows into table: 0rows [00:00, ?rows/s]</pre>
+<div class="clipboard-copy-txt" id="cell-12">short_char_chunks = cl.create_view(
+    'rag_demo.short_char_chunks', docs, iterator_class=DocumentSplitter,
+    iterator_args={
+        'document': docs.source_doc,
+        'separators': 'paragraph,char_limit',
+        'limit': 72,
+        'overlap': 0,
+        'metadata': 'title,headings,sourceline',
+    })</div>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=17406f13">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>And this is what we have so far:</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=72457011">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=d8289f0a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-13">
@@ -1964,85 +1800,21 @@ for i, gt in enumerate(ground_truth):
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">input</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">response</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">ground_truth</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">chunks</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">chunks</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-13">t.select(t.input, t.response, t.ground_truth).show()</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th>input</th>
-<th>response</th>
-<th>ground_truth</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>On Sunday, September 14, it was announced that Lehman Brothers would file for bankruptcy after the Federal Reserve Bank declined to participate in creating a financial support facility for Lehman Brothers.</td>
-<td>Lehman Brothers</td>
-<td>Lehman Brothers</td>
-</tr>
-<tr>
-<td>The significance of the Lehman Brothers bankruptcy is disputed with some assigning it a pivotal role in the unfolding of subsequent events.</td>
-<td>Lehman Brothers</td>
-<td>Lehman Brothers</td>
-</tr>
-<tr>
-<td>The principals involved, Ben Bernanke and Henry Paulson, dispute this view, citing a volume of toxic assets at Lehman which made a rescue impossible.[16][17] Immediately following the bankruptcy, JPMorgan Chase provided the broker dealer unit of Lehman Brothers with $138 billion to "settle securities transactions with customers of Lehman and its clearance parties" according to a statement made in a New York City Bankruptcy court filing.[18]</td>
-<td>Lehman Brothers, JPMorgan Chase</td>
-<td>JP Morgan Chase, Lehman Brothers</td>
-</tr>
-<tr>
-<td>The same day, the sale of Merrill Lynch to Bank of America was announced.[19] The beginning of the week was marked by extreme instability in global stock markets, with dramatic drops in market values on Monday, September 15, and Wednesday, September 17.</td>
-<td>Merrill Lynch, Bank of America</td>
-<td>Merill Lynch, Bank of America</td>
-</tr>
-<tr>
-<td>On September 16, the large insurer American International Group (AIG), a significant participant in the credit default swaps markets, suffered a liquidity crisis following the downgrade of its credit rating.</td>
-<td>American International Group (AIG)</td>
-<td>American International Group</td>
-</tr>
-<tr>
-<td>The Federal Reserve, at AIG's request, and after AIG had shown that it could not find lenders willing to save it from insolvency, created a credit facility for up to US$85 billion in exchange for a 79.9% equity interest, and the right to suspend dividends to previously issued common and preferred stock.[20]</td>
-<td>AIG, Federal Reserve</td>
-<td>American International Group</td>
-</tr>
-</tbody>
-</table>
+<div class="clipboard-copy-txt" id="cell-13">chunks.select(chunks.text, chunks.headings).show(50)</div>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ce291c35">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="evaluation">Evaluation<a class="anchor-link" href="#evaluation">¶</a></h1><p>Now that we have some ground truth available, we can carry out basic evaluations of the GPT outputs, in this case by asking ChatGPT to decide whether the two are equivalent.</p>
-<p>To start with, we'll create an evaluation prompt:</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=c49ea5b7">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=c0d453cf">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-14">
@@ -2055,83 +1827,21 @@ for i, gt in enumerate(ground_truth):
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">eval_prompt</span> <span class="o">=</span> <span class="s1">'''</span>
-<span class="s1">Compare the following listA and listB of entities, check if they contains the same entities.</span>
-<span class="s1">Return a json object with the following format:</span>
-<span class="s1">{"reasoning": explaining your reasoning, "decision": 1 if the lists matched, 0 otherwise}</span>
-<span class="s1">'''</span>
-
-<span class="n">t</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span>
-    <span class="n">eval_prompt</span><span class="o">=</span><span class="p">[</span>
-        <span class="p">{</span> <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"system"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">eval_prompt</span> <span class="p">},</span>
-        <span class="p">{</span>
-            <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span>
-            <span class="s2">"content"</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">functions</span><span class="o">.</span><span class="n">str_format</span><span class="p">(</span>
-                <span class="s1">'listA: "</span><span class="si">{0}</span><span class="s1">" </span><span class="se">\n</span><span class="s1"> listB: "</span><span class="si">{1}</span><span class="s1">"'</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">response</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">ground_truth</span><span class="p">)</span>
-        <span class="p">}])</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">short_chunks</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">short_chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">short_chunks</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-14">eval_prompt = '''
-Compare the following listA and listB of entities, check if they contains the same entities.
-Return a json object with the following format:
-{"reasoning": explaining your reasoning, "decision": 1 if the lists matched, 0 otherwise}
-'''
-
-t.add_column(
-    eval_prompt=[
-        { "role": "system", "content": eval_prompt },
-        {
-            "role": "user",
-            "content": pxt.functions.str_format(
-                'listA: "{0}" \n listB: "{1}"', t.response, t.ground_truth)
-        }])</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Computing cells:   0%|          | 0/6 [00:00&lt;?, ?cells/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>added 6 column values with 0 errors
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[14]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>UpdateStatus(num_rows=6, num_computed_values=6, num_excs=0, updated_cols=[], cols_with_excs=[])</pre>
+<div class="clipboard-copy-txt" id="cell-14">short_chunks.select(short_chunks.text, short_chunks.headings).show(50)</div>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=011a85be">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>The function <code>str_format()</code> is similar to an f-string, but allows values to come from any table column.</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=08445095">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=bb32ade8-9727-4ebc-b57a-ff8097aca993">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-15">
@@ -2144,100 +1854,32 @@ t.add_column(
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">eval_prompt</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">short_char_chunks</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">short_char_chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">short_char_chunks</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-15">t.select(t.eval_prompt).show()</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[15]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th>eval_prompt</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>[{'role': 'system', 'content': '
-Compare the following listA and listB of entities, check if they contains the same entities.
-Return a json object with the following format:
-{"reasoning": explaining your reasoning, "decision": 1 if the lists matched, 0 otherwise}
-'}, {'role': 'user', 'content': 'listA: "Lehman Brothers" 
- listB: "Lehman Brothers"'}]</td>
-</tr>
-<tr>
-<td>[{'role': 'system', 'content': '
-Compare the following listA and listB of entities, check if they contains the same entities.
-Return a json object with the following format:
-{"reasoning": explaining your reasoning, "decision": 1 if the lists matched, 0 otherwise}
-'}, {'role': 'user', 'content': 'listA: "Lehman Brothers" 
- listB: "Lehman Brothers"'}]</td>
-</tr>
-<tr>
-<td>[{'role': 'system', 'content': '
-Compare the following listA and listB of entities, check if they contains the same entities.
-Return a json object with the following format:
-{"reasoning": explaining your reasoning, "decision": 1 if the lists matched, 0 otherwise}
-'}, {'role': 'user', 'content': 'listA: "Lehman Brothers, JPMorgan Chase" 
- listB: "JP Morgan Chase, Lehman Brothers"'}]</td>
-</tr>
-<tr>
-<td>[{'role': 'system', 'content': '
-Compare the following listA and listB of entities, check if they contains the same entities.
-Return a json object with the following format:
-{"reasoning": explaining your reasoning, "decision": 1 if the lists matched, 0 otherwise}
-'}, {'role': 'user', 'content': 'listA: "Merrill Lynch, Bank of America" 
- listB: "Merill Lynch, Bank of America"'}]</td>
-</tr>
-<tr>
-<td>[{'role': 'system', 'content': '
-Compare the following listA and listB of entities, check if they contains the same entities.
-Return a json object with the following format:
-{"reasoning": explaining your reasoning, "decision": 1 if the lists matched, 0 otherwise}
-'}, {'role': 'user', 'content': 'listA: "American International Group (AIG)" 
- listB: "American International Group"'}]</td>
-</tr>
-<tr>
-<td>[{'role': 'system', 'content': '
-Compare the following listA and listB of entities, check if they contains the same entities.
-Return a json object with the following format:
-{"reasoning": explaining your reasoning, "decision": 1 if the lists matched, 0 otherwise}
-'}, {'role': 'user', 'content': 'listA: "AIG, Federal Reserve" 
- listB: "American International Group"'}]</td>
-</tr>
-</tbody>
-</table>
+<div class="clipboard-copy-txt" id="cell-15">short_char_chunks.select(short_char_chunks.text, short_char_chunks.headings).show(50)</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0b8be46a">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=556d86ab-ef09-43e6-8bff-95caf8b8e45d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>The actual evaluation happens in another computed column:</p>
+<p>Now let's add a few more documents to our workflow. Notice how all of the downstream views are updated incrementally, processing just the new documents as they are inserted.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=43516050">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=71735d6a-3f99-46ef-99d7-4783aa6840cb">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-16">
@@ -2250,66 +1892,66 @@ Return a json object with the following format:
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="p">[</span><span class="s1">'eval'</span><span class="p">]</span> <span class="o">=</span> <span class="n">chat_completion</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s1">'gpt-3.5-turbo'</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">t</span><span class="o">.</span><span class="n">eval_prompt</span><span class="p">)</span>
-<span class="n">t</span><span class="p">[</span><span class="s1">'eval_output'</span><span class="p">]</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">eval</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">urls</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s1">'https://en.wikipedia.org/wiki/Pierre-Auguste_Renoir'</span><span class="p">,</span>
+    <span class="s1">'https://en.wikipedia.org/wiki/Henri_Matisse'</span><span class="p">,</span>
+    <span class="s1">'https://en.wikipedia.org/wiki/Marcel_Duchamp'</span>
+<span class="p">]</span>
+<span class="n">docs</span><span class="o">.</span><span class="n">insert</span><span class="p">([{</span><span class="s1">'source_doc'</span><span class="p">:</span> <span class="n">url</span><span class="p">}</span> <span class="k">for</span> <span class="n">url</span> <span class="ow">in</span> <span class="n">urls</span><span class="p">])</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-16">t['eval'] = chat_completion(model='gpt-3.5-turbo', messages=t.eval_prompt)
-t['eval_output'] = t.eval.choices[0].message.content</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Computing cells:   0%|          | 0/6 [00:00&lt;?, ?cells/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>added 6 column values with 0 errors
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Computing cells:   0%|          | 0/6 [00:00&lt;?, ?cells/s]</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>added 6 column values with 0 errors
-</pre>
+<div class="clipboard-copy-txt" id="cell-16">urls = [
+    'https://en.wikipedia.org/wiki/Pierre-Auguste_Renoir',
+    'https://en.wikipedia.org/wiki/Henri_Matisse',
+    'https://en.wikipedia.org/wiki/Marcel_Duchamp'
+]
+docs.insert([{'source_doc': url} for url in urls])</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c72427a8">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=bdf1e13c-b038-40ee-b48c-35d514149c62">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Let's take a look:</p>
+<h2 id="further-experiments">Further Experiments<a class="anchor-link" href="#further-experiments">¶</a></h2><p>This is a good time to mention another important guiding principle of Pixeltable. The preceding examples all used the built-in <code>DocumentSplitter</code> class with various configurations. That's probably fine as a first cut or to prototype an application quickly, and it might be sufficient for some applications. But other applications might want to do more sophisticated kinds of chunking, implementing their own specialized logic or leveraging third-party tools. Pixeltable imposes no constraints on the AI or RAG operations a workflow uses: the iterator interface is highly general, and it's easy to implement new operations or adapt existing code or third-party tools into the Pixeltable workflow. Pixeltable manages <em>data</em> storage and workflow that is common to all such operations: above the data plane, it's fully general and extensible.</p>
+<p>TODO: Example of a custom splitter?</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=5ce36880">
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=709a4be2">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="adding-embeddings">Adding embeddings<a class="anchor-link" href="#adding-embeddings">¶</a></h2>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=fa455441-bfd1-41cc-a802-a396a2323c4f">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Next, let's look at how embeddings can be added seamlessly to existing Pixeltable workflows. To compute our embeddings, we'll use the Huggingface <code>sentence_transformer</code> package, running it over the <code>chunks</code> view that broke our documents up into larger paragraphs. Pixeltable has a built-in <code>sentence_transformer</code> adapter, and all we have to do is add a new column that leverages it. Pixeltable takes care of the rest, applying the new column to all existing data in the view.</p>
+<p>You may see a lot of output, especially if you're using <code>sentence_transformers</code> for the first time.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=e0d7ea4a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [17]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-17">
@@ -2322,61 +1964,35 @@ t['eval_output'] = t.eval.choices[0].message.content</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">eval</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">eval_output</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span> <span class="nn">pixeltable.functions.huggingface</span> <span class="kn">import</span> <span class="n">sentence_transformer</span><span class="p">,</span> <span class="n">clip</span>
+
+<span class="n">minilm_model_id</span> <span class="o">=</span> <span class="s1">'paraphrase-MiniLM-L6-v2'</span>
+
+<span class="n">chunks</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">minilm_embedding</span><span class="o">=</span><span class="n">sentence_transformer</span><span class="p">(</span><span class="n">chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">model_id</span><span class="o">=</span><span class="n">minilm_model_id</span><span class="p">))</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-17">t.select(t.eval, t.eval_output).show()</div>
+<div class="clipboard-copy-txt" id="cell-17">from pixeltable.functions.huggingface import sentence_transformer, clip
+
+minilm_model_id = 'paraphrase-MiniLM-L6-v2'
+
+chunks.add_column(minilm_embedding=sentence_transformer(chunks.text, model_id=minilm_model_id))</div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[17]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th>eval</th>
-<th>eval_output</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>{'id': 'chatcmpl-8mUkH5nobeETZqebvgcqY0X8N5CiX', 'model': 'gpt-3.5-turbo-0613', 'usage': {'total_tokens': 111, 'prompt_tokens': 81, 'completion_tokens': 30}, 'object': 'chat.completion', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': '{"reasoning": "The entities in listA and listB are the same: \'Lehman Brothers\'.", "decision": 1}', 'tool_calls': None, 'function_call': None}, 'logprobs': None, 'finish_reason': 'stop'}], 'created': 1706568621, 'system_fingerprint': None}</td>
-<td>{"reasoning": "The entities in listA and listB are the same: 'Lehman Brothers'.", "decision": 1}</td>
-</tr>
-<tr>
-<td>{'id': 'chatcmpl-8mUkJkp2BuXPxOHLCFeqMLU8R5WCL', 'model': 'gpt-3.5-turbo-0613', 'usage': {'total_tokens': 108, 'prompt_tokens': 81, 'completion_tokens': 27}, 'object': 'chat.completion', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': '{"reasoning": "The reasoning is that both lists have the same entity \'Lehman Brothers\'", "decision": 1}', 'tool_calls': None, 'function_call': None}, 'logprobs': None, 'finish_reason': 'stop'}], 'created': 1706568623, 'system_fingerprint': None}</td>
-<td>{"reasoning": "The reasoning is that both lists have the same entity 'Lehman Brothers'", "decision": 1}</td>
-</tr>
-<tr>
-<td>{'id': 'chatcmpl-8mUkLgv9bFjgw9fOqOkjTxtelPzVX', 'model': 'gpt-3.5-turbo-0613', 'usage': {'total_tokens': 128, 'prompt_tokens': 89, 'completion_tokens': 39}, 'object': 'chat.completion', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': '{"reasoning": "The order of the entities in the lists does not matter. Therefore, we can simply compare the entities in the lists without considering their order.", "decision": 1}', 'tool_calls': None, 'function_call': None}, 'logprobs': None, 'finish_reason': 'stop'}], 'created': 1706568625, 'system_fingerprint': None}</td>
-<td>{"reasoning": "The order of the entities in the lists does not matter. Therefore, we can simply compare the entities in the lists without considering their order.", "decision": 1}</td>
-</tr>
-<tr>
-<td>{'id': 'chatcmpl-8mUkM8A1x7oBowCe9svTy06CnB9iP', 'model': 'gpt-3.5-turbo-0613', 'usage': {'total_tokens': 175, 'prompt_tokens': 88, 'completion_tokens': 87}, 'object': 'chat.completion', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': '{"reasoning": "Based on the given lists, both listA and listB contain the same entities, which are \'Merrill Lynch\' and \'Bank of America\'. The only difference is a minor spelling mistake in listB where \'Merrill\' is misspelled as \'Merill\'. Since the entities are the same despite the spelling difference, the lists can be considered as matched.", "decision": 1}', 'tool_calls': None, 'function_call': None}, 'logprobs': None, 'finish_reason': 'stop'}], 'created': 1706568626, 'system_fingerprint': None}</td>
-<td>{"reasoning": "Based on the given lists, both listA and listB contain the same entities, which are 'Merrill Lynch' and 'Bank of America'. The only difference is a minor spelling mistake in listB where 'Merrill' is misspelled as 'Merill'. Since the entities are the same despite the spelling difference, the lists can be considered as matched.", "decision": 1}</td>
-</tr>
-<tr>
-<td>{'id': 'chatcmpl-8mUkQgLIAZBHMFQuCNwyyWbg3A4nb', 'model': 'gpt-3.5-turbo-0613', 'usage': {'total_tokens': 144, 'prompt_tokens': 82, 'completion_tokens': 62}, 'object': 'chat.completion', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': '{"reasoning": "The two lists contain the same entity, \'American International Group\'. The only difference is that listA includes the abbreviation \'AIG\' while listB does not. However, since the core entity is the same, we can consider them as a match.", "decision": 1}', 'tool_calls': None, 'function_call': None}, 'logprobs': None, 'finish_reason': 'stop'}], 'created': 1706568630, 'system_fingerprint': None}</td>
-<td>{"reasoning": "The two lists contain the same entity, 'American International Group'. The only difference is that listA includes the abbreviation 'AIG' while listB does not. However, since the core entity is the same, we can consider them as a match.", "decision": 1}</td>
-</tr>
-<tr>
-<td>{'id': 'chatcmpl-8mUkTHsy42wGDVXB5xcdq3z4fd5Mk', 'model': 'gpt-3.5-turbo-0613', 'usage': {'total_tokens': 129, 'prompt_tokens': 81, 'completion_tokens': 48}, 'object': 'chat.completion', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': '{"reasoning": "The entities in listA are AIG and Federal Reserve. The entity in listB is American International Group. Since American International Group is the same as AIG, the lists match.", "decision": 1}', 'tool_calls': None, 'function_call': None}, 'logprobs': None, 'finish_reason': 'stop'}], 'created': 1706568633, 'system_fingerprint': None}</td>
-<td>{"reasoning": "The entities in listA are AIG and Federal Reserve. The entity in listB is American International Group. Since American International Group is the same as AIG, the lists match.", "decision": 1}</td>
-</tr>
-</tbody>
-</table>
 </div>
 </div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=65bb3b1b-04fd-422b-a070-d3faa16033e0">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>The new column is a <em>computed column</em>: it is defined as a function on top of existing data and updated incrementally as new data are added to the workflow. Let's have a look at how the new column affected the <code>chunks</code> view.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=bc7920a1">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=3cf786cc">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2394,9 +2010,132 @@ t['eval_output'] = t.eval.choices[0].message.content</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">chunks</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-18"></div>
+<div class="clipboard-copy-txt" id="cell-18">chunks</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=bc2893b5">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy for="cell-19">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">chunks</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-19">chunks.head()</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=258f0b29-aa1b-4292-8eb0-9dd3cd89d53b">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Similarly, we might want to add a CLIP embedding to our workflow; once again, it's just another computed column:</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=bc4811c4">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy for="cell-20">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">clip_model_id</span> <span class="o">=</span> <span class="s1">'openai/clip-vit-base-patch32'</span>
+
+<span class="n">chunks</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">clip_embedding</span><span class="o">=</span><span class="n">clip</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">model_id</span><span class="o">=</span><span class="n">clip_model_id</span><span class="p">))</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-20">clip_model_id = 'openai/clip-vit-base-patch32'
+
+chunks.add_column(clip_embedding=clip(text=chunks.text, model_id=clip_model_id))</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=40f446a4">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy for="cell-21">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">chunks</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-21">chunks</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=695af1d1">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy for="cell-22">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">chunks</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-22">chunks.head()</div>
 </div>
 </div>
 </div>
