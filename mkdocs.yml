@@ -2,13 +2,13 @@ site_name: Pixeltable
 site_author: Marcel Kornacker
 
 copyright: |
-  &copy; 20222 - 2023 <a href="https://github.com/mkornacker" target="_blank" rel="noopener">Marcel Kornacker</a> All rights reserved.
+  &copy; 20222 - 2024 <a href="https://github.com/mkornacker" target="_blank" rel="noopener">Marcel Kornacker</a> All rights reserved.
 
 #docs_dir: .
 site_dir: site
 
-repo_url: https://github.com/mkornacker/pixeltable
-repo_name: mkornacker/pixeltable
+repo_url: https://github.com/pixeltable/pixeltable
+repo_name: pixeltable/pixeltable
 
 nav:
 - Home: README.md
@@ -18,6 +18,7 @@ nav:
   - Comparing Object Detection Models for Video: tutorials/comparing_object_detection_models_for_video.ipynb
   - Object Detection in Videos: tutorials/object_detection_in_videos.ipynb
   - Using the OpenAI API with Pixeltable: tutorials/openai_demo.ipynb
+  - RAG Operations in Pixeltable: tutorials/rag-demo.ipynb
 - How-To:
   - Working with external files: howto/working_with_external_files.ipynb
 - API Reference:
