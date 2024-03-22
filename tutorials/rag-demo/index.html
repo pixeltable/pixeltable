@@ -153,13 +153,13 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/mkornacker/pixeltable" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/pixeltable/pixeltable" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2023 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
   </div>
   <div class="md-source__repository">
-    mkornacker/pixeltable
+    pixeltable/pixeltable
   </div>
 </a>
       </div>
@@ -199,13 +199,13 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/mkornacker/pixeltable" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/pixeltable/pixeltable" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2023 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
   </div>
   <div class="md-source__repository">
-    mkornacker/pixeltable
+    pixeltable/pixeltable
   </div>
 </a>
     </div>
@@ -1223,8 +1223,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="rag-operations-in-pixeltable">RAG Operations in Pixeltable<a class="anchor-link" href="#rag-operations-in-pixeltable">¶</a></h1><p>Authors: Marcel Kornacker, Aaron Siegel</p>
-<p>In this tutorial, we'll explore Pixeltable's flexible handling of RAG operations on unstructured text. In a traditional AI workflow, such operations might be implemented as a Python script that runs on a periodic schedule or in response to certain events. In Pixeltable, as with everything else, they are implemented as persistent table operations that update incrementally as new data becomes available. In our tutorial workflow, we'll chunk Wikipedia articles in various ways with a document splitter, then apply several kinds of embeddings to the chunks.</p>
+<h1 id="rag-operations-in-pixeltable">RAG Operations in Pixeltable<a class="anchor-link" href="#rag-operations-in-pixeltable">¶</a></h1><p>In this tutorial, we'll explore Pixeltable's flexible handling of RAG operations on unstructured text. In a traditional AI workflow, such operations might be implemented as a Python script that runs on a periodic schedule or in response to certain events. In Pixeltable, as with everything else, they are implemented as persistent table operations that update incrementally as new data becomes available. In our tutorial workflow, we'll chunk Wikipedia articles in various ways with a document splitter, then apply several kinds of embeddings to the chunks.</p>
 <p>To run this tutorial, you'll need to have Pixeltable installed, along with the Huggingface <code>sentence_transformers</code> package.</p>
 <h2 id="set-up-the-table-structure">Set Up the Table Structure<a class="anchor-link" href="#set-up-the-table-structure">¶</a></h2><p>We start by creating a Pixeltable client object.</p>
 </div>
@@ -1264,18 +1263,8 @@ cl = pxt.Client()</div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/Users/asiegel/Dropbox/workspace/pixeltable/pixeltable/pixeltable/exec/expr_eval_node.py:6: TqdmWarning: IProgress not found. Please update jupyter and ipywidgets. See https://ipywidgets.readthedocs.io/en/stable/user_install.html
-  from tqdm.autonotebook import tqdm
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>2024-03-21 20:26:51,055 INFO pixeltable env.py:210: creating database at postgresql://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata
-2024-03-21 20:26:54,314 INFO pixeltable env.py:262: Initializing OpenAI client.
-2024-03-21 20:26:54,326 INFO pixeltable env.py:274: Initializing Together client.
+<pre>2024-03-21 21:58:16,331 INFO pixeltable env.py:210: creating database at postgresql://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata
 </pre>
 </div>
 </div>
@@ -1447,27 +1436,27 @@ cl.drop_table('rag_demo.docs', ignore_errors=True)</div>
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <style type="text/css">
-#T_c51fd th {
+#T_ea1a3 th {
   text-align: center;
 }
-#T_c51fd_row0_col0, #T_c51fd_row0_col1, #T_c51fd_row0_col2 {
+#T_ea1a3_row0_col0, #T_ea1a3_row0_col1, #T_ea1a3_row0_col2 {
   white-space: pre-wrap;
   text-align: left;
 }
 </style>
-<table id="T_c51fd">
+<table id="T_ea1a3">
 <thead>
 <tr>
-<th class="col_heading level0 col0" id="T_c51fd_level0_col0">Column Name</th>
-<th class="col_heading level0 col1" id="T_c51fd_level0_col1">Type</th>
-<th class="col_heading level0 col2" id="T_c51fd_level0_col2">Computed With</th>
+<th class="col_heading level0 col0" id="T_ea1a3_level0_col0">Column Name</th>
+<th class="col_heading level0 col1" id="T_ea1a3_level0_col1">Type</th>
+<th class="col_heading level0 col2" id="T_ea1a3_level0_col2">Computed With</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="data row0 col0" id="T_c51fd_row0_col0">source_doc</td>
-<td class="data row0 col1" id="T_c51fd_row0_col1">document</td>
-<td class="data row0 col2" id="T_c51fd_row0_col2"></td>
+<td class="data row0 col0" id="T_ea1a3_row0_col0">source_doc</td>
+<td class="data row0 col1" id="T_ea1a3_row0_col1">document</td>
+<td class="data row0 col2" id="T_ea1a3_row0_col2"></td>
 </tr>
 </tbody>
 </table>
@@ -1483,7 +1472,7 @@ cl.drop_table('rag_demo.docs', ignore_errors=True)</div>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Next we create a view to represent chunks of our HTML documents. A Pixeltable view is a virtual table, which is dynamically derived from a source table by applying a transformation and/or selecting a subset of data. In this case, our view represents a one-to-many transformation from source documents into individual sentences. This is achived using Pixeltable's built-in <code>DocumentSplitter</code> class.</p>
+<p>Next we create a view to represent chunks of our HTML documents. A Pixeltable view is a virtual table, which is dynamically derived from a source table by applying a transformation and/or selecting a subset of data. In this case, our view represents a one-to-many transformation from source documents into individual sentences. This is achieved using Pixeltable's built-in <code>DocumentSplitter</code> class.</p>
 <p>Note that the <code>docs</code> table is currently empty, so creating this view doesn't actually <em>do</em> anything yet: it simply defines an operation that we want Pixeltable to execute when it sees new data.</p>
 </div>
 </div>
@@ -1494,7 +1483,7 @@ cl.drop_table('rag_demo.docs', ignore_errors=True)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-5">
@@ -1565,7 +1554,7 @@ sentences = cl.create_view(
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-6">
@@ -1590,55 +1579,55 @@ sentences = cl.create_view(
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <style type="text/css">
-#T_1053a th {
+#T_89b1d th {
   text-align: center;
 }
-#T_1053a_row0_col0, #T_1053a_row0_col1, #T_1053a_row0_col2, #T_1053a_row1_col0, #T_1053a_row1_col1, #T_1053a_row1_col2, #T_1053a_row2_col0, #T_1053a_row2_col1, #T_1053a_row2_col2, #T_1053a_row3_col0, #T_1053a_row3_col1, #T_1053a_row3_col2, #T_1053a_row4_col0, #T_1053a_row4_col1, #T_1053a_row4_col2, #T_1053a_row5_col0, #T_1053a_row5_col1, #T_1053a_row5_col2 {
+#T_89b1d_row0_col0, #T_89b1d_row0_col1, #T_89b1d_row0_col2, #T_89b1d_row1_col0, #T_89b1d_row1_col1, #T_89b1d_row1_col2, #T_89b1d_row2_col0, #T_89b1d_row2_col1, #T_89b1d_row2_col2, #T_89b1d_row3_col0, #T_89b1d_row3_col1, #T_89b1d_row3_col2, #T_89b1d_row4_col0, #T_89b1d_row4_col1, #T_89b1d_row4_col2, #T_89b1d_row5_col0, #T_89b1d_row5_col1, #T_89b1d_row5_col2 {
   white-space: pre-wrap;
   text-align: left;
 }
 </style>
-<table id="T_1053a">
+<table id="T_89b1d">
 <thead>
 <tr>
-<th class="col_heading level0 col0" id="T_1053a_level0_col0">Column Name</th>
-<th class="col_heading level0 col1" id="T_1053a_level0_col1">Type</th>
-<th class="col_heading level0 col2" id="T_1053a_level0_col2">Computed With</th>
+<th class="col_heading level0 col0" id="T_89b1d_level0_col0">Column Name</th>
+<th class="col_heading level0 col1" id="T_89b1d_level0_col1">Type</th>
+<th class="col_heading level0 col2" id="T_89b1d_level0_col2">Computed With</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="data row0 col0" id="T_1053a_row0_col0">pos</td>
-<td class="data row0 col1" id="T_1053a_row0_col1">int</td>
-<td class="data row0 col2" id="T_1053a_row0_col2"></td>
+<td class="data row0 col0" id="T_89b1d_row0_col0">pos</td>
+<td class="data row0 col1" id="T_89b1d_row0_col1">int</td>
+<td class="data row0 col2" id="T_89b1d_row0_col2"></td>
 </tr>
 <tr>
-<td class="data row1 col0" id="T_1053a_row1_col0">text</td>
-<td class="data row1 col1" id="T_1053a_row1_col1">string</td>
-<td class="data row1 col2" id="T_1053a_row1_col2"></td>
+<td class="data row1 col0" id="T_89b1d_row1_col0">text</td>
+<td class="data row1 col1" id="T_89b1d_row1_col1">string</td>
+<td class="data row1 col2" id="T_89b1d_row1_col2"></td>
 </tr>
 <tr>
-<td class="data row2 col0" id="T_1053a_row2_col0">title</td>
-<td class="data row2 col1" id="T_1053a_row2_col1">string</td>
-<td class="data row2 col2" id="T_1053a_row2_col2"></td>
+<td class="data row2 col0" id="T_89b1d_row2_col0">title</td>
+<td class="data row2 col1" id="T_89b1d_row2_col1">string</td>
+<td class="data row2 col2" id="T_89b1d_row2_col2"></td>
 </tr>
 <tr>
-<td class="data row3 col0" id="T_1053a_row3_col0">headings</td>
-<td class="data row3 col1" id="T_1053a_row3_col1">json</td>
-<td class="data row3 col2" id="T_1053a_row3_col2"></td>
+<td class="data row3 col0" id="T_89b1d_row3_col0">headings</td>
+<td class="data row3 col1" id="T_89b1d_row3_col1">json</td>
+<td class="data row3 col2" id="T_89b1d_row3_col2"></td>
 </tr>
 <tr>
-<td class="data row4 col0" id="T_1053a_row4_col0">sourceline</td>
-<td class="data row4 col1" id="T_1053a_row4_col1">int</td>
-<td class="data row4 col2" id="T_1053a_row4_col2"></td>
+<td class="data row4 col0" id="T_89b1d_row4_col0">sourceline</td>
+<td class="data row4 col1" id="T_89b1d_row4_col1">int</td>
+<td class="data row4 col2" id="T_89b1d_row4_col2"></td>
 </tr>
 <tr>
-<td class="data row5 col0" id="T_1053a_row5_col0">source_doc</td>
-<td class="data row5 col1" id="T_1053a_row5_col1">document</td>
-<td class="data row5 col2" id="T_1053a_row5_col2"></td>
+<td class="data row5 col0" id="T_89b1d_row5_col0">source_doc</td>
+<td class="data row5 col1" id="T_89b1d_row5_col1">document</td>
+<td class="data row5 col2" id="T_89b1d_row5_col2"></td>
 </tr>
 </tbody>
 </table>
@@ -1691,7 +1680,7 @@ sentences = cl.create_view(
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-7">
@@ -1718,14 +1707,14 @@ sentences = cl.create_view(
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>Inserting rows into `docs`: 1 rows [00:00, 171.98 rows/s]
-Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
+<pre>Inserting rows into `docs`: 1 rows [00:00, 182.72 rows/s]
+Inserting rows into `sentences`: 1465 rows [00:00, 3008.51 rows/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserted 1466 rows with 0 errors .
+<pre>Inserted 1466 rows with 0 errors.
 </pre>
 </div>
 </div>
@@ -1737,7 +1726,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>UpdateStatus(num_rows=1466, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])</pre>
 </div>
@@ -1752,7 +1741,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>We can see that two things happened. First, a single row was inserted into <code>docs</code>, containing the URL representing our source document. Then, the view <code>sentences</code> was incrementally updated by applying the <code>DocumentSplitter</code> according to the definition of the view. This illustrates an important principle in Pixeltable: anytime Pixeltable sees new data, the update is incrementally propagated to any downstream views or computed columns.</p>
+<p>We can see that two things happened. First, a single row was inserted into <code>docs</code>, containing the URL representing our source document. Then, the view <code>sentences</code> was incrementally updated by applying the <code>DocumentSplitter</code> according to the definition of the view. This illustrates an important principle in Pixeltable: by default, anytime Pixeltable sees new data, the update is incrementally propagated to any downstream views or computed columns.</p>
 <p>We can see the effect of the insertion with the <code>select</code> command. There's a single row in <code>docs</code>:</p>
 </div>
 </div>
@@ -1763,7 +1752,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-8">
@@ -1788,7 +1777,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <table border="1" class="dataframe">
 <thead>
@@ -1814,7 +1803,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>And here are the first 50 rows in <code>sentences</code>. The content of the article is broken into individual sentences, as expected.</p>
+<p>And here are the first 20 rows in <code>sentences</code>. The content of the article is broken into individual sentences, as expected.</p>
 </div>
 </div>
 </div>
@@ -1824,7 +1813,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-9">
@@ -1837,9 +1826,9 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">sentences</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">sentences</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">sentences</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">sentences</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">sentences</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">sentences</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">sentences.select(sentences.text, sentences.headings).show(50)</div>
+<div class="clipboard-copy-txt" id="cell-9">sentences.select(sentences.text, sentences.headings).show(20)</div>
 </div>
 </div>
 </div>
@@ -1849,7 +1838,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <table border="1" class="dataframe">
 <thead>
@@ -1939,126 +1928,6 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <td>Before World War I , he travelled between Saint Petersburg , Paris , and Berlin .</td>
 <td>{'1': 'Marc Chagall'}</td>
 </tr>
-<tr>
-<td>During that period, he created his own mixture and style of modern art, based on his ideas of Eastern European and Jewish folklore.</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>He spent the wartime years in his native Belarus, becoming one of the country's most distinguished artists and a member of the modernist avant-garde , founding the Vitebsk Arts College .</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>He later worked in and near Moscow in difficult conditions during hard times in Russia following the Bolshevik Revolution , before leaving again for Paris in 1923.</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>During World War II , he escaped occupied France to the United States, where he lived in New York City for seven years before returning to France in 1948.</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>Art critic Robert Hughes referred to Chagall as "the quintessential Jewish artist of the twentieth century".</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>According to art historian Michael J. Lewis, Chagall was considered to be "the last survivor of the first generation of European modernists".</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>For decades, he "had also been respected as the world's pre-eminent Jewish artist".</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>[15] Using the medium of stained glass, he produced windows for the cathedrals of Reims and Metz as well as the Fraumünster in Zürich , windows for the UN and the Art Institute of Chicago and the Jerusalem Windows in Israel.</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>He also did large-scale paintings, including part of the ceiling of the Paris Opéra .</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>He experienced modernism's "golden age" in Paris, where "he synthesized the art forms of Cubism , Symbolism , and Fauvism , and the influence of Fauvism gave rise to Surrealism ".</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>Yet throughout these phases of his style "he remained most emphatically a Jewish artist, whose work was one long dreamy reverie of life in his native village of Vitebsk."</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>[16] "When Matisse dies", Pablo Picasso remarked in the 1950s, "Chagall will be the only painter left who understands what colour really is".</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>[17]</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>Early life and education [ edit ]</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]'}</td>
-</tr>
-<tr>
-<td>Early life [ edit ] Marc Chagall's childhood home in Vitebsk , Belarus.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Currently site of the Marc Chagall Museum .</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Marc Chagall, 1912, The Spoonful of Milk (La Cuillerée de lait) , gouache on paper</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Marc Chagall was born Moishe Shagal in 1887, into a Jewish family in Liozna , [1] near the city of Vitebsk , Belarus, then part of the Russian Empire .</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>[c] [18] At the time of his birth, Vitebsk's population was about 66,000.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Half of the population was Jewish.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>[16] A picturesque city of churches and synagogues, it was called "Russian Toledo " by artist Ilya Repin , after the cosmopolitan city of the former Spanish Empire .</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>[19] Because the city was built mostly of wood, little of it survived years of occupation and destruction during World War II.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Chagall was the eldest of nine children.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>The family name, Shagal, is a variant of the name Segal , which in a Jewish community was usually borne by a Levitic family.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>[20] His father, Khatskl (Zachar) Shagal, was employed by a herring merchant, and his mother, Feige-Ite, sold groceries from their home.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>His father worked hard, carrying heavy barrels, earning 20 roubles each month (the average wages across the Russian Empire was 13 roubles a month).</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Chagall wrote of those early years:</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Day after day, winter and summer, at six o'clock in the morning, my father got up and went off to the synagogue.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>There he said his usual prayer for some dead man or other.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>On his return he made ready the samovar , drank some tea and went to work.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
 </tbody>
 </table>
 </div>
@@ -2094,7 +1963,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-10">
@@ -2137,7 +2006,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>Inserting rows into `chunks`: 205 rows [00:00, 7298.22 rows/s]</pre>
+<pre>Inserting rows into `chunks`: 205 rows [00:00, 8721.47 rows/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -2163,7 +2032,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-11">
@@ -2206,7 +2075,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>Inserting rows into `short_chunks`: 527 rows [00:00, 9919.97 rows/s]</pre>
+<pre>Inserting rows into `short_chunks`: 527 rows [00:00, 10806.26 rows/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -2232,7 +2101,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-12">
@@ -2275,7 +2144,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>Inserting rows into `short_char_chunks`: 1759 rows [00:00, 9453.94 rows/s]</pre>
+<pre>Inserting rows into `short_char_chunks`: 1759 rows [00:00, 9943.34 rows/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -2301,7 +2170,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [22]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-13">
@@ -2314,9 +2183,9 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">chunks</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">chunks</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">chunks</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">chunks</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-13">chunks.select(chunks.text, chunks.headings).show(50)</div>
+<div class="clipboard-copy-txt" id="cell-13">chunks.select(chunks.text, chunks.headings).show(20)</div>
 </div>
 </div>
 </div>
@@ -2326,7 +2195,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[22]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <table border="1" class="dataframe">
 <thead>
@@ -2336,10 +2205,6 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </tr>
 </thead>
 <tbody>
-<tr>
-<td>Marc Chagall - Wikipedia Jump to content Search Search</td>
-<td>{}</td>
-</tr>
 <tr>
 <td>Marc Chagall 81 languages Afrikaans Alemannisch العربية Aragonés Արեւմտահայերէն Asturianu Azərbaycanca বাংলা Башҡортса Беларуская Беларуская (тарашкевіца) Български Català Čeština Cymraeg Dansk Deutsch Eesti Ελληνικά Español Esperanto Euskara فارسی Français Galego 한국어 Հայերեն हिन्दी Hrvatski Ido Bahasa Indonesia Interlingua Italiano עברית Jawa ქართული Kiswahili Latina Latviešu Lëtzebuergesch Lietuvių Magyar Македонски Malagasy مصرى Nederlands Nedersaksies 日本語 Norsk bokmål Norsk nynorsk Occitan Oʻzbekcha / ўзбекча پنجابی Picard Piemontèis Plattdüütsch Polski Português Română Runa Simi Русский Scots Shqip Sicilianu Simple English Slovenčina Slovenščina کوردی Српски / srpski Srpskohrvatski / српскохрватски Suomi Svenska ไทย Türkçe Українська Tiếng Việt Winaray 吴语 ייִדיש 粵語 中文 Edit links From Wikipedia, the free encyclopedia Russian-French artist (1887–1985) "Chagall" redirects here. For other uses, see Chagall (disambiguation) .</td>
 <td>{'1': 'Marc Chagall'}</td>
@@ -2373,14 +2238,6 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
 </tr>
 <tr>
-<td>Chagall was the eldest of nine children. The family name, Shagal, is a variant of the name Segal , which in a Jewish community was usually borne by a Levitic family. [20] His father, Khatskl (Zachar) Shagal, was employed by a herring merchant, and his mother, Feige-Ite, sold groceries from their home. His father worked hard, carrying heavy barrels, earning 20 roubles each month (the average wages across the Russian Empire was 13 roubles a month). Chagall wrote of those early years:</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Day after day, winter and summer, at six o'clock in the morning, my father got up and went off to the synagogue. There he said his usual prayer for some dead man or other. On his return he made ready the samovar , drank some tea and went to work. Hellish work, the work of a galley-slave. Why try to hide it? How tell about it? No word will ever ease my father's lot... There was always plenty of butter and cheese on our table. Buttered bread, like an eternal symbol, was never out of my childish hands. [21]</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
 <td>Years later, at the age of 57, while living in the United States, Chagall confirmed that when he published an open letter entitled, "To My City Vitebsk":</td>
 <td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Artistic inspiration[edit]'}</td>
 </tr>
@@ -2409,10 +2266,6 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
 </tr>
 <tr>
-<td>A turning point of his artistic life came when he first noticed a fellow student drawing. Baal-Teshuva writes that, for the young Chagall, watching someone draw "was like a vision, a revelation in black and white". Chagall would later say that there was no art of any kind in his family's home and the concept was totally alien to him. When Chagall asked the schoolmate how he learned to draw, his friend replied, "Go and find a book in the library, idiot, choose any picture you like, and just copy it". He soon began copying images from books and found the experience so rewarding he then decided he wanted to become an artist. [22]</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
-</tr>
-<tr>
 <td>Goodman writes that Chagall eventually confided to his mother, "I want to be a painter", although she could not yet understand his sudden interest in art or why he would choose a vocation that "seemed so impractical". The young Chagall explained: "There's a place in town; if I'm admitted and if I complete the course, I'll come out a regular artist. I'd be so happy!" It was 1906, and he had noticed the studio of Yehuda (Yuri) Pen , a realist artist who operated a drawing school in Vitebsk. At the same time, future artists El Lissitzky and Ossip Zadkine were also Pen's students. Due to Chagall's youth and lack of income, Pen offered to teach him free of charge. However, after a few months at the school, Chagall realized that academic portrait painting did not suit him. [22]</td>
 <td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
 </tr>
@@ -2432,110 +2285,6 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <td>Why? Why did I leave you many years ago? ... You thought, the boy seeks something, seeks such a special subtlety, that color descending like stars from the sky and landing, bright and transparent, like snow on our roofs. Where did he get it? How would it come to a boy like him? I don't know why he couldn't find it with us, in the city—in his homeland. Maybe the boy is "crazy", but "crazy" for the sake of art. ...You thought: "I can see, I am etched in the boy's heart, but he is still 'flying', he is still striving to take off, he has 'wind' in his head." ... I did not live with you, but I didn't have one single painting that didn't breathe with your spirit and reflection. [28]</td>
 <td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Artistic inspiration[edit]'}</td>
 </tr>
-<tr>
-<td>Art career [ edit ]</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]'}</td>
-</tr>
-<tr>
-<td>Russian Empire (1906–1910) [ edit ]</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russian Empire (1906–1910)[edit]'}</td>
-</tr>
-<tr>
-<td>In 1906, he moved to Saint Petersburg , which was then the capital of the Russian Empire and the center of the country's artistic life, with famous art schools. Since Jews were not permitted into the city without an internal passport, he managed to get a temporary passport from a friend. He enrolled in a prestigious art school and studied there for two years. [22] By 1907, he had begun painting naturalistic self-portraits and landscapes. Chagall was an active member of the irregular freemasonic lodge, the Grand Orient of Russia's Peoples . [29] He belonged to the "Vitebsk" lodge.</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russian Empire (1906–1910)[edit]'}</td>
-</tr>
-<tr>
-<td>Between 1908 and 1910, Chagall was a student of Léon Bakst at the Zvantseva School of Drawing and Painting. While in Saint Petersburg, he discovered experimental theater, and the work of such artists as Paul Gauguin . [30] Bakst, also Jewish, was a designer of decorative art and was famous as a draftsman designer of stage sets and costumes for the Ballets Russes , and helped Chagall by acting as a role model for Jewish success. Bakst moved to Paris a year later. Art historian Raymond Cogniat writes that after living and studying art on his own for four years, "Chagall entered into the mainstream of contemporary art. ...His apprenticeship over, Russia had played a memorable initial role in his life." [31] : 30</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russian Empire (1906–1910)[edit]'}</td>
-</tr>
-<tr>
-<td>Chagall stayed in Saint Petersburg until 1910, often visiting Vitebsk where he met Bella Rosenfeld . In My Life , Chagall described his first meeting her: "Her silence is mine, her eyes mine. It is as if she knows everything about my childhood, my present, my future, as if she can see right through me." [22] : 22 Bella later wrote, of meeting him, "When you did catch a glimpse of his eyes, they were as blue as if they'd fallen straight out of the sky. They were strange eyes … long, almond-shaped … and each seemed to sail along by itself, like a little boat." [32]</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russian Empire (1906–1910)[edit]'}</td>
-</tr>
-<tr>
-<td>France (1910–1914) [ edit ] Marc Chagall, 1911–12, The Drunkard ( Le saoul ), 1912, oil on canvas. 85 × 115 cm. Private collection Marc Chagall, 1912, The Fiddler , an inspiration for the musical Fiddler on the Roof [33]</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1910–1914)[edit]'}</td>
-</tr>
-<tr>
-<td>In 1910, Chagall relocated to Paris to develop his artistic style. Art historian and curator James Sweeney notes that when Chagall first arrived in Paris, Cubism was the dominant art form, and French art was still dominated by the "materialistic outlook of the 19th century". But Chagall arrived from Russia with "a ripe color gift, a fresh, unashamed response to sentiment, a feeling for simple poetry and a sense of humor", he adds. These notions were alien to Paris at that time, and as a result, his first recognition came not from other painters but from poets such as Blaise Cendrars and Guillaume Apollinaire . [34] : 7 Art historian Jean Leymarie observes that Chagall began thinking of art as "emerging from the internal being outward, from the seen object to the psychic outpouring", which was the reverse of the Cubist way of creating. [35]</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1910–1914)[edit]'}</td>
-</tr>
-<tr>
-<td>He therefore developed friendships with Guillaume Apollinaire and other avant-garde artists including Robert Delaunay and Fernand Léger . [36] Baal-Teshuva writes that "Chagall's dream of Paris, the city of light and above all, of freedom, had come true." [22] : 33 His first days were a hardship for the 23-year-old Chagall, who was lonely in the big city and unable to speak French. Some days he "felt like fleeing back to Russia, as he daydreamed while he painted, about the riches of Slavic folklore, his Hasidic experiences, his family, and especially Bella".</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1910–1914)[edit]'}</td>
-</tr>
-<tr>
-<td>In Paris, he enrolled at Académie de La Palette , an avant-garde school of art where the painters Jean Metzinger , André Dunoyer de Segonzac and Henri Le Fauconnier taught, and also found work at another academy. He would spend his free hours visiting galleries and salons, especially the Louvre ; artists he came to admire included Rembrandt , the Le Nain brothers, Chardin , van Gogh , Renoir , Pissarro , Matisse , Gauguin , Courbet , Millet , Manet , Monet , Delacroix , and others. It was in Paris that he learned the technique of gouache , which he used to paint Belarusian scenes. He also visited Montmartre and the Latin Quarter "and was happy just breathing Parisian air". [22] Baal-Teshuva describes this new phase in Chagall's artistic development:</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1910–1914)[edit]'}</td>
-</tr>
-<tr>
-<td>Chagall was exhilarated, intoxicated, as he strolled through the streets and along the banks of the Seine. Everything about the French capital excited him: the shops, the smell of fresh bread in the morning, the markets with their fresh fruit and vegetables, the wide boulevards, the cafés and restaurants, and above all the Eiffel Tower.\nAnother completely new world that opened up for him was the kaleidoscope of colors and forms in the works of French artists. Chagall enthusiastically reviewed their many different tendencies, having to rethink his position as an artist and decide what creative avenue he wanted to pursue. [22] : 33 Marc Chagall, 1912, Le Marchand de bestiaux ( The Drover, The Cattle Dealer ), oil on canvas, 97.1 x 202.5 cm, Kunstmuseum Basel</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1910–1914)[edit]'}</td>
-</tr>
-<tr>
-<td>Legacy and influence [ edit ]</td>
-<td>{'1': 'Marc Chagall', '2': 'Legacy and influence[edit]'}</td>
-</tr>
-<tr>
-<td>During his time in Paris, Chagall was constantly reminded of his home in Vitebsk, as Paris was also home to many painters, writers, poets, composers, dancers, and other émigrés from the Russian Empire. However, "night after night he painted until dawn", only then going to bed for a few hours, and resisted the many temptations of the big city at night. [22] : 44 "My homeland exists only in my soul", he once said. [35] : viii He continued painting Jewish motifs and subjects from his memories of Vitebsk, although he included Parisian scenes—- the Eiffel Tower in particular, along with portraits. Many of his works were updated versions of paintings he had made in Russia, transposed into Fauvist or Cubist keys. [16] Marc Chagall, 1912, Still-life (Nature morte) , oil on canvas, private collection</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1910–1914)[edit]'}</td>
-</tr>
-<tr>
-<td>Chagall developed a whole repertoire of quirky motifs: ghostly figures floating in the sky, ... the gigantic fiddler dancing on miniature dollhouses, the livestock and transparent wombs and, within them, tiny offspring sleeping upside down. [16] The majority of his scenes of life in Vitebsk were painted while living in Paris, and "in a sense they were dreams", notes Lewis. Their "undertone of yearning and loss", with a detached and abstract appearance, caused Apollinaire to be "struck by this quality", calling them "surnaturel!" His "animal/human hybrids and airborne phantoms" would later become a formative influence on Surrealism . [16] Chagall, however, did not want his work to be associated with any school or movement and considered his own personal language of symbols to be meaningful to himself. But Sweeney notes that others often still associate his work with "illogical and fantastic painting", especially when he uses "curious representational juxtapositions". [34] : 10</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1910–1914)[edit]'}</td>
-</tr>
-<tr>
-<td>Sweeney writes that "This is Chagall's contribution to contemporary art: the reawakening of a poetry of representation, avoiding factual illustration on the one hand, and non-figurative abstractions on the other". André Breton said that "with him alone, the metaphor made its triumphant return to modern painting". [34] : 7</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1910–1914)[edit]'}</td>
-</tr>
-<tr>
-<td>Russia (1914–1922) [ edit ]</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russia (1914–1922)[edit]'}</td>
-</tr>
-<tr>
-<td>Because he missed his fiancée, Bella, who was still in Vitebsk—"He thought about her day and night", writes Baal-Teshuva—and was afraid of losing her, Chagall decided to accept an invitation from a noted art dealer in Berlin to exhibit his work, his intention being to continue on to Belarus, marry Bella, and then return with her to Paris. Chagall took 40 canvases and 160 gouaches, watercolors and drawings to be exhibited. The exhibit, held at Herwarth Walden's Sturm Gallery was a huge success, "The German critics positively sang his praises." [22] People's Art School where the Vitebsk Museum of Modern Art was situated</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russia (1914–1922)[edit]'}</td>
-</tr>
-<tr>
-<td>After the exhibit, he continued on to Vitebsk, where he planned to stay only long enough to marry Bella. However, after a few weeks, the First World War began, closing the Russian border for an indefinite period. A year later he married Bella Rosenfeld and they had their first child, Ida. Before the marriage, Chagall had difficulty convincing Bella's parents that he would be a suitable husband for their daughter. They were worried about her marrying a painter from a poor family and wondered how he would support her. Becoming a successful artist now became a goal and inspiration. According to Lewis, "[T]he euphoric paintings of this time, which show the young couple floating balloon-like over Vitebsk—its wooden buildings faceted in the Delaunay manner—are the most lighthearted of his career". [16] His wedding pictures were also a subject he would return to in later years as he thought about this period of his life. [22] : 75 Bella with White Collar , 1917</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russia (1914–1922)[edit]'}</td>
-</tr>
-<tr>
-<td>In 1915, Chagall began exhibiting his work in Moscow, first exhibiting his works at a well-known salon and in 1916 exhibiting pictures in St. Petersburg. He again showed his art at a Moscow exhibition of avant-garde artists. This exposure brought recognition, and a number of wealthy collectors began buying his art. He also began illustrating a number of Yiddish books with ink drawings. He illustrated I. L. Peretz 's The Magician in 1917. [37] Chagall was 30 years old and had begun to become well known. [22] : 77</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russia (1914–1922)[edit]'}</td>
-</tr>
-<tr>
-<td>The October Revolution of 1917 was a dangerous time for Chagall although it also offered opportunity. Chagall wrote he came to fear Bolshevik orders pinned on fences, writing: "The factories were stopping. The horizons opened. Space and emptiness. No more bread. The black lettering on the morning posters made me feel sick at heart". [38] Chagall was often hungry for days, later remembering watching "a bride, the beggars and the poor wretches weighted down with bundles", leading him to conclude that the new regime had turned the Russian Empire "upside down the way I turn my pictures". [38] By then he was one of Imperial Russia's most distinguished artists and a member of the modernist avant-garde, which enjoyed special privileges and prestige as the "aesthetic arm of the revolution". [16] He was offered a notable position as a commissar of visual arts for the country, [ clarification needed ] but preferred something less political, and instead accepted a job as commissar of arts for Vitebsk. This resulted in his founding the Vitebsk Arts College which, adds Lewis, became the "most distinguished school of art in the Soviet Union".</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russia (1914–1922)[edit]'}</td>
-</tr>
-<tr>
-<td>It obtained for its faculty some of the most important artists in the country, such as El Lissitzky and Kazimir Malevich . He also added his first teacher, Yehuda Pen . Chagall tried to create an atmosphere of a collective of independently minded artists, each with their own unique style. However, this would soon prove to be difficult as a few of the key faculty members preferred a Suprematist art of squares and circles, and disapproved of Chagall's attempt at creating "bourgeois individualism". Chagall then resigned as commissar and moved to Moscow.</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russia (1914–1922)[edit]'}</td>
-</tr>
-<tr>
-<td>He was also at pains to distance his work from a single Jewish focus. At the opening of The Chagall Museum in Nice he said 'My painting represents not the dream of one people but of all humanity'.</td>
-<td>{'1': 'Marc Chagall', '2': 'Art styles and techniques[edit]', '3': 'Subject matter[edit]', '4': 'Jewish themes[edit]'}</td>
-</tr>
-<tr>
-<td>In Moscow he was offered a job as stage designer for the newly formed State Jewish Chamber Theater. [39] It was set to begin operation in early 1921 with a number of plays by Sholem Aleichem . For its opening he created a number of large background murals using techniques he learned from Bakst, his early teacher. One of the main murals was 9 feet (2.7 m) tall by 24 feet (7.3 m) long and included images of various lively subjects such as dancers, fiddlers, acrobats, and farm animals. One critic at the time called it "Hebrew jazz in paint". Chagall created it as a "storehouse of symbols and devices", notes Lewis. [16] The murals "constituted a landmark" in the history of the theatre, and were forerunners of his later large-scale works, including murals for the New York Metropolitan Opera and the Paris Opera . [22] : 87</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russia (1914–1922)[edit]'}</td>
-</tr>
-<tr>
-<td>The First World War ended in 1918, but the Russian Civil War continued, and famine spread. The Chagalls found it necessary to move to a smaller, less expensive, town near Moscow, although Chagall now had to commute to Moscow daily, using crowded trains. In 1921, he worked as an art teacher along with his friend sculptor Isaac Itkind in a Jewish boys' shelter in suburban Malakhovka , which housed young refugees orphaned by pogroms. [17] : 270 While there, he created a series of illustrations for the Yiddish poetry cycle Grief written by David Hofstein , who was another teacher at the Malakhovka shelter. [17] : 273</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russia (1914–1922)[edit]'}</td>
-</tr>
-<tr>
-<td>After spending the years between 1921 and 1922 living in primitive conditions, he decided to go back to France so that he could develop his art in a more comfortable country. Numerous other artists, writers, and musicians were also planning to relocate to the West. He applied for an exit visa and while waiting for its uncertain approval, wrote his autobiography, My Life . [22] : 121</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russia (1914–1922)[edit]'}</td>
-</tr>
-<tr>
-<td>France (1923–1941) [ edit ]</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1923–1941)[edit]'}</td>
-</tr>
-<tr>
-<td>In 1923, Chagall left Moscow to return to France. On his way he stopped in Berlin to recover the many pictures he had left there on exhibit ten years earlier, before the war began, but was unable to find or recover any of them. Nonetheless, after returning to Paris he again "rediscovered the free expansion and fulfillment which were so essential to him", writes Lewis. With all his early works now lost, he began trying to paint from his memories of his earliest years in Vitebsk with sketches and oil paintings. [16]</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'France (1923–1941)[edit]'}</td>
-</tr>
 </tbody>
 </table>
 </div>
@@ -2549,7 +2298,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [23]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-14">
@@ -2562,9 +2311,9 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">short_chunks</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">short_chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">short_chunks</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">short_chunks</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">short_chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">short_chunks</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-14">short_chunks.select(short_chunks.text, short_chunks.headings).show(50)</div>
+<div class="clipboard-copy-txt" id="cell-14">short_chunks.select(short_chunks.text, short_chunks.headings).show(20)</div>
 </div>
 </div>
 </div>
@@ -2574,7 +2323,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[14]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[23]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <table border="1" class="dataframe">
 <thead>
@@ -2664,126 +2413,6 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <td>life in his native village of Vitebsk." [16] "When Matisse dies", Pablo Picasso remarked in the 1950s, "Chagall will be the only painter left who understands what colour really is". [17]</td>
 <td>{'1': 'Marc Chagall'}</td>
 </tr>
-<tr>
-<td>Early life and education [ edit ]</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]'}</td>
-</tr>
-<tr>
-<td>Early life [ edit ] Marc Chagall's childhood home in Vitebsk , Belarus. Currently site of the Marc Chagall Museum . Marc Chagall, 1912, The Spoonful of Milk (La Cuillerée de lait) , gouache on paper</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Marc Chagall was born Moishe Shagal in 1887, into a Jewish family in Liozna , [1] near the city of Vitebsk , Belarus, then part of the Russian Empire . [c] [18] At the time of his birth, Vitebsk's population was about 66,000</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Between 1908 and 1910, Chagall was a student of Léon Bakst at the Zvantseva School of Drawing and Painting. While in Saint Petersburg, he discovered experimental theater, and the work of such artists as Paul Gauguin . [30] Bakst, also Jewish, was a designer of decorative art and was</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'Russian Empire (1906–1910)[edit]'}</td>
-</tr>
-<tr>
-<td>. Half of the population was Jewish. [16] A picturesque city of churches and synagogues, it was called "Russian Toledo " by artist Ilya Repin , after the cosmopolitan city of the former Spanish Empire . [19] Because the city was built mostly of wood, little of it survived years of occupation and destruction during World War II.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Chagall was the eldest of nine children. The family name, Shagal, is a variant of the name Segal , which in a Jewish community was usually borne by a Levitic family. [20] His father, Khatskl (Zachar) Shagal, was employed by a herring merchant, and his mother, Feige-I</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>te, sold groceries from their home. His father worked hard, carrying heavy barrels, earning 20 roubles each month (the average wages across the Russian Empire was 13 roubles a month). Chagall wrote of those early years:</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Day after day, winter and summer, at six o'clock in the morning, my father got up and went off to the synagogue. There he said his usual prayer for some dead man or other. On his return he made ready the samovar , drank some tea and went to work. Hellish work, the work of a galley-slave.</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Why try to hide it? How tell about it? No word will ever ease my father's lot... There was always plenty of butter and cheese on our table. Buttered bread, like an eternal symbol, was never out of my childish hands. [21]</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>One of the main sources of income for the Jewish population of the town was from the manufacture of clothing that was sold throughout the Russian Empire. They also made furniture and various agricultural tools. [22] From the late 18th century to the First World War, the Imperial Russian government confined Jews to living within the Pale of Settlement , which included modern Ukraine,</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Belarus, Poland, Lithuania, and Latvia, almost exactly corresponding to the territory of the Polish-Lithuanian Commonwealth which was taken over by Imperial Russia in the late 18th century. That led to the creation of Jewish market-villages ( shtetls ) throughout today's Eastern Europe, with their own markets, schools, hospitals, and other</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>community institutions. [23] : 14</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Chagall wrote as a boy; "I felt at every step that I was a Jew—people made me feel it". [24] [25] During a pogrom , Chagall wrote that: "The street lamps are out. I feel panicky, especially in front of butchers' windows. There you can see calves that are still</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>alive lying beside the butchers' hatchets and knives". [25] [26] When asked by some pogromniks "Jew or not?", Chagall remembered thinking: "My pockets are empty, my fingers sensitive, my legs weak and they are out for blood. My death would be futile. I so wanted to live". [25</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>] [26] Chagall denied being a Jew, leading the pogromniks to shout "All right! Get along!" [25] [26]</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Most of what is known about Chagall's early life has come from his autobiography, My Life . In it, he described the major influence that the culture of Hasidic Judaism had on his life as an artist. Chagall related how he realised that the Jewish traditions in which he had grown up were fast disappearing and that he needed to document them</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>. From the 1730s, Vitebsk itself had been a centre of that culture, with its teachings derived from the Kabbalah . Chagall scholar, Susan Tumarkin Goodman, describes the links and sources of his art to his early home:</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Chagall's art can be understood as the response to a situation that has long marked the history of Russian Jews. Though they were cultural innovators who made important contributions to the broader society, Jews were considered outsiders in a frequently hostile society ... Chagall himself was born of a family steeped in religious life; his parents were observant Hasidic</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Jews who found spiritual satisfaction in a life defined by their faith and organized by prayer. [23] : 14</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Early life[edit]'}</td>
-</tr>
-<tr>
-<td>Art education [ edit ] Portrait of Chagall by Yehuda Pen , his first art teacher in Vitebsk</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
-</tr>
-<tr>
-<td>In the Russian Empire at that time, Jewish children were not allowed to attend regular schools and universities imposed a quota on Jews . Their movement within the city was also restricted. Chagall therefore received his primary education at the local Jewish religious school, where he studied Hebrew and the Bible. At the age of 13, his mother tried to enrol him in a</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
-</tr>
-<tr>
-<td>regular high school, and he recalled: "But in that school, they don't take Jews. Without a moment's hesitation, my courageous mother walks up to a professor." She offered the headmaster 50 roubles to let him attend, which he accepted. [21]</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
-</tr>
-<tr>
-<td>Aleko ballet (1942) [ edit ]</td>
-<td>{'1': 'Marc Chagall', '2': 'Art career[edit]', '3': 'United States (1941–1948)[edit]', '4': 'Aleko ballet (1942)[edit]'}</td>
-</tr>
-<tr>
-<td>A turning point of his artistic life came when he first noticed a fellow student drawing. Baal-Teshuva writes that, for the young Chagall, watching someone draw "was like a vision, a revelation in black and white". Chagall would later say that there was no art of any kind in his family's home and the concept was</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
-</tr>
-<tr>
-<td>totally alien to him. When Chagall asked the schoolmate how he learned to draw, his friend replied, "Go and find a book in the library, idiot, choose any picture you like, and just copy it". He soon began copying images from books and found the experience so rewarding he then decided he wanted to become an artist. [22]</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
-</tr>
-<tr>
-<td>Goodman writes that Chagall eventually confided to his mother, "I want to be a painter", although she could not yet understand his sudden interest in art or why he would choose a vocation that "seemed so impractical". The young Chagall explained: "There's a place in town; if I'm admitted and if I complete the</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
-</tr>
-<tr>
-<td>course, I'll come out a regular artist. I'd be so happy!" It was 1906, and he had noticed the studio of Yehuda (Yuri) Pen , a realist artist who operated a drawing school in Vitebsk. At the same time, future artists El Lissitzky and Ossip Zadk</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
-</tr>
-<tr>
-<td>ine were also Pen's students. Due to Chagall's youth and lack of income, Pen offered to teach him free of charge. However, after a few months at the school, Chagall realized that academic portrait painting did not suit him. [22]</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Art education[edit]'}</td>
-</tr>
-<tr>
-<td>Artistic inspiration [ edit ] Marc Chagall, 1912, Calvary ( Golgotha ) , oil on canvas, 174.6 × 192.4 cm, Museum of Modern Art , New York. Alternative titles: Kreuzigung Bild 2 Christus gewidmet [Golgotha. Crucifixion. Dedicated</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Artistic inspiration[edit]'}</td>
-</tr>
-<tr>
-<td>to Christ] . Sold through Galerie Der Sturm (Herwarth Walden), Berlin to Bernhard Koehler (1849–1927), Berlin, 1913. Exhibited: Erster Deutscher Herbstsalon , Berlin, 1913</td>
-<td>{'1': 'Marc Chagall', '2': 'Early life and education[edit]', '3': 'Artistic inspiration[edit]'}</td>
-</tr>
 </tbody>
 </table>
 </div>
@@ -2797,7 +2426,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [24]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-15">
@@ -2810,9 +2439,9 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">short_char_chunks</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">short_char_chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">short_char_chunks</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">short_char_chunks</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">short_char_chunks</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">short_char_chunks</span><span class="o">.</span><span class="n">headings</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-15">short_char_chunks.select(short_char_chunks.text, short_char_chunks.headings).show(50)</div>
+<div class="clipboard-copy-txt" id="cell-15">short_char_chunks.select(short_char_chunks.text, short_char_chunks.headings).show(20)</div>
 </div>
 </div>
 </div>
@@ -2822,7 +2451,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[15]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[24]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <table border="1" class="dataframe">
 <thead>
@@ -2912,126 +2541,6 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <td>See list of artworks by Marc Chagall Movement Cubism Expressionism Scho</td>
 <td>{'1': 'Marc Chagall'}</td>
 </tr>
-<tr>
-<td>ol of Paris Spouses Bella Rosenfeld ​ ​ ( m. 1915; died 1944) ​ Valentin</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>a (Vava) Brodsky ​ ​ ( m. 1952) ​ [3] Children 2 [4]</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>Marc Chagall [a] (born Moishe Shagal ; 6 July [ O.S. 24 June] 1887 – 28</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>March 1985) was a Russian-French artist. [b] An early modernist , he wa</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>s associated with the École de Paris as well as several major artistic s</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>tyles and created works in a wide range of artistic formats, including p</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>ainting, drawings, book illustrations, stained glass , stage sets, ceram</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>ics, tapestries and fine art prints.</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>Chagall was born in 1887, into a Jewish family near Vitebsk , today in</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>Belarus , but at that time in the Pale of Settlement of the Russian Empi</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>re. Before World War I , he travelled between Saint Petersburg , Paris ,</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>and Berlin . During that period, he created his own mixture and style o</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>f modern art, based on his ideas of Eastern European and Jewish folklore</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>. He spent the wartime years in his native Belarus, becoming one of the</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>country's most distinguished artists and a member of the modernist avant</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>-garde , founding the Vitebsk Arts College . He later worked in and near</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>Moscow in difficult conditions during hard times in Russia following th</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>e Bolshevik Revolution , before leaving again for Paris in 1923. During</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>World War II , he escaped occupied France to the United States, where he</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>lived in New York City for seven years before returning to France in 19</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>48.</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>Art critic Robert Hughes referred to Chagall as "the quintessential Jew</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>ish artist of the twentieth century". According to art historian Michael</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>J. Lewis, Chagall was considered to be "the last survivor of the first</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>generation of European modernists". For decades, he "had also been respe</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>cted as the world's pre-eminent Jewish artist". [15] Using the medium of</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>stained glass, he produced windows for the cathedrals of Reims and Metz</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>as well as the Fraumünster in Zürich , windows for the UN and the Art I</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>nstitute of Chicago and the Jerusalem Windows in Israel. He also did lar</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
-<tr>
-<td>ge-scale paintings, including part of the ceiling of the Paris Opéra . H</td>
-<td>{'1': 'Marc Chagall'}</td>
-</tr>
 </tbody>
 </table>
 </div>
@@ -3056,7 +2565,7 @@ Inserting rows into `sentences`: 1465 rows [00:00, 2939.43 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-16">
@@ -3093,17 +2602,17 @@ docs.insert([{'source_doc': url} for url in urls])</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>Inserting rows into `docs`: 3 rows [00:00, 1885.65 rows/s]
-Inserting rows into `sentences`: 2104 rows [00:03, 576.25 rows/s]
-Inserting rows into `chunks`: 274 rows [00:00, 7153.82 rows/s]
-Inserting rows into `short_chunks`: 802 rows [00:00, 9458.00 rows/s]
-Inserting rows into `short_char_chunks`: 2622 rows [00:00, 3832.57 rows/s]</pre>
+<pre>Inserting rows into `docs`: 3 rows [00:00, 1907.37 rows/s]
+Inserting rows into `sentences`: 2104 rows [00:03, 602.96 rows/s]
+Inserting rows into `chunks`: 274 rows [00:00, 8737.80 rows/s]
+Inserting rows into `short_chunks`: 802 rows [00:00, 10560.29 rows/s]
+Inserting rows into `short_char_chunks`: 2622 rows [00:00, 5677.07 rows/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Inserted 5805 rows with 0 errors .
+<pre>Inserted 5805 rows with 0 errors.
 </pre>
 </div>
 </div>
@@ -3115,7 +2624,7 @@ Inserting rows into `short_char_chunks`: 2622 rows [00:00, 3832.57 rows/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[16]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[15]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>UpdateStatus(num_rows=5805, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])</pre>
 </div>
@@ -3163,7 +2672,7 @@ Inserting rows into `short_char_chunks`: 2622 rows [00:00, 3832.57 rows/s]</pre>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [17]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-17">
@@ -3200,7 +2709,7 @@ chunks.add_column(minilm_embedding=sentence_transformer(chunks.text, model_id=mi
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
 <pre>Computing cells:   0%|                                                                                                                                                                                                                                                                    | 0/479 [00:00&lt;?, ?cells/s]/Users/asiegel/Dropbox/workspace/pixeltable/pixeltable/.venv/lib/python3.11/site-packages/torch/_utils.py:831: UserWarning: TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class. This should only matter to you if you are using storages directly.  To access UntypedStorage directly, use tensor.untyped_storage() instead of tensor.storage()
   return self.fget.__get__(instance, owner)()
-Computing cells: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 479/479 [00:06&lt;00:00, 75.37cells/s]</pre>
+Computing cells: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 479/479 [00:06&lt;00:00, 71.25cells/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -3218,7 +2727,7 @@ Computing cells: 100%|███████████████████�
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[17]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[16]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>UpdateStatus(num_rows=479, num_computed_values=479, num_excs=0, updated_cols=[], cols_with_excs=[])</pre>
 </div>
@@ -3243,7 +2752,7 @@ Computing cells: 100%|███████████████████�
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [18]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [17]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-18">
@@ -3268,60 +2777,60 @@ Computing cells: 100%|███████████████████�
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[18]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[17]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <style type="text/css">
-#T_1f310 th {
+#T_424a5 th {
   text-align: center;
 }
-#T_1f310_row0_col0, #T_1f310_row0_col1, #T_1f310_row0_col2, #T_1f310_row1_col0, #T_1f310_row1_col1, #T_1f310_row1_col2, #T_1f310_row2_col0, #T_1f310_row2_col1, #T_1f310_row2_col2, #T_1f310_row3_col0, #T_1f310_row3_col1, #T_1f310_row3_col2, #T_1f310_row4_col0, #T_1f310_row4_col1, #T_1f310_row4_col2, #T_1f310_row5_col0, #T_1f310_row5_col1, #T_1f310_row5_col2, #T_1f310_row6_col0, #T_1f310_row6_col1, #T_1f310_row6_col2 {
+#T_424a5_row0_col0, #T_424a5_row0_col1, #T_424a5_row0_col2, #T_424a5_row1_col0, #T_424a5_row1_col1, #T_424a5_row1_col2, #T_424a5_row2_col0, #T_424a5_row2_col1, #T_424a5_row2_col2, #T_424a5_row3_col0, #T_424a5_row3_col1, #T_424a5_row3_col2, #T_424a5_row4_col0, #T_424a5_row4_col1, #T_424a5_row4_col2, #T_424a5_row5_col0, #T_424a5_row5_col1, #T_424a5_row5_col2, #T_424a5_row6_col0, #T_424a5_row6_col1, #T_424a5_row6_col2 {
   white-space: pre-wrap;
   text-align: left;
 }
 </style>
-<table id="T_1f310">
+<table id="T_424a5">
 <thead>
 <tr>
-<th class="col_heading level0 col0" id="T_1f310_level0_col0">Column Name</th>
-<th class="col_heading level0 col1" id="T_1f310_level0_col1">Type</th>
-<th class="col_heading level0 col2" id="T_1f310_level0_col2">Computed With</th>
+<th class="col_heading level0 col0" id="T_424a5_level0_col0">Column Name</th>
+<th class="col_heading level0 col1" id="T_424a5_level0_col1">Type</th>
+<th class="col_heading level0 col2" id="T_424a5_level0_col2">Computed With</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="data row0 col0" id="T_1f310_row0_col0">pos</td>
-<td class="data row0 col1" id="T_1f310_row0_col1">int</td>
-<td class="data row0 col2" id="T_1f310_row0_col2"></td>
+<td class="data row0 col0" id="T_424a5_row0_col0">pos</td>
+<td class="data row0 col1" id="T_424a5_row0_col1">int</td>
+<td class="data row0 col2" id="T_424a5_row0_col2"></td>
 </tr>
 <tr>
-<td class="data row1 col0" id="T_1f310_row1_col0">text</td>
-<td class="data row1 col1" id="T_1f310_row1_col1">string</td>
-<td class="data row1 col2" id="T_1f310_row1_col2"></td>
+<td class="data row1 col0" id="T_424a5_row1_col0">text</td>
+<td class="data row1 col1" id="T_424a5_row1_col1">string</td>
+<td class="data row1 col2" id="T_424a5_row1_col2"></td>
 </tr>
 <tr>
-<td class="data row2 col0" id="T_1f310_row2_col0">title</td>
-<td class="data row2 col1" id="T_1f310_row2_col1">string</td>
-<td class="data row2 col2" id="T_1f310_row2_col2"></td>
+<td class="data row2 col0" id="T_424a5_row2_col0">title</td>
+<td class="data row2 col1" id="T_424a5_row2_col1">string</td>
+<td class="data row2 col2" id="T_424a5_row2_col2"></td>
 </tr>
 <tr>
-<td class="data row3 col0" id="T_1f310_row3_col0">headings</td>
-<td class="data row3 col1" id="T_1f310_row3_col1">json</td>
-<td class="data row3 col2" id="T_1f310_row3_col2"></td>
+<td class="data row3 col0" id="T_424a5_row3_col0">headings</td>
+<td class="data row3 col1" id="T_424a5_row3_col1">json</td>
+<td class="data row3 col2" id="T_424a5_row3_col2"></td>
 </tr>
 <tr>
-<td class="data row4 col0" id="T_1f310_row4_col0">sourceline</td>
-<td class="data row4 col1" id="T_1f310_row4_col1">int</td>
-<td class="data row4 col2" id="T_1f310_row4_col2"></td>
+<td class="data row4 col0" id="T_424a5_row4_col0">sourceline</td>
+<td class="data row4 col1" id="T_424a5_row4_col1">int</td>
+<td class="data row4 col2" id="T_424a5_row4_col2"></td>
 </tr>
 <tr>
-<td class="data row5 col0" id="T_1f310_row5_col0">minilm_embedding</td>
-<td class="data row5 col1" id="T_1f310_row5_col1">array((None,), dtype=FLOAT)</td>
-<td class="data row5 col2" id="T_1f310_row5_col2">huggingface.sentence_transformer(text, model_id='paraphrase-MiniLM-L6-v2')</td>
+<td class="data row5 col0" id="T_424a5_row5_col0">minilm_embedding</td>
+<td class="data row5 col1" id="T_424a5_row5_col1">array((None,), dtype=FLOAT)</td>
+<td class="data row5 col2" id="T_424a5_row5_col2">huggingface.sentence_transformer(text, model_id='paraphrase-MiniLM-L6-v2')</td>
 </tr>
 <tr>
-<td class="data row6 col0" id="T_1f310_row6_col0">source_doc</td>
-<td class="data row6 col1" id="T_1f310_row6_col1">document</td>
-<td class="data row6 col2" id="T_1f310_row6_col2"></td>
+<td class="data row6 col0" id="T_424a5_row6_col0">source_doc</td>
+<td class="data row6 col1" id="T_424a5_row6_col1">document</td>
+<td class="data row6 col2" id="T_424a5_row6_col2"></td>
 </tr>
 </tbody>
 </table>
@@ -3336,7 +2845,7 @@ Computing cells: 100%|███████████████████�
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [19]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [18]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-19">
@@ -3361,7 +2870,7 @@ Computing cells: 100%|███████████████████�
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[19]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[18]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <table border="1" class="dataframe">
 <thead>
@@ -3490,7 +2999,7 @@ Computing cells: 100%|███████████████████�
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [20]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [19]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-20">
@@ -3521,7 +3030,7 @@ chunks.add_column(clip_embedding=clip(text=chunks.text, model_id=clip_model_id))
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>Computing cells: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 479/479 [00:31&lt;00:00, 15.32cells/s]</pre>
+<pre>Computing cells: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 479/479 [00:30&lt;00:00, 15.84cells/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -3539,7 +3048,7 @@ chunks.add_column(clip_embedding=clip(text=chunks.text, model_id=clip_model_id))
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[20]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[19]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>UpdateStatus(num_rows=479, num_computed_values=479, num_excs=0, updated_cols=[], cols_with_excs=[])</pre>
 </div>
@@ -3553,7 +3062,7 @@ chunks.add_column(clip_embedding=clip(text=chunks.text, model_id=clip_model_id))
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [21]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [20]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-21">
@@ -3578,65 +3087,65 @@ chunks.add_column(clip_embedding=clip(text=chunks.text, model_id=clip_model_id))
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[21]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[20]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <style type="text/css">
-#T_6f8d8 th {
+#T_cabc4 th {
   text-align: center;
 }
-#T_6f8d8_row0_col0, #T_6f8d8_row0_col1, #T_6f8d8_row0_col2, #T_6f8d8_row1_col0, #T_6f8d8_row1_col1, #T_6f8d8_row1_col2, #T_6f8d8_row2_col0, #T_6f8d8_row2_col1, #T_6f8d8_row2_col2, #T_6f8d8_row3_col0, #T_6f8d8_row3_col1, #T_6f8d8_row3_col2, #T_6f8d8_row4_col0, #T_6f8d8_row4_col1, #T_6f8d8_row4_col2, #T_6f8d8_row5_col0, #T_6f8d8_row5_col1, #T_6f8d8_row5_col2, #T_6f8d8_row6_col0, #T_6f8d8_row6_col1, #T_6f8d8_row6_col2, #T_6f8d8_row7_col0, #T_6f8d8_row7_col1, #T_6f8d8_row7_col2 {
+#T_cabc4_row0_col0, #T_cabc4_row0_col1, #T_cabc4_row0_col2, #T_cabc4_row1_col0, #T_cabc4_row1_col1, #T_cabc4_row1_col2, #T_cabc4_row2_col0, #T_cabc4_row2_col1, #T_cabc4_row2_col2, #T_cabc4_row3_col0, #T_cabc4_row3_col1, #T_cabc4_row3_col2, #T_cabc4_row4_col0, #T_cabc4_row4_col1, #T_cabc4_row4_col2, #T_cabc4_row5_col0, #T_cabc4_row5_col1, #T_cabc4_row5_col2, #T_cabc4_row6_col0, #T_cabc4_row6_col1, #T_cabc4_row6_col2, #T_cabc4_row7_col0, #T_cabc4_row7_col1, #T_cabc4_row7_col2 {
   white-space: pre-wrap;
   text-align: left;
 }
 </style>
-<table id="T_6f8d8">
+<table id="T_cabc4">
 <thead>
 <tr>
-<th class="col_heading level0 col0" id="T_6f8d8_level0_col0">Column Name</th>
-<th class="col_heading level0 col1" id="T_6f8d8_level0_col1">Type</th>
-<th class="col_heading level0 col2" id="T_6f8d8_level0_col2">Computed With</th>
+<th class="col_heading level0 col0" id="T_cabc4_level0_col0">Column Name</th>
+<th class="col_heading level0 col1" id="T_cabc4_level0_col1">Type</th>
+<th class="col_heading level0 col2" id="T_cabc4_level0_col2">Computed With</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td class="data row0 col0" id="T_6f8d8_row0_col0">pos</td>
-<td class="data row0 col1" id="T_6f8d8_row0_col1">int</td>
-<td class="data row0 col2" id="T_6f8d8_row0_col2"></td>
+<td class="data row0 col0" id="T_cabc4_row0_col0">pos</td>
+<td class="data row0 col1" id="T_cabc4_row0_col1">int</td>
+<td class="data row0 col2" id="T_cabc4_row0_col2"></td>
 </tr>
 <tr>
-<td class="data row1 col0" id="T_6f8d8_row1_col0">text</td>
-<td class="data row1 col1" id="T_6f8d8_row1_col1">string</td>
-<td class="data row1 col2" id="T_6f8d8_row1_col2"></td>
+<td class="data row1 col0" id="T_cabc4_row1_col0">text</td>
+<td class="data row1 col1" id="T_cabc4_row1_col1">string</td>
+<td class="data row1 col2" id="T_cabc4_row1_col2"></td>
 </tr>
 <tr>
-<td class="data row2 col0" id="T_6f8d8_row2_col0">title</td>
-<td class="data row2 col1" id="T_6f8d8_row2_col1">string</td>
-<td class="data row2 col2" id="T_6f8d8_row2_col2"></td>
+<td class="data row2 col0" id="T_cabc4_row2_col0">title</td>
+<td class="data row2 col1" id="T_cabc4_row2_col1">string</td>
+<td class="data row2 col2" id="T_cabc4_row2_col2"></td>
 </tr>
 <tr>
-<td class="data row3 col0" id="T_6f8d8_row3_col0">headings</td>
-<td class="data row3 col1" id="T_6f8d8_row3_col1">json</td>
-<td class="data row3 col2" id="T_6f8d8_row3_col2"></td>
+<td class="data row3 col0" id="T_cabc4_row3_col0">headings</td>
+<td class="data row3 col1" id="T_cabc4_row3_col1">json</td>
+<td class="data row3 col2" id="T_cabc4_row3_col2"></td>
 </tr>
 <tr>
-<td class="data row4 col0" id="T_6f8d8_row4_col0">sourceline</td>
-<td class="data row4 col1" id="T_6f8d8_row4_col1">int</td>
-<td class="data row4 col2" id="T_6f8d8_row4_col2"></td>
+<td class="data row4 col0" id="T_cabc4_row4_col0">sourceline</td>
+<td class="data row4 col1" id="T_cabc4_row4_col1">int</td>
+<td class="data row4 col2" id="T_cabc4_row4_col2"></td>
 </tr>
 <tr>
-<td class="data row5 col0" id="T_6f8d8_row5_col0">minilm_embedding</td>
-<td class="data row5 col1" id="T_6f8d8_row5_col1">array((None,), dtype=FLOAT)</td>
-<td class="data row5 col2" id="T_6f8d8_row5_col2">huggingface.sentence_transformer(text, model_id='paraphrase-MiniLM-L6-v2')</td>
+<td class="data row5 col0" id="T_cabc4_row5_col0">minilm_embedding</td>
+<td class="data row5 col1" id="T_cabc4_row5_col1">array((None,), dtype=FLOAT)</td>
+<td class="data row5 col2" id="T_cabc4_row5_col2">huggingface.sentence_transformer(text, model_id='paraphrase-MiniLM-L6-v2')</td>
 </tr>
 <tr>
-<td class="data row6 col0" id="T_6f8d8_row6_col0">clip_embedding</td>
-<td class="data row6 col1" id="T_6f8d8_row6_col1">array((None,), dtype=FLOAT)</td>
-<td class="data row6 col2" id="T_6f8d8_row6_col2">huggingface.clip(text=text, model_id='openai/clip-vit-base-patch32')</td>
+<td class="data row6 col0" id="T_cabc4_row6_col0">clip_embedding</td>
+<td class="data row6 col1" id="T_cabc4_row6_col1">array((None,), dtype=FLOAT)</td>
+<td class="data row6 col2" id="T_cabc4_row6_col2">huggingface.clip(text=text, model_id='openai/clip-vit-base-patch32')</td>
 </tr>
 <tr>
-<td class="data row7 col0" id="T_6f8d8_row7_col0">source_doc</td>
-<td class="data row7 col1" id="T_6f8d8_row7_col1">document</td>
-<td class="data row7 col2" id="T_6f8d8_row7_col2"></td>
+<td class="data row7 col0" id="T_cabc4_row7_col0">source_doc</td>
+<td class="data row7 col1" id="T_cabc4_row7_col1">document</td>
+<td class="data row7 col2" id="T_cabc4_row7_col2"></td>
 </tr>
 </tbody>
 </table>
@@ -3651,7 +3160,7 @@ chunks.add_column(clip_embedding=clip(text=chunks.text, model_id=clip_model_id))
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [22]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [21]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy for="cell-22">
@@ -3676,7 +3185,7 @@ chunks.add_column(clip_embedding=clip(text=chunks.text, model_id=clip_model_id))
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[22]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[21]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <table border="1" class="dataframe">
 <thead>
@@ -3837,7 +3346,7 @@ chunks.add_column(clip_embedding=clip(text=chunks.text, model_id=clip_model_id))
       <div class="md-copyright">
   
     <div class="md-copyright__highlight">
-      &copy; 20222 - 2023 <a href="https://github.com/mkornacker" target="_blank" rel="noopener">Marcel Kornacker</a> All rights reserved.
+      &copy; 20222 - 2024 <a href="https://github.com/mkornacker" target="_blank" rel="noopener">Marcel Kornacker</a> All rights reserved.
 
     </div>
   
