@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import logging
 import time
 
-from tqdm.autonotebook import tqdm
+from tqdm import tqdm
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode

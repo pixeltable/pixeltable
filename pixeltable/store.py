@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 import logging
 import urllib
 import sqlalchemy as sql
-from tqdm.autonotebook import tqdm
+from tqdm import tqdm
 import abc
 
 import pixeltable.catalog as catalog
