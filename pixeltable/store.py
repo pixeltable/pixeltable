@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from typing import Optional, Dict, Any, List, Tuple, Set
 import logging
 import urllib
@@ -297,7 +298,12 @@ class StoreBase:
                         num_excs += num_row_exc
                         table_rows.append(table_row)
                         if progress_bar is None:
-                            progress_bar = tqdm(desc=f'Inserting rows into `{self.tbl_version.name}`', unit=' rows')
+                            progress_bar = tqdm(
+                                desc=f'Inserting rows into `{self.tbl_version.name}`',
+                                unit=' rows',
+                                ncols=100,
+                                file=sys.stdout
+                            )
                         progress_bar.update(1)
                     self._move_tmp_media_files(table_rows, media_cols, v_min)
                     conn.execute(sql.insert(self.sa_tbl), table_rows)

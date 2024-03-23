@@ -1,3 +1,4 @@
+import sys
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field
 import logging
@@ -48,7 +49,13 @@ class ExprEvalNode(ExecNode):
 
     def _open(self) -> None:
         if self.ctx.show_pbar:
-            self.pbar = tqdm(total=len(self.target_exprs) * self.ctx.num_rows, desc='Computing cells', unit='cells')
+            self.pbar = tqdm(
+                total=len(self.target_exprs) * self.ctx.num_rows,
+                desc='Computing cells',
+                unit=' cells',
+                ncols=100,
+                file=sys.stdout
+            )
 
     def _close(self) -> None:
         if self.pbar is not None:

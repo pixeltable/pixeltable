@@ -314,7 +314,7 @@ class TableVersion:
         finally:
             plan.close()
 
-        msg = f'added {row_count} column values with {num_excs} error{"" if num_excs == 1 else "s"}'
+        msg = f'Added {row_count} column value{"" if row_count == 1 else "s"} with {num_excs} error{"" if num_excs == 1 else "s"}.'
         print(msg)
         _logger.info(f'Column {col.name}: {msg}')
         if print_stats:
