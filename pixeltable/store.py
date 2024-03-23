@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 import sys
+import warnings
 from typing import Optional, Dict, Any, List, Tuple, Set
 import logging
 import urllib
 import sqlalchemy as sql
-from tqdm import tqdm
+from tqdm import tqdm, TqdmWarning
 import abc
 
 import pixeltable.catalog as catalog
@@ -298,6 +299,7 @@ class StoreBase:
                         num_excs += num_row_exc
                         table_rows.append(table_row)
                         if progress_bar is None:
+                            warnings.simplefilter("ignore", category=TqdmWarning)
                             progress_bar = tqdm(
                                 desc=f'Inserting rows into `{self.tbl_version.name}`',
                                 unit=' rows',

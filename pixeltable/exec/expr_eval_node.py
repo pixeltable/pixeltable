@@ -1,10 +1,11 @@
 import sys
+import warnings
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field
 import logging
 import time
 
-from tqdm import tqdm
+from tqdm import tqdm, TqdmWarning
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -48,6 +49,7 @@ class ExprEvalNode(ExecNode):
         return input_batch
 
     def _open(self) -> None:
+        warnings.simplefilter("ignore", category=TqdmWarning)
         if self.ctx.show_pbar:
             self.pbar = tqdm(
                 total=len(self.target_exprs) * self.ctx.num_rows,
