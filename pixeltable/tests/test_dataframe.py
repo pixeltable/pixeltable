@@ -185,7 +185,7 @@ class TestDataFrame:
 
     def test_html_media_url(self, test_client: pt.Client) -> None:
         tab = test_client.create_table('test_html_repr', {'video': pt.VideoType(), 'audio': pt.AudioType()})
-        status = tab.insert([{'video': get_video_files()[0], 'audio': get_audio_files()[0]}])
+        status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0])
         assert status.num_rows == 1
         assert status.num_excs == 0
 
@@ -372,7 +372,7 @@ class TestDataFrame:
 
         # check invalidation on insert
         t_size = t.count()
-        t.insert([{'row_id': t_size}])
+        t.insert(row_id=t_size)
         ds3 = t.to_pytorch_dataset(image_format='pt')
         assert ds3.path != ds1.path, 'different path should be used'
 
@@ -388,7 +388,7 @@ class TestDataFrame:
         view_t = cl.create_view('frames', base_t, iterator_class=FrameIterator, iterator_args=args)
         from pixeltable.functions.nos.object_detection_2d import yolox_medium
         view_t.add_column(detections=yolox_medium(view_t.frame))
-        base_t.insert([{'video': get_video_files()[0]}])
+        base_t.insert(video=get_video_files()[0])
 
         @pt.udf(return_type=pt.JsonType(nullable=False), param_types=[pt.JsonType(nullable=False)])
         def yolo_to_coco(detections):
@@ -416,7 +416,7 @@ class TestDataFrame:
         assert path == new_path
 
         # the cache is invalidated when we add more data
-        base_t.insert([{'video': get_video_files()[1]}])
+        base_t.insert(video=get_video_files()[1])
         new_path = query.to_coco_dataset()
         assert path != new_path
         coco_ds = COCO(new_path)

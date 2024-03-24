@@ -25,7 +25,7 @@ class TestFunctions:
         v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
 
         files = get_video_files()
-        video_t.insert([{'video': files[-1]}])
+        video_t.insert(video=files[-1])
         v.add_column(frame_s=v.frame.resize([640, 480]))
         from pixeltable.functions.nos.object_detection_2d import yolox_nano, yolox_small, yolox_large
         v.add_column(detections_a=yolox_nano(v.frame_s))
@@ -58,7 +58,7 @@ class TestFunctions:
         t.add_column(s1=str_format('ABC {0}', t.input))
         t.add_column(s2=str_format('DEF {this}', this=t.input))
         t.add_column(s3=str_format('GHI {0} JKL {this}', t.input, this=t.input))
-        status = t.insert([{'input': 'MNO'}])
+        status = t.insert(input='MNO')
         assert status.num_rows == 1
         assert status.num_excs == 0
         row = t.head()[0]
@@ -83,7 +83,7 @@ class TestFunctions:
         t.add_column(ada_embed=embedding(model='text-embedding-ada-002', input=t.input))
         t.add_column(text_3=embedding(model='text-embedding-3-small', input=t.input))
         t.add_column(moderation=moderation(input=t.input))
-        t.insert([{'input': 'I find you really annoying'}])
+        t.insert(input='I find you really annoying')
         _ = t.head()
 
     def test_gpt_4_vision(self, test_client: pt.Client) -> None:
@@ -104,10 +104,10 @@ class TestFunctions:
         ]
         t.add_column(response=chat_completion(model='gpt-4-vision-preview', messages=msgs, max_tokens=300))
         t.add_column(response_content=t.response.choices[0].message.content)
-        t.insert([{
-            'prompt': "What's in this image?",
-            'img': 'https://raw.githubusercontent.com/mkornacker/pixeltable/master/docs/source/data/images/000000000009.jpg'
-        }])
+        t.insert(
+            prompt="What's in this image?",
+            img='https://raw.githubusercontent.com/mkornacker/pixeltable/master/docs/source/data/images/000000000009.jpg'
+        )
         result = t.collect()['response_content'][0]
         assert len(result) > 0
 
@@ -125,7 +125,7 @@ class TestFunctions:
         from pixeltable.functions.together import completion
         t.add_column(output=completion(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
         t.add_column(output_text=t.output.output.choices[0].text)
-        t.insert([{'input': 'I am going to the '}])
+        t.insert(input='I am going to the ')
         result = t.select(t.output_text).collect()['output_text'][0]
         assert len(result) > 0
 
@@ -137,7 +137,7 @@ class TestFunctions:
         model_id = 'intfloat/e5-large-v2'
         t.add_column(e5=sentence_transformer(t.input, model_id=model_id))
         sents = get_sentences()
-        status = t.insert([{'input': s, 'bool_col': True} for s in sents])
+        status = t.insert({'input': s, 'bool_col': True} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -156,7 +156,7 @@ class TestFunctions:
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
         sents = get_sentences(10)
-        status = t.insert([{'input': s, 'input_list': sents} for s in sents])
+        status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -183,7 +183,7 @@ class TestFunctions:
         # execution still works after reload
         cl = pt.Client(reload=True)
         t = cl.get_table('test_tbl')
-        status = t.insert([{'input': s, 'input_list': sents} for s in sents])
+        status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
@@ -193,7 +193,7 @@ class TestFunctions:
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
         sents = get_sentences(10)
-        status = t.insert([{'input': s, 'input_list': sents} for s in sents])
+        status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -218,7 +218,7 @@ class TestFunctions:
         # execution still works after reload
         cl = pt.Client(reload=True)
         t = cl.get_table('test_tbl')
-        status = t.insert([{'input': s, 'input_list': sents} for s in sents])
+        status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
@@ -230,7 +230,7 @@ class TestFunctions:
         num_rows = 10
         sents = get_sentences(num_rows)
         imgs = get_image_files()[:num_rows]
-        status = t.insert([{'text': text, 'img': img} for text, img in zip(sents, imgs)])
+        status = t.insert({'text': text, 'img': img} for text, img in zip(sents, imgs))
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -255,7 +255,7 @@ class TestFunctions:
         # execution still works after reload
         cl = pt.Client(reload=True)
         t = cl.get_table('test_tbl')
-        status = t.insert([{'text': text, 'img': img} for text, img in zip(sents, imgs)])
+        status = t.insert({'text': text, 'img': img} for text, img in zip(sents, imgs))
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])

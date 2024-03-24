@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Any, Dict, overload
+from typing import Optional, List, Any, Dict, overload, Iterable
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -58,7 +58,7 @@ class InsertableTable(Table):
             return tbl
 
     @overload
-    def insert(self, rows: List[Dict[str, Any]], /, print_stats: bool = False, fail_on_exception: bool = True): ...
+    def insert(self, rows: Iterable[Dict[str, Any]], /, print_stats: bool = False, fail_on_exception: bool = True): ...
 
     @overload
     def insert(self, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any): ...
@@ -105,7 +105,7 @@ class InsertableTable(Table):
         if len(args) > 0:
             # There's a positional argument; this means `rows` is expressed as a
             # list of dicts (multi-insert)
-            rows = args[0]
+            rows = list(args[0])
         else:
             # No positional argument; this means we're inserting a single row
             # using kwargs syntax
