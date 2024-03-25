@@ -1,13 +1,14 @@
 from __future__ import annotations
-from typing import List, Optional, Any
-import sys
-import logging
 
+import logging
+import sys
+from typing import List, Optional, Any
+
+import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-import pixeltable.catalog as catalog
-import pixeltable.exprs as exprs
-import pixeltable.exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 

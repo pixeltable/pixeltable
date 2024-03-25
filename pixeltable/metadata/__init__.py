@@ -1,8 +1,8 @@
-from typing import Callable, Dict
+import dataclasses
+import importlib
 import os
 import pkgutil
-import importlib
-import dataclasses
+from typing import Callable, Dict
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm

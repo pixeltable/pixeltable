@@ -12,7 +12,7 @@ from pixeltable.type_system import StringType, BoolType, IntType, ImageType, Arr
     VideoType, JsonType
 from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
-from pixeltable.functions import dict_map, cast, sum, count
+from pixeltable.functions import cast, sum, count
 from pixeltable.functions.pil.image import blend
 from pixeltable import exceptions as exc
 from pixeltable import exprs
@@ -127,50 +127,38 @@ class TestExprs:
             _ = t[f(t.c2 + 1, t.c2)].show()
 
         # error in agg.init()
-        class Aggregator:
+        @pt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
+        class Aggregator(pt.Aggregator):
             def __init__(self):
                 self.sum = 1 / 0
-            @classmethod
-            def make_aggregator(cls):
-                return cls()
             def update(self, val):
                 pass
             def value(self):
                 return 1
-        agg = pt.make_aggregate_function(
-            IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
         with pytest.raises(exc.Error):
             _ = t[agg(t.c2)].show()
 
         # error in agg.update()
-        class Aggregator:
+        @pt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
+        class Aggregator(pt.Aggregator):
             def __init__(self):
                 self.sum = 0
-            @classmethod
-            def make_aggregator(cls):
-                return cls()
             def update(self, val):
                 self.sum += 1 / val
             def value(self):
                 return 1
-        agg = pt.make_aggregate_function(
-            IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
         with pytest.raises(exc.Error):
             _ = t[agg(t.c2 - 10)].show()
 
         # error in agg.value()
-        class Aggregator:
+        @pt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
+        class Aggregator(pt.Aggregator):
             def __init__(self):
                 self.sum = 0
-            @classmethod
-            def make_aggregator(cls):
-                return cls()
             def update(self, val):
                 self.sum += val
             def value(self):
                 return 1 / self.sum
-        agg = pt.make_aggregate_function(
-            IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
         with pytest.raises(exc.Error):
             _ = t[t.c2 <= 2][agg(t.c2 - 1)].show()
 
@@ -581,6 +569,7 @@ class TestExprs:
     def test_serialization(
             self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]
     ) -> None:
+        """Test as_dict()/from_dict() (via serialize()/deserialize()) for all exprs."""
         for e in test_tbl_exprs:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized)
@@ -592,7 +581,7 @@ class TestExprs:
             assert e.equals(e_deserialized)
 
     def test_print(self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]) -> None:
-        _ = func.FunctionRegistry.get().library_fns
+        _ = func.FunctionRegistry.get().module_fns
         for e in test_tbl_exprs:
             _ = str(e)
             print(_)
@@ -666,3 +655,151 @@ class TestExprs:
         with pytest.raises(exc.Error):
             # nested aggregates
             _ = t[sum(count(t.c2))].group_by(t.c2 % 2).show()
+
+    def test_udas(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+
+        @pt.uda(
+            name='window_agg', init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
+            allows_window=True, requires_order_by=False)
+        class WindowAgg:
+            def __init__(self, val: int = 0):
+                self.val = val
+            def update(self, ignore: int) -> None:
+                pass
+            def value(self) -> int:
+                return self.val
+
+        @pt.uda(
+            name='ordered_agg', init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
+            requires_order_by=True, allows_window=True)
+        class WindowAgg:
+            def __init__(self, val: int = 0):
+                self.val = val
+            def update(self, i: int) -> None:
+                pass
+            def value(self) -> int:
+                return self.val
+
+        @pt.uda(
+            name='std_agg', init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
+            requires_order_by=False, allows_window=False)
+        class StdAgg:
+            def __init__(self, val: int = 0):
+                self.val = val
+            def update(self, i: int) -> None:
+                pass
+            def value(self) -> int:
+                return self.val
+
+        # init arg is passed along
+        assert t.select(out=window_agg(t.c2, order_by=t.c2)).collect()[0]['out'] == 0
+        assert t.select(out=window_agg(t.c2, val=1, order_by=t.c2)).collect()[0]['out'] == 1
+
+        with pytest.raises(exc.Error) as exc_info:
+            _ = t.select(window_agg(t.c2, val=t.c2, order_by=t.c2)).collect()
+        assert 'needs to be a constant' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            # ordering expression not a pixeltable expr
+            _ = t.select(ordered_agg(1, t.c2)).collect()
+        assert 'but instead is a' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            # explicit order_by
+            _ = t.select(ordered_agg(t.c2, order_by=t.c2)).collect()
+        assert 'order_by invalid' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            # order_by for non-window function
+            _ = t.select(std_agg(t.c2, order_by=t.c2)).collect()
+        assert 'does not allow windows' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            # group_by for non-window function
+            _ = t.select(std_agg(t.c2, group_by=t.c4)).collect()
+        assert 'group_by invalid' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            # missing init type
+            @pt.uda(update_types=[IntType()], value_type=IntType())
+            class WindowAgg:
+                def __init__(self, val: int = 0):
+                    self.val = val
+                def update(self, ignore: int) -> None:
+                    pass
+                def value(self) -> int:
+                    return self.val
+        assert 'init_types must be a list of' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            # missing update parameter
+            @pt.uda(init_types=[IntType()], update_types=[], value_type=IntType())
+            class WindowAgg:
+                def __init__(self, val: int = 0):
+                    self.val = val
+                def update(self) -> None:
+                    pass
+                def value(self) -> int:
+                    return self.val
+        assert 'must have at least one parameter' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            # missing update type
+            @pt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            class WindowAgg:
+                def __init__(self, val: int = 0):
+                    self.val = val
+                def update(self, i1: int, i2: int) -> None:
+                    pass
+                def value(self) -> int:
+                    return self.val
+        assert 'update_types must be a list of' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            # duplicate parameter names
+            @pt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            class WindowAgg:
+                def __init__(self, val: int = 0):
+                    self.val = val
+                def update(self, val: int) -> None:
+                    pass
+                def value(self) -> int:
+                    return self.val
+        assert 'cannot have parameters with the same name: val' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            # invalid name
+            @pt.uda(name='not an identifier', init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            class WindowAgg:
+                def __init__(self, val: int = 0):
+                    self.val = val
+                def update(self, i1: int, i2: int) -> None:
+                    pass
+                def value(self) -> int:
+                    return self.val
+        assert 'invalid name' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            # reserved parameter name
+            @pt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            class WindowAgg:
+                def __init__(self, val: int = 0):
+                    self.val = val
+                def update(self, order_by: int) -> None:
+                    pass
+                def value(self) -> int:
+                    return self.val
+        assert 'order_by is reserved' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            # reserved parameter name
+            @pt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            class WindowAgg:
+                def __init__(self, val: int = 0):
+                    self.val = val
+                def update(self, group_by: int) -> None:
+                    pass
+                def value(self) -> int:
+                    return self.val
+        assert 'group_by is reserved' in str(exc_info.value).lower()
