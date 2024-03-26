@@ -1,12 +1,13 @@
 from __future__ import annotations
-from typing import Optional, Callable, Dict, List, Any, Tuple, Union
-import inspect
-import logging
+
 import dataclasses
 import enum
+import inspect
+import logging
+from typing import Optional, Callable, Dict, List, Any, Union
 
-import pixeltable.type_system as ts
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 
 _logger = logging.getLogger('pixeltable')
 
@@ -83,13 +84,11 @@ class Signature:
 
     @classmethod
     def create(
-            cls, c: Callable, is_agg: bool, param_types: List[ts.ColumnType],
+            cls, c: Callable, param_types: List[ts.ColumnType],
             return_type: Union[ts.ColumnType, Callable]
     ) -> Signature:
         sig = inspect.signature(c)
         py_parameters = list(sig.parameters.values())
-        if is_agg:
-            py_parameters = py_parameters[1:]  # the first parameter is the state returned by init()
         # check non-var parameters for name collisions and default value compatibility
         num_nonvar_params = 0
         parameters: List[Parameter] = []

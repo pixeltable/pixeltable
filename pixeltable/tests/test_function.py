@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from pixeltable.func import Function, FunctionRegistry, make_aggregate_function, make_library_function, make_function
+from pixeltable.func import Function, FunctionRegistry
 from pixeltable.type_system import IntType, FloatType
 from pixeltable import catalog
 import pixeltable as pt
@@ -16,26 +16,24 @@ class TestFunction:
     def func(x: int) -> int:
         return x + 1
 
+    @pt.uda(name='agg', value_type=IntType(), update_types=[IntType()])
     class Aggregator:
         def __init__(self):
             self.sum = 0
-        @classmethod
-        def make_aggregator(cls) -> 'Aggregator':
-            return cls()
-        def update(self, val) -> None:
+        def update(self, val: int) -> None:
             if val is not None:
                 self.sum += val
-        def value(self):
+        def value(self) -> int:
             return self.sum
-    agg = make_aggregate_function(
-        IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
 
     def test_serialize_anonymous(self, init_env) -> None:
         d = self.func.as_dict()
         FunctionRegistry.get().clear_cache()
         deserialized = Function.from_dict(d)
-        assert deserialized.eval_fn(1) == 2
+        # TODO: add Function.exec() and then use that
+        assert deserialized.py_fn(1) == 2
 
+    @pytest.mark.skip(reason='deprecated')
     def test_create(self, test_client: pt.Client) -> None:
         cl = test_client
         cl.create_function('test_fn', self.func)
@@ -45,7 +43,7 @@ class TestFunction:
         _ = cl.list_functions()
         fn2 = cl.get_function('test_fn')
         assert fn2.md.fqn == 'test_fn'
-        assert fn2.eval_fn(1) == 2
+        assert fn2.py_fn(1) == 2
 
         with pytest.raises(exc.Error):
             cl.create_function('test_fn', self.func)
@@ -55,6 +53,7 @@ class TestFunction:
             library_fn = make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
             cl.create_function('library_fn', library_fn)
 
+    @pytest.mark.skip(reason='deprecated')
     def test_update(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client
         t = test_tbl
@@ -67,7 +66,7 @@ class TestFunction:
         fn = cl.get_function('test_fn')
         res2 = t[fn(t.c2)].show(0).to_pandas()
         assert res1.col_0.equals(res2.col_0)
-        fn.eval_fn = lambda x: x + 2
+        fn.py_fn = lambda x: x + 2
         cl.update_function('test_fn', fn)
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
 
@@ -80,12 +79,13 @@ class TestFunction:
 
         # signature changes
         with pytest.raises(exc.Error):
-            cl.update_function('test_fn', make_function(FloatType(), [IntType()], fn.eval_fn))
+            cl.update_function('test_fn', make_function(FloatType(), [IntType()], fn.py_fn))
         with pytest.raises(exc.Error):
-            cl.update_function('test_fn', make_function(IntType(), [FloatType()], fn.eval_fn))
+            cl.update_function('test_fn', make_function(IntType(), [FloatType()], fn.py_fn))
         with pytest.raises(exc.Error):
             cl.update_function('test_fn', self.agg)
 
+    @pytest.mark.skip(reason='deprecated')
     def test_move(self, test_client: pt.Client) -> None:
         cl = test_client
         cl.create_function('test_fn', self.func)
@@ -96,7 +96,7 @@ class TestFunction:
             cl.move('test_fn2', 'test_fn')
         cl.move('test_fn', 'test_fn2')
         func = cl.get_function('test_fn2')
-        assert func.eval_fn(1) == 2
+        assert func.py_fn(1) == 2
         assert func.md.fqn == 'test_fn2'
 
         with pytest.raises(exc.Error):
@@ -116,11 +116,12 @@ class TestFunction:
         FunctionRegistry.get().clear_cache()
         cl = pt.Client(reload=True)
         func = cl.get_function('functions2.func1')
-        assert func.eval_fn(1) == 2
+        assert func.py_fn(1) == 2
         assert func.md.fqn == 'functions2.func1'
         with pytest.raises(exc.Error):
             _ = cl.get_function('functions.func1')
 
+    @pytest.mark.skip(reason='deprecated')
     def test_drop(self, test_client: pt.Client) -> None:
         cl = test_client
         cl.create_function('test_fn', self.func)

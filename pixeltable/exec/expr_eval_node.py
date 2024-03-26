@@ -22,7 +22,7 @@ class ExprEvalNode(ExecNode):
     class Cohort:
         """List of exprs that form an evaluation context and contain calls to at most one external function"""
         exprs: List[exprs.Expr]
-        ext_function: Optional[func.ExternalFunction]
+        ext_function: Optional[func.BatchedFunction]
         segment_ctxs: List[exprs.RowBuilder.EvalCtx]
         target_slot_idxs: List[int]
         batch_size: int = 8
@@ -63,20 +63,20 @@ class ExprEvalNode(ExecNode):
         if self.pbar is not None:
             self.pbar.close()
 
-    def _get_ext_fn(self, expr: exprs.Expr) -> Optional[func.ExternalFunction]:
+    def _get_batched_fn(self, expr: exprs.Expr) -> Optional[func.BatchedFunction]:
         if not isinstance(expr, exprs.FunctionCall):
             return None
-        return expr.fn if isinstance(expr.fn, func.ExternalFunction) else None
+        return expr.fn if isinstance(expr.fn, func.BatchedFunction) else None
 
     def _is_ext_call(self, expr: exprs.Expr) -> bool:
-        return self._get_ext_fn(expr) is not None
+        return self._get_batched_fn(expr) is not None
 
     def _create_cohorts(self) -> None:
         all_exprs = self.row_builder.get_dependencies(self.target_exprs)
         # break up all_exprs into cohorts such that each cohort contains calls to at most one external function;
         # seed the cohorts with only the ext fn calls
         cohorts: List[List[exprs.Expr]] = []
-        current_ext_function: Optional[func.ExternalFunction] = None
+        current_ext_function: Optional[func.BatchedFunction] = None
         for e in all_exprs:
             if not self._is_ext_call(e):
                 continue
@@ -116,12 +116,12 @@ class ExprEvalNode(ExecNode):
             # create the first segment here, so we can avoid checking for an empty list in the loop
             segments = [[cohort[0]]]
             is_ext_segment = self._is_ext_call(cohort[0])
-            ext_fn: Optional[func.ExternalFunction] = self._get_ext_fn(cohort[0])
+            ext_fn: Optional[func.BatchedFunction] = self._get_batched_fn(cohort[0])
             for e in cohort[1:]:
                 if self._is_ext_call(e):
                     segments.append([e])
                     is_ext_segment = True
-                    ext_fn = self._get_ext_fn(e)
+                    ext_fn = self._get_batched_fn(e)
                 else:
                     if is_ext_segment:
                         # start a new segment
