@@ -45,6 +45,6 @@ class ExplicitBatchedFunction(BatchedFunction):
         for param_name in self.constant_params:
             if param_name in bound_args and isinstance(bound_args[param_name], exprs.Expr):
                 raise ValueError(
-                    f'{self.display_name}(): ',
+                    f'{self.display_name}(): '
                     f'parameter {param_name} must be a constant value, not a Pixeltable expression'
                 )
