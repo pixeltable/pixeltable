@@ -2,8 +2,8 @@ import inspect
 from typing import List, Dict, Any, Optional, Callable
 import abc
 
+from . import Signature
 from .function import Function
-from .function_md import FunctionMd
 
 
 class BatchedFunction(Function):
@@ -22,10 +22,10 @@ class BatchedFunction(Function):
         raise NotImplementedError
 
 
-class ExplicitExternalFunction(ExternalFunction):
+class ExplicitBatchedFunction(BatchedFunction):
 
-    def __init__(self, md: FunctionMd, batch_size: Optional[int], invoker_fn: Callable, constant_params: List[str], display_name: str):
-        super().__init__(md, display_name=display_name, py_signature=inspect.signature(invoker_fn))
+    def __init__(self, signature: Signature, batch_size: Optional[int], invoker_fn: Callable, constant_params: List[str], self_path: str):
+        super().__init__(signature=signature, py_signature=inspect.signature(invoker_fn), self_path=self_path)
         self.batch_size = batch_size
         self.invoker_fn = invoker_fn
         self.constant_params = constant_params
@@ -39,12 +39,12 @@ class ExplicitExternalFunction(ExternalFunction):
         kwarg_batches = {k: v for k, v in kwarg_batches.items() if k not in self.constant_params}
         return self.invoker_fn(*arg_batches, **kwargs, **kwarg_batches)
 
-    def verify_call(self, bound_args: Dict[str, Any]) -> None:
+    def validate_call(self, bound_args: Dict[str, Any]) -> None:
         """Verify constant parameters"""
         import pixeltable.exprs as exprs
         for param_name in self.constant_params:
             if param_name in bound_args and isinstance(bound_args[param_name], exprs.Expr):
-                raise ValueError((
+                raise ValueError(
                     f'{self.display_name}(): ',
                     f'parameter {param_name} must be a constant value, not a Pixeltable expression'
-                ))
+                )

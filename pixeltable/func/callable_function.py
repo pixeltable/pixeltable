@@ -83,31 +83,3 @@ def make_callable_function(
     FunctionRegistry.get().register_function(function_path, result)
     return result
 
-
-def udf(*, return_type: ts.ColumnType, param_types: List[ts.ColumnType], py_fn: Optional[Callable] = None) -> Callable:
-    """Returns decorator to create a CallableFunction from a function definition.
-
-    Example:
-        >>> @pxt.udf(param_types=[pt.IntType()], return_type=pt.IntType())
-        ... def my_function(x):
-        ...    return x + 1
-    """
-    def decorator(py_fn: Callable) -> CallableFunction:
-        if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
-            # this is a named function in a module
-            function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
-        else:
-            function_path = None
-        return make_callable_function(
-            py_fn, return_type=return_type, param_types=param_types,
-            function_path=function_path, function_name=py_fn.__name__)
-
-    # the decorated function is only used for the signature/path and never executed
-    def dummy_decorator(dummy_py_fn: Callable) -> CallableFunction:
-        if dummy_py_fn.__module__ == '__main__':
-            raise excs.Error('The @udf decorator with the explicit py_fn argument can only be used in a module')
-        return make_callable_function(
-            py_fn, return_type=return_type, param_types=param_types,
-            function_path=f'{dummy_py_fn.__module__}.{dummy_py_fn.__qualname__}', function_name=dummy_py_fn.__name__)
-
-    return decorator if py_fn is None else dummy_decorator
