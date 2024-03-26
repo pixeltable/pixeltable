@@ -35,7 +35,7 @@ def create_nos_modules() -> List[types.ModuleType]:
 
         # add a Function for this model to the module
         model_id = info.name.replace("/", "_").replace("-", "_")
-        pt_func = func.NOSFunction(info, module_name)
+        pt_func = func.NOSFunction(info, f'{submodule_name}.{model_id}')
         setattr(sub_module, model_id, pt_func)
 
     return new_modules

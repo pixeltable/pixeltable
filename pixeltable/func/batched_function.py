@@ -6,8 +6,9 @@ from .function import Function
 from .function_md import FunctionMd
 
 
-class ExternalFunction(Function):
-    """Base class for functions that are evaluated outside of RowBuilder"""
+class BatchedFunction(Function):
+    """Base class for functions that can run on batches"""
+
     @abc.abstractmethod
     def get_batch_size(self, *args: Any, **kwargs: Any) -> Optional[int]:
         """Return the batch size for the given arguments, or None if the batch size is unknown.

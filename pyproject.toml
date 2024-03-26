@@ -47,6 +47,8 @@ types-pyyaml = "^6.0.1"
 # linting
 pylint = "^3.1.0"
 ruff = "^0.3.1"
+# jupyter
+notebook = "^7.1.0"
 # mkdocs-related
 mkdocs = "^1.5.3"
 mkdocstrings = {extras = ["python"], version = "^0.24.0"}
