@@ -4,17 +4,19 @@ import abc
 import datetime
 import enum
 import json
-from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union, IO
+import typing
 import urllib.parse
+from copy import copy
+from pathlib import Path
+from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 
+import PIL.Image
 import av
 import numpy as np
-import PIL.Image
 import sqlalchemy as sql
-import typing
 
 from pixeltable import exceptions as exc
+
 
 class ColumnType:
     @enum.unique
@@ -241,14 +243,12 @@ class ColumnType:
         if t in _python_type_to_column_type:
             return _python_type_to_column_type[t]
         elif isinstance(t, typing._UnionGenericAlias) and t.__args__[1] is type(None):
-            underlying = _python_type_to_column_type[t.__args__[0]]
-            if underlying is None:
-                return None
-            else:
+            if t.__args__[0] in _python_type_to_column_type:
+                underlying = copy(_python_type_to_column_type[t.__args__[0]])
                 underlying.nullable = True
                 return underlying
-        else:
-            return None
+
+        return None
 
 
     def validate_literal(self, val: Any) -> None:
