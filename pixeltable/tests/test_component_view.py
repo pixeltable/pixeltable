@@ -1,12 +1,66 @@
-import pytest
+import math
+from pathlib import Path
+from typing import Dict, Any, List, Tuple
+
+import PIL
+import cv2
 import numpy as np
 import pandas as pd
+import pytest
 
 import pixeltable as pt
 from pixeltable import exceptions as exc
-from pixeltable.type_system import IntType, VideoType, JsonType
+from pixeltable.iterators import ComponentIterator
 from pixeltable.tests.utils import assert_resultset_eq, get_video_files
-from pixeltable.iterators import FrameIterator
+from pixeltable.type_system import IntType, VideoType, JsonType
+from pixeltable.iterators.video import FrameIterator
+
+
+class TestIterator(ComponentIterator):
+    """Component iterator that generates a fixed number of all-black 1280x720 images."""
+    def __init__(self, video: str, num_frames: int = 10):
+        self.img = PIL.Image.new('RGB', (1280, 720))
+        self.next_frame_idx = 0
+        self.num_frames = num_frames
+        self.pos_msec = 0.0
+        self.pos_frame = 0.0
+
+    @classmethod
+    def input_schema(cls) -> Dict[str, pt.ColumnType]:
+        return {
+            'video': VideoType(nullable=False),
+            'fps': pt.FloatType()
+        }
+
+    @classmethod
+    def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, pt.ColumnType], List[str]]:
+        return {
+            'frame_idx': IntType(),
+            'pos_msec': pt.FloatType(),
+            'pos_frame': pt.FloatType(),
+            'frame': pt.ImageType(),
+        }, ['frame']
+
+    def __next__(self) -> Dict[str, Any]:
+        while True:
+            if self.next_frame_idx == self.num_frames:
+                raise StopIteration
+            result = {
+                'frame_idx': self.next_frame_idx,
+                'pos_msec': self.pos_msec,
+                'pos_frame': self.pos_frame,
+                'frame': self.img,
+            }
+            self.next_frame_idx += 1
+            return result
+
+    def close(self) -> None:
+        pass
+
+    def set_pos(self, pos: int) -> None:
+        if pos == self.next_frame_idx:
+            return
+        self.next_frame_idx = pos
 
 
 class TestComponentView:
@@ -162,9 +216,9 @@ class TestComponentView:
         assert status.num_excs == 0
 
         # create frame view with a computed column
-        args = {'video': video_t.video, 'fps': 1}
+        args = {'video': video_t.video}
         view_t = cl.create_view(
-            view_path, video_t, iterator_class=FrameIterator, iterator_args=args, is_snapshot=False)
+            view_path, video_t, iterator_class=TestIterator, iterator_args=args, is_snapshot=False)
         view_t.add_column(
             cropped=view_t.frame.crop([view_t.margin, view_t.margin, view_t.frame.width, view_t.frame.height]),
             stored=True)
@@ -229,8 +283,8 @@ class TestComponentView:
         video_filepaths = get_video_files()
 
         # create first view
-        args = {'video': video_t.video, 'fps': 1}
-        v1 = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
+        args = {'video': video_t.video}
+        v1 = cl.create_view('test_view', video_t, iterator_class=TestIterator, iterator_args=args)
         # computed column that references stored base column
         v1.add_column(int3=v1.int1 + 1)
         # stored computed column that references an unstored and a stored computed view column
