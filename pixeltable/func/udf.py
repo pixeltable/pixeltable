@@ -86,61 +86,78 @@ def make_function(
     substitute_fn: Optional[Callable] = None
 ) -> Function:
 
-    # Attempt to infer `return_type` if not specified explicitly.
-    if return_type is None:
-        if 'return' in typing.get_type_hints(eval_fn):
-            py_return_type = typing.get_type_hints(eval_fn, include_extras=True)['return']
-            if py_return_type is not None:
-                if batch_size is None:
-                    return_type = ts.ColumnType.from_python_type(py_return_type)
-                else:
-                    # batch_size specified
-                    batch_type = _unpack_batch_type(py_return_type)
-                    if batch_type is None:
-                        raise excs.Error(f'`batch_size is specified; Python return type must be a `Batch`')
-                    return_type = ts.ColumnType.from_python_type(batch_type)
-        if return_type is None:
-            raise excs.Error(f'Cannot infer pixeltable result type. Specify `return_type` explicitly?')
-
-    constant_params = []
-    if param_types is None:
-        py_signature = inspect.signature(eval_fn)
-        param_types = []
-        for param_name, py_type in typing.get_type_hints(eval_fn, include_extras=True).items():
-            if param_name != 'return':
-                batch_type = _unpack_batch_type(py_type)
-                if batch_size is not None and batch_type is not None:
-                    col_type = ts.ColumnType.from_python_type(batch_type)
-                    if col_type is None:
-                        raise excs.Error(
-                            f'Cannot infer pixeltable type of parameter: `{param_name}`. '
-                            'Specify `param_types` explicitly?'
-                        )
-                else:
-                    constant_params.append(param_name)
-                    col_type = ts.ColumnType.from_python_type(py_type)
-                    if col_type is None:
-                        raise excs.Error(
-                            f'Cannot infer pixeltable type of parameter: `{param_name}`. '
-                            'Specify `param_types` explicitly?'
-                        )
-                param_types.append(col_type)
-        if len(param_types) != len(py_signature.parameters):
-            raise excs.Error(f'Cannot infer pixeltable types of parameters. Specify `param_types` explicitly?')
-
-    # Always derive the function_path from eval_fn
+    # Obtain the function_path and function_name from eval_fn
     if eval_fn.__module__ != '__main__' and eval_fn.__name__.isidentifier():
         function_path = f'{eval_fn.__module__}.{eval_fn.__qualname__}'
     else:
         function_path = None
-
     function_name = eval_fn.__name__
+
+    # Display name to use for error messages
+    errmsg_name = function_name if function_path is None else function_path
+
+    # Attempt to infer `return_type`, if not specified explicitly;
+    # validate that batched functions must have a batched return type.
+
+    if return_type is None and 'return' in typing.get_type_hints(eval_fn):
+        py_return_type = typing.get_type_hints(eval_fn, include_extras=True)['return']
+        if py_return_type is not None:
+            if batch_size is None:
+                return_type = ts.ColumnType.from_python_type(py_return_type)
+            else:
+                # batch_size specified
+                batch_type = _unpack_batch_type(py_return_type)
+                if batch_type is None:
+                    raise excs.Error(f'{errmsg_name}(): batch_size is specified; Python return type must be a `Batch`')
+                return_type = ts.ColumnType.from_python_type(batch_type)
+
+    if return_type is None:
+        raise excs.Error(f'{errmsg_name}(): Cannot infer pixeltable result type. Specify `return_type` explicitly?')
+
+    py_signature = inspect.signature(eval_fn)
+
+    # Attempt to infer parameter types, if not specified explicitly;
+    # validate batched parameters; and identify `constant_params`.
+
+    if param_types is None:
+        infer_param_types = True
+        param_types = []
+    else:
+        infer_param_types = False
+    constant_params = []
+
+    for param_name, py_type in typing.get_type_hints(eval_fn, include_extras=True).items():
+        if param_name != 'return':
+
+            batch_type = _unpack_batch_type(py_type)
+            if batch_type is not None:
+                if batch_size is None:
+                    raise excs.Error(
+                        f'{errmsg_name}(): Batched parameter in udf, but no `batch_size` given: `{param_name}`'
+                    )
+                unpacked_type = batch_type
+            else:
+                if batch_size is not None:
+                    constant_params.append(param_name)
+                unpacked_type = py_type
+
+            if infer_param_types:
+                col_type = ts.ColumnType.from_python_type(unpacked_type)
+                if col_type is None:
+                    raise excs.Error(
+                        f'{errmsg_name}(): Cannot infer pixeltable type of parameter: `{param_name}`. '
+                        'Specify `param_types` explicitly?'
+                    )
+                param_types.append(col_type)
+
+    if infer_param_types and len(param_types) != len(py_signature.parameters):
+        raise excs.Error(f'{errmsg_name}(): Cannot infer pixeltable types of parameters. Specify `param_types` explicitly?')
 
     if substitute_fn is None:
         py_fn = eval_fn
     else:
         if function_path is None:
-            raise excs.Error('The @udf decorator with the explicit py_fn argument can only be used in a module')
+            raise excs.Error(f'{errmsg_name}(): The @udf decorator with the explicit py_fn argument can only be used in a module')
         py_fn = substitute_fn
 
     signature = Signature.create(py_fn, param_types, return_type)
@@ -148,7 +165,6 @@ def make_function(
     if batch_size is None:
         result = CallableFunction(signature=signature, py_fn=py_fn, self_path=function_path, self_name=function_name)
     else:
-        # batch_size is specified
         result = ExplicitBatchedFunction(
             signature=signature, batch_size=batch_size, invoker_fn=eval_fn,
             constant_params=constant_params, self_path=function_path)
