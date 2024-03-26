@@ -182,7 +182,7 @@ class TestFunctions:
             assert t.column_types()[col_name] == ArrayType((None,), dtype=FloatType(), nullable=False)
             list_col_name = f'embed_list{idx}'
             t[list_col_name] = sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)
-            assert t.column_types()[list_col_name].is_json_type()
+            assert t.column_types()[list_col_name] == JsonType()
 
         def verify_row(row: Dict[str, Any]) -> None:
             for idx, (_, d) in enumerate(zip(model_ids, num_dims)):
@@ -215,10 +215,10 @@ class TestFunctions:
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
             t[col_name] = cross_encoder(t.input, t.input, model_id=model_id)
-            assert t.column_types()[col_name].is_float_type()
+            assert t.column_types()[col_name] == FloatType()
             list_col_name = f'embed_list{idx}'
             t[list_col_name] = cross_encoder_list(t.input, t.input_list, model_id=model_id)
-            assert t.column_types()[list_col_name].is_json_type()
+            assert t.column_types()[list_col_name] == JsonType()
 
         def verify_row(row: Dict[str, Any]) -> None:
             for i in range(len(model_ids)):
