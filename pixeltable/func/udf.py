@@ -83,15 +83,19 @@ def make_function(
     return_type: Optional[ts.ColumnType] = None,
     param_types: Optional[List[ts.ColumnType]] = None,
     batch_size: Optional[int] = None,
-    substitute_fn: Optional[Callable] = None
+    substitute_fn: Optional[Callable] = None,
+    function_name: Optional[str] = None
 ) -> Function:
 
-    # Obtain the function_path and function_name from eval_fn
+    # Obtain function_path from eval_fn when appropriate
     if eval_fn.__module__ != '__main__' and eval_fn.__name__.isidentifier():
         function_path = f'{eval_fn.__module__}.{eval_fn.__qualname__}'
     else:
         function_path = None
-    function_name = eval_fn.__name__
+
+    # Derive function_name, if not specified explicitly
+    if function_name is None:
+        function_name = eval_fn.__name__
 
     # Display name to use for error messages
     errmsg_name = function_name if function_path is None else function_path

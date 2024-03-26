@@ -568,8 +568,8 @@ class Expr(abc.ABC):
         # ensures that `eval_fn` is never a builtin.
         # We also set the display_name explicitly, so that the `FunctionCall` gets the
         # name of `eval_fn`, not the lambda.
-        return func.make_callable_function(
-            py_fn=lambda x: fn(x), return_type=fn_type, param_types=[self.col_type], function_name=fn.__name__)
+        return func.make_function(
+            eval_fn=lambda x: fn(x), return_type=fn_type, param_types=[self.col_type], function_name=fn.__name__)
 
 
 # A dictionary of result types of various stdlib functions that are

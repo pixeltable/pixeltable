@@ -61,25 +61,3 @@ class CallableFunction(Function):
 
     def to_store(self) -> Tuple[Dict, bytes]:
         return (self.signature.as_dict(), cloudpickle.dumps(self.py_fn))
-
-
-def make_callable_function(
-        py_fn: Callable, *, return_type: ts.ColumnType, param_types: List[ts.ColumnType],
-        function_path: Optional[str] = None, function_name: Optional[str] = None
-) -> CallableFunction:
-    """
-    Args:
-        function_path: path of the returned CallableFunction
-        function_name: name of the CallableFunction
-    """
-    sig = Signature.create(py_fn, param_types, return_type)
-
-    if function_path is None:
-        # this is not a named function in a module;
-        # we preserve the name
-        return CallableFunction(sig, py_fn=py_fn, self_name=function_name or py_fn.__name__)
-
-    result = CallableFunction(sig, py_fn=py_fn, self_path=function_path, self_name=function_name)
-    FunctionRegistry.get().register_function(function_path, result)
-    return result
-

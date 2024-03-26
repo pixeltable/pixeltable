@@ -697,7 +697,7 @@ class TableVersion:
                 raise exc.Error(
                     f'Column {col.name}: Callable parameter refers to an unknown column: {param_name}')
             args.append(exprs.ColumnRef(param))
-        fn = func.make_callable_function(
+        fn = func.make_function(
             col.compute_func, return_type=col.col_type, param_types=[arg.col_type for arg in args])
         col.value_expr = fn(*args)
 
