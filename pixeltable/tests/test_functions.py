@@ -131,6 +131,11 @@ class TestFunctions:
 
     def test_fireworks(self, test_client: pt.Client) -> None:
         skip_test_if_not_installed('fireworks')
+        try:
+            from pixeltable.functions.fireworks import initialize
+            initialize()
+        except:
+            pytest.skip(f'Fireworks client does not exist (missing API key?)')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.fireworks import completion_create
