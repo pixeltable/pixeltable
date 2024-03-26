@@ -43,8 +43,7 @@ def udf(*args, **kwargs):
 
         # Decorator invoked without parentheses: @pxt.udf
         # Simply call make_function with defaults.
-        #return make_function(None, None, args[0])
-        return make_decorator(None, None, None)(args[0])
+        return make_function(eval_fn=args[0])
 
     else:
 
@@ -55,38 +54,10 @@ def udf(*args, **kwargs):
         batch_size = kwargs.pop('batch_size', None)
         py_fn = kwargs.pop('py_fn', None)
 
-        #def decorator(fn: Callable):
-        #    return make_function(return_type, param_types, fn, batch_size=batch_size, py_fn=py_fn)
-        #return decorator
-        return make_decorator(return_type, param_types, batch_size, py_fn)
+        def decorator(fn: Callable):
+            return make_function(fn, return_type, param_types, batch_size, substitute_fn=py_fn)
 
-
-def make_decorator(
-        return_type: Optional[ts.ColumnType],
-        param_types: Optional[List[ts.ColumnType]],
-        batch_size: Optional[int],
-        py_fn: Optional[Callable] = None
-) -> Callable:
-
-    def decorator(py_fn: Callable) -> Function:
-        if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
-            # this is a named function in a module
-            function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
-        else:
-            function_path = None
-        return make_function(
-            py_fn, return_type=return_type, param_types=param_types, batch_size=batch_size,
-            function_path=function_path, function_name=py_fn.__name__)
-
-    # the decorated function is only used for the signature/path and never executed
-    def dummy_decorator(dummy_py_fn: Callable) -> Function:
-        if dummy_py_fn.__module__ == '__main__':
-            raise excs.Error('The @udf decorator with the explicit py_fn argument can only be used in a module')
-        return make_function(
-            py_fn, return_type=return_type, param_types=param_types, batch_size=batch_size,
-            function_path=f'{dummy_py_fn.__module__}.{dummy_py_fn.__qualname__}', function_name=dummy_py_fn.__name__)
-
-    return decorator if py_fn is None else dummy_decorator
+        return decorator
 
 
 T = typing.TypeVar('T')
@@ -103,15 +74,19 @@ def _unpack_batch_type(t: type) -> Optional[type]:
     return None
 
 
+# Constructs a `CallableFunction` or `BatchedFunction`, depending on the
+# supplied parameters. If `substitute_fn` is specified, then `eval_fn`
+# will be used only for its signature, with execution delegated to
+# `substitute_fn`.
 def make_function(
     eval_fn: Callable,
-    return_type: Optional[ts.ColumnType],
-    param_types: Optional[List[ts.ColumnType]],
-    function_path: str,
-    function_name: str,
-    batch_size: Optional[int] = None
+    return_type: Optional[ts.ColumnType] = None,
+    param_types: Optional[List[ts.ColumnType]] = None,
+    batch_size: Optional[int] = None,
+    substitute_fn: Optional[Callable] = None
 ) -> Function:
-    assert eval_fn is not None
+
+    # Attempt to infer `return_type` if not specified explicitly.
     if return_type is None:
         if 'return' in typing.get_type_hints(eval_fn):
             py_return_type = typing.get_type_hints(eval_fn, include_extras=True)['return']
@@ -126,6 +101,7 @@ def make_function(
                     return_type = ts.ColumnType.from_python_type(batch_type)
         if return_type is None:
             raise excs.Error(f'Cannot infer pixeltable result type. Specify `return_type` explicitly?')
+
     constant_params = []
     if param_types is None:
         py_signature = inspect.signature(eval_fn)
@@ -151,22 +127,34 @@ def make_function(
                 param_types.append(col_type)
         if len(param_types) != len(py_signature.parameters):
             raise excs.Error(f'Cannot infer pixeltable types of parameters. Specify `param_types` explicitly?')
-    signature = Signature.create(eval_fn, param_types, return_type)
+
+    # Always derive the function_path from eval_fn
+    if eval_fn.__module__ != '__main__' and eval_fn.__name__.isidentifier():
+        function_path = f'{eval_fn.__module__}.{eval_fn.__qualname__}'
+    else:
+        function_path = None
+
+    function_name = eval_fn.__name__
+
+    if substitute_fn is None:
+        py_fn = eval_fn
+    else:
+        if function_path is None:
+            raise excs.Error('The @udf decorator with the explicit py_fn argument can only be used in a module')
+        py_fn = substitute_fn
+
+    signature = Signature.create(py_fn, param_types, return_type)
 
     if batch_size is None:
-
-        if function_path is None:
-            # this is not a named function in a module;
-            # we preserve the name
-            return CallableFunction(signature, py_fn=eval_fn, self_name=function_name or eval_fn.__name__)
-
-        result = CallableFunction(signature, py_fn=eval_fn, self_path=function_path, self_name=function_name)
-        FunctionRegistry.get().register_function(function_path, result)
-        return result
-
+        result = CallableFunction(signature=signature, py_fn=py_fn, self_path=function_path, self_name=function_name)
     else:
-
         # batch_size is specified
-        return ExplicitBatchedFunction(
+        result = ExplicitBatchedFunction(
             signature=signature, batch_size=batch_size, invoker_fn=eval_fn,
             constant_params=constant_params, self_path=function_path)
+
+    # If this function is part of a module, register it
+    if function_path is not None:
+        FunctionRegistry.get().register_function(function_path, result)
+
+    return result
