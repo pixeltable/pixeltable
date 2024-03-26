@@ -23,7 +23,7 @@ class TestNOS:
         # add a stored column that isn't referenced in nos calls
         v.add_column(transform2=v.frame.rotate(60), stored=True)
 
-        status = video_t.insert([{'video': get_video_files()[0]}])
+        status = video_t.insert(video=get_video_files()[0])
         pass
 
     def test_exceptions(self, test_client: pt.Client) -> None:
@@ -33,7 +33,7 @@ class TestNOS:
         # create frame view
         args = {'video': video_t.video, 'fps': 1}
         v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
-        video_t.insert([{'video': get_video_files()[0]}])
+        video_t.insert(video=get_video_files()[0])
 
         v.add_column(frame_s=v.frame.resize([640, 480]))
         # 'rotated' has exceptions
@@ -47,7 +47,7 @@ class TestNOS:
         skip_test_if_not_installed('nos')
         """Test model that mixes batched with scalar parameters"""
         t = test_client.create_table('sd_test', {'prompt': pt.StringType()})
-        t.insert([{'prompt': 'cat on a sofa'}])
+        t.insert(prompt='cat on a sofa')
         from pixeltable.functions.nos.image_generation import stabilityai_stable_diffusion_2 as sd2
         t.add_column(img=sd2(t.prompt, 1, 512, 512), stored=True)
         img = t[t.img].show(1)[0, 0]
