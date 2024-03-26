@@ -9,6 +9,8 @@ import pixeltable.type_system as ts
 import pixeltable.func as func
 
 
+# TODO: figure out a better submodule structure
+
 # the following function has been adapted from MMEval
 # (sources at https://github.com/open-mmlab/mmeval)
 # Copyright (c) OpenMMLab. All rights reserved.
@@ -145,7 +147,16 @@ def calculate_image_tpfp(
 
     return tp, fp
 
-def _eval_detections(
+@func.udf(
+    return_type=ts.JsonType(nullable=False),
+    param_types=[
+        ts.JsonType(nullable=False),
+        ts.JsonType(nullable=False),
+        ts.JsonType(nullable=False),
+        ts.JsonType(nullable=False),
+        ts.JsonType(nullable=False)
+    ])
+def eval_detections(
         pred_bboxes: List[List[int]], pred_classes: List[int], pred_scores: List[float],
         gt_bboxes: List[List[int]], gt_classes: List[int]
 ) -> Dict:
@@ -169,19 +180,11 @@ def _eval_detections(
         })
     return result
 
-eval_detections = func.make_library_function(
-    ts.JsonType(nullable=False),
-    [ts.JsonType(nullable=False), ts.JsonType(nullable=False), ts.JsonType(nullable=False), ts.JsonType(nullable=False),
-     ts.JsonType(nullable=False)],
-    __name__, '_eval_detections')
-
+@func.uda(
+    update_types=[ts.JsonType()], value_type=ts.JsonType(), name='mean_ap', allows_std_agg=True, allows_window=False)
 class MeanAPAggregator:
     def __init__(self):
         self.class_tpfp: Dict[int, List[Dict]] = defaultdict(list)
-
-    @classmethod
-    def make_aggregator(cls) -> MeanAPAggregator:
-        return cls()
 
     def update(self, eval_dicts: List[Dict]) -> None:
         for eval_dict in eval_dicts:
@@ -211,14 +214,3 @@ class MeanAPAggregator:
             ap = np.sum((mrec[ind + 1] - mrec[ind]) * mpre[ind + 1])
             result[class_idx] = ap.item()
         return result
-
-
-mean_ap = func.make_library_aggregate_function(
-    ts.JsonType(), [ts.JsonType()],  # params: output of eval_detections()
-    module_name = __name__,
-    init_symbol = 'MeanAPAggregator.make_aggregator',
-    update_symbol = 'MeanAPAggregator.update',
-    value_symbol = 'MeanAPAggregator.value',
-    allows_std_agg=True, allows_window=False)
-
-func.FunctionRegistry.get().register_module(sys.modules[__name__])

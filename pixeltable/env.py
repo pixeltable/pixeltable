@@ -2,7 +2,6 @@ from __future__ import annotations
 import datetime
 import os
 from typing import Optional, Dict, Any, List
-import types
 from pathlib import Path
 import sqlalchemy as sql
 import uuid
@@ -18,7 +17,6 @@ from sqlalchemy_utils.functions import database_exists, create_database, drop_da
 import pgserver
 import logging
 import sys
-import platform
 import glob
 
 from pixeltable import metadata
@@ -245,10 +243,7 @@ class Env:
         except ImportError:
             pass
         from pixeltable.functions.util import create_nos_modules
-        nos_modules = create_nos_modules()
-        import pixeltable.func as func
-        for mod in nos_modules:
-            func.FunctionRegistry.get().register_module(mod)
+        _ = create_nos_modules()
 
     def _create_openai_client(self) -> None:
         if 'openai' in self._config and 'api_key' in self._config['openai']:

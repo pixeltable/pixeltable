@@ -69,16 +69,19 @@ class Client:
         Returns:
             Pandas DataFrame with columns 'Path', 'Name', 'Parameters', 'Return Type', 'Is Agg', 'Library'
         """
-        func_info = func.FunctionRegistry.get().list_functions()
-        paths = ['.'.join(info.fqn.split('.')[:-1]) for info in func_info]
-        names = [info.fqn.split('.')[-1] for info in func_info]
+        functions = func.FunctionRegistry.get().list_functions()
+        paths = ['.'.join(f.self_path.split('.')[:-1]) for f in functions]
+        names = [f.name for f in functions]
+        params = [
+            ', '.join(
+                [param_name + ': ' + str(param_type) for param_name, param_type in f.signature.parameters.items()])
+            for f in functions
+        ]
         pd_df = pd.DataFrame({
             'Path': paths,
             'Function Name': names,
-            'Parameters': [
-                ', '.join([param_name + ': ' + str(param_type) for param_name, param_type in info.signature.parameters.items()]) for info in func_info
-            ],
-            'Return Type': [str(info.signature.get_return_type()) for info in func_info],
+            'Parameters': params,
+            'Return Type': [str(f.signature.get_return_type()) for f in functions],
         })
         pd_df = pd_df.style.set_properties(**{'text-align': 'left'}) \
             .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])  # center-align headings
@@ -423,104 +426,106 @@ class Client:
         self.catalog.paths.check_is_valid(path, expected=catalog.Dir)
         return [str(p) for p in self.catalog.paths.get_children(path, child_type=catalog.Dir, recursive=recursive)]
 
-    def create_function(self, path_str: str, fn: func.Function) -> None:
-        """Create a stored function.
+    # TODO: for now, named functions are deprecated, until we understand the use case and requirements better
+    # def create_function(self, path_str: str, fn: func.Function) -> None:
+    #     """Create a stored function.
+    #
+    #     Args:
+    #         path_str: path where the function gets stored
+    #         func: previously created Function object
+    #
+    #     Raises:
+    #         Error: if the path already exists or the parent is not a directory
+    #
+    #     Examples:
+    #         Create a function ``detect()`` that takes an image and returns a JSON object, and store it in ``my_dir``:
+    #
+    #         >>> @pxt.udf(param_types=[ImageType()], return_type=JsonType())
+    #         ... def detect(img):
+    #         ... ...
+    #         >>> cl.create_function('my_dir.detect', detect)
+    #     """
+    #     if fn.is_module_function:
+    #         raise excs.Error(f'Cannot create a named function for a library function')
+    #     path = catalog.Path(path_str)
+    #     self.catalog.paths.check_is_valid(path, expected=None)
+    #     dir = self.catalog.paths[path.parent]
+    #
+    #     func.FunctionRegistry.get().create_function(fn, dir._id, path.name)
+    #     self.catalog.paths[path] = catalog.NamedFunction(fn.id, dir._id, path.name)
+    #     fn.md.fqn = str(path)
+    #     _logger.info(f'Created function {path_str}')
+    #
+    # def update_function(self, path_str: str, fn: func.Function) -> None:
+    #     """Update the implementation of a stored function.
+    #
+    #     Args:
+    #         path_str: path to the function to be updated
+    #         func: new function implementation
+    #
+    #     Raises:
+    #         Error: if the path does not exist or ``func`` has a different signature than the stored function.
+    #     """
+    #     if fn.is_module_function:
+    #         raise excs.Error(f'Cannot update a named function to a library function')
+    #     path = catalog.Path(path_str)
+    #     self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
+    #     named_fn = self.catalog.paths[path]
+    #     f = func.FunctionRegistry.get().get_function(id=named_fn._id)
+    #     if f.md.signature != fn.md.signature:
+    #         raise excs.Error(
+    #             f'The function signature cannot be changed. The existing signature is {f.md.signature}')
+    #     if f.is_aggregate != fn.is_aggregate:
+    #         raise excs.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
+    #     func.FunctionRegistry.get().update_function(named_fn._id, fn)
+    #     _logger.info(f'Updated function {path_str}')
+    #
+    # def get_function(self, path_str: str) -> func.Function:
+    #     """Get a handle to a stored function.
+    #
+    #     Args:
+    #         path_str: path to the function
+    #
+    #     Returns:
+    #         Function object
+    #
+    #     Raises:
+    #         Error: if the path does not exist or is not a function
+    #
+    #     Examples:
+    #         >>> detect = cl.get_function('my_dir.detect')
+    #     """
+    #     path = catalog.Path(path_str)
+    #     self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
+    #     named_fn = self.catalog.paths[path]
+    #     assert isinstance(named_fn, catalog.NamedFunction)
+    #     fn = func.FunctionRegistry.get().get_function(id=named_fn._id)
+    #     fn.md.fqn = str(path)
+    #     return fn
+    #
+    # def drop_function(self, path_str: str, ignore_errors: bool = False) -> None:
+    #     """Deletes stored function.
+    #
+    #     Args:
+    #         path_str: path to the function
+    #         ignore_errors: if True, does not raise if the function does not exist
+    #
+    #     Raises:
+    #         Error: if the path does not exist or is not a function
+    #
+    #     Examples:
+    #         >>> cl.drop_function('my_dir.detect')
+    #     """
+    #     path = catalog.Path(path_str)
+    #     try:
+    #         self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
+    #     except excs.Error as e:
+    #         if ignore_errors:
+    #             return
+    #         else:
+    #             raise e
+    #     named_fn = self.catalog.paths[path]
+    #     func.FunctionRegistry.get().delete_function(named_fn._id)
+    #     del self.catalog.paths[path]
+    #     _logger.info(f'Dropped function {path_str}')
 
-        Args:
-            path_str: path where the function gets stored
-            func: previously created Function object
-
-        Raises:
-            Error: if the path already exists or the parent is not a directory
-
-        Examples:
-            Create a function ``detect()`` that takes an image and returns a JSON object, and store it in ``my_dir``:
-
-            >>> @pxt.udf(param_types=[ImageType()], return_type=JsonType())
-            ... def detect(img):
-            ... ...
-            >>> cl.create_function('my_dir.detect', detect)
-        """
-        if fn.is_library_function:
-            raise excs.Error(f'Cannot create a named function for a library function')
-        path = catalog.Path(path_str)
-        self.catalog.paths.check_is_valid(path, expected=None)
-        dir = self.catalog.paths[path.parent]
-
-        func.FunctionRegistry.get().create_function(fn, dir._id, path.name)
-        self.catalog.paths[path] = catalog.NamedFunction(fn.id, dir._id, path.name)
-        fn.md.fqn = str(path)
-        _logger.info(f'Created function {path_str}')
-
-    def update_function(self, path_str: str, fn: func.Function) -> None:
-        """Update the implementation of a stored function.
-
-        Args:
-            path_str: path to the function to be updated
-            func: new function implementation
-
-        Raises:
-            Error: if the path does not exist or ``func`` has a different signature than the stored function.
-        """
-        if fn.is_library_function:
-            raise excs.Error(f'Cannot update a named function to a library function')
-        path = catalog.Path(path_str)
-        self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
-        named_fn = self.catalog.paths[path]
-        f = func.FunctionRegistry.get().get_function(id=named_fn._id)
-        if f.md.signature != fn.md.signature:
-            raise excs.Error(
-                f'The function signature cannot be changed. The existing signature is {f.md.signature}')
-        if f.is_aggregate != fn.is_aggregate:
-            raise excs.Error(f'Cannot change an aggregate function into a non-aggregate function and vice versa')
-        func.FunctionRegistry.get().update_function(named_fn._id, fn)
-        _logger.info(f'Updated function {path_str}')
-
-    def get_function(self, path_str: str) -> func.Function:
-        """Get a handle to a stored function.
-
-        Args:
-            path_str: path to the function
-
-        Returns:
-            Function object
-
-        Raises:
-            Error: if the path does not exist or is not a function
-
-        Examples:
-            >>> detect = cl.get_function('my_dir.detect')
-        """
-        path = catalog.Path(path_str)
-        self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
-        named_fn = self.catalog.paths[path]
-        assert isinstance(named_fn, catalog.NamedFunction)
-        fn = func.FunctionRegistry.get().get_function(id=named_fn._id)
-        fn.md.fqn = str(path)
-        return fn
-
-    def drop_function(self, path_str: str, ignore_errors: bool = False) -> None:
-        """Deletes stored function.
-
-        Args:
-            path_str: path to the function
-            ignore_errors: if True, does not raise if the function does not exist
-
-        Raises:
-            Error: if the path does not exist or is not a function
-
-        Examples:
-            >>> cl.drop_function('my_dir.detect')
-        """
-        path = catalog.Path(path_str)
-        try:
-            self.catalog.paths.check_is_valid(path, expected=catalog.NamedFunction)
-        except excs.Error as e:
-            if ignore_errors:
-                return
-            else:
-                raise e
-        named_fn = self.catalog.paths[path]
-        func.FunctionRegistry.get().delete_function(named_fn._id)
-        del self.catalog.paths[path]
-        _logger.info(f'Dropped function {path_str}')

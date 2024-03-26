@@ -392,24 +392,18 @@ class TestTable:
         # a non-materialized column that refers to another non-materialized column
         view.add_column(c4=view.c2.rotate(60), stored=False)
 
+        @pt.uda(
+            name='window_fn', update_types=[IntType()], value_type=IntType(), requires_order_by = True,
+            allows_window = True)
         class WindowFnAggregator:
             def __init__(self):
                 pass
-            @classmethod
-            def make_aggregator(cls) -> 'WindowFnAggregator':
-                return cls()
-            def update(self) -> None:
+            def update(self, i: int) -> None:
                 pass
             def value(self) -> int:
                 return 1
-        window_fn = pt.make_aggregate_function(
-            IntType(), [],
-            init_fn=WindowFnAggregator.make_aggregator,
-            update_fn=WindowFnAggregator.update,
-            value_fn=WindowFnAggregator.value,
-            requires_order_by=True, allows_window=True)
         # cols computed with window functions are stored by default
-        view.add_column(c5=window_fn(view.frame_idx, group_by=view.video))
+        view.add_column(c5=window_fn(view.frame_idx, 1, group_by=view.video))
 
         # reload to make sure that metadata gets restored correctly
         cl = pt.Client(reload=True)
@@ -719,12 +713,18 @@ class TestTable:
             'c3': JsonType(nullable=False),
         }
         t : pt.InsertableTable = cl.create_table('test', schema)
-        t.add_column(c4=t.c1 + 1)
-        t.add_column(c5=t.c4 + 1)
-        t.add_column(c6=t.c1 / t.c2)
-        t.add_column(c7=t.c6 * t.c2)
-        t.add_column(c8=t.c3.detections['*'].bounding_box)
-        t.add_column(c9=lambda c2: math.sqrt(c2), type=FloatType())
+        status = t.add_column(c4=t.c1 + 1)
+        assert status.num_excs == 0
+        status = t.add_column(c5=t.c4 + 1)
+        assert status.num_excs == 0
+        status = t.add_column(c6=t.c1 / t.c2)
+        assert status.num_excs == 0
+        status = t.add_column(c7=t.c6 * t.c2)
+        assert status.num_excs == 0
+        status = t.add_column(c8=t.c3.detections['*'].bounding_box)
+        assert status.num_excs == 0
+        status = t.add_column(c9=lambda c2: math.sqrt(c2), type=FloatType())
+        assert status.num_excs == 0
 
         # unstored cols that compute window functions aren't currently supported
         with pytest.raises((exc.Error)):
@@ -758,7 +758,8 @@ class TestTable:
                 assert t.columns()[i].value_expr.equals(t.columns()[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
-        t.insert(rows)
+        status = t.insert(rows)
+        assert status.num_excs == 0
         res = t.show(0)
         tbl_df = t.show(0).to_pandas()
 

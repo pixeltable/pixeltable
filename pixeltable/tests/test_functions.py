@@ -54,7 +54,7 @@ class TestFunctions:
     def test_str(self, test_client: pt.Client) -> None:
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions import str_format
+        from pixeltable.functions.string import str_format
         t.add_column(s1=str_format('ABC {0}', t.input))
         t.add_column(s2=str_format('DEF {this}', this=t.input))
         t.add_column(s3=str_format('GHI {0} JKL {this}', t.input, this=t.input))
@@ -92,7 +92,7 @@ class TestFunctions:
         cl = test_client
         t = cl.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
         from pixeltable.functions.openai import chat_completion
-        from pixeltable.functions import str_format
+        from pixeltable.functions.string import str_format
         msgs = [
             {'role': 'user',
              'content': [
