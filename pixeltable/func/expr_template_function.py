@@ -80,29 +80,3 @@ class ExprTemplateFunction(Function):
             return super()._from_dict(d)
         import pixeltable.exprs as exprs
         return cls(exprs.Expr.from_dict(d['expr']), name=d['name'])
-
-
-def expr_udf(*, param_types: List[ts.ColumnType]) -> Callable:
-    def decorator(py_fn: Callable) -> ExprTemplateFunction:
-        if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
-            # this is a named function in a module
-            function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
-        else:
-            function_path = None
-
-        py_sig = inspect.signature(py_fn)
-        if len(py_sig.parameters) != len(param_types):
-            raise excs.Error(
-                f'{py_fn.__name__}: number of parameters ({len(py_sig.parameters)}) does not match param_types')
-
-        # construct exprs.Parameters from the function signature
-        import pixeltable.exprs as exprs
-        var_exprs = [
-            exprs.Variable(name, col_type) for name, col_type in zip(py_sig.parameters.keys(), param_types)
-        ]
-        # call the function with the parameter expressions to construct an Expr with parameters
-        template = py_fn(*var_exprs)
-        assert isinstance(template, exprs.Expr)
-        return ExprTemplateFunction(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
-
-    return decorator

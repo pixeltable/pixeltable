@@ -2,8 +2,8 @@ import inspect
 from typing import List, Dict, Any, Optional, Callable
 import abc
 
-from . import Signature
 from .function import Function
+from .signature import Signature
 
 
 class BatchedFunction(Function):

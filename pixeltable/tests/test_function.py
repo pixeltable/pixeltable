@@ -8,6 +8,7 @@ import pixeltable.exceptions as exc
 from pixeltable import catalog
 from pixeltable.func import Function, FunctionRegistry, Batch
 from pixeltable.type_system import IntType, FloatType
+from pixeltable.tests.utils import assert_resultset_eq
 
 
 def dummy_fn(i: int) -> int:
