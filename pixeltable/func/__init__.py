@@ -1,8 +1,9 @@
-from .signature import Signature, Parameter
-from .function import Function
-from .batched_function import BatchedFunction, ExplicitBatchedFunction
-from .nos_function import NOSFunction
-from .function_registry import FunctionRegistry
-from .callable_function import CallableFunction
-from .udf import udf, make_function, Batch
 from .aggregate_function import Aggregator, AggregateFunction, uda
+from .batched_function import BatchedFunction, ExplicitBatchedFunction
+from .callable_function import CallableFunction
+from .expr_template_function import ExprTemplateFunction
+from .function import Function
+from .function_registry import FunctionRegistry
+from .nos_function import NOSFunction
+from .signature import Signature, Parameter
+from .udf import udf, make_function, Batch, expr_udf

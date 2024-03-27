@@ -1,20 +1,22 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
-import json
+
 import inspect
+import json
+import sys
+from typing import Optional, List, Any, Dict, Tuple
 
 import sqlalchemy as sql
 
-from .expr import Expr
-from .rowid_ref import RowidRef
-from .inline_dict import InlineDict
-from .inline_array import InlineArray
-from .data_row import DataRow
-from .row_builder import RowBuilder
-import pixeltable.func as func
-import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
+import pixeltable.func as func
 import pixeltable.type_system as ts
+from .data_row import DataRow
+from .expr import Expr
+from .inline_array import InlineArray
+from .inline_dict import InlineDict
+from .row_builder import RowBuilder
+from .rowid_ref import RowidRef
 
 
 class FunctionCall(Expr):
@@ -90,16 +92,24 @@ class FunctionCall(Expr):
             self.group_by_stop_idx = len(self.components) + len(group_by_exprs)
             self.components.extend(group_by_exprs)
 
+        if isinstance(self.fn, func.ExprTemplateFunction):
+            # we instantiate the template to create an Expr that can be evaluated and record that as a component
+            fn_expr = self.fn.instantiate(**bound_args)
+            self.components.append(fn_expr)
+            self.fn_expr_idx = len(self.components) - 1
+        else:
+            self.fn_expr_idx = sys.maxsize
+
         # we want to make sure that order_by_clause get assigned slot_idxs, even though we won't need to evaluate them
         # (that's done in SQL)
         if len(order_by_clause) > 0 and not isinstance(order_by_clause[0], Expr):
             raise excs.Error(
                 f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}')
+        # don't add components after this, everthing after order_by_start_idx is part of the order_by clause
         self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_clause)
 
         self.constant_args = {param_name for param_name, arg in bound_args.items() if not isinstance(arg, Expr)}
-
         # execution state for aggregate functions
         self.aggregator: Optional[Any] = None
         self.current_partition_vals: Optional[List[Any]] = None
@@ -318,7 +328,12 @@ class FunctionCall(Expr):
                     data_row[self.slot_idx] = None
                     return
 
-        if isinstance(self.fn, func.CallableFunction):
+        if isinstance(self.fn, func.ExprTemplateFunction):
+            # we need to evaluate the template
+            # TODO: can we get rid of this extra copy?
+            fn_expr = self.components[self.fn_expr_idx]
+            data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
+        elif isinstance(self.fn, func.CallableFunction):
             data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:
             if self.has_group_by():

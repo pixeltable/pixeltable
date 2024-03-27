@@ -8,6 +8,7 @@ import pixeltable.exceptions as exc
 from pixeltable import catalog
 from pixeltable.func import Function, FunctionRegistry, Batch
 from pixeltable.type_system import IntType, FloatType
+from pixeltable.tests.utils import assert_resultset_eq
 
 
 def dummy_fn(i: int) -> int:
@@ -220,6 +221,39 @@ class TestFunction:
                 return order_by
         assert 'reserved' in str(exc_info.value)
 
+    def test_expr_udf(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        @pt.expr_udf(param_types=[IntType()])
+        def add1(x: int) -> int:
+            return x + 1
+        res1 = t.select(out=add1(t.c2)).order_by(t.c2).collect()
+        res2 = t.select(t.c2 + 1).order_by(t.c2).collect()
+        assert_resultset_eq(res1, res2)
+
+        with pytest.raises(TypeError) as exc_info:
+            _ = t.select(add1(y=t.c2)).collect()
+        assert 'missing a required argument' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            # missing param types
+            @pt.expr_udf(param_types=[IntType()])
+            def add1(x: int, y: int) -> int:
+                return x + y
+        assert 'number of parameters' in str(exc_info.value).lower()
+
+        with pytest.raises(TypeError) as exc_info:
+            # signature has correct parameter kind
+            @pt.expr_udf(param_types=[IntType()])
+            def add1(*, x: int) -> int:
+                return x + y
+            _ = t.select(add1(t.c2)).collect()
+        assert 'takes 0 positional arguments' in str(exc_info.value).lower()
+
+        @pt.expr_udf(param_types=[IntType(nullable=False), IntType(nullable=False)])
+        def add2(x: int, y: int = 1) -> int:
+            return x + y
+        res1 = t.select(out=add2(t.c2)).order_by(t.c2).collect()
+
     # Test that various invalid udf definitions generate
     # correct error messages.
     def test_invalid_udfs(self):
@@ -252,3 +286,4 @@ class TestFunction:
             def udf5(name: str, untyped) -> str:
                 return ''
         assert ': Cannot infer pixeltable types of parameters. Specify `param_types` explicitly?' in str(exc_info.value)
+

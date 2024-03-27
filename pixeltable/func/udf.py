@@ -7,7 +7,12 @@ from typing import List, Callable, Optional, overload
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from . import Signature, Function, CallableFunction, ExplicitBatchedFunction, FunctionRegistry
+from .batched_function import ExplicitBatchedFunction
+from .callable_function import CallableFunction
+from .expr_template_function import ExprTemplateFunction
+from .function import Function
+from .function_registry import FunctionRegistry
+from .signature import Signature
 
 
 # Decorator invoked without parentheses: @pxt.udf
@@ -178,3 +183,28 @@ def make_function(
         FunctionRegistry.get().register_function(function_path, result)
 
     return result
+
+def expr_udf(*, param_types: List[ts.ColumnType]) -> Callable:
+    def decorator(py_fn: Callable) -> ExprTemplateFunction:
+        if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
+            # this is a named function in a module
+            function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
+        else:
+            function_path = None
+
+        py_sig = inspect.signature(py_fn)
+        if len(py_sig.parameters) != len(param_types):
+            raise excs.Error(
+                f'{py_fn.__name__}: number of parameters ({len(py_sig.parameters)}) does not match param_types')
+
+        # construct exprs.Parameters from the function signature
+        import pixeltable.exprs as exprs
+        var_exprs = [
+            exprs.Variable(name, col_type) for name, col_type in zip(py_sig.parameters.keys(), param_types)
+        ]
+        # call the function with the parameter expressions to construct an Expr with parameters
+        template = py_fn(*var_exprs)
+        assert isinstance(template, exprs.Expr)
+        return ExprTemplateFunction(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
+
+    return decorator
