@@ -1,52 +1,103 @@
-from typing import Optional, List
+from typing import Any, Callable
 
 import PIL.Image
+import numpy as np
 
-import pixeltable.func as func
+import pixeltable as pxt
+import pixeltable.env as env
 import pixeltable.type_system as ts
+from pixeltable.func import Batch
 
-# To add new models, see instructions in func/huggingface_function.py
 
-@func.huggingface_fn(
-    return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
-    param_types=[ts.StringType(), ts.StringType(), ts.BoolType()],
-    batch_size=32,
-    constant_params=['normalize_embeddings'],
-    subclass=func.SentenceTransformerFunction)
-def sentence_transformer(sentence: str, *, model_id: str, normalize_embeddings: bool = True):
-    pass
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
+def sentence_transformer(sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False) -> Batch[np.ndarray]:
 
-@func.huggingface_fn(
-    return_type=ts.JsonType(),
-    param_types=[ts.JsonType(), ts.StringType(), ts.BoolType()],
-    batch_size=1,
-    constant_params=['normalize_embeddings'],
-    subclass=func.SentenceTransformerFunction)
-def sentence_transformer_list(sentence: List[str], *, model_id: str, normalize_embeddings: bool = True):
-    pass
+    env.Env.get().require_package('sentence_transformers')
+    from sentence_transformers import SentenceTransformer
 
-@func.huggingface_fn(
-    return_type=ts.FloatType(),
-    param_types=[ts.StringType(), ts.StringType(), ts.StringType()],
-    batch_size=32,
-    subclass=func.CrossEncoderFunction)
-def cross_encoder(sent1: str, sent2: str, *, model_id: str):
-    pass
+    model = _lookup_model(model_id, SentenceTransformer)
 
-@func.huggingface_fn(
-    return_type=ts.JsonType(),  # list of floats
-    param_types=[ts.StringType(), ts.JsonType(), ts.StringType()],
-    batch_size=1,
-    subclass=func.CrossEncoderFunction)
-def cross_encoder_list(sent1: str, sent2: List[str], *, model_id: str):
-    pass
+    array = model.encode(sentences, normalize_embeddings=normalize_embeddings)
+    return [array[i] for i in range(array.shape[0])]
 
-@func.huggingface_fn(
-    return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
-    param_types=[ts.StringType(nullable=False), ts.StringType(nullable=True), ts.ImageType(nullable=True)],
-    batch_size=32,
-    subclass=func.ClipFunction)
-def clip(*, model_id: str, text: Optional[str] = None, img: Optional[PIL.Image.Image] = None):
-    pass
 
-#func.FunctionRegistry.get().register_module()
+@pxt.udf
+def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
+
+    env.Env.get().require_package('sentence_transformers')
+    from sentence_transformers import SentenceTransformer
+
+    model = _lookup_model(model_id, SentenceTransformer)
+
+    array = model.encode(sentences, normalize_embeddings=normalize_embeddings)
+    return [array[i].tolist() for i in range(array.shape[0])]
+
+
+@pxt.udf(batch_size=32)
+def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
+
+    env.Env.get().require_package('sentence_transformers')
+    from sentence_transformers import CrossEncoder
+
+    model = _lookup_model(model_id, CrossEncoder)
+
+    array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
+    return array.tolist()
+
+
+@pxt.udf
+def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> list:
+
+    env.Env.get().require_package('sentence_transformers')
+    from sentence_transformers import CrossEncoder
+
+    model = _lookup_model(model_id, CrossEncoder)
+
+    array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
+    return array.tolist()
+
+
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
+def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
+
+    env.Env.get().require_package('transformers')
+    from transformers import CLIPModel, CLIPProcessor
+
+    model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
+
+    inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
+    embeddings = model.get_text_features(**inputs).detach().numpy()
+    return [embeddings[i] for i in range(embeddings.shape[0])]
+
+
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
+def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
+
+    env.Env.get().require_package('transformers')
+    from transformers import CLIPModel, CLIPProcessor
+
+    model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
+
+    inputs = processor(images=image, return_tensors='pt', padding=True)
+    embeddings = model.get_image_features(**inputs).detach().numpy()
+    return [embeddings[i] for i in range(embeddings.shape[0])]
+
+
+def _lookup_model(model_id: str, create: Callable) -> Any:
+    key = (model_id, create)  # For safety, include the `create` callable in the cache key
+    if key not in _model_cache:
+        _model_cache[key] = create(model_id)
+    return _model_cache[key]
+
+
+def _lookup_processor(model_id: str, create: Callable) -> Any:
+    key = (model_id, create)  # For safety, include the `create` callable in the cache key
+    if key not in _processor_cache:
+        _processor_cache[key] = create(model_id)
+    return _processor_cache[key]
+
+
+_model_cache = {}
+_processor_cache = {}

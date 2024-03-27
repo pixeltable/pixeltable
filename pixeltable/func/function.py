@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import importlib
 import inspect
+import pixeltable
 from typing import Optional, Dict, Any, Tuple
 
 from .globals import resolve_symbol
