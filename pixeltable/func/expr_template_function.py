@@ -1,21 +1,25 @@
 import inspect
 from typing import Dict, Optional, Callable, List
 
-import pixeltable.type_system as ts
+import pixeltable
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from .function import Function
 from .signature import Signature, Parameter
 
 
-class ExprTemplate(Function):
+class ExprTemplateFunction(Function):
     """A parameterized expression from which an executable Expr is created with a function call."""
+
     def __init__(
             self, expr: 'pixeltable.exprs.Expr', py_signature: inspect.Signature, self_path: Optional[str] = None,
             name: Optional[str] = None):
         import pixeltable.exprs as exprs
         self.expr = expr
         self.self_name = name
-        self.param_exprs = list(expr.subexprs(expr_class=exprs.Parameter))
+        self.param_exprs = list(expr.subexprs(expr_class=exprs.Variable))
+        # make sure there are no duplicate names
+        assert len(self.param_exprs) == len(set(p.name for p in self.param_exprs))
         self.param_exprs_by_name = {p.name: p for p in self.param_exprs}
 
         # verify default values
@@ -50,7 +54,7 @@ class ExprTemplate(Function):
             param_expr = self.param_exprs_by_name[param_name]
             result = result.substitute(param_expr, arg)
         import pixeltable.exprs as exprs
-        assert not result.contains(exprs.Parameter)
+        assert not result.contains(exprs.Variable)
         return result
 
     @property
@@ -79,7 +83,7 @@ class ExprTemplate(Function):
 
 
 def expr_udf(*, param_types: List[ts.ColumnType]) -> Callable:
-    def decorator(py_fn: Callable) -> ExprTemplate:
+    def decorator(py_fn: Callable) -> ExprTemplateFunction:
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
             # this is a named function in a module
             function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
@@ -93,12 +97,12 @@ def expr_udf(*, param_types: List[ts.ColumnType]) -> Callable:
 
         # construct exprs.Parameters from the function signature
         import pixeltable.exprs as exprs
-        param_exprs = [
-            exprs.Parameter(name, col_type) for name, col_type in zip(py_sig.parameters.keys(), param_types)
+        var_exprs = [
+            exprs.Variable(name, col_type) for name, col_type in zip(py_sig.parameters.keys(), param_types)
         ]
         # call the function with the parameter expressions to construct an Expr with parameters
-        template = py_fn(*param_exprs)
+        template = py_fn(*var_exprs)
         assert isinstance(template, exprs.Expr)
-        return ExprTemplate(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
+        return ExprTemplateFunction(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
 
     return decorator

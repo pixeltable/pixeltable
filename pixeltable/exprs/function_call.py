@@ -92,7 +92,7 @@ class FunctionCall(Expr):
             self.group_by_stop_idx = len(self.components) + len(group_by_exprs)
             self.components.extend(group_by_exprs)
 
-        if isinstance(self.fn, func.ExprTemplate):
+        if isinstance(self.fn, func.ExprTemplateFunction):
             # we instantiate the template to create an Expr that can be evaluated and record that as a component
             fn_expr = self.fn.instantiate(**bound_args)
             self.components.append(fn_expr)
@@ -328,7 +328,7 @@ class FunctionCall(Expr):
                     data_row[self.slot_idx] = None
                     return
 
-        if isinstance(self.fn, func.ExprTemplate):
+        if isinstance(self.fn, func.ExprTemplateFunction):
             # we need to evaluate the template
             # TODO: can we get rid of this extra copy?
             fn_expr = self.components[self.fn_expr_idx]

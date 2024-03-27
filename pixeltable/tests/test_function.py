@@ -253,4 +253,3 @@ class TestFunction:
         def add2(x: int, y: int = 1) -> int:
             return x + y
         res1 = t.select(out=add2(t.c2)).order_by(t.c2).collect()
-        pass

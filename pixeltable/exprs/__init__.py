@@ -16,7 +16,7 @@ from .json_mapper import JsonMapper
 from .json_path import RELATIVE_PATH_ROOT, JsonPath
 from .literal import Literal
 from .object_ref import ObjectRef
-from  .parameter import Parameter
+from  .variable import Variable
 from .predicate import Predicate
 from .row_builder import RowBuilder, ColumnSlotIdx, ExecProfile
 from .rowid_ref import RowidRef
