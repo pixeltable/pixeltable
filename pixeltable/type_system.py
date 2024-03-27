@@ -243,6 +243,8 @@ class ColumnType:
         if t in _python_type_to_column_type:
             return _python_type_to_column_type[t]
         elif isinstance(t, typing._UnionGenericAlias) and t.__args__[1] is type(None):
+            # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
+            # We treat it as the underlying type but with nullable=True.
             if t.__args__[0] in _python_type_to_column_type:
                 underlying = copy(_python_type_to_column_type[t.__args__[0]])
                 underlying.nullable = True

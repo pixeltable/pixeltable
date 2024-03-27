@@ -38,7 +38,6 @@ def udf(*args, **kwargs):
         ... def my_function(x):
         ...    return x + 1
     """
-
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
 
         # Decorator invoked without parentheses: @pxt.udf
@@ -74,10 +73,6 @@ def _unpack_batch_type(t: type) -> Optional[type]:
     return None
 
 
-# Constructs a `CallableFunction` or `BatchedFunction`, depending on the
-# supplied parameters. If `substitute_fn` is specified, then `eval_fn`
-# will be used only for its signature, with execution delegated to
-# `substitute_fn`.
 def make_function(
     eval_fn: Callable,
     return_type: Optional[ts.ColumnType] = None,
@@ -86,7 +81,12 @@ def make_function(
     substitute_fn: Optional[Callable] = None,
     function_name: Optional[str] = None
 ) -> Function:
-
+    """
+    Constructs a `CallableFunction` or `BatchedFunction`, depending on the
+    supplied parameters. If `substitute_fn` is specified, then `eval_fn`
+    will be used only for its signature, with execution delegated to
+    `substitute_fn`.
+    """
     # Obtain function_path from eval_fn when appropriate
     if eval_fn.__module__ != '__main__' and eval_fn.__name__.isidentifier():
         function_path = f'{eval_fn.__module__}.{eval_fn.__qualname__}'

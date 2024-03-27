@@ -38,7 +38,6 @@ def completion_create(
 
 
 def initialize():
-
     global _is_fireworks_initialized
     if _is_fireworks_initialized:
         return

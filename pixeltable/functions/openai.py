@@ -43,40 +43,6 @@ def completions_create(
 
 
 @pxt.udf
-def assistant(
-        prompt: str,
-        model: str,
-        frequency_penalty: Optional[float] = None,
-        logit_bias: Optional[dict] = None,
-        max_tokens: Optional[int] = None,
-        n: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        response_format: Optional[dict] = None,
-        seed: Optional[int] = None,
-        top_p: Optional[float] = None,
-        temperature: Optional[float] = None
-) -> str:
-    messages = [
-        {'role': 'system', 'content': 'You are a helpful assistant.'},
-        {'role': 'user', 'content': prompt}
-    ]
-    result = env.Env.get().openai_client.chat.completions.create(
-        messages=messages,
-        model=model,
-        frequency_penalty=frequency_penalty if frequency_penalty is not None else NOT_GIVEN,
-        logit_bias=logit_bias if logit_bias is not None else NOT_GIVEN,
-        max_tokens=max_tokens if max_tokens is not None else NOT_GIVEN,
-        n=n if n is not None else NOT_GIVEN,
-        presence_penalty=presence_penalty if presence_penalty is not None else NOT_GIVEN,
-        response_format=response_format if response_format is not None else NOT_GIVEN,
-        seed=seed if seed is not None else NOT_GIVEN,
-        top_p=top_p if top_p is not None else NOT_GIVEN,
-        temperature=temperature if temperature is not None else NOT_GIVEN
-    )
-    return result.dict()['choices'][0]['message']['content']
-
-
-@pxt.udf
 def vision(
         prompt: str,
         image: PIL.Image.Image,

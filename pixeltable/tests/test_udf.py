@@ -13,7 +13,6 @@ class TestUdf:
     # Test that various invalid udf definitions generate
     # correct error messages.
     def test_invalid_udfs(self):
-
         with pytest.raises(excs.Error) as exc_info:
             @pxt.udf
             def udf1(name: Batch[str]) -> str:
