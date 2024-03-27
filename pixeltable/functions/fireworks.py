@@ -10,7 +10,7 @@ from pixeltable import env
 
 
 @pxt.udf
-def completion_create(
+def chat_completions(
         prompt: str,
         model: str,
         *,

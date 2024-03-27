@@ -71,18 +71,18 @@ class TestFunctions:
             pytest.skip(f'OpenAI client does not exist (missing API key?).')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.openai import completions_create, embedding, moderations_create
+        from pixeltable.functions.openai import chat_completions, embeddings, moderations
         msgs = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": t.input}
         ]
         t.add_column(input_msgs=msgs)
-        t.add_column(chat_output=completions_create(model='gpt-3.5-turbo', messages=t.input_msgs))
+        t.add_column(chat_output=chat_completions(model='gpt-3.5-turbo', messages=t.input_msgs))
         # with inlined messages
-        t.add_column(chat_output2=completions_create(model='gpt-3.5-turbo', messages=msgs))
-        t.add_column(ada_embed=embedding(model='text-embedding-ada-002', input=t.input))
-        t.add_column(text_3=embedding(model='text-embedding-3-small', input=t.input))
-        t.add_column(moderation=moderations_create(input=t.input))
+        t.add_column(chat_output2=chat_completions(model='gpt-3.5-turbo', messages=msgs))
+        t.add_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
+        t.add_column(text_3=embeddings(model='text-embedding-3-small', input=t.input))
+        t.add_column(moderation=moderations(input=t.input))
         t.insert([{'input': 'I find you really annoying'}])
         _ = t.head()
 
@@ -91,7 +91,7 @@ class TestFunctions:
         TestFunctions.skip_test_if_no_openai_client()
         cl = test_client
         t = cl.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
-        from pixeltable.functions.openai import completions_create
+        from pixeltable.functions.openai import chat_completions
         from pixeltable.functions.string import str_format
         msgs = [
             {'role': 'user',
@@ -102,7 +102,7 @@ class TestFunctions:
                  }}
              ]}
         ]
-        t.add_column(response=completions_create(model='gpt-4-vision-preview', messages=msgs, max_tokens=300))
+        t.add_column(response=chat_completions(model='gpt-4-vision-preview', messages=msgs, max_tokens=300))
         t.add_column(response_content=t.response.choices[0].message.content)
         t.insert([{
             'prompt': "What's in this image?",
@@ -122,8 +122,8 @@ class TestFunctions:
             pytest.skip(f'Together client does not exist (missing API key?)')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.together import completion_create
-        t.add_column(output=completion_create(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
+        from pixeltable.functions.together import completions
+        t.add_column(output=completions(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
         t.add_column(output_text=t.output.output.choices[0].text)
         t.insert([{'input': 'I am going to the '}])
         result = t.select(t.output_text).collect()['output_text'][0]
@@ -138,8 +138,8 @@ class TestFunctions:
             pytest.skip(f'Fireworks client does not exist (missing API key?)')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.fireworks import completion_create
-        t['output'] = completion_create(prompt=t.input, model='accounts/fireworks/models/llama-v2-7b-chat', max_tokens=256).choices[0].text
+        from pixeltable.functions.fireworks import chat_completions
+        t['output'] = chat_completions(prompt=t.input, model='accounts/fireworks/models/llama-v2-7b-chat', max_tokens=256).choices[0].text
         t.insert(input='I am going to the ')
         result = t.select(t.output).collect()['output'][0]
         assert len(result) > 0

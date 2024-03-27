@@ -13,7 +13,7 @@ from pixeltable.func import Batch
 
 
 @pxt.udf
-def completions_create(
+def chat_completions(
         messages: list,
         model: str,
         frequency_penalty: Optional[float] = None,
@@ -69,13 +69,13 @@ def vision(
 
 
 @pxt.udf
-def moderations_create(input: str, model: Optional[str] = None) -> dict:
+def moderations(input: str, model: Optional[str] = None) -> dict:
     result = env.Env().get().openai_client.moderations.create(input=input, model=model)
     return result.dict()
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
-def embedding(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
+def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
     result = env.Env().get().openai_client.embeddings.create(
         input=input,
         model=model,

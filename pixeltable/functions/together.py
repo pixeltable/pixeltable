@@ -6,7 +6,7 @@ import pixeltable as pxt
 
 
 @pxt.udf
-def completion_create(
+def completions(
         prompt: str,
         model: str,
         max_tokens: Optional[int] = None,
