@@ -230,7 +230,9 @@ def get_video_files(include_bad_video=False) -> List[str]:
     glob_result = glob.glob(f'{tests_dir}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
-    return glob_result
+
+    half_res = [f for f in glob_result if 'half_res' in f or 'bad_video' in f]
+    return half_res
 
 def get_test_video_files() -> List[str]:
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
