@@ -23,7 +23,10 @@ class BatchedFunction(Function):
 
 
 class ExplicitBatchedFunction(BatchedFunction):
-
+    """
+    A `BatchedFunction` that is defined by a signature and an explicit python
+    `Callable`.
+    """
     def __init__(self, signature: Signature, batch_size: Optional[int], invoker_fn: Callable, constant_params: List[str], self_path: str):
         super().__init__(signature=signature, py_signature=inspect.signature(invoker_fn), self_path=self_path)
         self.batch_size = batch_size
