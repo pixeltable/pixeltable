@@ -71,18 +71,18 @@ class TestFunctions:
             pytest.skip(f'OpenAI client does not exist (missing API key?).')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.openai import chat_completion, embedding, moderation
+        from pixeltable.functions.openai import chat_completions, embeddings, moderations
         msgs = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": t.input}
         ]
         t.add_column(input_msgs=msgs)
-        t.add_column(chat_output=chat_completion(model='gpt-3.5-turbo', messages=t.input_msgs))
+        t.add_column(chat_output=chat_completions(model='gpt-3.5-turbo', messages=t.input_msgs))
         # with inlined messages
-        t.add_column(chat_output2=chat_completion(model='gpt-3.5-turbo', messages=msgs))
-        t.add_column(ada_embed=embedding(model='text-embedding-ada-002', input=t.input))
-        t.add_column(text_3=embedding(model='text-embedding-3-small', input=t.input))
-        t.add_column(moderation=moderation(input=t.input))
+        t.add_column(chat_output2=chat_completions(model='gpt-3.5-turbo', messages=msgs))
+        t.add_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
+        t.add_column(text_3=embeddings(model='text-embedding-3-small', input=t.input))
+        t.add_column(moderation=moderations(input=t.input))
         t.insert([{'input': 'I find you really annoying'}])
         _ = t.head()
 
@@ -91,7 +91,7 @@ class TestFunctions:
         TestFunctions.skip_test_if_no_openai_client()
         cl = test_client
         t = cl.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
-        from pixeltable.functions.openai import chat_completion
+        from pixeltable.functions.openai import chat_completions
         from pixeltable.functions.string import str_format
         msgs = [
             {'role': 'user',
@@ -102,7 +102,7 @@ class TestFunctions:
                  }}
              ]}
         ]
-        t.add_column(response=chat_completion(model='gpt-4-vision-preview', messages=msgs, max_tokens=300))
+        t.add_column(response=chat_completions(model='gpt-4-vision-preview', messages=msgs, max_tokens=300))
         t.add_column(response_content=t.response.choices[0].message.content)
         t.insert([{
             'prompt': "What's in this image?",
@@ -116,17 +116,32 @@ class TestFunctions:
         if Env.get().openai_client is None:
             pytest.skip(f'OpenAI client does not exist (missing API key?)')
 
-    def test_together(selfself, test_client: pt.Client) -> None:
+    def test_together(self, test_client: pt.Client) -> None:
         skip_test_if_not_installed('together')
         if not Env.get().has_together_client:
             pytest.skip(f'Together client does not exist (missing API key?)')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.together import completion
-        t.add_column(output=completion(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
+        from pixeltable.functions.together import completions
+        t.add_column(output=completions(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
         t.add_column(output_text=t.output.output.choices[0].text)
         t.insert([{'input': 'I am going to the '}])
         result = t.select(t.output_text).collect()['output_text'][0]
+        assert len(result) > 0
+
+    def test_fireworks(self, test_client: pt.Client) -> None:
+        skip_test_if_not_installed('fireworks')
+        try:
+            from pixeltable.functions.fireworks import initialize
+            initialize()
+        except:
+            pytest.skip(f'Fireworks client does not exist (missing API key?)')
+        cl = test_client
+        t = cl.create_table('test_tbl', {'input': StringType()})
+        from pixeltable.functions.fireworks import chat_completions
+        t['output'] = chat_completions(prompt=t.input, model='accounts/fireworks/models/llama-v2-7b-chat', max_tokens=256).choices[0].text
+        t.insert(input='I am going to the ')
+        result = t.select(t.output).collect()['output'][0]
         assert len(result) > 0
 
     def test_hf_function(self, test_client: pt.Client) -> None:
@@ -142,10 +157,12 @@ class TestFunctions:
         assert status.num_excs == 0
 
         # verify handling of constant params
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError) as exc_info:
             t.add_column(e5_2=sentence_transformer(t.input, model_id=t.input))
-        with pytest.raises(ValueError):
+        assert ': parameter model_id must be a constant value' in str(exc_info.value)
+        with pytest.raises(ValueError) as exc_info:
             t.add_column(e5_2=sentence_transformer(t.input, model_id=model_id, normalize_embeddings=t.bool_col))
+        assert ': parameter normalize_embeddings must be a constant value' in str(exc_info.value)
 
         # make sure this doesn't cause an exception
         # TODO: is there some way to capture the output?
@@ -235,14 +252,14 @@ class TestFunctions:
         assert status.num_excs == 0
 
         # run multiple models one at a time in order to exercise batching
-        from pixeltable.functions.huggingface import clip
+        from pixeltable.functions.huggingface import clip_text, clip_image
         model_ids = ['openai/clip-vit-base-patch32', 'laion/CLIP-ViT-B-32-laion2B-s34B-b79K']
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed_text{idx}'
-            t[col_name] = clip(text=t.text, model_id=model_id)
+            t[col_name] = clip_text(t.text, model_id=model_id)
             assert t.column_types()[col_name] == ArrayType((None,), dtype=FloatType(), nullable=False)
             col_name = f'embed_img{idx}'
-            t[col_name] = clip(img=t.img, model_id=model_id)
+            t[col_name] = clip_image(t.img, model_id=model_id)
             assert t.column_types()[col_name] == ArrayType((None,), dtype=FloatType(), nullable=False)
 
         def verify_row(row: Dict[str, Any]) -> None:
@@ -259,7 +276,3 @@ class TestFunctions:
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
-
-        with pytest.raises(ValueError) as exc_info:
-            t.add_column(embed=clip(text=t.text, img=t.img, model_id=model_ids[0]))
-        assert 'only one of' in str(exc_info.value)

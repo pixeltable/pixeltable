@@ -11,6 +11,10 @@ import importlib.util
 import http.server
 import socketserver
 import threading
+import typing
+import uuid
+from pathlib import Path
+from typing import Optional, Dict, Any, List
 
 import yaml
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
@@ -21,6 +25,9 @@ import glob
 
 from pixeltable import metadata
 import pixeltable.exceptions as excs
+
+if typing.TYPE_CHECKING:
+    import openai
 
 class Env:
     """
@@ -52,7 +59,7 @@ class Env:
         # package name -> version; version == []: package is installed, but we haven't determined the version yet
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
         self._nos_client: Optional[Any] = None
-        self._openai_client: Optional[Any] = None
+        self._openai_client: Optional['openai.OpenAI'] = None
         self._has_together_client: bool = False
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
         self._httpd: Optional[socketserver.TCPServer] = None
@@ -76,6 +83,10 @@ class Env:
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
         self._initialized = False
+
+    @property
+    def config(self):
+        return self._config
 
     @property
     def db_url(self) -> str:
@@ -324,6 +335,7 @@ class Env:
         check('together')
         if self.is_installed_package('together'):
             self._create_together_client()
+        check('fireworks')
         check('nos')
         if self.is_installed_package('nos'):
             self._create_nos_client()
@@ -389,7 +401,7 @@ class Env:
         return self._nos_client
 
     @property
-    def openai_client(self) -> Any:
+    def openai_client(self) -> Optional['openai.OpenAI']:
         return self._openai_client
 
     @property

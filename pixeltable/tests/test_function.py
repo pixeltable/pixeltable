@@ -4,10 +4,9 @@ import numpy as np
 import pytest
 
 import pixeltable as pt
+import pixeltable.exceptions as exc
 from pixeltable import catalog
-from pixeltable import exceptions as exc
-from pixeltable.func import Function, FunctionRegistry
-from pixeltable.tests.utils import assert_resultset_eq
+from pixeltable.func import Function, FunctionRegistry, Batch
 from pixeltable.type_system import IntType, FloatType
 
 
@@ -253,3 +252,37 @@ class TestFunction:
         def add2(x: int, y: int = 1) -> int:
             return x + y
         res1 = t.select(out=add2(t.c2)).order_by(t.c2).collect()
+
+    # Test that various invalid udf definitions generate
+    # correct error messages.
+    def test_invalid_udfs(self):
+        with pytest.raises(exc.Error) as exc_info:
+            @pt.udf
+            def udf1(name: Batch[str]) -> str:
+                return ''
+        assert ': Batched parameter in udf, but no `batch_size` given: `name`' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            @pt.udf(batch_size=32)
+            def udf2(name: Batch[str]) -> str:
+                return ''
+        assert ': batch_size is specified; Python return type must be a `Batch`' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            @pt.udf
+            def udf3(name: str) -> Optional[np.ndarray]:
+                return None
+        assert ': Cannot infer pixeltable result type. Specify `return_type` explicitly?' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            @pt.udf
+            def udf4(array: np.ndarray) -> str:
+                return ''
+        assert ': Cannot infer pixeltable type of parameter: `array`. Specify `param_types` explicitly?' in str(exc_info.value)
+
+        with pytest.raises(exc.Error) as exc_info:
+            @pt.udf
+            def udf5(name: str, untyped) -> str:
+                return ''
+        assert ': Cannot infer pixeltable types of parameters. Specify `param_types` explicitly?' in str(exc_info.value)
+
