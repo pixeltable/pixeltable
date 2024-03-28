@@ -240,16 +240,22 @@ class ColumnType:
 
     @classmethod
     def from_python_type(cls, t: type) -> Optional[ColumnType]:
-        if t in _python_type_to_column_type:
+        if typing.get_origin(t) is typing.Union:
+            union_args = typing.get_args(t)
+            if union_args[1] is type(None):
+                # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
+                # We treat it as the underlying type but with nullable=True.
+                underlying = cls.from_python_type(union_args[0])
+                if underlying is not None:
+                    result = copy(underlying)
+                    result.nullable = True
+                    return result
+        elif t in _python_type_to_column_type:
             return _python_type_to_column_type[t]
-        elif isinstance(t, typing._UnionGenericAlias) and t.__args__[1] is type(None):
-            # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
-            # We treat it as the underlying type but with nullable=True.
-            if t.__args__[0] in _python_type_to_column_type:
-                underlying = copy(_python_type_to_column_type[t.__args__[0]])
-                underlying.nullable = True
-                return underlying
-
+        else:
+            base = typing.get_origin(t)  # Discard type parameters
+            if base is not None and base in _python_type_to_column_type:
+                return _python_type_to_column_type[base]
         return None
 
 
@@ -385,7 +391,6 @@ class ColumnType:
 
     @abc.abstractmethod
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
         assert False, f'Have not implemented {self.__class__.__name__} to Arrow'
  
     @staticmethod
