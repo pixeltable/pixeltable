@@ -74,6 +74,7 @@ tiktoken = ">=0.3"
 beautifulsoup4 = "^4.0.0"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
+label-studio-sdk = "^0.0.32"
 
 [tool.mypy]
 plugins = "sqlalchemy.ext.mypy.plugin"
