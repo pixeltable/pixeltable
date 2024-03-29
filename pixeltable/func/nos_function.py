@@ -19,7 +19,7 @@ class NOSFunction(BatchedFunction):
         return_type, param_types = self._convert_nos_signature(model_spec.signature)
         param_names = list(model_spec.signature.get_inputs_spec().keys())
         params = [
-            Parameter(name, col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            Parameter(name, col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD, is_batched=False)
             for name, col_type in zip(param_names, param_types)
         ]
         signature = Signature(return_type, params)

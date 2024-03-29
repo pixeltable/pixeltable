@@ -223,7 +223,7 @@ class TestFunction:
 
     def test_expr_udf(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        @pt.expr_udf(param_types=[IntType()])
+        @pt.expr_udf
         def add1(x: int) -> int:
             return x + 1
         res1 = t.select(out=add1(t.c2)).order_by(t.c2).collect()
@@ -235,21 +235,35 @@ class TestFunction:
         assert 'missing a required argument' in str(exc_info.value).lower()
 
         with pytest.raises(exc.Error) as exc_info:
+            # parameter types cannot be inferred
+            @pt.expr_udf
+            def add1(x, y) -> int:
+                return x + y
+        assert 'cannot infer pixeltable type' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
+            # return type cannot be inferred
+            @pt.expr_udf
+            def add1(x: int, y: int):
+                return x + y
+        assert 'cannot infer pixeltable return type' in str(exc_info.value).lower()
+
+        with pytest.raises(exc.Error) as exc_info:
             # missing param types
             @pt.expr_udf(param_types=[IntType()])
-            def add1(x: int, y: int) -> int:
+            def add1(x, y) -> int:
                 return x + y
-        assert 'number of parameters' in str(exc_info.value).lower()
+        assert 'missing type for parameter y' in str(exc_info.value).lower()
 
         with pytest.raises(TypeError) as exc_info:
             # signature has correct parameter kind
-            @pt.expr_udf(param_types=[IntType()])
+            @pt.expr_udf
             def add1(*, x: int) -> int:
                 return x + y
             _ = t.select(add1(t.c2)).collect()
         assert 'takes 0 positional arguments' in str(exc_info.value).lower()
 
-        @pt.expr_udf(param_types=[IntType(nullable=False), IntType(nullable=False)])
+        @pt.expr_udf
         def add2(x: int, y: int = 1) -> int:
             return x + y
         res1 = t.select(out=add2(t.c2)).order_by(t.c2).collect()
@@ -261,29 +275,29 @@ class TestFunction:
             @pt.udf
             def udf1(name: Batch[str]) -> str:
                 return ''
-        assert ': Batched parameter in udf, but no `batch_size` given: `name`' in str(exc_info.value)
+        assert 'batched parameters in udf, but no `batch_size` given' in str(exc_info.value).lower()
 
         with pytest.raises(exc.Error) as exc_info:
             @pt.udf(batch_size=32)
             def udf2(name: Batch[str]) -> str:
                 return ''
-        assert ': batch_size is specified; Python return type must be a `Batch`' in str(exc_info.value)
+        assert 'batch_size is specified; Python return type must be a `Batch`' in str(exc_info.value)
 
         with pytest.raises(exc.Error) as exc_info:
             @pt.udf
             def udf3(name: str) -> Optional[np.ndarray]:
                 return None
-        assert ': Cannot infer pixeltable result type. Specify `return_type` explicitly?' in str(exc_info.value)
+        assert 'cannot infer pixeltable return type' in str(exc_info.value).lower()
 
         with pytest.raises(exc.Error) as exc_info:
             @pt.udf
             def udf4(array: np.ndarray) -> str:
                 return ''
-        assert ': Cannot infer pixeltable type of parameter: `array`. Specify `param_types` explicitly?' in str(exc_info.value)
+        assert 'cannot infer pixeltable type for parameter array' in str(exc_info.value).lower()
 
         with pytest.raises(exc.Error) as exc_info:
             @pt.udf
             def udf5(name: str, untyped) -> str:
                 return ''
-        assert ': Cannot infer pixeltable types of parameters. Specify `param_types` explicitly?' in str(exc_info.value)
+        assert 'cannot infer pixeltable type for parameter untyped' in str(exc_info.value).lower()
 
