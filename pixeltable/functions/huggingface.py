@@ -80,7 +80,7 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
 
 
 @pxt.udf(batch_size=32)
-def detr_detections(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
+def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
     env.Env.get().require_package('transformers')
     from transformers import DetrImageProcessor, DetrForObjectDetection
 
@@ -94,7 +94,8 @@ def detr_detections(image: Batch[PIL.Image.Image], *, model_id: str, threshold: 
     return [
         {
             'scores': [score.item() for score in result['scores']],
-            'labels': [model.config.id2label[label.item()] for label in result['labels']],
+            'labels': [label.item() for label in result['labels']],
+            'label_text': [model.config.id2label[label.item()] for label in result['labels']],
             'boxes': [box.tolist() for box in result['boxes']]
         }
         for result in results
