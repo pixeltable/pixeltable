@@ -28,7 +28,7 @@ and to ensure reproducibility.
 
     On MacOS: follow [these](https://docs.docker.com/desktop/install/mac-install/) instructions.
 
-2. `pip install git+https://github.com/mkornacker/pixeltable`
+2. `pip install git+https://github.com/pixeltable/pixeltable`
 
 
 ## First Steps

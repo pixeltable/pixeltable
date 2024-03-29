@@ -355,7 +355,7 @@ class TestDataFrame:
         t = all_datatypes_tbl
 
         t.drop_column('c_video') # null value video column triggers internal assertions in DataRow
-        # see https://github.com/mkornacker/pixeltable/issues/38
+        # see https://github.com/pixeltable/pixeltable/issues/38
 
         t.drop_column('c_array') # no support yet for null array values in the pytorch dataset
 

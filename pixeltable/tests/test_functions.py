@@ -106,7 +106,7 @@ class TestFunctions:
         t.add_column(response_content=t.response.choices[0].message.content)
         t.insert([{
             'prompt': "What's in this image?",
-            'img': 'https://raw.githubusercontent.com/mkornacker/pixeltable/master/docs/source/data/images/000000000009.jpg'
+            'img': 'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
         }])
         result = t.collect()['response_content'][0]
         assert len(result) > 0
