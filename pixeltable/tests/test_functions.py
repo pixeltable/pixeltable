@@ -2,7 +2,7 @@ from typing import Dict, Any
 
 import pytest
 
-import pixeltable as pt
+import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable.env import Env
 from pixeltable.functions.pil.image import blend
@@ -16,7 +16,7 @@ class TestFunctions:
         t = img_tbl
         _ = t[t.img, t.img.rotate(90), blend(t.img, t.img.rotate(90), 0.5)].show()
 
-    def test_eval_detections(self, test_client: pt.Client) -> None:
+    def test_eval_detections(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('nos')
         cl = test_client
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
@@ -51,7 +51,7 @@ class TestFunctions:
         # for k in common_classes:
         # assert ap_a[k] <= ap_b[k]
 
-    def test_str(self, test_client: pt.Client) -> None:
+    def test_str(self, test_client: pxt.Client) -> None:
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.string import str_format
@@ -64,7 +64,7 @@ class TestFunctions:
         row = t.head()[0]
         assert row == {'input': 'MNO', 's1': 'ABC MNO', 's2': 'DEF MNO', 's3': 'GHI MNO JKL MNO'}
 
-    def test_openai(self, test_client: pt.Client) -> None:
+    def test_openai(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openai')
         TestFunctions.skip_test_if_no_openai_client()
         if Env.get().openai_client is None:
@@ -86,7 +86,7 @@ class TestFunctions:
         t.insert([{'input': 'I find you really annoying'}])
         _ = t.head()
 
-    def test_gpt_4_vision(self, test_client: pt.Client) -> None:
+    def test_gpt_4_vision(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openai')
         TestFunctions.skip_test_if_no_openai_client()
         cl = test_client
@@ -116,7 +116,7 @@ class TestFunctions:
         if Env.get().openai_client is None:
             pytest.skip(f'OpenAI client does not exist (missing API key?)')
 
-    def test_together(self, test_client: pt.Client) -> None:
+    def test_together(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('together')
         if not Env.get().has_together_client:
             pytest.skip(f'Together client does not exist (missing API key?)')
@@ -129,7 +129,7 @@ class TestFunctions:
         result = t.select(t.output_text).collect()['output_text'][0]
         assert len(result) > 0
 
-    def test_fireworks(self, test_client: pt.Client) -> None:
+    def test_fireworks(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('fireworks')
         try:
             from pixeltable.functions.fireworks import initialize
@@ -144,7 +144,7 @@ class TestFunctions:
         result = t.select(t.output).collect()['output'][0]
         assert len(result) > 0
 
-    def test_hf_function(self, test_client: pt.Client) -> None:
+    def test_hf_function(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('sentence_transformers')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType(), 'bool_col': BoolType()})
@@ -168,7 +168,7 @@ class TestFunctions:
         # TODO: is there some way to capture the output?
         t.describe()
 
-    def test_sentence_transformer(self, test_client: pt.Client) -> None:
+    def test_sentence_transformer(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('sentence_transformers')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
@@ -198,14 +198,14 @@ class TestFunctions:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
         status = t.insert([{'input': s, 'input_list': sents} for s in sents])
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_cross_encoder(self, test_client: pt.Client) -> None:
+    def test_cross_encoder(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('sentence_transformers')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
@@ -233,14 +233,14 @@ class TestFunctions:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
         status = t.insert([{'input': s, 'input_list': sents} for s in sents])
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_clip(self, test_client: pt.Client) -> None:
+    def test_clip(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('transformers')
         cl = test_client
         t = cl.create_table('test_tbl', {'text': StringType(), 'img': ImageType()})
@@ -270,7 +270,7 @@ class TestFunctions:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
         status = t.insert([{'text': text, 'img': img} for text, img in zip(sents, imgs)])
         assert status.num_rows == len(sents)
