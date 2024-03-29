@@ -1,28 +1,29 @@
 from __future__ import annotations
+
 import base64
+import copy
+import hashlib
 import io
-from typing import List, Optional, Any, Dict, Generator, Tuple, Set
+import json
+import logging
+import mimetypes
+import traceback
 from pathlib import Path
+from typing import List, Optional, Any, Dict, Generator, Tuple, Set
+
 import pandas as pd
 import pandas.io.formats.style
 import sqlalchemy as sql
 from PIL import Image
-import traceback
-import copy
-import json
-import hashlib
-import importlib.util
-import logging
-import mimetypes
 
-import pixeltable.type_system as ts
 import pixeltable.catalog as catalog
-from pixeltable.env import Env
-from pixeltable.type_system import ColumnType
+import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-import pixeltable.exceptions as exc
-from pixeltable.plan import Planner
+import pixeltable.type_system as ts
 from pixeltable.catalog import is_valid_identifier
+from pixeltable.env import Env
+from pixeltable.plan import Planner
+from pixeltable.type_system import ColumnType
 
 __all__ = [
     'DataFrame'
@@ -103,19 +104,19 @@ class DataFrameResultSet:
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
             if index not in self._col_names:
-                raise exc.Error(f'Invalid column name: {index}')
+                raise excs.Error(f'Invalid column name: {index}')
             col_idx = self._col_names.index(index)
             return [row[col_idx] for row in self._rows]
         if isinstance(index, int):
             return self._row_to_dict(index)
         if isinstance(index, tuple) and len(index) == 2:
             if not isinstance(index[0], int) or not (isinstance(index[1], str) or isinstance(index[1], int)):
-                raise exc.Error(f'Bad index, expected [<row idx>, <column name | column index>]: {index}')
+                raise excs.Error(f'Bad index, expected [<row idx>, <column name | column index>]: {index}')
             if isinstance(index[1], str) and index[1] not in self._col_names:
-                raise exc.Error(f'Invalid column name: {index[1]}')
+                raise excs.Error(f'Invalid column name: {index[1]}')
             col_idx = self._col_names.index(index[1]) if isinstance(index[1], str) else index[1]
             return self._rows[index[0]][col_idx]
-        raise exc.Error(f'Bad index: {index}')
+        raise excs.Error(f'Bad index: {index}')
 
     def __iter__(self) -> DataFrameResultSetIterator:
         return DataFrameResultSetIterator(self)
@@ -301,14 +302,14 @@ class DataFrame:
 
     def head(self, n: int = 10) -> DataFrameResultSet:
         if self.order_by_clause is not None:
-            raise exc.Error(f'head() cannot be used with order_by()')
+            raise excs.Error(f'head() cannot be used with order_by()')
         num_rowid_cols = len(self.tbl.tbl_version.store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self.tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
     def tail(self, n: int = 10) -> DataFrameResultSet:
         if self.order_by_clause is not None:
-            raise exc.Error(f'tail() cannot be used with order_by()')
+            raise excs.Error(f'tail() cannot be used with order_by()')
         num_rowid_cols = len(self.tbl.tbl_version.store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self.tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
@@ -327,7 +328,7 @@ class DataFrame:
             for data_row in self._exec():
                 result_row = [data_row[e.slot_idx] for e in self._select_list_exprs]
                 result_rows.append(result_row)
-        except exc.ExprEvalError as e:
+        except excs.ExprEvalError as e:
             msg = (f'In row {e.row_num} the {e.expr_msg} encountered exception '
                    f'{type(e.exc).__name__}:\n{str(e.exc)}')
             if len(e.input_vals) > 0:
@@ -344,9 +345,9 @@ class DataFrame:
                 nl = '\n'
                 # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
                 msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
-            raise exc.Error(msg)
+            raise excs.Error(msg)
         except sql.exc.DBAPIError as e:
-            raise exc.Error(f'Error during SQL execution:\n{e}')
+            raise excs.Error(f'Error during SQL execution:\n{e}')
 
         col_types = self.get_column_types()
         return DataFrameResultSet(result_rows, self._column_names, col_types)
@@ -419,13 +420,13 @@ class DataFrame:
 
     def select(self, *items: Any, **named_items : Any) -> DataFrame:
         if self.select_list is not None:
-            raise exc.Error(f'Select list already specified')
+            raise excs.Error(f'Select list already specified')
         for (name, _) in named_items.items():
             if not isinstance(name, str) or not is_valid_identifier(name):
-                raise exc.Error(f'Invalid name: {name}')
+                raise excs.Error(f'Invalid name: {name}')
         base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
         if len(base_list) == 0:
-            raise exc.Error(f'Empty select list')
+            raise excs.Error(f'Empty select list')
         
         # analyze select list; wrap literals with the corresponding expressions
         select_list = []
@@ -440,7 +441,7 @@ class DataFrame:
                 select_list.append((exprs.Literal(raw_expr), name))
             expr = select_list[-1][0]
             if expr.col_type.is_invalid_type():
-                raise exc.Error(f'Invalid type: {raw_expr}')
+                raise excs.Error(f'Invalid type: {raw_expr}')
             # TODO: check that ColumnRefs in expr refer to self.tbl
 
         # check user provided names do not conflict among themselves
@@ -451,7 +452,7 @@ class DataFrame:
             if name in seen:
                 repeated_names = [j for j, x in enumerate(names) if x == name]
                 pretty = ', '.join(map(str, repeated_names))
-                raise exc.Error(f'Repeated column name "{name}" in select() at positions: {pretty}')
+                raise excs.Error(f'Repeated column name "{name}" in select() at positions: {pretty}')
             seen.add(name)
 
         return DataFrame(
@@ -470,21 +471,21 @@ class DataFrame:
         - group_by(<expr>, ...): group by the given expressions
         """
         if self.group_by_clause is not None:
-            raise exc.Error(f'Group-by already specified')
+            raise excs.Error(f'Group-by already specified')
         grouping_tbl: Optional[catalog.TableVersion] = None
         group_by_clause: Optional[List[exprs.Expr]] = None
         for item in grouping_items:
             if isinstance(item, catalog.Table):
                 if len(grouping_items) > 1:
-                    raise exc.Error(f'group_by(): only one table can be specified')
+                    raise excs.Error(f'group_by(): only one table can be specified')
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self.tbl.find_tbl_version(item.tbl_version_path.tbl_id())
                 if base is None or base.id == self.tbl.tbl_id():
-                    raise exc.Error(f'group_by(): {item.name} is not a base table of {self.tbl.tbl_name()}')
+                    raise excs.Error(f'group_by(): {item.name} is not a base table of {self.tbl.tbl_name()}')
                 grouping_tbl = item.tbl_version_path.tbl_version
                 break
             if not isinstance(item, exprs.Expr):
-                raise exc.Error(f'Invalid expression in group_by(): {item}')
+                raise excs.Error(f'Invalid expression in group_by(): {item}')
         if grouping_tbl is None:
             group_by_clause = list(grouping_items)
         return DataFrame(
@@ -494,7 +495,7 @@ class DataFrame:
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
         for e in expr_list:
             if not isinstance(e, exprs.Expr):
-                raise exc.Error(f'Invalid expression in order_by(): {e}')
+                raise excs.Error(f'Invalid expression in order_by(): {e}')
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend([(e.copy(), asc) for e in expr_list])
         return DataFrame(

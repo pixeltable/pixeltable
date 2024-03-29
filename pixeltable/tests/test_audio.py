@@ -1,12 +1,12 @@
 from typing import Optional
+
 import av
 
 import pixeltable as pxt
-from pixeltable.type_system import VideoType, AudioType
-from pixeltable.tests.utils import get_video_files, get_audio_files
-from pixeltable import catalog
-from pixeltable.utils.media_store import MediaStore
 import pixeltable.env as env
+from pixeltable.tests.utils import get_video_files, get_audio_files
+from pixeltable.type_system import VideoType, AudioType
+from pixeltable.utils.media_store import MediaStore
 
 
 class TestAudio:

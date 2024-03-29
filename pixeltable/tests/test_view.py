@@ -1,16 +1,13 @@
-import pytest
 import logging
 
 import PIL
+import pytest
 
-import pixeltable as pt
-from pixeltable import exceptions as exc
+import pixeltable as pxt
 from pixeltable import catalog
-from pixeltable.type_system import \
-    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType
-from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq, get_video_files
-from pixeltable.iterators import FrameIterator
-
+from pixeltable import exceptions as excs
+from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq
+from pixeltable.type_system import IntType, FloatType, ImageType
 
 logger = logging.getLogger('pixeltable')
 
@@ -21,7 +18,7 @@ class TestView:
     - test consecutive component views
 
     """
-    def create_tbl(self, cl: pt.Client) -> catalog.InsertableTable:
+    def create_tbl(self, cl: pxt.Client) -> catalog.InsertableTable:
         """Create table with computed columns"""
         t = create_test_tbl(cl)
         t.add_column(d1=t.c3 - 1)
@@ -32,7 +29,7 @@ class TestView:
         t.add_column(d2=t.c3 - t.c10)
         return t
 
-    def test_basic(self, test_client: pt.Client) -> None:
+    def test_basic(self, test_client: pxt.Client) -> None:
         cl = test_client
         t = self.create_tbl(cl)
 
@@ -55,7 +52,7 @@ class TestView:
         v.add_column(v3=v.v1 * 2.0)
         v.add_column(v4=v.v2[0])
 
-        def check_view(t: pt.Table, v: pt.Table) -> None:
+        def check_view(t: pxt.Table, v: pxt.Table) -> None:
             assert v.count() == t.where(t.c2 < 10).count()
             assert_resultset_eq(
                 v.select(v.v1).order_by(v.c2).collect(),
@@ -69,7 +66,7 @@ class TestView:
         check_view(t, v)
 
         # check view md after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
         v = cl.get_table('test_view')
         check_view(t, v)
@@ -98,21 +95,21 @@ class TestView:
 
         # test delete view
         cl.drop_table('test_view')
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = cl.get_table('test_view')
         assert 'No such path:' in str(exc_info.value)
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         # still true after reload
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = cl.get_table('test_view')
         assert 'No such path:' in str(exc_info.value)
 
         t = cl.get_table('test_tbl')
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = cl.create_view('lambda_view', t, schema={'v1': lambda c3: c3 * 2.0})
         assert 'computed with a callable' in str(exc_info.value).lower()
 
-    def test_parallel_views(self, test_client: pt.Client) -> None:
+    def test_parallel_views(self, test_client: pxt.Client) -> None:
         """Two views over the same base table, with non-overlapping filters"""
         cl = test_client
         t = self.create_tbl(cl)
@@ -160,7 +157,7 @@ class TestView:
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
-    def test_chained_views(self, test_client: pt.Client) -> None:
+    def test_chained_views(self, test_client: pxt.Client) -> None:
         """Two views, the second one is a view over the first one"""
         cl = test_client
         t = self.create_tbl(cl)
@@ -256,7 +253,7 @@ class TestView:
         assert v2.version() == v2_version
         check_views()
 
-    def test_unstored_columns(self, test_client: pt.Client) -> None:
+    def test_unstored_columns(self, test_client: pxt.Client) -> None:
         """Test chained views with unstored columns"""
         # create table with image column and two updateable int columns
         cl = test_client
@@ -336,7 +333,7 @@ class TestView:
         logger.debug('******************* POST UPDATE INT2')
         check_views()
 
-    def test_computed_cols(self, test_client: pt.Client) -> None:
+    def test_computed_cols(self, test_client: pxt.Client) -> None:
         cl = test_client
         t = self.create_tbl(cl)
 
@@ -354,7 +351,7 @@ class TestView:
         v.add_column(v4=v.v2[0])
 
         # use view md after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
         v = cl.get_table('test_view')
 
@@ -380,7 +377,7 @@ class TestView:
             v.select(v.v1).order_by(v.c2).show(0),
             t.select(t.c3 * 2.0).order_by(t.c2).show(0))
 
-    def test_filter(self, test_client: pt.Client) -> None:
+    def test_filter(self, test_client: pxt.Client) -> None:
         cl = test_client
         t = create_test_tbl(cl)
 
@@ -391,7 +388,7 @@ class TestView:
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
         # use view md after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
         v = cl.get_table('test_view')
 
@@ -417,7 +414,7 @@ class TestView:
             v.order_by(v.c2).show(0),
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
-    def test_view_of_snapshot(self, test_client: pt.Client) -> None:
+    def test_view_of_snapshot(self, test_client: pxt.Client) -> None:
         """Test view over a snapshot"""
         cl = test_client
         t = self.create_tbl(cl)
@@ -430,7 +427,7 @@ class TestView:
         }
         v = cl.create_view('test_view', snap, schema=schema, filter=snap.c2 < 10)
 
-        def check_view(s: pt.Table, v: pt.Table) -> None:
+        def check_view(s: pxt.Table, v: pxt.Table) -> None:
             assert v.count() == s.where(s.c2 < 10).count()
             assert_resultset_eq(
                 v.select(v.v1).order_by(v.c2).collect(),
@@ -446,7 +443,7 @@ class TestView:
         assert v.count() == t.where(t.c2 < 10).count()
 
         # use view md after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
         snap = cl.get_table('test_snap')
         v = cl.get_table('test_view')
@@ -467,18 +464,18 @@ class TestView:
         assert t.count() == 110
         check_view(snap, v)
 
-    def test_snapshots(self, test_client: pt.Client) -> None:
+    def test_snapshots(self, test_client: pxt.Client) -> None:
         """Test snapshot of a view of a snapshot"""
         cl = test_client
         t = self.create_tbl(cl)
         s = cl.create_view('test_snap', t, is_snapshot=True)
         assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             v = cl.create_view('test_view', s, schema={'v1': t.c3 * 2.0})
         assert 'value expression cannot be computed in the context of the base test_snap' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             v = cl.create_view('test_view', s, filter=t.c2 < 10)
         assert 'filter cannot be computed in the context of the base test_snap' in str(exc_info.value).lower()
 
@@ -492,7 +489,7 @@ class TestView:
         view_s = cl.create_view('test_view_snap', v, is_snapshot=True)
         assert set(view_s.column_names()) == set(orig_view_cols)
 
-        def check(s1: pt.Table, v: pt.Table, s2: pt.Table) -> None:
+        def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
             assert s1.where(s1.c2 < 10).count() == v.count()
             assert v.count() == s2.count()
             assert_resultset_eq(
@@ -510,7 +507,7 @@ class TestView:
         assert set(view_s.column_names()) == set(orig_view_cols)
 
         # check md after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
         view_s = cl.get_table('test_view_snap')
         check(s, v, view_s)

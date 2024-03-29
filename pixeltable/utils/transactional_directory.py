@@ -1,8 +1,9 @@
-from contextlib import contextmanager
-import pixeltable.exceptions as exc
-from typing import Any, Generator
-from pathlib import Path
 import shutil
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Generator
+
+import pixeltable.exceptions as excs
 
 
 @contextmanager
@@ -23,7 +24,7 @@ def transactional_directory(folder_path: Path) -> Generator[Path, Any, Any]:
             (temp_folder / "subfolder2").mkdir()
     """
     if folder_path.exists():
-        raise exc.Error(f"Folder {folder_path} already exists")
+        raise excs.Error(f"Folder {folder_path} already exists")
 
     tmp_folder = folder_path.parent / f".tmp_{folder_path.name}"
     # Remove the temporary folder if it already exists, eg if the previous run crashed

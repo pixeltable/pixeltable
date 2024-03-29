@@ -5,7 +5,7 @@ import subprocess
 
 import pgserver
 
-import pixeltable as pt
+import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.tests.conftest import clean_db
 
@@ -38,4 +38,4 @@ class TestMigration:
                 )
             # TODO(aaron-siegel) This will test that the migration succeeds without raising any exceptions.
             # We should also add some assertions to sanity-check the outcome.
-            _ = pt.Client()
+            _ = pxt.Client()
