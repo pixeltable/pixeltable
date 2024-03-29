@@ -81,7 +81,7 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
 
             # use arr instead of im in ToTensor() to guarantee array input
             # to torch.from_numpy is writable. Using im is a suspected cause of
-            # https://github.com/mkornacker/pixeltable/issues/69
+            # https://github.com/pixeltable/pixeltable/issues/69
             return torchvision.transforms.ToTensor()(arr)
         elif self.column_types[k].is_json_type():
             assert isinstance(v, str)

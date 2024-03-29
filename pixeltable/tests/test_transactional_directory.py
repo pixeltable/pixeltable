@@ -1,6 +1,7 @@
-from pixeltable.utils.transactional_directory import transactional_directory
 import pathlib
 import tempfile
+
+from pixeltable.utils.transactional_directory import transactional_directory
 
 
 class MyException(Exception):

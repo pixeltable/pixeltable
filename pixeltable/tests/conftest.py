@@ -7,7 +7,7 @@ from typing import List
 import numpy as np
 import pytest
 
-import pixeltable as pt
+import pixeltable as pxt
 import pixeltable.catalog as catalog
 from pixeltable import exprs
 from pixeltable import functions as ptf
@@ -37,12 +37,12 @@ def init_env(tmp_path_factory) -> None:
     # leave db in place for debugging purposes
 
 @pytest.fixture(scope='function')
-def test_client(init_env) -> pt.Client:
+def test_client(init_env) -> pxt.Client:
     # Clean the DB *before* instantiating a client object. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state, from which the
     # client is uninstantiable.
     clean_db()
-    cl = pt.Client(reload=True)
+    cl = pxt.Client(reload=True)
     cl.logging(level=logging.DEBUG, to_stdout=True)
     yield cl
 
@@ -74,7 +74,7 @@ def clean_db(restore_tables: bool = True) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(test_client: pt.Client) -> catalog.Table:
+def test_tbl(test_client: pxt.Client) -> catalog.Table:
     return create_test_tbl(test_client)
 
 # @pytest.fixture(scope='function')
@@ -123,11 +123,11 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
     ]
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(test_client: pt.Client) -> catalog.Table:
+def all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
     return create_all_datatypes_tbl(test_client)
 
 @pytest.fixture(scope='function')
-def img_tbl(test_client: pt.Client) -> catalog.Table:
+def img_tbl(test_client: pxt.Client) -> catalog.Table:
     schema = {
         'img': ImageType(nullable=False),
         'category': StringType(nullable=False),
@@ -157,7 +157,7 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
 #    cl = pt.Client()
 #    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')
-def indexed_img_tbl(test_client: pt.Client) -> catalog.Table:
+def indexed_img_tbl(test_client: pxt.Client) -> catalog.Table:
     skip_test_if_not_installed('nos')
     cl = test_client
     schema = {

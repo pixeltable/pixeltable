@@ -1,19 +1,20 @@
-from typing import Any, Dict
 import datetime
-import pytest
 import pickle
-import numpy as np
 from pathlib import Path
-import bs4
-import requests
+from typing import Any, Dict
 
+import bs4
+import numpy as np
+import pytest
+import requests
 from pycocotools.coco import COCO
 
+import pixeltable as pxt
 from pixeltable import catalog
-from pixeltable import exceptions as exc
-import pixeltable as pt
+from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 from pixeltable.tests.utils import get_video_files, get_audio_files, skip_test_if_not_installed
+
 
 class TestDataFrame:
     def test_select_where(self, test_tbl: catalog.Table) -> None:
@@ -35,7 +36,7 @@ class TestDataFrame:
         _ = t.where(t.c2 < 10).select(t.c2, t.c2).show(0) # repeated name no error
         
         # duplicate select list
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c1).select(t.c2).show(0)
         assert 'already specified' in str(exc_info.value)
 
@@ -46,28 +47,28 @@ class TestDataFrame:
 
         # catch invalid name in select list from user input
         # only check stuff that's not caught by python kwargs checker
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c1, **{'c2-1': t.c2}).show(0)
         assert 'Invalid name' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c1, **{'': t.c2}).show(0)
         assert 'Invalid name' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c1, **{'foo.bar': t.c2}).show(0)
         assert 'Invalid name' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c1, _c3=t.c2).show(0)
         assert 'Invalid name' in str(exc_info.value)
 
         # catch repeated name from user input
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c2, c2=t.c1).show(0)
         assert 'Repeated column name' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c2+1, col_0=t.c2).show(0)
         assert 'Repeated column name' in str(exc_info.value)
 
@@ -101,19 +102,19 @@ class TestDataFrame:
         assert res[0, 'c2'] == pd_df['c2'][0]
         assert res[0, 'c2'] == res[0, 1]
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = res['does_not_exist']
         assert 'Invalid column name' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = res[0, 'does_not_exist']
         assert 'Invalid column name' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = res[0, 0, 0]
         assert 'Bad index' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = res['c2', 0]
         assert 'Bad index' in str(exc_info.value)
 
@@ -122,7 +123,7 @@ class TestDataFrame:
         res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).show(0)
 
         # invalid expr in order_by()
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.order_by(datetime.datetime.now()).show(0)
         assert 'Invalid expression' in str(exc_info.value)
 
@@ -134,7 +135,7 @@ class TestDataFrame:
         res = t.where(t.c2 > 9).head(10).to_pandas()
         assert np.all(res.c2 == list(range(10, 20)))
         # order_by() is an error
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.order_by(t.c2).head(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
 
@@ -143,7 +144,7 @@ class TestDataFrame:
         res = t.where(t.c2 < 90).tail().to_pandas()
         assert np.all(res.c2 == list(range(80, 90)))
         # order_by() is an error
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.order_by(t.c2).tail(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
 
@@ -169,13 +170,13 @@ class TestDataFrame:
         t = indexed_img_tbl
         probe = t.select(t.img).show(1)
         img = probe[0, 0]
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t.where(t.img.nearest(img)).count()
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t.where(t.img.nearest('car')).count()
 
         # for now, count() doesn't work with non-SQL Where clauses
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t.where(t.img.width > 100).count()
 
     def test_select_literal(self, test_tbl: catalog.Table) -> None:
@@ -183,8 +184,8 @@ class TestDataFrame:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[res.column_names()[0]] == [1.0] * 10
 
-    def test_html_media_url(self, test_client: pt.Client) -> None:
-        tab = test_client.create_table('test_html_repr', {'video': pt.VideoType(), 'audio': pt.AudioType()})
+    def test_html_media_url(self, test_client: pxt.Client) -> None:
+        tab = test_client.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType()})
         status = tab.insert([{'video': get_video_files()[0], 'audio': get_audio_files()[0]}])
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -295,7 +296,7 @@ class TestDataFrame:
             2. compatibility of all types with default collate_fn
         """
         import torch.utils.data
-        @pt.udf(param_types=[pt.JsonType()], return_type=pt.JsonType())
+        @pxt.udf(param_types=[pxt.JsonType()], return_type=pxt.JsonType())
         def restrict_json_for_default_collate(obj):
             keys = ['id', 'label', 'iscrowd', 'bounding_box']
             return {k: obj[k] for k in keys}
@@ -354,7 +355,7 @@ class TestDataFrame:
         t = all_datatypes_tbl
 
         t.drop_column('c_video') # null value video column triggers internal assertions in DataRow
-        # see https://github.com/mkornacker/pixeltable/issues/38
+        # see https://github.com/pixeltable/pixeltable/issues/38
 
         t.drop_column('c_array') # no support yet for null array values in the pytorch dataset
 
@@ -380,17 +381,17 @@ class TestDataFrame:
         ds4 = t.select(t.row_id).to_pytorch_dataset(image_format='pt')
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    def test_to_coco(self, test_client: pt.Client) -> None:
+    def test_to_coco(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('nos')
         cl = test_client
-        base_t = cl.create_table('videos', {'video': pt.VideoType()})
+        base_t = cl.create_table('videos', {'video': pxt.VideoType()})
         args = {'video': base_t.video, 'fps': 1}
         view_t = cl.create_view('frames', base_t, iterator_class=FrameIterator, iterator_args=args)
         from pixeltable.functions.nos.object_detection_2d import yolox_medium
         view_t.add_column(detections=yolox_medium(view_t.frame))
         base_t.insert([{'video': get_video_files()[0]}])
 
-        @pt.udf(return_type=pt.JsonType(nullable=False), param_types=[pt.JsonType(nullable=False)])
+        @pxt.udf(return_type=pxt.JsonType(nullable=False), param_types=[pxt.JsonType(nullable=False)])
         def yolo_to_coco(detections):
             bboxes, labels = detections['bboxes'], detections['labels']
             num_annotations = len(detections['bboxes'])
@@ -423,10 +424,10 @@ class TestDataFrame:
         assert len(coco_ds.imgs) == view_t.count()
 
         # incorrect select list
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = view_t.select({'image': view_t.frame, 'annotations': view_t.detections}).to_coco_dataset()
         assert '"annotations" is not a list' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = view_t.select(view_t.detections).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
