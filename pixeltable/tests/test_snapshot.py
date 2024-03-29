@@ -1,16 +1,17 @@
 from typing import Any, Dict
-import pytest
-import numpy as np
 
-import pixeltable as pt
+import numpy as np
+import pytest
+
+import pixeltable as pxt
+import pixeltable.exceptions as excs
+from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq
 from pixeltable.type_system import IntType
-from pixeltable.tests.utils import create_test_tbl, make_tbl, create_table_data, assert_resultset_eq
-import pixeltable.exceptions as exc
 
 
 class TestSnapshot:
     def run_basic_test(
-            self, cl: pt.Client, tbl: pt.Table, snap: pt.Table, extra_items: Dict[str, Any], filter: Any,
+            self, cl: pxt.Client, tbl: pxt.Table, snap: pxt.Table, extra_items: Dict[str, Any], filter: Any,
             reload_md: bool
     ) -> None:
         tbl_path, snap_path = cl.get_path(tbl), cl.get_path(snap)
@@ -21,7 +22,7 @@ class TestSnapshot:
 
         if reload_md:
             # reload md
-            cl = pt.Client(reload=True)
+            cl = pxt.Client(reload=True)
             tbl = cl.get_table(tbl_path)
             snap = cl.get_table(snap_path)
 
@@ -54,19 +55,19 @@ class TestSnapshot:
         tbl.revert()  # undo update()
         tbl.revert()  # undo insert()
         # can't revert a version referenced by a snapshot
-        with pytest.raises(exc.Error) as excinfo:
+        with pytest.raises(excs.Error) as excinfo:
             tbl.revert()
         assert 'version is needed' in str(excinfo.value)
 
         # can't drop a table with snapshots
-        with pytest.raises(exc.Error) as excinfo:
+        with pytest.raises(excs.Error) as excinfo:
             cl.drop_table(tbl_path)
         assert snap_path in str(excinfo.value)
 
         cl.drop_table(snap_path)
         cl.drop_table(tbl_path)
 
-    def test_basic(self, test_client: pt.Client) -> None:
+    def test_basic(self, test_client: pxt.Client) -> None:
         cl = test_client
         cl.create_dir('main')
         cl.create_dir('snap')
@@ -76,19 +77,19 @@ class TestSnapshot:
         for reload_md in [False, True]:
             for has_filter in [False, True]:
                 for has_cols in [False, True]:
-                    cl = pt.Client(reload=True)
+                    cl = pxt.Client(reload=True)
                     tbl = create_test_tbl(name=tbl_path, client=cl)
                     schema = {
                         'v1': tbl.c3 * 2.0,
                         # include a lambda to make sure that is handled correctly
-                        'v2': {'value': lambda c3: c3 * 2.0, 'type': pt.FloatType()}
+                        'v2': {'value': lambda c3: c3 * 2.0, 'type': pxt.FloatType()}
                     } if has_cols else {}
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
                     filter = tbl.c2 < 10 if has_filter else None
                     snap = cl.create_view(snap_path, tbl, schema=schema, filter=filter, is_snapshot=True)
                     self.run_basic_test(cl, tbl, snap, extra_items=extra_items, filter=filter, reload_md=reload_md)
 
-    def test_views_of_snapshots(self, test_client: pt.Client) -> None:
+    def test_views_of_snapshots(self, test_client: pxt.Client) -> None:
         cl = test_client
         t = cl.create_table('tbl', {'a': IntType()})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
@@ -100,7 +101,7 @@ class TestSnapshot:
         s2 = cl.create_view('s2', v1, is_snapshot=True)
         v2 = cl.create_view('v2', s2, is_snapshot=False)
 
-        def verify(s1: pt.Table, s2: pt.Table, v1: pt.Table, v2: pt.Table) -> None:
+        def verify(s1: pxt.Table, s2: pxt.Table, v1: pxt.Table, v2: pxt.Table) -> None:
             assert s1.count() == len(rows)
             assert v1.count() == len(rows)
             assert s2.count() == len(rows)
@@ -113,14 +114,14 @@ class TestSnapshot:
         assert status.num_excs == 0
         verify(s1, s2, v1, v2)
 
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         s1 = cl.get_table('s1')
         s2 = cl.get_table('s2')
         v1 = cl.get_table('v1')
         v2 = cl.get_table('v2')
         verify(s1, s2, v1, v2)
 
-    def test_snapshot_of_view_chain(self, test_client: pt.Client) -> None:
+    def test_snapshot_of_view_chain(self, test_client: pxt.Client) -> None:
         cl = test_client
         t = cl.create_table('tbl', {'a': IntType()})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
@@ -131,7 +132,7 @@ class TestSnapshot:
         v2 = cl.create_view('v2', v1, is_snapshot=False)
         s = cl.create_view('s', v2, is_snapshot=True)
 
-        def verify(v1: pt.Table, v2: pt.Table, s: pt.Table) -> None:
+        def verify(v1: pxt.Table, v2: pxt.Table, s: pxt.Table) -> None:
             assert v1.count() == t.count()
             assert v2.count() == t.count()
             assert s.count() == len(rows)
@@ -143,13 +144,13 @@ class TestSnapshot:
         assert status.num_excs == 0
         verify(v1, v2, s)
 
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         v1 = cl.get_table('v1')
         v2 = cl.get_table('v2')
         s = cl.get_table('s')
         verify(v1, v2, s)
 
-    def test_multiple_snapshot_paths(self, test_client: pt.Client) -> None:
+    def test_multiple_snapshot_paths(self, test_client: pxt.Client) -> None:
         cl = test_client
         t = create_test_tbl(cl)
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
@@ -166,7 +167,7 @@ class TestSnapshot:
         # s4 references different versions of t and v
         s4 = cl.create_view('s4', v, is_snapshot=True)
 
-        def validate(t: pt.Table, v: pt.Table, s1: pt.Table, s2: pt.Table, s3: pt.Table, s4: pt.Table) -> None:
+        def validate(t: pxt.Table, v: pxt.Table, s1: pxt.Table, s2: pxt.Table, s3: pxt.Table, s4: pxt.Table) -> None:
             # c4 is only visible in s1
             assert np.all(s1.select(s1.c4).collect().to_pandas()['c4'] == c4)
             with pytest.raises(AttributeError):
@@ -201,7 +202,7 @@ class TestSnapshot:
         validate(t, v, s1, s2, s3, s4)
 
         # make sure it works after metadata reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t, v = cl.get_table('test_tbl'), cl.get_table('v')
         s1, s2, s3, s4 = cl.get_table('s1'), cl.get_table('s2'), cl.get_table('s3'), cl.get_table('s4')
         validate(t, v, s1, s2, s3, s4)

@@ -8,7 +8,7 @@ import subprocess
 import pgserver
 import toml
 
-import pixeltable as pt
+import pixeltable as pxt
 import pixeltable.metadata as metadata
 from pixeltable.env import Env
 from pixeltable.type_system import \
@@ -30,7 +30,7 @@ class Dumper:
         os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 
         Env.get().set_up(reinit_db=True)
-        self.cl = pt.Client()
+        self.cl = pxt.Client()
         self.cl.logging(level=logging.DEBUG, to_stdout=True)
 
     def dump_db(self) -> None:
