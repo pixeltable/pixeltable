@@ -106,7 +106,7 @@ class TestFunctions:
         t.add_column(response_content=t.response.choices[0].message.content)
         t.insert([{
             'prompt': "What's in this image?",
-            'img': 'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
+            'img': _sample_image_url
         }])
         result = t.collect()['response_content'][0]
         assert len(result) > 0
@@ -276,3 +276,21 @@ class TestFunctions:
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
+
+    def test_detr_for_object_detection(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('transformers')
+        cl = test_client
+        t = cl.create_table('test_tbl', {'img': ImageType()})
+        from pixeltable.functions.huggingface import detr_for_object_detection
+        t['detect'] = detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
+        status = t.insert(img=_sample_image_url)
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+        result = t.select(t.detect).collect()[0]['detect']
+        assert 'orange' in result['label_text']
+        assert 'bowl' in result['label_text']
+        assert 'broccoli' in result['label_text']
+
+
+_sample_image_url = \
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
