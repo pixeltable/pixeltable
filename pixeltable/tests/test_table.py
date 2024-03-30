@@ -323,7 +323,7 @@ class TestTable:
             's3://open-images-dataset/validation/3b07a2c0d5c0c789.jpg',
         ]
 
-        tbl.insert([{'img': url} for url in urls])
+        tbl.insert({'img': url} for url in urls)
         # check that we populated the cache
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl.get_id()}'
@@ -368,7 +368,7 @@ class TestTable:
         }
         tbl = cl.create_table('test', schema)
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
-        tbl.insert([{'payload': 1, 'video': url}])
+        tbl.insert(payload=1, video=url)
         row = tbl.select(tbl.video.fileurl, tbl.video.localpath).collect()[0]
         assert row['video_fileurl'] == url
         # row[1] contains valid path to an mp4 file
@@ -411,16 +411,16 @@ class TestTable:
         view = cl.get_table('test_view')
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
-        status = tbl.insert([{'payload': 1, 'video': url}])
+        status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
         assert MediaStore.count(view.get_id()) == view.count() * 2
         # also insert a local file
-        tbl.insert([{'payload': 1, 'video': get_video_files()[0]}])
+        tbl.insert(payload=1, video=get_video_files()[0])
         assert MediaStore.count(view.get_id()) == view.count() * 2
 
         # TODO: test inserting Nulls
-        #status = tbl.insert([{'payload': 1, 'video': None}])
+        #status = tbl.insert(payload=1, video=None)
         #assert status.num_excs == 0
 
         # revert() clears stored images
@@ -436,7 +436,7 @@ class TestTable:
             view.drop_column('frame_idx')
 
         # drop() clears stored images and the cache
-        tbl.insert([{'payload': 1, 'video': get_video_files()[0]}])
+        tbl.insert(payload=1, video=get_video_files()[0])
         with pytest.raises(excs.Error) as exc_info:
             cl.drop_table('test_tbl')
         assert 'has dependents: test_view' in str(exc_info.value)
@@ -494,7 +494,7 @@ class TestTable:
             cl.drop_table('test1', ignore_errors=True)
             t = cl.create_table('test1', {col_name: col_type})
             with pytest.raises(excs.Error) as exc_info:
-                t.insert([{col_name: r[value_col_name]} for r in rows])
+                t.insert({col_name: r[value_col_name]} for r in rows)
             assert 'expected' in str(exc_info.value).lower()
 
         # rows not list of dicts
@@ -508,14 +508,14 @@ class TestTable:
         cl.drop_table('test1', ignore_errors=True)
         t = cl.create_table('test1', {'c1': StringType(nullable=False)})
         with pytest.raises(excs.Error) as exc_info:
-            t.insert([{'c1': None}])
+            t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
 
         # bad array literal
         cl.drop_table('test1', ignore_errors=True)
         t = cl.create_table('test1', {'c5': ArrayType((2, 3), dtype=IntType(), nullable=False)})
         with pytest.raises(excs.Error) as exc_info:
-            t.insert([{'c5': np.ndarray((3, 2))}])
+            t.insert(c5=np.ndarray((3, 2)))
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
     def test_query(self, test_client: pxt.Client) -> None:
@@ -1101,7 +1101,7 @@ class TestTable:
         cl = test_client
         schema = {'id': IntType(nullable=False), 'name': StringType(nullable=False)}
         tbl = cl.create_table('test', schema)
-        status = tbl.insert([{'id': id, 'name': str(id)} for id in range(10)])
+        status = tbl.insert({'id': id, 'name': str(id)} for id in range(10))
         assert status.num_rows == 10
         assert status.num_excs == 0
         assert tbl.count() == 10

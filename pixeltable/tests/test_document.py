@@ -22,14 +22,14 @@ class TestDocument:
         file_paths = self.valid_doc_paths()
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})
-        status = doc_t.insert([{'doc': p} for p in file_paths])
+        status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_rows == len(file_paths)
         assert status.num_excs == 0
         stored_paths = doc_t.select(output=doc_t.doc.localpath).collect()['output']
         assert set(stored_paths) == set(file_paths)
 
         file_paths = self.invalid_doc_paths()
-        status = doc_t.insert([{'doc': p} for p in file_paths], fail_on_exception=False)
+        status = doc_t.insert(({'doc': p} for p in file_paths), fail_on_exception=False)
         assert status.num_rows == len(file_paths)
         assert status.num_excs == len(file_paths)
 
@@ -37,7 +37,7 @@ class TestDocument:
         file_paths = self.valid_doc_paths()
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})
-        status = doc_t.insert([{'doc': p} for p in file_paths])
+        status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 
         def normalize(s: str) -> str:
@@ -91,7 +91,7 @@ class TestDocument:
         file_paths = self.valid_doc_paths()
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})
-        status = doc_t.insert([{'doc': p} for p in file_paths])
+        status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 
         # verify that only the requested metadata is present in the view
