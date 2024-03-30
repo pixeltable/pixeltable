@@ -66,6 +66,7 @@ torchvision = "^0.16.1"
 pyarrow = ">=13.0.0"
 openai = "^1.0.0"
 together = "^0.2.11"
+fireworks-ai = "^0.13.0"
 boto3 = "^1.17"
 spacy = "^3.0"
 en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}

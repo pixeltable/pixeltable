@@ -1,27 +1,26 @@
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import inspect
 import logging
-from typing import Optional, List, Dict, Any, Union, Tuple, Type, Set
-from uuid import UUID
 import time
-import importlib
+from typing import Optional, List, Dict, Any, Tuple, Type, Set
+from uuid import UUID
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier
-from .column import Column
 import pixeltable
-from pixeltable import exceptions as exc
-from pixeltable.env import Env
 import pixeltable.func as func
-from pixeltable.metadata import schema
-from pixeltable.utils.media_store import MediaStore
-from pixeltable.utils.filecache import FileCache
+from pixeltable import exceptions as excs
+from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
-
+from pixeltable.metadata import schema
+from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.media_store import MediaStore
+from .column import Column
+from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier
 
 _logger = logging.getLogger('pixeltable')
 
@@ -271,7 +270,7 @@ class TableVersion:
 
         row_count = self.store_tbl.count()
         if row_count > 0 and not col.col_type.nullable and not col.is_computed:
-            raise exc.Error(f'Cannot add non-nullable column "{col.name}" to table {self.name} with existing rows')
+            raise excs.Error(f'Cannot add non-nullable column "{col.name}" to table {self.name} with existing rows')
 
         # we're creating a new schema version
         ts = time.time()
@@ -310,7 +309,7 @@ class TableVersion:
                 num_excs = self.store_tbl.load_column(col, plan, value_expr_slot_idx, embedding_slot_idx, conn)
         except sql.exc.DBAPIError as e:
             self.drop_column(col.name)
-            raise exc.Error(f'Error during SQL execution:\n{e}')
+            raise excs.Error(f'Error during SQL execution:\n{e}')
         finally:
             plan.close()
 
@@ -328,10 +327,10 @@ class TableVersion:
         """
         assert not self.is_snapshot
         if name not in self.cols_by_name:
-            raise exc.Error(f'Unknown column: {name}')
+            raise excs.Error(f'Unknown column: {name}')
         col = self.cols_by_name[name]
         if len(col.dependent_cols) > 0:
-            raise exc.Error(
+            raise excs.Error(
                 f'Cannot drop column {name} because the following columns depend on it:\n',
                 f'{", ".join([c.name for c in col.dependent_cols])}')
 
@@ -364,11 +363,11 @@ class TableVersion:
         """
         assert not self.is_snapshot
         if old_name not in self.cols_by_name:
-            raise exc.Error(f'Unknown column: {old_name}')
+            raise excs.Error(f'Unknown column: {old_name}')
         if not is_valid_identifier(new_name):
-            raise exc.Error(f"Invalid column name: '{new_name}'")
+            raise excs.Error(f"Invalid column name: '{new_name}'")
         if new_name in self.cols_by_name:
-            raise exc.Error(f'Column {new_name} already exists')
+            raise excs.Error(f'Column {new_name} already exists')
         col = self.cols_by_name[old_name]
         del self.cols_by_name[old_name]
         col.name = new_name
@@ -422,7 +421,6 @@ class TableVersion:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.version += 1
-        from pixeltable.plan import Planner
         result = UpdateStatus()
         num_rows, num_excs, cols_with_excs = self.store_tbl.insert_rows(exec_plan, conn, v_min=self.version)
         self.next_rowid = num_rows
@@ -550,7 +548,7 @@ class TableVersion:
         """
         assert not self.is_snapshot
         if self.version == 0:
-            raise exc.Error('Cannot revert version 0')
+            raise excs.Error('Cannot revert version 0')
         with orm.Session(Env.get().engine, future=True) as session:
             self._revert(session)
             session.commit()
@@ -569,7 +567,7 @@ class TableVersion:
         result = list(conn.execute(sql.text(query)))
         if len(result) > 0:
             names = [row[1] for row in result]
-            raise exc.Error((
+            raise excs.Error((
                 f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""} '
                 f'({", ".join(names)})'
             ))
@@ -694,10 +692,10 @@ class TableVersion:
         for param_name in params:
             param = path.get_column(param_name)
             if param is None:
-                raise exc.Error(
+                raise excs.Error(
                     f'Column {col.name}: Callable parameter refers to an unknown column: {param_name}')
             args.append(exprs.ColumnRef(param))
-        fn = func.make_callable_function(
+        fn = func.make_function(
             col.compute_func, return_type=col.col_type, param_types=[arg.col_type for arg in args])
         col.value_expr = fn(*args)
 

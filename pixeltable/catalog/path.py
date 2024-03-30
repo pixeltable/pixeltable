@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import logging
 
-from pixeltable import exceptions as exc
+from pixeltable import exceptions as excs
 from .globals import is_valid_path
-
 
 _logger = logging.getLogger('pixeltable')
 
 class Path:
     def __init__(self, path: str, empty_is_valid: bool = False):
         if not is_valid_path(path, empty_is_valid):
-            raise exc.Error(f"Invalid path format: '{path}'")
+            raise excs.Error(f"Invalid path format: '{path}'")
         self.components = path.split('.')
 
     @property

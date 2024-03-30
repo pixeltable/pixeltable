@@ -565,11 +565,11 @@ class Expr(abc.ABC):
 
         # Since `fn` might have optional parameters, we wrap it in a lambda to get a unary
         # equivalent, so that its signature is understood by `make_function`. This also
-        # ensures that `eval_fn` is never a builtin.
+        # ensures that `decorated_fn` is never a builtin.
         # We also set the display_name explicitly, so that the `FunctionCall` gets the
-        # name of `eval_fn`, not the lambda.
-        return func.make_callable_function(
-            py_fn=lambda x: fn(x), return_type=fn_type, param_types=[self.col_type], function_name=fn.__name__)
+        # name of `decorated_fn`, not the lambda.
+        return func.make_function(
+            decorated_fn=lambda x: fn(x), return_type=fn_type, param_types=[self.col_type], function_name=fn.__name__)
 
 
 # A dictionary of result types of various stdlib functions that are

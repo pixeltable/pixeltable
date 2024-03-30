@@ -1,13 +1,13 @@
 import pytest
 
-import pixeltable as pt
-from pixeltable.type_system import ImageType, VideoType
-from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed
+import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
+from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed
+from pixeltable.type_system import ImageType, VideoType
 
 
 class TestNOS:
-    def test_basic(self, test_client: pt.Client) -> None:
+    def test_basic(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('nos')
         cl = test_client
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
@@ -26,7 +26,7 @@ class TestNOS:
         status = video_t.insert(video=get_video_files()[0])
         pass
 
-    def test_exceptions(self, test_client: pt.Client) -> None:
+    def test_exceptions(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('nos')
         cl = test_client
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
@@ -43,10 +43,10 @@ class TestNOS:
         assert v.where(v.detections.errortype != None).count() == 1
 
     @pytest.mark.skip(reason='too slow')
-    def test_sd(self, test_client: pt.Client) -> None:
+    def test_sd(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('nos')
         """Test model that mixes batched with scalar parameters"""
-        t = test_client.create_table('sd_test', {'prompt': pt.StringType()})
+        t = test_client.create_table('sd_test', {'prompt': pxt.StringType()})
         t.insert(prompt='cat on a sofa')
         from pixeltable.functions.nos.image_generation import stabilityai_stable_diffusion_2 as sd2
         t.add_column(img=sd2(t.prompt, 1, 512, 512), stored=True)

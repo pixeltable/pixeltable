@@ -1,14 +1,14 @@
-from typing import Optional, Set, List
+import itertools
 import json
 import re
-import itertools
+from typing import Optional, Set, List
 
 import pytest
 
 import pixeltable as pxt
-from pixeltable.type_system import DocumentType
-from pixeltable.tests.utils import get_documents, get_video_files, get_audio_files, get_image_files
 from pixeltable.iterators.document import DocumentSplitter
+from pixeltable.tests.utils import get_documents, get_video_files, get_audio_files, get_image_files
+from pixeltable.type_system import DocumentType
 
 
 class TestDocument:
