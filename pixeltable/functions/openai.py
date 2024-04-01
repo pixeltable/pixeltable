@@ -4,7 +4,6 @@ from typing import Optional
 
 import PIL.Image
 import numpy as np
-from openai._types import NOT_GIVEN
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -26,6 +25,7 @@ def chat_completions(
         top_p: Optional[float] = None,
         temperature: Optional[float] = None
 ) -> dict:
+    from openai._types import NOT_GIVEN
     result = env.Env.get().openai_client.chat.completions.create(
         messages=messages,
         model=model,

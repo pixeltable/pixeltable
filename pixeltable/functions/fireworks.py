@@ -2,8 +2,6 @@ import logging
 import os
 from typing import Optional
 
-import fireworks.client
-
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import env
@@ -52,6 +50,8 @@ def initialize():
         api_key = os.environ.get('FIREWORKS_API_KEY')
     if api_key is None or api_key == '':
         raise excs.Error('Fireworks client not initialized (no API key configured).')
+
+    import fireworks.client
 
     fireworks.client.api_key = api_key
     _is_fireworks_initialized = True

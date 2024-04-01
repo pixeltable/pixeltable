@@ -109,7 +109,7 @@ class Client:
         return '.'.join(path_elements)
 
     def create_table(
-            self, path_str: str, schema: Dict[str, Any], primary_key: Optional[Union[str, List[str]]] = None,
+            self, path_str: str, schema: Optional[Dict[str, Any]] = None, primary_key: Optional[Union[str, List[str]]] = None,
             num_retained_versions: int = 10, comment: str = ''
     ) -> catalog.InsertableTable:
         """Create a new `InsertableTable`.
@@ -137,6 +137,9 @@ class Client:
         path = catalog.Path(path_str)
         self.catalog.paths.check_is_valid(path, expected=None)
         dir = self.catalog.paths[path.parent]
+
+        if schema is None:
+            schema = {}
 
         if primary_key is None:
             primary_key = []
