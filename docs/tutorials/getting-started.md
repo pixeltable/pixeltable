@@ -29,5 +29,5 @@ use Apache Miniconda, though any environment manager should work.
 
 At this point, you're set up to start using pixeltable! For a tour of what it can
 do, a good place to start is the
-[Pixeltable Basics](https://pixeltable.github.io/pixeltable/pixeltable-basics/)
+[Pixeltable Basics](https://pixeltable.github.io/pixeltable/tutorials/pixeltable-basics/)
 tutorial.
