@@ -20,9 +20,10 @@ use Apache Miniconda, though any environment manager should work.
    - Select "Python 3 (ipykernel)" as the kernel
    - File / New / Notebook
 5. Test that everything is working by entering these commands into the notebook:
-   - `import pixeltable as pxt`
-     
-     `cl = pxt.Client()`
+   - ```
+     import pixeltable as pxt
+     cl = pxt.Client()
+     ```
    
 6. Wait a minute for Pixeltable to load; then you should see a message indicating that
    Pixeltable has successfully connected to a database.
