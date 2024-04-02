@@ -40,7 +40,7 @@ class TestTable:
     def add1(a: int) -> int:
         return a + 1
 
-    def test_create(self, test_client: pt.Client) -> None:
+    def test_create(self, test_client: pxt.Client) -> None:
         cl = test_client
         cl.create_dir('dir1')
         schema = {

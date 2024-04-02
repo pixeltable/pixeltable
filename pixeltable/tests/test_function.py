@@ -223,47 +223,47 @@ class TestFunction:
 
     def test_expr_udf(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        @pt.expr_udf
-        def add1(x: int) -> int:
-            return x + 1
-        res1 = t.select(out=add1(t.c2)).order_by(t.c2).collect()
-        res2 = t.select(t.c2 + 1).order_by(t.c2).collect()
+        @pxt.expr_udf
+        def times2(x: int) -> int:
+            return x + x
+        res1 = t.select(out=times2(t.c2)).order_by(t.c2).collect()
+        res2 = t.select(t.c2 * 2).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
 
         with pytest.raises(TypeError) as exc_info:
-            _ = t.select(add1(y=t.c2)).collect()
+            _ = t.select(times2(y=t.c2)).collect()
         assert 'missing a required argument' in str(exc_info.value).lower()
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # parameter types cannot be inferred
-            @pt.expr_udf
+            @pxt.expr_udf
             def add1(x, y) -> int:
                 return x + y
         assert 'cannot infer pixeltable type' in str(exc_info.value).lower()
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # return type cannot be inferred
-            @pt.expr_udf
+            @pxt.expr_udf
             def add1(x: int, y: int):
                 return x + y
         assert 'cannot infer pixeltable return type' in str(exc_info.value).lower()
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # missing param types
-            @pt.expr_udf(param_types=[IntType()])
+            @pxt.expr_udf(param_types=[IntType()])
             def add1(x, y) -> int:
                 return x + y
         assert 'missing type for parameter y' in str(exc_info.value).lower()
 
         with pytest.raises(TypeError) as exc_info:
             # signature has correct parameter kind
-            @pt.expr_udf
+            @pxt.expr_udf
             def add1(*, x: int) -> int:
-                return x + y
+                return x + 1
             _ = t.select(add1(t.c2)).collect()
         assert 'takes 0 positional arguments' in str(exc_info.value).lower()
 
-        @pt.expr_udf
+        @pxt.expr_udf
         def add2(x: int, y: int = 1) -> int:
             return x + y
         res1 = t.select(out=add2(t.c2)).order_by(t.c2).collect()
