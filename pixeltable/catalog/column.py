@@ -6,11 +6,10 @@ from typing import Optional, Union, Callable, Set
 import sqlalchemy as sql
 from pgvector.sqlalchemy import Vector
 
-from pixeltable import exceptions as exc
+from pixeltable import exceptions as excs
 from pixeltable.metadata import schema
 from pixeltable.type_system import ColumnType, StringType
 from .globals import is_valid_identifier
-
 
 _logger = logging.getLogger('pixeltable')
 
@@ -59,10 +58,10 @@ class Column:
         indexed: only valid for image columns; if true, maintains an NN index for this column
         """
         if not is_valid_identifier(name):
-            raise exc.Error(f"Invalid column name: '{name}'")
+            raise excs.Error(f"Invalid column name: '{name}'")
         self.name = name
         if col_type is None and computed_with is None:
-            raise exc.Error(f'Column {name}: col_type is required if computed_with is not specified')
+            raise excs.Error(f'Column {name}: col_type is required if computed_with is not specified')
 
         self.value_expr: Optional['Expr'] = None
         self.compute_func: Optional[Callable] = None
@@ -72,11 +71,11 @@ class Column:
             if value_expr is None:
                 # computed_with needs to be a Callable
                 if not isinstance(computed_with, Callable):
-                    raise exc.Error(
+                    raise excs.Error(
                         f'Column {name}: computed_with needs to be either a Pixeltable expression or a Callable, '
                         f'but it is a {type(computed_with)}')
                 if col_type is None:
-                    raise exc.Error(f'Column {name}: col_type is required if computed_with is a Callable')
+                    raise excs.Error(f'Column {name}: col_type is required if computed_with is a Callable')
                 # we need to turn the computed_with function into an Expr, but this requires resolving
                 # column name references and for that we need to wait until we're assigned to a Table
                 self.compute_func = computed_with
@@ -105,7 +104,7 @@ class Column:
         self.tbl: Optional[TableVersion] = None  # set by owning TableVersion
 
         if indexed and not self.col_type.is_image_type():
-            raise exc.Error(f'Column {name}: indexed=True requires ImageType')
+            raise excs.Error(f'Column {name}: indexed=True requires ImageType')
         self.is_indexed = indexed
 
     @classmethod
@@ -127,7 +126,7 @@ class Column:
     def check_value_expr(self) -> None:
         assert self.value_expr is not None
         if self.stored == False and self.is_computed and self.has_window_fn_call():
-            raise exc.Error(
+            raise excs.Error(
                 f'Column {self.name}: stored={self.stored} not supported for columns computed with window functions:'
                 f'\n{self.value_expr}')
 

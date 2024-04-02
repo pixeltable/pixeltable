@@ -1,21 +1,21 @@
 import datetime
 import glob
-import os
-import pytest
-from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
 import json
+import os
+from pathlib import Path
+from typing import Dict, Any, List, Optional
 
 import numpy as np
 import pandas as pd
+import pytest
 
-import pixeltable as pt
+import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import catalog
+from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.type_system import \
     ColumnType, StringType, IntType, FloatType, ArrayType, BoolType, TimestampType, JsonType, ImageType, VideoType
-from pixeltable.dataframe import DataFrameResultSet
-import pixeltable.type_system as ts
 
 
 def make_default_type(t: ColumnType.Type) -> ColumnType:
@@ -31,7 +31,7 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
         return TimestampType()
     assert False
 
-def make_tbl(cl: pt.Client, name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
+def make_tbl(cl: pxt.Client, name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
     if col_names is None:
         col_names = ['c1']
     schema: Dict[str, ts.ColumnType] = {}
@@ -112,7 +112,7 @@ def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, n
     rows = [{col_name: data[col_name][i] for col_name in col_names} for i in range(num_rows)]
     return rows
 
-def create_test_tbl(client: pt.Client, name: str = 'test_tbl') -> catalog.Table:
+def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table:
     schema = {
         'c1': StringType(nullable=False),
         'c1n': StringType(nullable=True),
@@ -177,7 +177,7 @@ def create_test_tbl(client: pt.Client, name: str = 'test_tbl') -> catalog.Table:
     t.insert(rows)
     return t
 
-def create_all_datatypes_tbl(test_client: pt.Client) -> catalog.Table:
+def create_all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
     """ Creates a table with all supported datatypes.
     """
     schema = {

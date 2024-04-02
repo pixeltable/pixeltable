@@ -1,11 +1,5 @@
-import pytest
-import pandas as pd
-
-import pixeltable as pt
 from pixeltable.type_system import \
     ColumnType, StringType, IntType, BoolType, ImageType, InvalidType, FloatType, TimestampType, JsonType, ArrayType
-from pixeltable.tests.utils import get_video_files
-from pixeltable import catalog
 
 
 class TestTypes:

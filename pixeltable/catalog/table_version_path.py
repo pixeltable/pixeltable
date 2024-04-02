@@ -1,29 +1,13 @@
 from __future__ import annotations
 
-import copy
-import dataclasses
-import inspect
 import logging
-from typing import Optional, List, Dict, Any, Union, Tuple, Type, Set
+from typing import Optional, List, Union
 from uuid import UUID
-import time
-import importlib
 
-import sqlalchemy as sql
-import sqlalchemy.orm as orm
-
-from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier
-from .column import Column
-from .table_version import TableVersion
 import pixeltable
-from pixeltable import exceptions as exc
-from pixeltable.env import Env
-import pixeltable.func as func
-from pixeltable.metadata import schema
-from pixeltable.utils.media_store import MediaStore
-from pixeltable.utils.filecache import FileCache
-from pixeltable.iterators import ComponentIterator
-
+from .column import Column
+from .globals import POS_COLUMN_NAME
+from .table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
 

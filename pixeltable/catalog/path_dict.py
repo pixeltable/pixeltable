@@ -7,13 +7,12 @@ from uuid import UUID
 
 import sqlalchemy.orm as orm
 
-from .schema_object import SchemaObject
-from .dir import Dir
-from .path import Path
-from pixeltable import exceptions as exc
+from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.metadata import schema
-
+from .dir import Dir
+from .path import Path
+from .schema_object import SchemaObject
 
 _logger = logging.getLogger('pixeltable')
 
@@ -55,11 +54,11 @@ class PathDict:
         dir = self.root_dir
         for i, component in enumerate(path.components):
             if component not in self.dir_contents[dir._id]:
-                raise exc.Error(f'No such path: {".".join(path.components[:i+1])}')
+                raise excs.Error(f'No such path: {".".join(path.components[:i + 1])}')
             schema_obj = self.dir_contents[dir._id][component]
             if i < len(path.components) - 1:
                 if not isinstance(schema_obj, Dir):
-                    raise exc.Error(f'Not a directory: {".".join(path.components[:i+1])}')
+                    raise excs.Error(f'Not a directory: {".".join(path.components[:i + 1])}')
                 dir = schema_obj
         return schema_obj
 
@@ -114,21 +113,21 @@ class PathDict:
         if expected is not None:
             schema_obj = self._resolve_path(path)
             if not isinstance(schema_obj, expected):
-                raise exc.Error(
+                raise excs.Error(
                     f'{str(path)} needs to be a {expected.display_name()} but is a {type(schema_obj).display_name()}')
         if expected is None:
             parent_obj = self._resolve_path(path.parent)
             if not isinstance(parent_obj, Dir):
-                raise exc.Error(
+                raise excs.Error(
                     f'{str(path.parent)} is a {type(parent_obj).display_name()}, not a {Dir.display_name()}')
             if path.name in self.dir_contents[parent_obj._id]:
                 obj = self.dir_contents[parent_obj._id][path.name]
-                raise exc.Error(f"{type(obj).display_name()} '{str(path)}' already exists")
+                raise excs.Error(f"{type(obj).display_name()} '{str(path)}' already exists")
 
     def get_children(self, parent: Path, child_type: Optional[Type[SchemaObject]], recursive: bool) -> List[Path]:
         dir = self._resolve_path(parent)
         if not isinstance(dir, Dir):
-            raise exc.Error(f'{str(parent)} is a {type(dir).display_name()}, not a directory')
+            raise excs.Error(f'{str(parent)} is a {type(dir).display_name()}, not a directory')
         matches = [
             obj for obj in self.dir_contents[dir._id].values() if child_type is None or isinstance(obj, child_type)
         ]
