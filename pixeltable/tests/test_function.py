@@ -1,61 +1,63 @@
+from typing import Optional
+
 import numpy as np
 import pytest
 
-from pixeltable.func import Function, FunctionRegistry, make_aggregate_function, make_library_function, make_function
-from pixeltable.type_system import IntType, FloatType
+import pixeltable as pxt
+import pixeltable.exceptions as excs
 from pixeltable import catalog
-import pixeltable as pt
-from pixeltable import exceptions as exc
+from pixeltable.func import Function, FunctionRegistry, Batch
+from pixeltable.type_system import IntType, FloatType
+from pixeltable.tests.utils import assert_resultset_eq
 
 
 def dummy_fn(i: int) -> int:
     return i
 
 class TestFunction:
-    @pt.udf(return_type=IntType(), param_types=[IntType()])
+    @pxt.udf(return_type=IntType(), param_types=[IntType()])
     def func(x: int) -> int:
         return x + 1
 
+    @pxt.uda(name='agg', value_type=IntType(), update_types=[IntType()])
     class Aggregator:
         def __init__(self):
             self.sum = 0
-        @classmethod
-        def make_aggregator(cls) -> 'Aggregator':
-            return cls()
-        def update(self, val) -> None:
+        def update(self, val: int) -> None:
             if val is not None:
                 self.sum += val
-        def value(self):
+        def value(self) -> int:
             return self.sum
-    agg = make_aggregate_function(
-        IntType(), [IntType()], Aggregator.make_aggregator, Aggregator.update, Aggregator.value)
 
     def test_serialize_anonymous(self, init_env) -> None:
         d = self.func.as_dict()
         FunctionRegistry.get().clear_cache()
         deserialized = Function.from_dict(d)
-        assert deserialized.eval_fn(1) == 2
+        # TODO: add Function.exec() and then use that
+        assert deserialized.py_fn(1) == 2
 
-    def test_create(self, test_client: pt.Client) -> None:
+    @pytest.mark.skip(reason='deprecated')
+    def test_create(self, test_client: pxt.Client) -> None:
         cl = test_client
         cl.create_function('test_fn', self.func)
         assert self.func.md.fqn == 'test_fn'
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         _ = cl.list_functions()
         fn2 = cl.get_function('test_fn')
         assert fn2.md.fqn == 'test_fn'
-        assert fn2.eval_fn(1) == 2
+        assert fn2.py_fn(1) == 2
 
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_function('test_fn', self.func)
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_function('dir1.test_fn', self.func)
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             library_fn = make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
             cl.create_function('library_fn', library_fn)
 
-    def test_update(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
+    @pytest.mark.skip(reason='deprecated')
+    def test_update(self, test_client: pxt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client
         t = test_tbl
         cl.create_function('test_fn', self.func)
@@ -63,50 +65,51 @@ class TestFunction:
 
         # load function from db and make sure it computes the same thing as before
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         fn = cl.get_function('test_fn')
         res2 = t[fn(t.c2)].show(0).to_pandas()
         assert res1.col_0.equals(res2.col_0)
-        fn.eval_fn = lambda x: x + 2
+        fn.py_fn = lambda x: x + 2
         cl.update_function('test_fn', fn)
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
 
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         fn = cl.get_function('test_fn')
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
         res3 = t[fn(t.c2)].show(0).to_pandas()
         assert (res2.col_0 + 1).equals(res3.col_0)
 
         # signature changes
-        with pytest.raises(exc.Error):
-            cl.update_function('test_fn', make_function(FloatType(), [IntType()], fn.eval_fn))
-        with pytest.raises(exc.Error):
-            cl.update_function('test_fn', make_function(IntType(), [FloatType()], fn.eval_fn))
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
+            cl.update_function('test_fn', make_function(FloatType(), [IntType()], fn.py_fn))
+        with pytest.raises(excs.Error):
+            cl.update_function('test_fn', make_function(IntType(), [FloatType()], fn.py_fn))
+        with pytest.raises(excs.Error):
             cl.update_function('test_fn', self.agg)
 
-    def test_move(self, test_client: pt.Client) -> None:
+    @pytest.mark.skip(reason='deprecated')
+    def test_move(self, test_client: pxt.Client) -> None:
         cl = test_client
         cl.create_function('test_fn', self.func)
 
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client(reload=True)
-        with pytest.raises(exc.Error):
+        cl = pxt.Client(reload=True)
+        with pytest.raises(excs.Error):
             cl.move('test_fn2', 'test_fn')
         cl.move('test_fn', 'test_fn2')
         func = cl.get_function('test_fn2')
-        assert func.eval_fn(1) == 2
+        assert func.py_fn(1) == 2
         assert func.md.fqn == 'test_fn2'
 
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = cl.get_function('test_fn')
 
         # move function between directories
         cl.create_dir('functions')
         cl.create_dir('functions2')
         cl.create_function('functions.func1', self.func)
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.move('functions2.func1', 'functions.func1')
         cl.move('functions.func1', 'functions2.func1')
         func = cl.get_function('functions2.func1')
@@ -114,31 +117,32 @@ class TestFunction:
 
 
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         func = cl.get_function('functions2.func1')
-        assert func.eval_fn(1) == 2
+        assert func.py_fn(1) == 2
         assert func.md.fqn == 'functions2.func1'
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = cl.get_function('functions.func1')
 
-    def test_drop(self, test_client: pt.Client) -> None:
+    @pytest.mark.skip(reason='deprecated')
+    def test_drop(self, test_client: pxt.Client) -> None:
         cl = test_client
         cl.create_function('test_fn', self.func)
         FunctionRegistry.get().clear_cache()
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         cl.drop_function('test_fn')
 
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = cl.get_function('test_fn')
 
-    def test_list(self, test_client: pt.Client) -> None:
+    def test_list(self, test_client: pxt.Client) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
 
     def test_call(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
-        @pt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])
+        @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])
         def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
             return a + b + c + d
 
@@ -166,7 +170,7 @@ class TestFunction:
         assert np.all(r5 == r6)
 
         # test handling of Nones
-        @pt.udf(
+        @pxt.udf(
             return_type=IntType(),
             param_types=[IntType(nullable=True), FloatType(nullable=False), FloatType(nullable=True)])
         def f2(a: int, b: float = 0.0, c: float = 1.0) -> float:
@@ -193,26 +197,107 @@ class TestFunction:
         assert "'b'" in str(exc_info.value)
 
         # bad default value
-        with pytest.raises(exc.Error) as exc_info:
-            @pt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType()])
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType()])
             def f1(a: int, b: float, c: str = '') -> float:
                 return a + b + c
         assert 'default value' in str(exc_info.value).lower()
         # missing param type
-        with pytest.raises(exc.Error) as exc_info:
-            @pt.udf(return_type=IntType(), param_types=[IntType(), FloatType()])
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType()])
             def f1(a: int, b: float, c: str = '') -> float:
                 return a + b + c
         assert 'missing type for parameter c' in str(exc_info.value).lower()
         # bad parameter name
-        with pytest.raises(exc.Error) as exc_info:
-            @pt.udf(return_type=IntType(), param_types=[IntType()])
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(return_type=IntType(), param_types=[IntType()])
             def f1(group_by: int) -> int:
                 return group_by
         assert 'reserved' in str(exc_info.value)
         # bad parameter name
-        with pytest.raises(exc.Error) as exc_info:
-            @pt.udf(return_type=IntType(), param_types=[IntType()])
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(return_type=IntType(), param_types=[IntType()])
             def f1(order_by: int) -> int:
                 return order_by
         assert 'reserved' in str(exc_info.value)
+
+    def test_expr_udf(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        @pxt.expr_udf
+        def times2(x: int) -> int:
+            return x + x
+        res1 = t.select(out=times2(t.c2)).order_by(t.c2).collect()
+        res2 = t.select(t.c2 * 2).order_by(t.c2).collect()
+        assert_resultset_eq(res1, res2)
+
+        with pytest.raises(TypeError) as exc_info:
+            _ = t.select(times2(y=t.c2)).collect()
+        assert 'missing a required argument' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            # parameter types cannot be inferred
+            @pxt.expr_udf
+            def add1(x, y) -> int:
+                return x + y
+        assert 'cannot infer pixeltable type' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            # return type cannot be inferred
+            @pxt.expr_udf
+            def add1(x: int, y: int):
+                return x + y
+        assert 'cannot infer pixeltable return type' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            # missing param types
+            @pxt.expr_udf(param_types=[IntType()])
+            def add1(x, y) -> int:
+                return x + y
+        assert 'missing type for parameter y' in str(exc_info.value).lower()
+
+        with pytest.raises(TypeError) as exc_info:
+            # signature has correct parameter kind
+            @pxt.expr_udf
+            def add1(*, x: int) -> int:
+                return x + 1
+            _ = t.select(add1(t.c2)).collect()
+        assert 'takes 0 positional arguments' in str(exc_info.value).lower()
+
+        @pxt.expr_udf
+        def add2(x: int, y: int = 1) -> int:
+            return x + y
+        res1 = t.select(out=add2(t.c2)).order_by(t.c2).collect()
+
+    # Test that various invalid udf definitions generate
+    # correct error messages.
+    def test_invalid_udfs(self):
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf
+            def udf1(name: Batch[str]) -> str:
+                return ''
+        assert 'batched parameters in udf, but no `batch_size` given' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(batch_size=32)
+            def udf2(name: Batch[str]) -> str:
+                return ''
+        assert 'batch_size is specified; Python return type must be a `Batch`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf
+            def udf3(name: str) -> Optional[np.ndarray]:
+                return None
+        assert 'cannot infer pixeltable return type' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf
+            def udf4(array: np.ndarray) -> str:
+                return ''
+        assert 'cannot infer pixeltable type for parameter array' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf
+            def udf5(name: str, untyped) -> str:
+                return ''
+        assert 'cannot infer pixeltable type for parameter untyped' in str(exc_info.value).lower()
+

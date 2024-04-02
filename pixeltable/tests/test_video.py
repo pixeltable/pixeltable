@@ -1,19 +1,20 @@
 from typing import Optional, List, Tuple
-import pytest
-import PIL
 
-import pixeltable as pt
-from pixeltable.type_system import VideoType, IntType, ImageType
-from pixeltable.tests.utils import get_video_files
+import PIL
+import pytest
+
+import pixeltable as pxt
 from pixeltable import catalog
-from pixeltable import exceptions as exc
-from pixeltable.utils.media_store import MediaStore
+from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
+from pixeltable.tests.utils import get_video_files
+from pixeltable.type_system import VideoType, ImageType
+from pixeltable.utils.media_store import MediaStore
 
 
 class TestVideo:
     def create_tbls(
-            self, cl: pt.Client, base_name: str = 'video_tbl', view_name: str = 'frame_view'
+            self, cl: pxt.Client, base_name: str = 'video_tbl', view_name: str = 'frame_view'
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         cl.drop_table(view_name, ignore_errors=True)
         cl.drop_table(base_name, ignore_errors=True)
@@ -23,12 +24,12 @@ class TestVideo:
         return base_t, view_t
 
     def create_and_insert(
-            self, cl: pt.Client, stored: Optional[bool], paths: List[str]
+            self, cl: pxt.Client, stored: Optional[bool], paths: List[str]
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         base_t, view_t = self.create_tbls(cl)
 
         view_t.add_column(transform=view_t.frame.rotate(90), stored=stored)
-        base_t.insert([{'video': p} for p in paths])
+        base_t.insert({'video': p} for p in paths)
         total_num_rows = view_t.count()
         result = view_t[view_t.frame_idx >= 5][view_t.frame_idx, view_t.frame, view_t.transform].show(0)
         assert len(result) == total_num_rows - len(paths) * 5
@@ -38,7 +39,7 @@ class TestVideo:
         assert len(result) == total_num_rows
         return base_t, view_t
 
-    def test_basic(self, test_client: pt.Client) -> None:
+    def test_basic(self, test_client: pxt.Client) -> None:
         video_filepaths = get_video_files()
         cl = test_client
 
@@ -55,18 +56,18 @@ class TestVideo:
         assert MediaStore.count(view.get_id()) == view.count()
 
         # revert() also removes computed images
-        tbl.insert([{'video': p} for p in video_filepaths])
+        tbl.insert({'video': p} for p in video_filepaths)
         tbl.revert()
         assert MediaStore.count(view.get_id()) == view.count()
 
-    def test_query(self, test_client: pt.client) -> None:
+    def test_query(self, test_client: pxt.client) -> None:
         video_filepaths = get_video_files()
         cl = test_client
         base_t, view_t = self.create_tbls(cl)
         # also include an external file, to make sure that prefetching works
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         video_filepaths.append(url)
-        status = base_t.insert([{'video': p} for p in video_filepaths])
+        status = base_t.insert({'video': p} for p in video_filepaths)
         assert status.num_excs == 0
         # make sure that we can get the frames back
         res = view_t.select(view_t.frame).collect().to_pandas()
@@ -76,7 +77,7 @@ class TestVideo:
         res = view_t.where(view_t.video == url).collect()
         assert len(res) == len(all_rows[all_rows.url == url])
 
-    def test_fps(self, test_client: pt.client) -> None:
+    def test_fps(self, test_client: pxt.client) -> None:
         cl = test_client
         path = get_video_files()[0]
         videos = cl.create_table('videos', {'video': VideoType()})
@@ -86,11 +87,11 @@ class TestVideo:
             'frames_0_5', videos, iterator_class=FrameIterator, iterator_args={'video': videos.video, 'fps': 1/2})
         frames_0_33 = cl.create_view(
             'frames_0_33', videos, iterator_class=FrameIterator, iterator_args={'video': videos.video, 'fps': 1/3})
-        videos.insert([{'video': path}])
+        videos.insert(video=path)
         assert frames_0_5.count() == frames_1_0.count() // 2 or frames_0_5.count() == frames_1_0.count() // 2 + 1
         assert frames_0_33.count() == frames_1_0.count() // 3 or frames_0_33.count() == frames_1_0.count() // 3 + 1
 
-    def test_computed_cols(self, test_client: pt.client) -> None:
+    def test_computed_cols(self, test_client: pxt.client) -> None:
         video_filepaths = get_video_files()
         cl = test_client
         base_t, view_t = self.create_tbls(cl)
@@ -101,62 +102,56 @@ class TestVideo:
         view_t.add_column(c4=view_t.c1.rotate(30))
         for name in ['c1', 'c2', 'c3', 'c4']:
             assert not view_t.tbl_version_path.tbl_version.cols_by_name[name].is_stored
-        base_t.insert([{'video': p} for p in video_filepaths])
+        base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].show(0)
 
-    def test_make_video(self, test_client: pt.Client) -> None:
+    def test_make_video(self, test_client: pxt.Client) -> None:
         video_filepaths = get_video_files()
         cl = test_client
         base_t, view_t = self.create_tbls(cl)
-        base_t.insert([{'video': p} for p in video_filepaths])
+        base_t.insert({'video': p} for p in video_filepaths)
         # reference to the frame col requires ordering by base, pos
-        _ = view_t.select(pt.make_video(view_t.pos, view_t.frame)).group_by(base_t).show()
+        from pixeltable.functions import make_video
+        _ = view_t.select(make_video(view_t.pos, view_t.frame)).group_by(base_t).show()
         # the same without frame col
         view_t.add_column(transformed=view_t.frame.rotate(30), stored=True)
-        _ = view_t.select(pt.make_video(view_t.pos, view_t.transformed)).group_by(base_t).show()
+        _ = view_t.select(make_video(view_t.pos, view_t.transformed)).group_by(base_t).show()
 
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             # make_video() doesn't allow windows
-            _ = view_t.select(pt.make_video(view_t.pos, view_t.frame, group_by=base_t)).show()
-        with pytest.raises(exc.Error):
-            # make_video() doesn't allow windows
-            _ = view_t.select(pt.make_video(view_t.frame, order_by=view_t.pos)).show()
-        with pytest.raises(exc.Error):
+            _ = view_t.select(make_video(view_t.pos, view_t.frame, group_by=base_t)).show()
+        with pytest.raises(excs.Error):
+            # make_video() requires ordering
+            _ = view_t.select(make_video(view_t.frame, order_by=view_t.pos)).show()
+        with pytest.raises(excs.Error):
             # incompatible ordering requirements
             _ = view_t.select(
-                pt.make_video(view_t.pos, view_t.frame),
-                pt.make_video(view_t.pos - 1, view_t.transformed)).group_by(base_t).show()
+                make_video(view_t.pos, view_t.frame),
+                make_video(view_t.pos - 1, view_t.transformed)).group_by(base_t).show()
 
+        # window function that simply passes through the frame
+        @pxt.uda(
+            update_types=[ImageType()], value_type=ImageType(), name='agg_fn',
+            requires_order_by=True, allows_std_agg=False, allows_window=True)
         class WindowAgg:
             def __init__(self):
                 self.img = None
-            @classmethod
-            def make_aggregator(cls) -> 'WindowAgg':
-                return cls()
             def update(self, frame: PIL.Image.Image) -> None:
                 self.img = frame
             def value(self) -> PIL.Image.Image:
                 return self.img
 
-        agg_fn = pt.make_aggregate_function(
-            ImageType(), [ImageType()],
-            init_fn=WindowAgg.make_aggregator,
-            update_fn=WindowAgg.update,
-            value_fn=WindowAgg.value,
-            requires_order_by=True, allows_std_agg=False, allows_window=True)
         # make sure it works
         _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
-        cl.create_function('agg_fn', agg_fn)
-        view_t.add_column(agg=agg_fn(view_t.pos, view_t.frame, group_by=base_t))
-        _ = view_t.select(pt.make_video(view_t.pos, view_t.agg)).group_by(base_t).show()
+        status = view_t.add_column(agg=agg_fn(view_t.pos, view_t.frame, group_by=base_t))
+        assert status.num_excs == 0
+        _ = view_t.select(make_video(view_t.pos, view_t.agg)).group_by(base_t).show()
 
         # image cols computed with a window function currently need to be stored
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             view_t.add_column(agg2=agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store
-        cl = pt.Client(reload=True)
-        agg_fn = cl.get_function('agg_fn')
+        cl = pxt.Client(reload=True)
         base_t, view_t = cl.get_table(base_t.get_name()), cl.get_table(view_t.get_name())
         _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
-        print(_)

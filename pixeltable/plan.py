@@ -1,17 +1,17 @@
-from typing import Tuple, Optional, List, Set, Any, Dict, Union
+from typing import Tuple, Optional, List, Set, Any, Dict
 from uuid import UUID
 
 import sqlalchemy as sql
 
-from pixeltable import catalog
-from pixeltable import exprs
 import pixeltable.exec as exec
-from pixeltable import exceptions as exc
 import pixeltable.func as func
+from pixeltable import catalog
+from pixeltable import exceptions as excs
+from pixeltable import exprs
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
-    return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call
+    return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call and not e.is_window_fn_call
 
 def _get_combined_ordering(
         o1: List[Tuple[exprs.Expr, bool]], o2: List[Tuple[exprs.Expr, bool]]
@@ -68,16 +68,16 @@ class Analyzer:
                 similarity_clauses, self.filter = self.filter.split_conjuncts(
                     lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
                 if len(similarity_clauses) > 1:
-                    raise exc.Error(f'More than one nearest() not supported')
+                    raise excs.Error(f'More than one nearest() not supported')
                 if len(similarity_clauses) == 1:
                     if len(self.order_by_clause) > 0:
-                        raise exc.Error((
+                        raise excs.Error((
                             f'nearest() returns results in order of proximity and cannot be used in conjunction with '
                             f'order_by()'))
                     self.similarity_clause = similarity_clauses[0]
                     img_col = self.similarity_clause.img_col_ref.col
                     if not img_col.is_indexed:
-                        raise exc.Error(f'nearest() not available for unindexed column {img_col.name}')
+                        raise excs.Error(f'nearest() not available for unindexed column {img_col.name}')
 
         # all exprs that are evaluated in Python; not executable
         self.all_exprs = self.select_list.copy()
@@ -98,9 +98,7 @@ class Analyzer:
 
     def _analyze_agg(self) -> None:
         """Check semantic correctness of aggregation and fill in agg-specific fields of Analyzer"""
-        self.agg_fn_calls = [
-            e for e in self.all_exprs if isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call
-        ]
+        self.agg_fn_calls = [e for e in self.all_exprs if _is_agg_fn_call(e)]
         if len(self.agg_fn_calls) == 0:
             # nothing to do
             return
@@ -109,22 +107,22 @@ class Analyzer:
         grouping_expr_ids = {e.id for e in self.group_by_clause}
         is_agg_output = [self._determine_agg_status(e, grouping_expr_ids)[0] for e in self.select_list]
         if is_agg_output.count(False) > 0:
-            raise exc.Error(
+            raise excs.Error(
                 f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}')
 
         # check that filter doesn't contain aggregates
         if self.filter is not None:
             agg_fn_calls = [e for e in self.filter.subexprs(filter=lambda e: _is_agg_fn_call(e))]
             if len(agg_fn_calls) > 0:
-                raise exc.Error(f'Filter cannot contain aggregate functions: {self.filter}')
+                raise excs.Error(f'Filter cannot contain aggregate functions: {self.filter}')
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
         # aggregation and rely on the SqlScanNode returning data in the correct order)
         for e in self.group_by_clause:
             if e.sql_expr() is None:
-                raise exc.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
+                raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
             if e.contains(filter=lambda e: _is_agg_fn_call(e)):
-                raise exc.Error(f'Grouping expression contains aggregate function: {e}')
+                raise excs.Error(f'Grouping expression contains aggregate function: {e}')
 
         # check that agg fn calls don't have contradicting ordering requirements
         order_by: List[exprs.Exprs] = []
@@ -140,7 +138,7 @@ class Analyzer:
                 combined = _get_combined_ordering(
                     [(e, True) for e in order_by], [(e, True) for e in fn_call_order_by])
                 if len(combined) == 0:
-                    raise exc.Error((
+                    raise excs.Error((
                         f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
                         f"'{agg_fn_call}':\n"
                         f"{exprs.Expr.print_list(order_by)} vs {exprs.Expr.print_list(fn_call_order_by)}"
@@ -158,7 +156,7 @@ class Analyzer:
             for c in e.components:
                 _, is_input = self._determine_agg_status(c, grouping_expr_ids)
                 if not is_input:
-                    raise exc.Error(f'Invalid nested aggregates: {e}')
+                    raise excs.Error(f'Invalid nested aggregates: {e}')
             return True, False
         elif isinstance(e, exprs.Literal):
             return True, True
@@ -173,7 +171,7 @@ class Analyzer:
             is_output = component_is_output.count(True) == len(e.components)
             is_input = component_is_input.count(True) == len(e.components)
             if not is_output and not is_input:
-                raise exc.Error(f'Invalid expression, mixes aggregate with non-aggregate: {e}')
+                raise excs.Error(f'Invalid expression, mixes aggregate with non-aggregate: {e}')
             return is_output, is_input
 
 
@@ -206,9 +204,9 @@ class Planner:
         if where_clause is not None:
             analyzer = cls.analyze(tbl, where_clause)
             if analyzer.similarity_clause is not None:
-                raise exc.Error('nearest() cannot be used with count()')
+                raise excs.Error('nearest() cannot be used with count()')
             if analyzer.filter is not None:
-                raise exc.Error(f'Filter {analyzer.filter} not expressible in SQL')
+                raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
             clause_element = analyzer.sql_where_clause.sql_expr()
             assert clause_element is not None
             stmt = stmt.where(clause_element)
@@ -439,7 +437,7 @@ class Planner:
                     other_order_by_clauses = fn_call_ordering
                     combined = _get_combined_ordering(order_by_items, other_order_by_clauses)
                     if len(combined) == 0:
-                        raise exc.Error((
+                        raise excs.Error((
                             f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
                             f"'{fn_call}':\n"
                             f"{exprs.Expr.print_list(order_by_items)} vs {exprs.Expr.print_list(other_order_by_clauses)}"
@@ -452,7 +450,7 @@ class Planner:
                 # check for compatibility
                 combined = _get_combined_ordering(order_by_items, agg_ordering)
                 if len(combined) == 0:
-                    raise exc.Error((
+                    raise excs.Error((
                         f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
                         f"grouping expressions:\n"
                         f"{exprs.Expr.print_list([e for e, _ in order_by_items])} vs "
@@ -467,7 +465,7 @@ class Planner:
                 # check for compatibility
                 combined = _get_combined_ordering(order_by_items, analyzer.order_by_clause)
                 if len(combined) == 0:
-                    raise exc.Error((
+                    raise excs.Error((
                         f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
                         f"order-by expressions:\n"
                         f"{exprs.Expr.print_list([e for e, _ in order_by_items])} vs "
@@ -499,7 +497,7 @@ class Planner:
 
         for e in [e for e, _ in order_by_items]:
             if e.sql_expr() is None:
-                raise exc.Error(f'order_by element cannot be expressed in SQL: {e}')
+                raise excs.Error(f'order_by element cannot be expressed in SQL: {e}')
         # we do ascending ordering by default, if not specified otherwise
         order_by_items = [(e, True) if asc is None else (e, asc) for e, asc in order_by_items]
         return order_by_items

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+import sys
+import warnings
 from typing import Optional, Dict, Any, List, Tuple, Set
 import logging
 import urllib
 import sqlalchemy as sql
-from tqdm.autonotebook import tqdm
+from tqdm import tqdm, TqdmWarning
 import abc
 
 import pixeltable.catalog as catalog
@@ -297,7 +299,13 @@ class StoreBase:
                         num_excs += num_row_exc
                         table_rows.append(table_row)
                         if progress_bar is None:
-                            progress_bar = tqdm(desc='Inserting rows into table', unit='rows')
+                            warnings.simplefilter("ignore", category=TqdmWarning)
+                            progress_bar = tqdm(
+                                desc=f'Inserting rows into `{self.tbl_version.name}`',
+                                unit=' rows',
+                                ncols=100,
+                                file=sys.stdout
+                            )
                         progress_bar.update(1)
                     self._move_tmp_media_files(table_rows, media_cols, v_min)
                     conn.execute(sql.insert(self.sa_tbl), table_rows)

@@ -4,16 +4,19 @@ import abc
 import datetime
 import enum
 import json
-from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union, IO
+import typing
 import urllib.parse
+from copy import copy
+from pathlib import Path
+from typing import Any, Optional, Tuple, Dict, Callable, List, Union
 
+import PIL.Image
 import av
 import numpy as np
-import PIL.Image
 import sqlalchemy as sql
 
-from pixeltable import exceptions as exc
+from pixeltable import exceptions as excs
+
 
 class ColumnType:
     @enum.unique
@@ -239,8 +242,15 @@ class ColumnType:
     def from_python_type(cls, t: type) -> Optional[ColumnType]:
         if t in _python_type_to_column_type:
             return _python_type_to_column_type[t]
-        else:
-            return None
+        elif isinstance(t, typing._UnionGenericAlias) and t.__args__[1] is type(None):
+            # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
+            # We treat it as the underlying type but with nullable=True.
+            if t.__args__[0] in _python_type_to_column_type:
+                underlying = copy(_python_type_to_column_type[t.__args__[0]])
+                underlying.nullable = True
+                return underlying
+
+        return None
 
 
     def validate_literal(self, val: Any) -> None:
@@ -375,7 +385,6 @@ class ColumnType:
 
     @abc.abstractmethod
     def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
         assert False, f'Have not implemented {self.__class__.__name__} to Arrow'
  
     @staticmethod
@@ -794,7 +803,7 @@ class ImageType(ColumnType):
         try:
             _ = PIL.Image.open(val)
         except PIL.UnidentifiedImageError:
-            raise exc.Error(f'Not a valid image: {val}') from None
+            raise excs.Error(f'Not a valid image: {val}') from None
 
 class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -819,7 +828,7 @@ class VideoType(ColumnType):
         try:
             with av.open(val, 'r') as fh:
                 if len(fh.streams.video) == 0:
-                    raise exc.Error(f'Not a valid video: {val}')
+                    raise excs.Error(f'Not a valid video: {val}')
                 # decode a few frames to make sure it's playable
                 # TODO: decode all frames? but that's very slow
                 num_decoded = 0
@@ -830,9 +839,9 @@ class VideoType(ColumnType):
                         break
                 if num_decoded < 2:
                     # this is most likely an image file
-                    raise exc.Error(f'Not a valid video: {val}')
+                    raise excs.Error(f'Not a valid video: {val}')
         except av.AVError:
-            raise exc.Error(f'Not a valid video: {val}') from None
+            raise excs.Error(f'Not a valid video: {val}') from None
 
 class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -856,7 +865,7 @@ class AudioType(ColumnType):
         try:
             with av.open(val) as container:
                 if len(container.streams.audio) == 0:
-                    raise exc.Error(f'No audio stream in file: {val}')
+                    raise excs.Error(f'No audio stream in file: {val}')
                 audio_stream = container.streams.audio[0]
 
                 # decode everything to make sure it's playable
@@ -865,7 +874,7 @@ class AudioType(ColumnType):
                     for _ in packet.decode():
                         pass
         except av.AVError as e:
-            raise exc.Error(f'Not a valid audio file: {val}\n{e}') from None
+            raise excs.Error(f'Not a valid audio file: {val}\n{e}') from None
 
 class DocumentType(ColumnType):
     @enum.unique
@@ -907,9 +916,9 @@ class DocumentType(ColumnType):
                 s = fh.read()
                 dh = get_document_handle(s)
                 if dh is None:
-                    raise exc.Error(f'Not a recognized document format: {val}')
+                    raise excs.Error(f'Not a recognized document format: {val}')
             except Exception as e:
-                raise exc.Error(f'Not a recognized document format: {val}') from None
+                raise excs.Error(f'Not a recognized document format: {val}') from None
 
 
 # A dictionary mapping various Python types to their respective ColumnTypes.
@@ -924,5 +933,6 @@ _python_type_to_column_type: dict[type, ColumnType] = {
     datetime.datetime: TimestampType(),
     datetime.date: TimestampType(),
     list: JsonType(),
-    dict: JsonType()
+    dict: JsonType(),
+    PIL.Image.Image: ImageType()
 }

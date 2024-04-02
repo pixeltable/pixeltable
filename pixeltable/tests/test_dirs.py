@@ -1,54 +1,53 @@
 import pytest
 
-import pixeltable as pt
-from pixeltable import exceptions as exc
+import pixeltable as pxt
+from pixeltable import exceptions as excs
 from pixeltable.tests.utils import make_tbl
-from pixeltable import catalog
 
 
 class TestDirs:
-    def test_create(self, test_client: pt.Client) -> None:
+    def test_create(self, test_client: pxt.Client) -> None:
         cl = test_client
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             cl.create_dir(name)
 
         # invalid names
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('1dir')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('_dir1')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('dir 1')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('dir1..sub2')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('dir1.sub2.')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('dir1:sub2.')
 
         # existing dirs
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('dir1')
         cl.create_dir('dir1', ignore_errors=True)
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('dir1.sub1')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('dir1.sub1.subsub1')
 
         # existing table
         make_tbl(cl, 'dir1.t1')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('dir1.t1')
 
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('dir2.sub2')
         make_tbl(cl, 't2')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.create_dir('t2.sub2')
 
         # new client: force loading from store
-        cl2 = pt.Client(reload=True)
+        cl2 = pxt.Client(reload=True)
 
         listing = cl2.list_dirs(recursive=True)
         assert listing == dirs
@@ -63,7 +62,7 @@ class TestDirs:
         listing = cl2.list_dirs('dir1.sub1', recursive=False)
         assert listing == ['dir1.sub1.subsub1']
 
-    def test_rm(self, test_client: pt.Client) -> None:
+    def test_rm(self, test_client: pxt.Client) -> None:
         cl = test_client
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
@@ -72,26 +71,26 @@ class TestDirs:
         make_tbl(cl, 'dir1.t1')
 
         # bad name
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.rm_dir('1dir')
         # bad path
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.rm_dir('dir1..sub1')
         # doesn't exist
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.rm_dir('dir2')
         # not empty
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             cl.rm_dir('dir1')
 
         cl.rm_dir('dir1.sub1.subsub1')
         assert cl.list_dirs('dir1.sub1') == []
 
         # check after reloading
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         assert cl.list_dirs('dir1.sub1') == []
 
-    def test_move(self, test_client: pt.Client) -> None:
+    def test_move(self, test_client: pxt.Client) -> None:
         cl = test_client
         cl.create_dir('dir1')
         cl.create_dir('dir1.sub1')
@@ -104,5 +103,5 @@ class TestDirs:
         assert cl.list_tables('dir2') == ['dir2.dir1.sub1.t2']
 
         # new client: force loading from store
-        cl2 = pt.Client(reload=True)
+        cl2 = pxt.Client(reload=True)
         assert cl2.list_tables('dir2') == ['dir2.dir1.sub1.t2']

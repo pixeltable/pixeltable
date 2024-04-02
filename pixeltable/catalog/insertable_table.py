@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Any, Dict, overload
+from typing import Optional, List, Any, Dict, overload, Iterable
 from uuid import UUID
 
 import sqlalchemy.orm as orm
 
+import pixeltable
+import pixeltable.type_system as ts
+from pixeltable import exceptions as excs
+from pixeltable.env import Env
+from .catalog import Catalog
+from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
-from .table import Table
-from .catalog import Catalog
-import pixeltable
-from pixeltable.env import Env
-from pixeltable import exceptions as exc
-import pixeltable.type_system as ts
-
 
 _logger = logging.getLogger('pixeltable')
 
@@ -39,10 +38,10 @@ class InsertableTable(Table):
         column_names = [col.name for col in columns]
         for pk_col in primary_key:
             if pk_col not in column_names:
-                raise exc.Error(f'Primary key column {pk_col} not found in table schema')
+                raise excs.Error(f'Primary key column {pk_col} not found in table schema')
             col = columns[column_names.index(pk_col)]
             if col.col_type.nullable:
-                raise exc.Error(f'Primary key column {pk_col} cannot be nullable')
+                raise excs.Error(f'Primary key column {pk_col} cannot be nullable')
             col.primary_key = True
 
         with orm.Session(Env.get().engine, future=True) as session:
@@ -53,11 +52,12 @@ class InsertableTable(Table):
             cat.tbl_dependents[tbl._id] = []
             cat.tbls[tbl._id] = tbl
 
-            _logger.info(f'created table {name}, id={tbl_version.id}')
+            _logger.info(f'Created table `{name}`, id={tbl_version.id}')
+            print(f'Created table `{name}`.')
             return tbl
 
     @overload
-    def insert(self, rows: List[Dict[str, Any]], /, print_stats: bool = False, fail_on_exception: bool = True): ...
+    def insert(self, rows: Iterable[Dict[str, Any]], /, print_stats: bool = False, fail_on_exception: bool = True): ...
 
     @overload
     def insert(self, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any): ...
@@ -104,19 +104,19 @@ class InsertableTable(Table):
         if len(args) > 0:
             # There's a positional argument; this means `rows` is expressed as a
             # list of dicts (multi-insert)
-            rows = args[0]
+            rows = list(args[0])
         else:
             # No positional argument; this means we're inserting a single row
             # using kwargs syntax
             rows = [kwargs]
 
         if not isinstance(rows, list):
-            raise exc.Error('rows must be a list of dictionaries')
+            raise excs.Error('rows must be a list of dictionaries')
         if len(rows) == 0:
-            raise exc.Error('rows must not be empty')
+            raise excs.Error('rows must not be empty')
         for row in rows:
             if not isinstance(row, dict):
-                raise exc.Error('rows must be a list of dictionaries')
+                raise excs.Error('rows must be a list of dictionaries')
         self._validate_input_rows(rows)
         result = self.tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
@@ -124,11 +124,11 @@ class InsertableTable(Table):
             cols_with_excs_str = ''
         else:
             cols_with_excs_str = \
-                f'across {len(result.cols_with_excs)} column{"" if len(result.cols_with_excs) == 1 else "s"}'
+                f' across {len(result.cols_with_excs)} column{"" if len(result.cols_with_excs) == 1 else "s"}'
             cols_with_excs_str += f' ({", ".join(result.cols_with_excs)})'
         msg = (
-            f'inserted {result.num_rows} row{"" if result.num_rows == 1 else "s"} '
-            f'with {result.num_excs} error{"" if result.num_excs == 1 else "s"} {cols_with_excs_str}'
+            f'Inserted {result.num_rows} row{"" if result.num_rows == 1 else "s"} '
+            f'with {result.num_excs} error{"" if result.num_excs == 1 else "s"}{cols_with_excs_str}.'
         )
         print(msg)
         _logger.info(f'InsertableTable {self._name}: {msg}')
@@ -143,13 +143,13 @@ class InsertableTable(Table):
             assert isinstance(row, dict)
             col_names = set(row.keys())
             if len(reqd_col_names - col_names) > 0:
-                raise exc.Error(f'Missing required column(s) ({", ".join(reqd_col_names - col_names)}) in row {row}')
+                raise excs.Error(f'Missing required column(s) ({", ".join(reqd_col_names - col_names)}) in row {row}')
 
             for col_name, val in row.items():
                 if col_name not in valid_col_names:
-                    raise exc.Error(f'Unknown column name {col_name} in row {row}')
+                    raise excs.Error(f'Unknown column name {col_name} in row {row}')
                 if col_name in computed_col_names:
-                    raise exc.Error(f'Value for computed column {col_name} in row {row}')
+                    raise excs.Error(f'Value for computed column {col_name} in row {row}')
 
                 # validate data
                 col = self.tbl_version_path.get_column(col_name)
@@ -159,7 +159,7 @@ class InsertableTable(Table):
                     row[col_name] = checked_val
                 except TypeError as e:
                     msg = str(e)
-                    raise exc.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
+                    raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
 
     def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> Table.UpdateStatus:
         """Delete rows in this table.
@@ -180,12 +180,12 @@ class InsertableTable(Table):
         from pixeltable.plan import Planner
         if where is not None:
             if not isinstance(where, Predicate):
-                raise exc.Error(f"'where' argument must be a Predicate, got {type(where)}")
+                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
             analysis_info = Planner.analyze(self.tbl_version, where)
             if analysis_info.similarity_clause is not None:
-                raise exc.Error('nearest() cannot be used with delete()')
+                raise excs.Error('nearest() cannot be used with delete()')
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
-                raise exc.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
         return self.tbl_version.delete(where)

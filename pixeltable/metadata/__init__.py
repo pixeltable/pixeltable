@@ -1,8 +1,8 @@
-from typing import Callable, Dict
+import dataclasses
+import importlib
 import os
 import pkgutil
-import importlib
-import dataclasses
+from typing import Callable, Dict
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
@@ -10,7 +10,7 @@ import sqlalchemy.orm as orm
 from .schema import SystemInfo, SystemInfoMd
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
-VERSION = 11
+VERSION = 12
 
 
 def create_system_info(engine: sql.engine.Engine) -> None:

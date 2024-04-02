@@ -40,6 +40,7 @@ optional = true
 # pytest-related
 pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
+coverage = "^7.4"
 # mypy-related
 mypy = "^1.8.0"
 types-pillow = "^10.2.0"
@@ -47,6 +48,8 @@ types-pyyaml = "^6.0.1"
 # linting
 pylint = "^3.1.0"
 ruff = "^0.3.1"
+# jupyter
+notebook = "^7.1.0"
 # mkdocs-related
 mkdocs = "^1.5.3"
 mkdocstrings = {extras = ["python"], version = "^0.24.0"}
@@ -64,6 +67,7 @@ torchvision = "^0.17.0"
 pyarrow = ">=13.0.0"
 openai = "^1.0.0"
 together = "^0.2.11"
+fireworks-ai = "^0.13.0"
 boto3 = "^1.17"
 spacy = "^3.0"
 en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
