@@ -36,6 +36,10 @@ class TestTable:
     def f2(a: float) -> float:
         return a + 1
 
+    @pxt.expr_udf(param_types=[IntType(nullable=False)])
+    def add1(a: int) -> int:
+        return a + 1
+
     def test_create(self, test_client: pxt.Client) -> None:
         cl = test_client
         cl.create_dir('dir1')
@@ -775,6 +779,45 @@ class TestTable:
         t.drop_column('c5')
         # now it works
         t.drop_column('c4')
+
+    def test_expr_udf_computed_cols(self, test_client: pxt.Client) -> None:
+        cl = test_client
+        t = cl.create_table('test', {'c1': IntType(nullable=False)})
+        rows = [{'c1': i} for i in range(100)]
+        status = t.insert(rows)
+        assert status.num_rows == len(rows)
+        status = t.add_column(c2=t.c1 + 1)
+        assert status.num_excs == 0
+        # call with positional arg
+        status = t.add_column(c3=self.add1(t.c1))
+        assert status.num_excs == 0
+        # call with keyword arg
+        status = t.add_column(c4=self.add1(a=t.c1))
+        assert status.num_excs == 0
+
+        # TODO: how to verify the output?
+        describe_output = t.__repr__()
+        # 'add1' didn't get swallowed/the expr udf is still visible in the column definition
+        assert 'add1' in describe_output
+
+        def check(t: pxt.Table) -> None:
+            assert_resultset_eq(
+                t.select(t.c1 + 1).order_by(t.c1).collect(),
+                t.select(t.c2).order_by(t.c1).collect())
+            assert_resultset_eq(
+                t.select(t.c1 + 1).order_by(t.c1).collect(),
+                t.select(t.c3).order_by(t.c1).collect())
+
+        check(t)
+        # test loading from store
+        cl = pxt.Client(reload=True)
+        t = cl.get_table('test')
+        check(t)
+
+        # make sure we can still insert data and that computed cols are still set correctly
+        status = t.insert(rows)
+        assert status.num_excs == 0
+        check(t)
 
     def test_computed_col_exceptions(self, test_client: pxt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client

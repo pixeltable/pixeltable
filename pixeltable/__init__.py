@@ -3,7 +3,7 @@ from .client import Client
 from .dataframe import DataFrame
 from .exceptions import Error, Error
 from .exprs import RELATIVE_PATH_ROOT
-from .func import Function, udf, uda, Aggregator
+from .func import Function, udf, uda, Aggregator, expr_udf
 from .type_system import \
     ColumnType, StringType, IntType, FloatType, BoolType, TimestampType, JsonType, ArrayType, ImageType, VideoType, \
     AudioType, DocumentType
@@ -37,6 +37,7 @@ __all__ = [
     'udf',
     'Aggregator',
     'uda',
+    'expr_udf',
 ]
 
 
