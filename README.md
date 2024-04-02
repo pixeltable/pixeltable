@@ -1,10 +1,10 @@
-<img src="docs/pixeltable-banner.png" width="60%"/>
+<img src="docs/pixeltable-banner.png" width="45%"/>
 
 # Pixeltable: The Multimodal AI Data Plane
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 &nbsp;&nbsp;
-![pytest status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg?event=push)
+![pytest status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)
 
 Pixeltable is a Python library that lets AI engineers and data scientists focus on
 exploration, modeling, and app development without having to deal with the customary
@@ -72,9 +72,9 @@ building and productionizing AI applications.
 
 * Interact with video data at the frame level without having to think about frame extraction,
 intermediate file storage, or storage space explosion.
-* Augment your data incrementally and interactively with built-in and user-defined functions such as
-image transformations, model inference, visualizations, etc., without having to think about data pipelines,
-incremental updates, capturing function output, etc.
+* Augment your data incrementally and interactively with built-in functions and UDFs, such as
+image transformations, model inference, and visualizations, without having to think about data pipelines,
+incremental updates, or capturing function output.
 * Interact with all the data relevant to your AI application (video, images, documents, audio, structured data, JSON) through
 a simple dataframe-style API directly in Python. This includes:
     * similarity search on embeddings, supported by high-dimensional vector indexing
@@ -85,6 +85,6 @@ a simple dataframe-style API directly in Python. This includes:
 storage.
 * Access all Pixeltable-resident data directly as a PyTorch dataset in your training scripts.
 * Understand the compute and storage costs of your data at the granularity of individual augmentations and
-get cost projections **before** adding new data and new augmentations.
+get cost projections before adding new data and new augmentations.
 * Rely on Pixeltable's automatic versioning and snapshot functionality to protect against regressions
 and to ensure reproducibility.
