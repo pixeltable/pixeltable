@@ -17,7 +17,7 @@ class ExprTemplateFunction(Function):
         import pixeltable.exprs as exprs
         self.expr = expr
         self.self_name = name
-        self.param_exprs = list(expr.subexprs(expr_class=exprs.Variable))
+        self.param_exprs = list(set(expr.subexprs(expr_class=exprs.Variable)))
         # make sure there are no duplicate names
         assert len(self.param_exprs) == len(set(p.name for p in self.param_exprs))
         self.param_exprs_by_name = {p.name: p for p in self.param_exprs}

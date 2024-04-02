@@ -17,6 +17,7 @@ class Variable(Expr):
     def __init__(self, name: str, col_type: ts.ColumnType):
         super().__init__(col_type)
         self.name = name
+        self.id = self._create_id()
 
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         return super()._id_attrs() + [('name', self.name)]
