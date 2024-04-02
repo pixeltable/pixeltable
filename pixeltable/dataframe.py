@@ -212,7 +212,8 @@ class DataFrame:
         """
         if select_list is None: # basic check for valid select list
             return
-        
+
+        assert len(select_list) > 0
         for ent in select_list:
             assert isinstance(ent, tuple)
             assert len(ent) == 2

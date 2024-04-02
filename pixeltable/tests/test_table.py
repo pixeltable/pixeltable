@@ -92,9 +92,9 @@ class TestTable:
 
     def test_empty_table(self, test_client: pxt.Client) -> None:
         cl = test_client
-        tbl = cl.create_table('empty_table', {})
-        count = tbl.count()
-        assert count == 0
+        with pytest.raises(excs.Error) as exc_info:
+            cl.create_table('empty_table', {})
+        assert 'Table schema is empty' in str(exc_info.value)
 
     def test_table_attrs(self, test_client: pxt.Client) -> None:
         cl = test_client
