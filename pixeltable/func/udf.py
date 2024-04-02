@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import inspect
-import typing
-from typing import List, Callable, Optional, overload
+from typing import List, Callable, Optional, overload, Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from . import Signature, Function, CallableFunction, ExplicitBatchedFunction, FunctionRegistry
+from .batched_function import ExplicitBatchedFunction
+from .callable_function import CallableFunction
+from .expr_template_function import ExprTemplateFunction
+from .function import Function
+from .function_registry import FunctionRegistry
+from .signature import Signature
 
 
 # Decorator invoked without parentheses: @pxt.udf
@@ -59,20 +63,6 @@ def udf(*args, **kwargs):
         return decorator
 
 
-T = typing.TypeVar('T')
-Batch = typing.Annotated[list[T], 'pxt-batch']
-
-
-def _unpack_batch_type(t: type) -> Optional[type]:
-    if typing.get_origin(t) == typing.Annotated:
-        batch_args = typing.get_args(t)
-        if len(batch_args) == 2 and batch_args[1] == 'pxt-batch':
-            assert typing.get_origin(batch_args[0]) == list
-            list_args = typing.get_args(batch_args[0])
-            return list_args[0]
-    return None
-
-
 def make_function(
     decorated_fn: Callable,
     return_type: Optional[ts.ColumnType] = None,
@@ -100,62 +90,16 @@ def make_function(
     # Display name to use for error messages
     errmsg_name = function_name if function_path is None else function_path
 
-    # Attempt to infer `return_type`, if not specified explicitly;
-    # validate that batched functions must have a batched return type.
+    sig = Signature.create(decorated_fn, param_types, return_type)
 
-    if return_type is None and 'return' in typing.get_type_hints(decorated_fn):
-        py_return_type = typing.get_type_hints(decorated_fn, include_extras=True)['return']
-        if py_return_type is not None:
-            if batch_size is None:
-                return_type = ts.ColumnType.from_python_type(py_return_type)
-            else:
-                # batch_size specified
-                batch_type = _unpack_batch_type(py_return_type)
-                if batch_type is None:
-                    raise excs.Error(f'{errmsg_name}(): batch_size is specified; Python return type must be a `Batch`')
-                return_type = ts.ColumnType.from_python_type(batch_type)
-
-    if return_type is None:
-        raise excs.Error(f'{errmsg_name}(): Cannot infer pixeltable result type. Specify `return_type` explicitly?')
-
-    py_signature = inspect.signature(decorated_fn)
-
-    # Attempt to infer parameter types, if not specified explicitly;
-    # validate batched parameters; and identify `constant_params`.
-
-    if param_types is None:
-        infer_param_types = True
-        param_types = []
-    else:
-        infer_param_types = False
-    constant_params = []
-
-    for param_name, py_type in typing.get_type_hints(decorated_fn, include_extras=True).items():
-        if param_name != 'return':
-
-            batch_type = _unpack_batch_type(py_type)
-            if batch_type is not None:
-                if batch_size is None:
-                    raise excs.Error(
-                        f'{errmsg_name}(): Batched parameter in udf, but no `batch_size` given: `{param_name}`'
-                    )
-                unpacked_type = batch_type
-            else:
-                if batch_size is not None:
-                    constant_params.append(param_name)
-                unpacked_type = py_type
-
-            if infer_param_types:
-                col_type = ts.ColumnType.from_python_type(unpacked_type)
-                if col_type is None:
-                    raise excs.Error(
-                        f'{errmsg_name}(): Cannot infer pixeltable type of parameter: `{param_name}`. '
-                        'Specify `param_types` explicitly?'
-                    )
-                param_types.append(col_type)
-
-    if infer_param_types and len(param_types) != len(py_signature.parameters):
-        raise excs.Error(f'{errmsg_name}(): Cannot infer pixeltable types of parameters. Specify `param_types` explicitly?')
+    # batched functions must have a batched return type
+    # TODO: remove 'Python' from the error messages when we have full inference with Annotated types
+    if batch_size is not None and not sig.is_batched:
+        raise excs.Error(f'{errmsg_name}(): batch_size is specified; Python return type must be a `Batch`')
+    if batch_size is not None and len(sig.batched_parameters) == 0:
+        raise excs.Error(f'{errmsg_name}(): batch_size is specified; at least one Python parameter must be `Batch`')
+    if batch_size is None and len(sig.batched_parameters) > 0:
+        raise excs.Error(f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given')
 
     if substitute_fn is None:
         py_fn = decorated_fn
@@ -164,17 +108,48 @@ def make_function(
             raise excs.Error(f'{errmsg_name}(): @udf decorator with a `substitute_fn` can only be used in a module')
         py_fn = substitute_fn
 
-    signature = Signature.create(py_fn, param_types, return_type)
-
     if batch_size is None:
-        result = CallableFunction(signature=signature, py_fn=py_fn, self_path=function_path, self_name=function_name)
+        result = CallableFunction(signature=sig, py_fn=py_fn, self_path=function_path, self_name=function_name)
     else:
         result = ExplicitBatchedFunction(
-            signature=signature, batch_size=batch_size, invoker_fn=py_fn,
-            constant_params=constant_params, self_path=function_path)
+            signature=sig, batch_size=batch_size, invoker_fn=py_fn, self_path=function_path)
 
     # If this function is part of a module, register it
     if function_path is not None:
         FunctionRegistry.get().register_function(function_path, result)
 
     return result
+
+@overload
+def expr_udf(py_fn: Callable) -> ExprTemplateFunction: ...
+
+@overload
+def expr_udf(*, param_types: Optional[List[ts.ColumnType]] = None) -> Callable: ...
+
+def expr_udf(*args: Any, **kwargs: Any) -> Any:
+    def decorator(py_fn: Callable, param_types: Optional[List[ts.ColumnType]]) -> ExprTemplateFunction:
+        if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
+            # this is a named function in a module
+            function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
+        else:
+            function_path = None
+
+        sig = Signature.create(py_fn, param_types=param_types, return_type=None)
+        # TODO: verify that the inferred return type matches that of the template
+        # TODO: verify that the signature doesn't contain batched parameters
+
+        # construct Parameters from the function signature
+        import pixeltable.exprs as exprs
+        var_exprs = [exprs.Variable(param.name, param.col_type) for param in sig.parameters.values()]
+        # call the function with the parameter expressions to construct an Expr with parameters
+        template = py_fn(*var_exprs)
+        assert isinstance(template, exprs.Expr)
+        py_sig = inspect.signature(py_fn)
+        return ExprTemplateFunction(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
+
+    if len(args) == 1:
+        assert len(kwargs) == 0 and callable(args[0])
+        return decorator(args[0], None)
+    else:
+        assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
+        return lambda py_fn: decorator(py_fn, kwargs['param_types'])
