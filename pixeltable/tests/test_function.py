@@ -9,6 +9,7 @@ from pixeltable import catalog
 from pixeltable.func import Function, FunctionRegistry, Batch
 from pixeltable.type_system import IntType, FloatType
 from pixeltable.tests.utils import assert_resultset_eq
+import pixeltable.func as func
 
 
 def dummy_fn(i: int) -> int:
@@ -138,6 +139,26 @@ class TestFunction:
     def test_list(self, test_client: pxt.Client) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
+
+    def test_stored_udf(self, test_client: pxt.Client) -> None:
+        cl = test_client
+        t = cl.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
+        rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
+        status = t.insert(rows)
+        assert status.num_rows == len(rows)
+        assert status.num_excs == 0
+
+        @pxt.udf(_stored=True)
+        def f1(a: int, b: float) -> float:
+            return a + b
+        t['f1'] = f1(t.c1, t.c2)
+
+        func.FunctionRegistry.get().clear_cache()
+        cl = pxt.Client(reload=True)
+        t = cl.get_table('test')
+        status = t.insert(rows)
+        assert status.num_rows == len(rows)
+        assert status.num_excs == 0
 
     def test_call(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

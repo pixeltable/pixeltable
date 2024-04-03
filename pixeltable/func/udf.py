@@ -26,7 +26,8 @@ def udf(
         return_type: Optional[ts.ColumnType] = None,
         param_types: Optional[List[ts.ColumnType]] = None,
         batch_size: Optional[int] = None,
-        substitute_fn: Optional[Callable] = None
+        substitute_fn: Optional[Callable] = None,
+        _stored: bool = False
 ) -> Callable: ...
 
 
@@ -56,9 +57,11 @@ def udf(*args, **kwargs):
         param_types = kwargs.pop('param_types', None)
         batch_size = kwargs.pop('batch_size', None)
         substitute_fn = kwargs.pop('py_fn', None)
+        is_stored = kwargs.pop('_stored', False)
 
         def decorator(decorated_fn: Callable):
-            return make_function(decorated_fn, return_type, param_types, batch_size, substitute_fn=substitute_fn)
+            return make_function(
+                decorated_fn, return_type, param_types, batch_size, substitute_fn=substitute_fn, is_stored=is_stored)
 
         return decorator
 
@@ -69,7 +72,8 @@ def make_function(
     param_types: Optional[List[ts.ColumnType]] = None,
     batch_size: Optional[int] = None,
     substitute_fn: Optional[Callable] = None,
-    function_name: Optional[str] = None
+    function_name: Optional[str] = None,
+    is_stored: bool = False
 ) -> Function:
     """
     Constructs a `CallableFunction` or `BatchedFunction`, depending on the
@@ -81,6 +85,9 @@ def make_function(
     if decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():
         function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
     else:
+        function_path = None
+    if is_stored:
+        # force storing the function in the db
         function_path = None
 
     # Derive function_name, if not specified explicitly
