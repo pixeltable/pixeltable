@@ -61,9 +61,6 @@ building and productionizing AI applications.
 - It saves you money
     - All data changes are automatically incremental
     - You never need to re-run pipelines from scratch because you’re adding data
-- It provides a zero-effort path to production
-    - The table structure you created in development can be directly executed in a serving environment
-    - No need to hand off your prototype to the ML engineering team to re-write it against your data infrastructure
 - It integrates with any existing Python code or libraries
     - Bring your ever-changing code and workloads
     - You choose the models, tools, and AI practices (e.g., your embedding model for a vector index); Pixeltable orchestrates the data
