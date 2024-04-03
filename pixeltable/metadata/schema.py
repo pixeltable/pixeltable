@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, get_type_hints, Type, Any, TypeVar, Tuple, Union
+from typing import Optional, List, get_type_hints, Type, Any, TypeVar, Tuple, Union
 import platform
 import uuid
 import dataclasses
@@ -71,16 +71,46 @@ class Dir(Base):
 
 
 @dataclasses.dataclass
-class ColumnHistory:
+class ColumnMd:
     """
-    Records when a column was added/dropped, which is needed to GC unreachable storage columns
-    (a column that was added after table snapshot n and dropped before table snapshot n+1 can be removed
-    from the stored table).
-    One record per column (across all schema versions).
+    Records the non-versioned metadata of a column.
+    - immutable attributes: type, primary key, etc.
+    - when a column was added/dropped, which is needed to GC unreachable storage columns
+      (a column that was added after table snapshot n and dropped before table snapshot n+1 can be removed
+      from the stored table).
      """
-    col_id: int
+    id: int
     schema_version_add: int
     schema_version_drop: Optional[int]
+    col_type: dict
+
+    # if True, is part of the primary key
+    is_pk: bool
+
+    # if set, this is a computed column
+    value_expr: Optional[dict]
+
+    # if True, the column is present in the stored table
+    stored: Optional[bool]
+
+    # if stored: name of the column in the storage table
+    #store_name: Optional[str]
+
+
+@dataclasses.dataclass
+class IndexMd:
+    """
+    Metadata needed to instantiate an EmbeddingIndex
+    """
+    id: int
+    name: str
+    indexed_col_id: int  # column being indexed
+    index_val_col_id: int  # column holding the values to be indexed
+    index_val_undo_col_id: int  # column holding index values for deleted rows
+    schema_version_add: int
+    schema_version_drop: Optional[int]
+    class_fqn: str
+    init_args: dict[str, Any]
 
 
 @dataclasses.dataclass
@@ -91,13 +121,13 @@ class ViewMd:
     base_versions: List[Tuple[str, Optional[int]]]
 
     # filter predicate applied to the base table; view-only
-    predicate: Optional[Dict[str, Any]]
+    predicate: Optional[dict[str, Any]]
 
     # ComponentIterator subclass; only for component views
     iterator_class_fqn: Optional[str]
 
     # args to pass to the iterator class constructor; only for component views
-    iterator_args: Optional[Dict[str, Any]]
+    iterator_args: Optional[dict[str, Any]]
 
 
 @dataclasses.dataclass
@@ -109,15 +139,15 @@ class TableMd:
     # each version has a corresponding schema version (current_version >= current_schema_version)
     current_schema_version: int
 
-    # used to assign Column.id
-    next_col_id: int
+    next_col_id: int  # used to assign Column.id
+    next_idx_id: int  # used to assign IndexMd.id
 
     # - used to assign the rowid column in the storage table
     # - every row is assigned a unique and immutable rowid on insertion
     next_row_id: int
 
-    column_history: Dict[int, ColumnHistory]  # col_id -> ColumnHistory
-
+    column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
+    index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: Optional[ViewMd]
 
 
@@ -155,24 +185,20 @@ class TableVersion(Base):
 @dataclasses.dataclass
 class SchemaColumn:
     """
-    Records the logical (user-visible) schema of a table.
-    Contains the full set of columns for each new schema version: one record per (column x schema version).
+    Records the versioned metadata of a column.
     """
     pos: int
     name: str
-    col_type: dict
-    is_pk: bool
-    value_expr: Optional[dict]
-    stored: Optional[bool]
-    # if True, creates vector index for this column
-    is_indexed: bool
 
 
 @dataclasses.dataclass
 class TableSchemaVersionMd:
+    """
+    Records all versioned table metadata.
+    """
     schema_version: int
     preceding_schema_version: Optional[int]
-    columns: Dict[int, SchemaColumn]  # col_id -> SchemaColumn
+    columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     num_retained_versions: int
     comment: str
 

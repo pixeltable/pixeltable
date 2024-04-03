@@ -13,7 +13,9 @@ import sqlalchemy.orm as orm
 
 import pixeltable
 import pixeltable.func as func
-from pixeltable import exceptions as excs
+import pixeltable.type_system as ts
+import pixeltable.exceptions as excs
+import pixeltable.index as index
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
@@ -26,7 +28,8 @@ _logger = logging.getLogger('pixeltable')
 
 class TableVersion:
     """
-    TableVersion represents a particular version of a table/view along with its store table:
+    TableVersion represents a particular version of a table/view along with its physical representation:
+    - the physical representation is a store table with indices
     - the version can be mutable or a snapshot
     - tables and their recursive views form a tree, and a mutable TableVersion also records its own
       mutable views in order to propagate updates
@@ -37,6 +40,24 @@ class TableVersion:
         have TableVersions reference those
     - mutable TableVersions record their TableVersionPath, which is needed for expr evaluation in updates
     """
+    @dataclasses.dataclass
+    class IndexInfo:
+        id: int
+        name: str
+        idx: index.EmbeddingIndex
+        col: Column
+        val_col: Column
+        undo_col: Column
+        schema_version_add: int
+        schema_version_drop: Optional[int]
+
+        def to_md(self) -> schema.IndexMd:
+            return schema.IndexMd(
+                id=self.id, name=self.name,
+                indexed_col_id=self.col.id, index_val_col_id=self.val_col.id, index_val_undo_col_id=self.undo_col.id,
+                schema_version_add=self.schema_version_add, schema_version_drop=self.schema_version_drop,
+                class_fqn=f'{self.idx.__class__.__module__}.{self.idx.__class__.__name__}',
+                init_args=self.idx.as_dict())
 
     def __init__(
             self, id: UUID, tbl_md: schema.TableMd, version: int, schema_version_md: schema.TableSchemaVersionMd,
@@ -56,6 +77,7 @@ class TableVersion:
         self.is_snapshot = (is_view and tbl_md.view_md.is_snapshot) or bool(is_snapshot)
         # a mutable TableVersion doesn't have a static version
         self.effective_version = self.version if self.is_snapshot else None
+        self.index_md = tbl_md.index_md
 
         # mutable tables need their TableVersionPath for expr eval during updates
         from .table_version_path import TableVersionPath
@@ -67,12 +89,13 @@ class TableVersion:
         self.base = base_path.tbl_version if base_path is not None else base
         if self.is_snapshot:
             self.next_col_id = -1
+            self.next_idx_id = -1  # TODO: can snapshots have separate indices?
             self.next_rowid = -1
         else:
             assert tbl_md.current_version == self.version
             self.next_col_id = tbl_md.next_col_id
+            self.next_idx_id = tbl_md.next_idx_id
             self.next_rowid = tbl_md.next_row_id
-        self.column_history = tbl_md.column_history
 
         # view-specific initialization
         from pixeltable import exprs
@@ -102,7 +125,11 @@ class TableVersion:
         cat.tbl_versions[(self.id, self.effective_version)] = self
 
         # do this after we determined whether we're a component view, and before we create the store table
-        self._init_schema(schema_version_md)
+        self.cols: List[Column] = []  # contains complete history of columns, incl dropped ones
+        self.cols_by_name: dict[str, Column] = {}  # contains only user-facing (named) columns visible in this version
+        self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version
+        self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}
+        self._init_schema(tbl_md, schema_version_md)
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -111,19 +138,21 @@ class TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot
         return TableVersion(
-            self.id, self._create_md(), self.version,
+            self.id, self._create_tbl_md(), self.version,
             self._create_schema_version_md(preceding_schema_version=0),  # preceding_schema_version: dummy value
             is_snapshot=True, base=self.base)
 
     @classmethod
     def create(
-            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int, comment: str,
-            base_path: Optional['pixeltable.catalog.TableVersionPath'] = None, view_md: Optional[schema.ViewMd] = None
+            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int,
+            comment: str, base_path: Optional['pixeltable.catalog.TableVersionPath'] = None,
+            view_md: Optional[schema.ViewMd] = None
     ) -> Tuple[UUID, Optional[TableVersion]]:
         # assign ids
         cols_by_name: Dict[str, Column] = {}
         for pos, col in enumerate(cols):
             col.id = pos
+            col.schema_version_add = 0
             cols_by_name[col.name] = col
             if col.value_expr is None and col.compute_func is not None:
                 cls._create_value_expr(col, base_path)
@@ -132,14 +161,11 @@ class TableVersion:
 
         ts = time.time()
         # create schema.Table
-        column_history = {
-            col.id: schema.ColumnHistory(col_id=col.id, schema_version_add=0, schema_version_drop=None)
-            for col in cols
-        }
+        # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
+        column_md = cls._create_column_md(cols)
         table_md = schema.TableMd(
             name=name, current_version=0, current_schema_version=0,
-            next_col_id=len(cols), next_row_id=0, column_history=column_history,
-            view_md=view_md)
+            next_col_id=len(cols), next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, view_md=view_md)
         tbl_record = schema.Table(dir_id=dir_id, md=dataclasses.asdict(table_md))
         session.add(tbl_record)
         session.flush()  # sets tbl_record.id
@@ -152,16 +178,10 @@ class TableVersion:
         session.add(tbl_version_record)
 
         # create schema.TableSchemaVersion
-        column_md: Dict[int, schema.SchemaColumn] = {}
-        for pos, col in enumerate(cols):
-            # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
-            value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
-            column_md[col.id] = schema.SchemaColumn(
-                pos=pos, name=col.name, col_type=col.col_type.as_dict(),
-                is_pk=col.primary_key, value_expr=value_expr_dict, stored=col.stored, is_indexed=col.is_indexed)
+        schema_col_md = {col.id: schema.SchemaColumn(pos=pos, name=col.name) for pos, col in enumerate(cols)}
 
         schema_version_md = schema.TableSchemaVersionMd(
-            schema_version=0, preceding_schema_version=None, columns=column_md,
+            schema_version=0, preceding_schema_version=None, columns=schema_col_md,
             num_retained_versions=num_retained_versions, comment=comment)
         schema_version_record = schema.TableSchemaVersion(
             tbl_id=tbl_record.id, schema_version=0, md=dataclasses.asdict(schema_version_md))
@@ -202,21 +222,67 @@ class TableVersion:
         del cat.tbl_versions[(self.id, self.effective_version)]
         # TODO: remove from tbl_dependents
 
-    def _init_schema(self, schema_version_md: schema.TableSchemaVersionMd) -> None:
-        """Initialize self.cols as well as self.store_tbl"""
-        self.cols = [Column.from_md(col_id, col_md, self) for col_id, col_md in schema_version_md.columns.items()]
-        self.cols_by_name = {col.name: col for col in self.cols}
-        self.cols_by_id = {col.id: col for col in self.cols}
+    def _init_schema(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
+        # create columns first, so the indices can reference them
+        self._init_cols(tbl_md, schema_version_md)
+        self._init_idxs(tbl_md)
+        # create the sa schema only after creating the columns and indices
+        self._init_sa_schema()
 
-        # make sure to traverse columns ordered by position = order in which cols were created;
-        # this guarantees that references always point backwards
-        from pixeltable import exprs
-        for col, col_md in zip(self.cols, schema_version_md.columns.values()):
+    def _init_cols(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
+        """Initialize self.cols with the columns visible in our effective version"""
+        import pixeltable.exprs as exprs
+        self.cols = []
+        self.cols_by_name = {}
+        self.cols_by_id = {}
+        for col_md in tbl_md.column_md.values():
+            col_name = schema_version_md.columns[col_md.id].name if col_md.id in schema_version_md.columns else None
+            col = Column(
+                col_id=col_md.id, name=col_name, col_type=ts.ColumnType.from_dict(col_md.col_type),
+                is_pk=col_md.is_pk, stored=col_md.stored,
+                schema_version_add=col_md.schema_version_add, schema_version_drop=col_md.schema_version_drop)
             col.tbl = self
+            self.cols.append(col)
+
+            # populate the lookup structures before Expr.from_dict()
+            if col_md.schema_version_add > self.schema_version:
+                # column was added after this version
+                continue
+            if col_md.schema_version_drop is not None and col_md.schema_version_drop <= self.schema_version:
+                # column was dropped
+                continue
+            if col.name is not None:
+                self.cols_by_name[col.name] = col
+            self.cols_by_id[col.id] = col
+
+            # make sure to traverse columns ordered by position = order in which cols were created;
+            # this guarantees that references always point backwards
             if col_md.value_expr is not None:
                 col.value_expr = exprs.Expr.from_dict(col_md.value_expr)
                 self._record_value_expr(col)
 
+    def _init_idxs(self, tbl_md: schema.TableMd) -> None:
+        self.idxs_by_name = {}
+        import pixeltable.index as index_module
+        for md in tbl_md.index_md.values():
+            if md.indexed_col_id not in self.cols_by_id:
+                # column not visible in this schema version
+                continue
+            cls_name = md.class_fqn.rsplit('.', 1)[-1]
+            cls = getattr(index_module, cls_name)
+            idx_col = self.cols_by_id[md.indexed_col_id]
+            idx = cls.from_dict(idx_col, md.init_args)
+            # fix up the sa column type of the index value and undo columns
+            val_col = self.cols_by_id[md.index_val_col_id]
+            val_col.sa_col_type = idx.index_sa_type()
+            undo_col = self.cols_by_id[md.index_val_undo_col_id]
+            undo_col.sa_col_type = idx.index_sa_type()
+            idx_info = self.IndexInfo(
+                id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col,
+                schema_version_add=md.schema_version_add, schema_version_drop=md.schema_version_drop)
+            self.idxs_by_name[md.name] = idx_info
+
+    def _init_sa_schema(self) -> None:
         # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
         # need to record errors
         from pixeltable.store import StoreBase, StoreTable, StoreView, StoreComponentView
@@ -228,7 +294,9 @@ class TableVersion:
             self.store_tbl: StoreBase = StoreTable(self)
 
     def _update_md(
-            self, ts: float, preceding_schema_version: Optional[int], conn: sql.engine.Connection) -> None:
+            self, ts: float, preceding_schema_version: Optional[int], conn: sql.engine.Connection,
+            is_new_version: bool = True
+    ) -> None:
         """Update all recorded metadata in response to a data or schema change.
         Args:
             ts: timestamp of the change
@@ -236,19 +304,91 @@ class TableVersion:
         """
         conn.execute(
             sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(self._create_md())})
+                .values({schema.Table.md: dataclasses.asdict(self._create_tbl_md())})
                 .where(schema.Table.id == self.id))
-        version_md = self._create_version_md(ts)
-        conn.execute(
-            sql.insert(schema.TableVersion.__table__)
-                .values(tbl_id=self.id, version=self.version, md=dataclasses.asdict(version_md)))
-        if preceding_schema_version is not None:
-            schema_version_md = self._create_schema_version_md(preceding_schema_version)
+        if is_new_version:
+            version_md = self._create_version_md(ts)
             conn.execute(
-                sql.insert(schema.TableSchemaVersion.__table__)
-                .values(
-                    tbl_id=self.id, schema_version=self.schema_version,
-                    md=dataclasses.asdict(schema_version_md)))
+                sql.insert(schema.TableVersion.__table__)
+                    .values(tbl_id=self.id, version=self.version, md=dataclasses.asdict(version_md)))
+            if preceding_schema_version is not None:
+                schema_version_md = self._create_schema_version_md(preceding_schema_version)
+                conn.execute(
+                    sql.insert(schema.TableSchemaVersion.__table__)
+                    .values(
+                        tbl_id=self.id, schema_version=self.schema_version,
+                        md=dataclasses.asdict(schema_version_md)))
+
+    def _store_idx_name(self, idx_id: int) -> str:
+        """Return name of index in the store, which needs to be globally unique"""
+        return f'idx_{self.id.hex}_{idx_id}'
+
+    def add_index(self, col: Column, idx_name: Optional[str], idx_type: str, **kwargs: Any) -> UpdateStatus:
+        assert not self.is_snapshot
+        idx_id = self.next_idx_id
+        self.next_idx_id += 1
+        assert idx_type == 'embedding'
+        # create the EmbeddingIndex instance to verify kwargs
+        import pixeltable.index as index
+        idx = index.EmbeddingIndex(col, **kwargs)
+        if idx_name is None:
+            idx_name = f'idx{idx_id}'
+        else:
+            assert is_valid_identifier(idx_name)
+            assert idx_name not in [i.name for i in self.index_md.values()]
+
+
+        with Env.get().engine.begin() as conn:
+            # add the index value and undo columns (which need to be nullable);
+            # we don't create a new schema version, because indices aren't part of the logical schema
+            val_col = Column(
+                col_id=self.next_col_id, name=None, computed_with=idx.index_value_expr(),
+                sa_col_type=idx.index_sa_type(), stored=True,
+                #store_name=f'idx_{idx_id}_col',
+                schema_version_add=self.schema_version, schema_version_drop=None)
+            val_col.tbl = self
+            val_col.col_type.nullable = True
+            self.next_col_id += 1
+
+            undo_col = Column(
+                col_id=self.next_col_id, name=None, col_type=val_col.col_type,
+                sa_col_type=val_col.sa_col_type, stored=True,
+                #store_name=f'idx_{idx_id}_undo_col',
+                schema_version_add=self.schema_version, schema_version_drop=None)
+            undo_col.tbl = self
+            undo_col.col_type.nullable = True
+            self.next_col_id += 1
+
+            # create and register the index metadata
+            idx_info = self.IndexInfo(
+                id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col,
+                schema_version_add=self.schema_version, schema_version_drop=None)
+            self.idxs_by_name[idx_name] = idx_info
+
+            # add the columns and update the metadata
+            status = self._add_columns([val_col, undo_col], conn, None, is_new_version=False)
+            # now create the index structure
+            idx.create_index(self._store_idx_name(idx_id), val_col, conn)
+
+        # TODO: create index
+        _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
+        return status
+
+    def drop_index(self, idx_id: int) -> None:
+        assert not self.is_snapshot
+        assert idx_id in self.index_md
+        idx_md = self.index_md[idx_id]
+        del self.index_md[idx_id]
+        del self.idxs_by_name[idx_md.name]
+        # TODO: drop index and index column
+
+        # we don't create a new schema version, because indices aren't part of the logical schema
+        with Env.get().engine.begin() as conn:
+            conn.execute(
+                sql.update(schema.Table.__table__)
+                    .values({schema.Table.md: dataclasses.asdict(self._create_tbl_md())})
+                    .where(schema.Table.id == self.id))
+            _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
     def add_column(self, col: Column, print_stats: bool = False) -> UpdateStatus:
         """Adds a column to the table.
@@ -268,60 +408,83 @@ class TableVersion:
             col.check_value_expr()
             self._record_value_expr(col)
 
-        row_count = self.store_tbl.count()
-        if row_count > 0 and not col.col_type.nullable and not col.is_computed:
-            raise excs.Error(f'Cannot add non-nullable column "{col.name}" to table {self.name} with existing rows')
-
         # we're creating a new schema version
-        ts = time.time()
         self.version += 1
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
-
-        self.cols.append(col)
-        self.cols_by_name[col.name] = col
-        self.cols_by_id[col.id] = col
-        self.column_history[col.id] = schema.ColumnHistory(col.id, self.schema_version, None)
-
         with Env.get().engine.begin() as conn:
-            self._update_md(ts, preceding_schema_version, conn)
-            _logger.info(f'Added column {col.name} to table {self.name}, new version: {self.version}')
+            status = self._add_columns(
+                [col], conn, preceding_schema_version, print_stats=print_stats, is_new_version=True)
+        _logger.info(f'Added column {col.name} to table {self.name}, new version: {self.version}')
+
+        msg = (
+            f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
+            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
+        )
+        print(msg)
+        _logger.info(f'Column {col.name}: {msg}')
+        return status
+
+    def _add_columns(
+            self, cols: List[Column], conn: sql.engine.Connection, preceding_schema_version: Optional[int] = None,
+            is_new_version: bool = True, print_stats: bool = False
+    ) -> UpdateStatus:
+        """Add and populate columns within the current transaction"""
+        ts = time.time()
+
+        row_count = self.store_tbl.count(conn=conn)
+        for col in cols:
+            if not col.col_type.nullable and not col.is_computed:
+                if row_count > 0:
+                    raise excs.Error(
+                        f'Cannot add non-nullable column "{col.name}" to table {self.name} with existing rows')
+
+        num_excs = 0
+        cols_with_excs: List[Column] = []
+        for col in cols:
+            col.schema_version_add = self.schema_version
+            self.cols.append(col)
+            if col.name is not None:
+                self.cols_by_name[col.name] = col
+            self.cols_by_id[col.id] = col
+
             if col.is_stored:
                 self.store_tbl.add_column(col, conn)
 
-        print(f'Added column `{col.name}` to table `{self.name}`.')
-        if row_count == 0:
-            return UpdateStatus()
-        if (not col.is_computed or not col.is_stored) and not col.is_indexed:
-            return UpdateStatus(num_rows=row_count)
-        # compute values for the existing rows and compute embeddings, if this column is indexed;
-        # for some reason, it's not possible to run the following updates in the same transaction as the one
-        # that we just used to create the metadata (sqlalchemy hangs when exec() tries to run the query)
-        from pixeltable.plan import Planner
-        plan, value_expr_slot_idx, embedding_slot_idx = Planner.create_add_column_plan(self.path, col)
-        plan.ctx.num_rows = row_count
-        # TODO: create pgvector index, if col is indexed
+            if not col.is_computed or not col.is_stored or row_count == 0:
+                continue
 
-        try:
-            # TODO: do this in the same transaction as the metadata update
-            with Env.get().engine.begin() as conn:
+            # populate the column
+            from pixeltable.plan import Planner
+            plan, value_expr_slot_idx = Planner.create_add_column_plan(self.path, col)
+            plan.ctx.num_rows = row_count
+
+            try:
                 plan.ctx.conn = conn
                 plan.open()
-                num_excs = self.store_tbl.load_column(col, plan, value_expr_slot_idx, embedding_slot_idx, conn)
-        except sql.exc.DBAPIError as e:
-            self.drop_column(col.name)
-            raise excs.Error(f'Error during SQL execution:\n{e}')
-        finally:
-            plan.close()
+                num_excs = self.store_tbl.load_column(col, plan, value_expr_slot_idx, conn)
+                if num_excs > 0:
+                    cols_with_excs.append(col)
+            except sql.exc.DBAPIError as e:
+                self.cols.pop()
+                for col in cols:
+                    # remove columns that we already added
+                    if col.id not in self.cols_by_id:
+                        continue
+                    if col.name is not None:
+                        del self.cols_by_name[col.name]
+                    del self.cols_by_id[col.id]
+                raise excs.Error(f'Error during SQL execution:\n{e}')
+            finally:
+                plan.close()
 
-        msg = f'Added {row_count} column value{"" if row_count == 1 else "s"} with {num_excs} error{"" if num_excs == 1 else "s"}.'
-        print(msg)
-        _logger.info(f'Column {col.name}: {msg}')
+        self._update_md(ts, preceding_schema_version, conn, is_new_version=is_new_version)
         if print_stats:
             plan.ctx.profile.print(num_rows=row_count)
+        # TODO: what to do about system columns with exceptions?
         return UpdateStatus(
             num_rows=row_count, num_computed_values=row_count, num_excs=num_excs,
-            cols_with_excs=[f'{self.name}.{col.name}'] if num_excs > 0 else [])
+            cols_with_excs=[f'{col.tbl.name}.{col.name}'for col in cols_with_excs if col.name is not None])
 
     def drop_column(self, name: str) -> None:
         """Drop a column from the table.
@@ -348,13 +511,12 @@ class TableVersion:
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        self.cols.remove(col)
+        col.schema_version_drop = self.schema_version
         del self.cols_by_name[name]
         del self.cols_by_id[col.id]
-        self.column_history[col.id].schema_version_drop = self.schema_version
 
         with Env.get().engine.begin() as conn:
-            self._update_md(ts, preceding_schema_version, conn)
+            self._update_md(ts, preceding_schema_version, conn, is_new_version=True)
         if col.is_stored:
             self.store_tbl.drop_column()
         _logger.info(f'Dropped column {name} from table {self.name}, new version: {self.version}')
@@ -387,14 +549,14 @@ class TableVersion:
     def set_comment(self, new_comment: Optional[str]):
         _logger.info(f'[{self.name}] Updating comment: {new_comment}')
         self.comment = new_comment
-        self._commit_new_schema_version()
+        self._create_schema_version()
 
     def set_num_retained_versions(self, new_num_retained_versions: int):
         _logger.info(f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} (was {self.num_retained_versions})')
         self.num_retained_versions = new_num_retained_versions
-        self._commit_new_schema_version()
+        self._create_schema_version()
 
-    def _commit_new_schema_version(self):
+    def _create_schema_version(self):
         # we're creating a new schema version
         ts = time.time()
         self.version += 1
@@ -577,28 +739,40 @@ class TableVersion:
         # delete newly-added data
         MediaStore.delete(self.id, version=self.version)
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
+
         # revert new deletions
-        conn.execute(
-            sql.update(self.store_tbl.sa_tbl) \
-                .values({self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION})
-                .where(self.store_tbl.sa_tbl.c.v_max == self.version))
+        set_clause = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
+        for index_info in self.idxs_by_name.values():
+            # copy the index value back from the undo column and reset the undo column to NULL
+            set_clause[index_info.val_col.sa_col] = index_info.undo_col.sa_col
+            set_clause[index_info.undo_col.sa_col] = None
+        stmt = sql.update(self.store_tbl.sa_tbl) \
+            .values(set_clause) \
+            .where(self.store_tbl.sa_tbl.c.v_max == self.version)
+        conn.execute(stmt)
 
         if self.version == self.schema_version:
             # the current version involved a schema change:
             # if the schema change was to add a column, we now need to drop it
-            added_col_ids = [
-                col_history.col_id for col_history in self.column_history.values()
-                if col_history.schema_version_add == self.schema_version
-            ]
+            added_col_ids = [col.id for col in self.cols if col.schema_version_add == self.schema_version]
             assert len(added_col_ids) <= 1
             added_col: Optional[Column] = None
             if len(added_col_ids) == 1:
                 added_col_id = added_col_ids[0]
-                # drop this newly-added column and its ColumnHistory record
+                # drop this newly-added column and its ColumnMd record and re-use the column id
                 c = self.cols_by_id[added_col_id]
                 if c.is_stored:
                     added_col = c
-                del self.column_history[c.id]
+                self.cols.remove(c)
+                self.next_col_id = added_col_id
+
+            # if we dropped a column, make it visible again
+            dropped_col_ids = [col.id for col in self.cols if col.schema_version_drop == self.schema_version]
+            assert len(dropped_col_ids) <= 1  # we can't drop more than one column in a single schema change
+            if len(dropped_col_ids) == 1:
+                dropped_col_id = dropped_col_ids[0]
+                dropped_col = [c for c in self.cols if c.id == dropped_col_id][0]
+                dropped_col.schema_version_drop = None
 
             # we need to determine the preceding schema version and reload the schema
             schema_version_md_dict = session.query(schema.TableSchemaVersion.md) \
@@ -612,7 +786,12 @@ class TableVersion:
                 .scalar()
             preceding_schema_version_md = schema.md_from_dict(
                 schema.TableSchemaVersionMd, preceding_schema_version_md_dict)
-            self._init_schema(preceding_schema_version_md)
+            # tbl_md_dict = session.query(schema.Table.md) \
+            #     .where(schema.Table.id == self.id) \
+            #     .scalar()
+            # tbl_md = schema.md_from_dict(schema.TableMd, tbl_md_dict)
+            tbl_md = self._create_tbl_md()
+            self._init_schema(tbl_md, preceding_schema_version_md)
 
             # physically drop the column, but only after we have re-created the schema
             if added_col is not None:
@@ -634,7 +813,7 @@ class TableVersion:
         self.version -= 1
         conn.execute(
             sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(self._create_md())})
+                .values({schema.Table.md: dataclasses.asdict(self._create_tbl_md())})
                 .where(schema.Table.id == self.id))
 
         # propagate to views
@@ -727,22 +906,32 @@ class TableVersion:
             return 1 + self.base.num_rowid_columns()
         return 1
 
-    def _create_md(self) -> schema.TableMd:
+    @classmethod
+    def _create_column_md(cls, cols: List[Column]) -> dict[int, schema.ColumnMd]:
+        column_md: Dict[int, schema.ColumnMd] = {}
+        for col in cols:
+            value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
+            column_md[col.id] = schema.ColumnMd(
+                id=col.id, col_type=col.col_type.as_dict(), is_pk=col.is_pk,
+                schema_version_add=col.schema_version_add, schema_version_drop=col.schema_version_drop,
+                #value_expr=value_expr_dict, stored=col.stored, store_name=col.store_name())
+                value_expr=value_expr_dict, stored=col.stored)
+        return column_md
+
+    def _create_tbl_md(self) -> schema.TableMd:
+        index_md = {info.id: info.to_md() for info in self.idxs_by_name.values()}
         return schema.TableMd(
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
-            next_col_id=self.next_col_id, next_row_id=self.next_rowid, column_history=self.column_history,
-            view_md=self.view_md)
+            next_col_id=self.next_col_id, next_idx_id=self.next_idx_id, next_row_id=self.next_rowid,
+            column_md=self._create_column_md(self.cols), index_md=index_md, view_md=self.view_md)
 
     def _create_version_md(self, ts: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(created_at=ts, version=self.version, schema_version=self.schema_version)
 
     def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
         column_md: Dict[int, schema.SchemaColumn] = {}
-        for pos, col in enumerate(self.cols):
-            value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
-            column_md[col.id] = schema.SchemaColumn(
-                pos=pos, name=col.name, col_type=col.col_type.as_dict(),
-                is_pk=col.primary_key, value_expr=value_expr_dict, stored=col.stored, is_indexed=col.is_indexed)
+        for pos, col in enumerate(self.cols_by_name.values()):
+            column_md[col.id] = schema.SchemaColumn(pos=pos, name=col.name)
         # preceding_schema_version to be set by the caller
         return schema.TableSchemaVersionMd(
             schema_version=self.schema_version, preceding_schema_version=preceding_schema_version,

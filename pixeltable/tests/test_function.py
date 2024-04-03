@@ -20,8 +20,8 @@ class TestFunction:
     def func(x: int) -> int:
         return x + 1
 
-    @pxt.uda(name='agg', value_type=IntType(), update_types=[IntType()])
-    class Aggregator:
+    @pxt.uda(value_type=IntType(), update_types=[IntType()])
+    class agg:
         def __init__(self):
             self.sum = 0
         def update(self, val: int) -> None:
@@ -160,61 +160,62 @@ class TestFunction:
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
 
+    @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])
+    def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
+        return a + b + c + d
+
+    @pxt.udf(
+        return_type=IntType(),
+        param_types=[IntType(nullable=True), FloatType(nullable=False), FloatType(nullable=True)])
+    def f2(a: int, b: float = 0.0, c: float = 1.0) -> float:
+        return (0.0 if a is None else a) + b + (0.0 if c is None else c)
+
     def test_call(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
-        @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])
-        def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
-            return a + b + c + d
-
         r0 = t[t.c2, t.c3].show(0).to_pandas()
         # positional params with default args
-        r1 = t[f1(t.c2, t.c3)].show(0).to_pandas()['col_0']
+        r1 = t[self.f1(t.c2, t.c3)].show(0).to_pandas()['col_0']
         assert np.all(r1 == r0.c2 + r0.c3 + 1.0)
         # kw args only
-        r2 = t[f1(c=0.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
+        r2 = t[self.f1(c=0.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
         assert np.all(r1 == r2)
         # overriding default args
-        r3 = t[f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
+        r3 = t[self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
         assert np.all(r2 == r3)
         # overriding default with positional arg
-        r4 = t[f1(t.c2, t.c3, 0.0)].show(0).to_pandas()['col_0']
+        r4 = t[self.f1(t.c2, t.c3, 0.0)].show(0).to_pandas()['col_0']
         assert np.all(r3 == r4)
         # overriding default with positional arg and kw arg
-        r5 = t[f1(t.c2, t.c3, 1.0, d=0.0)].show(0).to_pandas()['col_0']
+        r5 = t[self.f1(t.c2, t.c3, 1.0, d=0.0)].show(0).to_pandas()['col_0']
         assert np.all(r4 == r5)
         # d is kwarg
-        r6 = t[f1(t.c2, d=1.0, b=t.c3)].show(0).to_pandas()['col_0']
+        r6 = t[self.f1(t.c2, d=1.0, b=t.c3)].show(0).to_pandas()['col_0']
         assert np.all(r5 == r6)
         # d is Expr kwarg
-        r6 = t[f1(1, d=t.c3, b=t.c3)].show(0).to_pandas()['col_0']
+        r6 = t[self.f1(1, d=t.c3, b=t.c3)].show(0).to_pandas()['col_0']
         assert np.all(r5 == r6)
 
         # test handling of Nones
-        @pxt.udf(
-            return_type=IntType(),
-            param_types=[IntType(nullable=True), FloatType(nullable=False), FloatType(nullable=True)])
-        def f2(a: int, b: float = 0.0, c: float = 1.0) -> float:
-            return (0.0 if a is None else a) + b + (0.0 if c is None else c)
-        r0 = t[f2(1, t.c3)].show(0).to_pandas()['col_0']
-        r1 = t[f2(None, t.c3, 2.0)].show(0).to_pandas()['col_0']
+        r0 = t[self.f2(1, t.c3)].show(0).to_pandas()['col_0']
+        r1 = t[self.f2(None, t.c3, 2.0)].show(0).to_pandas()['col_0']
         assert np.all(r0 == r1)
-        r2 = t[f2(2, t.c3, None)].show(0).to_pandas()['col_0']
+        r2 = t[self.f2(2, t.c3, None)].show(0).to_pandas()['col_0']
         assert np.all(r1 == r2)
         # kwarg with None
-        r3 = t[f2(c=None, a=t.c2)].show(0).to_pandas()['col_0']
+        r3 = t[self.f2(c=None, a=t.c2)].show(0).to_pandas()['col_0']
         # kwarg with Expr
-        r4 = t[f2(c=t.c3, a=None)].show(0).to_pandas()['col_0']
+        r4 = t[self.f2(c=t.c3, a=None)].show(0).to_pandas()['col_0']
         assert np.all(r3 == r4)
 
         with pytest.raises(TypeError) as exc_info:
-            _ = t[f1(t.c2, c=0.0)].show(0)
+            _ = t[self.f1(t.c2, c=0.0)].show(0)
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[f1(t.c2)].show(0)
+            _ = t[self.f1(t.c2)].show(0)
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[f1(c=1.0, a=t.c2)].show(0)
+            _ = t[self.f1(c=1.0, a=t.c2)].show(0)
         assert "'b'" in str(exc_info.value)
 
         # bad default value
@@ -242,17 +243,32 @@ class TestFunction:
                 return order_by
         assert 'reserved' in str(exc_info.value)
 
+    @pxt.expr_udf
+    def add1(x: int) -> int:
+        return x + 1
+
+    @pxt.expr_udf
+    def add2(x: int, y: int):
+        return x + y
+
+    @pxt.expr_udf
+    def add2_with_default(x: int, y: int = 1) -> int:
+        return x + y
+
     def test_expr_udf(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        @pxt.expr_udf
-        def times2(x: int) -> int:
-            return x + x
-        res1 = t.select(out=times2(t.c2)).order_by(t.c2).collect()
+
+        res1 = t.select(out=self.add1(t.c2)).order_by(t.c2).collect()
+        res2 = t.select(t.c2 + 1).order_by(t.c2).collect()
+        assert_resultset_eq(res1, res2)
+
+        # return type inferred from expression
+        res1 = t.select(out=self.add2(t.c2, t.c2)).order_by(t.c2).collect()
         res2 = t.select(t.c2 * 2).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
 
         with pytest.raises(TypeError) as exc_info:
-            _ = t.select(times2(y=t.c2)).collect()
+            _ = t.select(self.add1(y=t.c2)).collect()
         assert 'missing a required argument' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
@@ -261,13 +277,6 @@ class TestFunction:
             def add1(x, y) -> int:
                 return x + y
         assert 'cannot infer pixeltable type' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            # return type cannot be inferred
-            @pxt.expr_udf
-            def add1(x: int, y: int):
-                return x + y
-        assert 'cannot infer pixeltable return type' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             # missing param types
@@ -280,14 +289,13 @@ class TestFunction:
             # signature has correct parameter kind
             @pxt.expr_udf
             def add1(*, x: int) -> int:
-                return x + 1
+                return x + y
             _ = t.select(add1(t.c2)).collect()
         assert 'takes 0 positional arguments' in str(exc_info.value).lower()
 
-        @pxt.expr_udf
-        def add2(x: int, y: int = 1) -> int:
-            return x + y
-        res1 = t.select(out=add2(t.c2)).order_by(t.c2).collect()
+        res1 = t.select(out=self.add2_with_default(t.c2)).order_by(t.c2).collect()
+        res2 = t.select(out=self.add2(t.c2, 1)).order_by(t.c2).collect()
+        assert_resultset_eq(res1, res2)
 
     # Test that various invalid udf definitions generate
     # correct error messages.

@@ -6,11 +6,12 @@ from typing import List
 
 import numpy as np
 import pytest
+import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.catalog as catalog
 from pixeltable import exprs
-from pixeltable import functions as ptf
+import pixeltable.functions as pxtf
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
@@ -120,7 +121,7 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
         t.c1.apply(json.loads),
         t.c8.errortype,
         t.c8.errormsg,
-        ptf.sum(t.c2, group_by=t.c4, order_by=t.c3),
+        pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3),
         #test_stored_fn(t.c2),
     ]
 
@@ -158,16 +159,22 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
 #def indexed_img_tbl(init_env: None) -> catalog.Table:
 #    cl = pxt.Client()
 #    db = cl.create_db('test_indexed')
+
+@pxt.expr_udf
+def img_embed(img: PIL.Image.Image) -> np.ndarray:
+    from pixeltable.functions.huggingface import clip_image
+    return clip_image(img, model_id='openai/clip-vit-base-patch32')
+
 @pytest.fixture(scope='function')
 def indexed_img_tbl(test_client: pxt.Client) -> catalog.Table:
-    skip_test_if_not_installed('nos')
     cl = test_client
     schema = {
-        'img': { 'type': ImageType(nullable=False), 'indexed': True },
+        'img': ImageType(nullable=False),
         'category': StringType(nullable=False),
         'split': StringType(nullable=False),
     }
     tbl = cl.create_table('test_indexed_img_tbl', schema)
+    tbl.add_index('img', img_embed=img_embed)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     # select output_rows randomly in the hope of getting a good sample of the available categories
     rng = np.random.default_rng(17)

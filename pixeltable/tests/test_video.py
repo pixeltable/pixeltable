@@ -107,6 +107,18 @@ class TestVideo:
         base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].show(0)
 
+    # window function that simply passes through the frame
+    @pxt.uda(
+        update_types=[ImageType()], value_type=ImageType(),
+        requires_order_by=True, allows_std_agg=False, allows_window=True)
+    class agg_fn:
+        def __init__(self):
+            self.img = None
+        def update(self, frame: PIL.Image.Image) -> None:
+            self.img = frame
+        def value(self) -> PIL.Image.Image:
+            return self.img
+
     def test_make_video(self, test_client: pxt.Client) -> None:
         video_filepaths = get_video_files()
         cl = test_client
@@ -131,29 +143,17 @@ class TestVideo:
                 make_video(view_t.pos, view_t.frame),
                 make_video(view_t.pos - 1, view_t.transformed)).group_by(base_t).show()
 
-        # window function that simply passes through the frame
-        @pxt.uda(
-            update_types=[ImageType()], value_type=ImageType(), name='agg_fn',
-            requires_order_by=True, allows_std_agg=False, allows_window=True)
-        class WindowAgg:
-            def __init__(self):
-                self.img = None
-            def update(self, frame: PIL.Image.Image) -> None:
-                self.img = frame
-            def value(self) -> PIL.Image.Image:
-                return self.img
-
         # make sure it works
-        _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
-        status = view_t.add_column(agg=agg_fn(view_t.pos, view_t.frame, group_by=base_t))
+        _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
+        status = view_t.add_column(agg=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t))
         assert status.num_excs == 0
         _ = view_t.select(make_video(view_t.pos, view_t.agg)).group_by(base_t).show()
 
         # image cols computed with a window function currently need to be stored
         with pytest.raises(excs.Error):
-            view_t.add_column(agg2=agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
+            view_t.add_column(agg2=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store
         cl = pxt.Client(reload=True)
         base_t, view_t = cl.get_table(base_t.get_name()), cl.get_table(view_t.get_name())
-        _ = view_t.select(agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
+        _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()

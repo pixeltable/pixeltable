@@ -76,9 +76,6 @@ class StoreBase:
                 all_cols.append(col.sa_errormsg_col)
                 all_cols.append(col.sa_errortype_col)
 
-            if col.is_indexed:
-                all_cols.append(col.sa_idx_col)
-
             # we create an index for:
             # - scalar columns (except for strings, because long strings can't be used for B-tree indices)
             # - non-computed video and image columns (they will contain external paths/urls that users might want to
@@ -145,8 +142,8 @@ class StoreBase:
         """Move tmp media files that we generated to a permanent location"""
         for c in media_cols:
             for table_row in table_rows:
-                file_url = table_row[c.storage_name()]
-                table_row[c.storage_name()] = self._move_tmp_media_file(file_url, c, v_min)
+                file_url = table_row[c.store_name()]
+                table_row[c.store_name()] = self._move_tmp_media_file(file_url, c, v_min)
 
     def _create_table_row(
             self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, media_cols: List[catalog.Column],
@@ -168,16 +165,22 @@ class StoreBase:
 
         return table_row, num_excs
 
-    def count(self) -> None:
+    def count(self, conn: Optional[sql.engine.Connection] = None) -> None:
         """Return the number of rows visible in self.tbl_version"""
         stmt = sql.select(sql.func.count('*'))\
             .select_from(self.sa_tbl)\
             .where(self.v_min_col <= self.tbl_version.version)\
             .where(self.v_max_col > self.tbl_version.version)
-        with env.Env.get().engine.begin() as conn:
+        try:
+            needs_close = conn is None
+            if conn is None:
+                conn = env.Env.get().engine.connect()
             result = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
             return result
+        finally:
+            if needs_close:
+                conn.close()
 
     def create(self, conn: sql.engine.Connection) -> None:
         self.sa_md.create_all(bind=conn)
@@ -193,19 +196,20 @@ class StoreBase:
         message).
         """
         assert col.is_stored
-        stmt = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.storage_name()} {col.col_type.to_sql()}')
+        col_type_str = col.get_sa_col_type().compile(dialect=conn.dialect)
+        stmt = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL')
         log_stmt(_logger, stmt)
         conn.execute(stmt)
-        added_storage_cols = [col.storage_name()]
+        added_storage_cols = [col.store_name()]
         if col.records_errors:
             # we also need to create the errormsg and errortype storage cols
             stmt = (f'ALTER TABLE {self._storage_name()} '
-                    f'ADD COLUMN {col.errormsg_storage_name()} {StringType().to_sql()} DEFAULT NULL')
+                    f'ADD COLUMN {col.errormsg_store_name()} {StringType().to_sql()} DEFAULT NULL')
             conn.execute(sql.text(stmt))
             stmt = (f'ALTER TABLE {self._storage_name()} '
-                    f'ADD COLUMN {col.errortype_storage_name()} {StringType().to_sql()} DEFAULT NULL')
+                    f'ADD COLUMN {col.errortype_store_name()} {StringType().to_sql()} DEFAULT NULL')
             conn.execute(sql.text(stmt))
-        added_storage_cols.extend([col.errormsg_storage_name(), col.errortype_storage_name()])
+            added_storage_cols.extend([col.errormsg_store_name(), col.errortype_store_name()])
         self._create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 
@@ -213,18 +217,17 @@ class StoreBase:
         """Re-create self.sa_tbl and drop column, if one is given"""
         if col is not None:
             assert conn is not None
-            stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.storage_name()}'
+            stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
             conn.execute(sql.text(stmt))
             if col.records_errors:
-                stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errormsg_storage_name()}'
+                stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errormsg_store_name()}'
                 conn.execute(sql.text(stmt))
-                stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errortype_storage_name()}'
+                stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errortype_store_name()}'
                 conn.execute(sql.text(stmt))
         self._create_sa_tbl()
 
     def load_column(
-            self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, embedding_slot_idx: int,
-            conn: sql.engine.Connection
+            self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, conn: sql.engine.Connection
     ) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
@@ -253,17 +256,10 @@ class StoreBase:
                             col.sa_errormsg_col: error_msg
                         }
                     else:
-                        val = result_row.get_stored_val(value_expr_slot_idx)
+                        val = result_row.get_stored_val(value_expr_slot_idx, col.sa_col.type)
                         if col.col_type.is_media_type():
                             val = self._move_tmp_media_file(val, col, result_row.pk[-1])
                         values_dict = {col.sa_col: val}
-
-                if col.is_indexed:
-                    # TODO: deal with exceptions
-                    assert not result_row.has_exc(embedding_slot_idx)
-                    # don't use get_stored_val() here, we need to pass the ndarray
-                    embedding = result_row[embedding_slot_idx]
-                    values_dict[col.sa_index_col] = embedding
 
                 update_stmt = sql.update(self.sa_tbl).values(values_dict)
                 for pk_col, pk_val in zip(self.pk_columns(), result_row.pk):
@@ -337,6 +333,7 @@ class StoreBase:
             self, current_version: int, base_versions: List[Optional[int]], match_on_vmin: bool,
             where_clause: Optional[sql.ClauseElement], conn: sql.engine.Connection) -> int:
         """Mark rows as deleted that are live and were created prior to current_version.
+        Also: populate the undo columns
         Args:
             base_versions: if non-None, join only to base rows that were created at that version,
                 otherwise join to rows that are live in the base's current version (which is distinct from the
@@ -354,8 +351,14 @@ class StoreBase:
         rowid_join_clause = self._rowid_join_predicate()
         base_versions_clause = sql.true() if len(base_versions) == 0 \
             else self.base._versions_clause(base_versions, match_on_vmin)
+        set_clause = {self.v_max_col: current_version}
+        for index_info in self.tbl_version.idxs_by_name.values():
+            # copy value column to undo column
+            set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
+            # set value column to NULL
+            set_clause[index_info.val_col.sa_col] = None
         stmt = sql.update(self.sa_tbl) \
-            .values({self.v_max_col: current_version}) \
+            .values(set_clause) \
             .where(where_clause) \
             .where(rowid_join_clause) \
             .where(base_versions_clause)

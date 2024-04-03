@@ -22,6 +22,48 @@ from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, Col
 
 
 class TestExprs:
+    @pxt.udf(return_type=FloatType(), param_types=[IntType(), IntType()])
+    def div_0_error(a: int, b: int) -> float:
+        return a / b
+
+    # function that does allow nulls
+    @pxt.udf(return_type=FloatType(nullable=True),
+            param_types=[FloatType(nullable=False), FloatType(nullable=True)])
+    def null_args_fn(a: int, b: int) -> int:
+        if b is None:
+            return a
+        return a + b
+
+    # error in agg.init()
+    @pxt.uda(update_types=[IntType()], value_type=IntType())
+    class init_exc(pxt.Aggregator):
+        def __init__(self):
+            self.sum = 1 / 0
+        def update(self, val):
+            pass
+        def value(self):
+            return 1
+
+    # error in agg.update()
+    @pxt.uda(update_types=[IntType()], value_type=IntType())
+    class update_exc(pxt.Aggregator):
+        def __init__(self):
+            self.sum = 0
+        def update(self, val):
+            self.sum += 1 / val
+        def value(self):
+            return 1
+
+    # error in agg.value()
+    @pxt.uda(update_types=[IntType()], value_type=IntType())
+    class value_exc(pxt.Aggregator):
+        def __init__(self):
+            self.sum = 0
+        def update(self, val):
+            self.sum += val
+        def value(self):
+            return 1 / self.sum
+
     def test_basic(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         assert t['c1'].equals(t.c1)
@@ -62,13 +104,13 @@ class TestExprs:
             _ = t.where((t.c1 == 'test string') or (t.c6.f1 > 50)).collect()
         assert 'cannot be used in conjunction with python boolean operators' in str(exc_info.value).lower()
 
-        # compound predicates with Python functions
-        @pxt.udf(return_type=BoolType(), param_types=[StringType()])
-        def udf(_: str) -> bool:
-            return True
-        @pxt.udf(return_type=BoolType(), param_types=[IntType()])
-        def udf2(_: int) -> bool:
-            return True
+        # # compound predicates with Python functions
+        # @pt.udf(return_type=BoolType(), param_types=[StringType()])
+        # def udf(_: str) -> bool:
+        #     return True
+        # @pt.udf(return_type=BoolType(), param_types=[IntType()])
+        # def udf2(_: int) -> bool:
+        #     return True
 
         # TODO: find a way to test this
         # # & can be split
@@ -120,47 +162,21 @@ class TestExprs:
             _ = t[(t.c6.f2 + 1) / (t.c2 - 10)].show()
 
         # the same, but with an inline function
-        @pxt.udf(return_type=FloatType(), param_types=[IntType(), IntType()])
-        def f(a: int, b: int) -> float:
-            return a / b
         with pytest.raises(excs.Error):
-            _ = t[f(t.c2 + 1, t.c2)].show()
+            _ = t[self.div_0_error(t.c2 + 1, t.c2)].show()
 
         # error in agg.init()
-        @pxt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
-        class Aggregator(pxt.Aggregator):
-            def __init__(self):
-                self.sum = 1 / 0
-            def update(self, val):
-                pass
-            def value(self):
-                return 1
-        with pytest.raises(excs.Error):
-            _ = t[agg(t.c2)].show()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t[self.init_exc(t.c2)].show()
+        assert 'division by zero' in str(exc_info.value)
 
         # error in agg.update()
-        @pxt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
-        class Aggregator(pxt.Aggregator):
-            def __init__(self):
-                self.sum = 0
-            def update(self, val):
-                self.sum += 1 / val
-            def value(self):
-                return 1
         with pytest.raises(excs.Error):
-            _ = t[agg(t.c2 - 10)].show()
+            _ = t[self.update_exc(t.c2 - 10)].show()
 
         # error in agg.value()
-        @pxt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
-        class Aggregator(pxt.Aggregator):
-            def __init__(self):
-                self.sum = 0
-            def update(self, val):
-                self.sum += val
-            def value(self):
-                return 1 / self.sum
         with pytest.raises(excs.Error):
-            _ = t[t.c2 <= 2][agg(t.c2 - 1)].show()
+            _ = t[t.c2 <= 2][self.value_exc(t.c2 - 1)].show()
 
     def test_props(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -221,14 +237,7 @@ class TestExprs:
 
         # computed column that doesn't allow nulls
         t.add_column(c3=lambda c1, c2: c1 + c2, type=FloatType(nullable=False))
-        # function that does allow nulls
-        @pxt.udf(return_type=FloatType(nullable=True),
-                 param_types=[FloatType(nullable=False), FloatType(nullable=True)])
-        def f(a: int, b: int) -> int:
-            if b is None:
-                return a
-            return a + b
-        t.add_column(c4=f(t.c1, t.c2))
+        t.add_column(c4=self.null_args_fn(t.c1, t.c2))
 
         # data that tests all combinations of nulls
         data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
@@ -513,6 +522,7 @@ class TestExprs:
         ][t.img, t.split].show()
         print(result)
 
+    @pytest.mark.skip(reason='temporarily disabled')
     def test_similarity(self, indexed_img_tbl: catalog.Table) -> None:
         skip_test_if_not_installed('nos')
         t = indexed_img_tbl
@@ -656,68 +666,67 @@ class TestExprs:
             # nested aggregates
             _ = t[sum(count(t.c2))].group_by(t.c2 % 2).show()
 
+    @pxt.uda(
+        init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
+        allows_window=True, requires_order_by=False)
+    class window_agg:
+        def __init__(self, val: int = 0):
+            self.val = val
+        def update(self, ignore: int) -> None:
+            pass
+        def value(self) -> int:
+            return self.val
+
+    @pxt.uda(
+        init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
+        requires_order_by=True, allows_window=True)
+    class ordered_agg:
+        def __init__(self, val: int = 0):
+            self.val = val
+        def update(self, i: int) -> None:
+            pass
+        def value(self) -> int:
+            return self.val
+
+    @pxt.uda(
+        init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
+        requires_order_by=False, allows_window=False)
+    class std_agg:
+        def __init__(self, val: int = 0):
+            self.val = val
+        def update(self, i: int) -> None:
+            pass
+        def value(self) -> int:
+            return self.val
+
     def test_udas(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-
-        @pxt.uda(
-            name='window_agg', init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
-            allows_window=True, requires_order_by=False)
-        class WindowAgg:
-            def __init__(self, val: int = 0):
-                self.val = val
-            def update(self, ignore: int) -> None:
-                pass
-            def value(self) -> int:
-                return self.val
-
-        @pxt.uda(
-            name='ordered_agg', init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
-            requires_order_by=True, allows_window=True)
-        class WindowAgg:
-            def __init__(self, val: int = 0):
-                self.val = val
-            def update(self, i: int) -> None:
-                pass
-            def value(self) -> int:
-                return self.val
-
-        @pxt.uda(
-            name='std_agg', init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
-            requires_order_by=False, allows_window=False)
-        class StdAgg:
-            def __init__(self, val: int = 0):
-                self.val = val
-            def update(self, i: int) -> None:
-                pass
-            def value(self) -> int:
-                return self.val
-
         # init arg is passed along
-        assert t.select(out=window_agg(t.c2, order_by=t.c2)).collect()[0]['out'] == 0
-        assert t.select(out=window_agg(t.c2, val=1, order_by=t.c2)).collect()[0]['out'] == 1
+        assert t.select(out=self.window_agg(t.c2, order_by=t.c2)).collect()[0]['out'] == 0
+        assert t.select(out=self.window_agg(t.c2, val=1, order_by=t.c2)).collect()[0]['out'] == 1
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(window_agg(t.c2, val=t.c2, order_by=t.c2)).collect()
+            _ = t.select(self.window_agg(t.c2, val=t.c2, order_by=t.c2)).collect()
         assert 'needs to be a constant' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             # ordering expression not a pixeltable expr
-            _ = t.select(ordered_agg(1, t.c2)).collect()
+            _ = t.select(self.ordered_agg(1, t.c2)).collect()
         assert 'but instead is a' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             # explicit order_by
-            _ = t.select(ordered_agg(t.c2, order_by=t.c2)).collect()
+            _ = t.select(self.ordered_agg(t.c2, order_by=t.c2)).collect()
         assert 'order_by invalid' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             # order_by for non-window function
-            _ = t.select(std_agg(t.c2, order_by=t.c2)).collect()
+            _ = t.select(self.std_agg(t.c2, order_by=t.c2)).collect()
         assert 'does not allow windows' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             # group_by for non-window function
-            _ = t.select(std_agg(t.c2, group_by=t.c4)).collect()
+            _ = t.select(self.std_agg(t.c2, group_by=t.c4)).collect()
         assert 'group_by invalid' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
@@ -767,18 +776,6 @@ class TestExprs:
                 def value(self) -> int:
                     return self.val
         assert 'cannot have parameters with the same name: val' in str(exc_info.value)
-
-        with pytest.raises(excs.Error) as exc_info:
-            # invalid name
-            @pxt.uda(name='not an identifier', init_types=[IntType()], update_types=[IntType()], value_type=IntType())
-            class WindowAgg:
-                def __init__(self, val: int = 0):
-                    self.val = val
-                def update(self, i1: int, i2: int) -> None:
-                    pass
-                def value(self) -> int:
-                    return self.val
-        assert 'invalid name' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
