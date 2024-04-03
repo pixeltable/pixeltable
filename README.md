@@ -14,7 +14,7 @@ data plumbing.
 It brings together data storage, versioning, and indexing with orchestration and model
 versioning under a declarative table interface, with transformations, model inference,
 and custom logic represented as computed columns.
-
+<!--
 ## Quick Start
 
 If you just want to play around with Pixeltable to see what it's capable of, the easiest way is to run
@@ -23,8 +23,8 @@ the Pixeltable Basics tutorial in colab:
 <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/docs/tutorials/pixeltable-basics.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
-
-## Local Installation
+-->
+## Installation
 
 Pixeltable works with Python 3.9, 3.10, or 3.11 running on Linux or MacOS.
 
