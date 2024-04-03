@@ -28,6 +28,7 @@ import pixeltable.exceptions as excs
 
 if typing.TYPE_CHECKING:
     import openai
+    import label_studio_sdk
 
 class Env:
     """
@@ -403,6 +404,10 @@ class Env:
     @property
     def openai_client(self) -> Optional['openai.OpenAI']:
         return self._openai_client
+
+    @property
+    def label_studio_client(self) -> Optional['label_studio_sdk.Client']:
+        return None
 
     @property
     def has_together_client(self) -> bool:

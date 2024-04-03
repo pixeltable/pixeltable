@@ -579,3 +579,6 @@ class Table(SchemaObject):
         """
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.revert()
+
+    def link_remote(self, remote: 'pixeltable.datatransfer.remote') -> None:
+        ...

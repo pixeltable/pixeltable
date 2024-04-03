@@ -1,5 +1,6 @@
 from .client import Client
 from .dataframe import DataFrame
+from .datatransfer import Remote
 from .catalog import Column, Table, InsertableTable, View
 from .exceptions import Error, Error
 from .type_system import \
