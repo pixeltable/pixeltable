@@ -148,7 +148,7 @@ class TestFunction:
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
 
-        @pxt.udf(_stored=True)
+        @pxt.udf(_force_stored=True)
         def f1(a: int, b: float) -> float:
             return a + b
         t['f1'] = f1(t.c1, t.c2)
