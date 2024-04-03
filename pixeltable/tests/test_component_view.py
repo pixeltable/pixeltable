@@ -13,7 +13,7 @@ from pixeltable.tests.utils import assert_resultset_eq, get_video_files
 from pixeltable.type_system import IntType, VideoType, JsonType
 
 
-class TestIterator(ComponentIterator):
+class ConstantImgIterator(ComponentIterator):
     """Component iterator that generates a fixed number of all-black 1280x720 images."""
     def __init__(self, video: str, num_frames: int = 10):
         self.img = PIL.Image.new('RGB', (1280, 720))
@@ -215,7 +215,7 @@ class TestComponentView:
         # create frame view with a computed column
         args = {'video': video_t.video}
         view_t = cl.create_view(
-            view_path, video_t, iterator_class=TestIterator, iterator_args=args, is_snapshot=False)
+            view_path, video_t, iterator_class=ConstantImgIterator, iterator_args=args, is_snapshot=False)
         view_t.add_column(
             cropped=view_t.frame.crop([view_t.margin, view_t.margin, view_t.frame.width, view_t.frame.height]),
             stored=True)
@@ -281,7 +281,7 @@ class TestComponentView:
 
         # create first view
         args = {'video': video_t.video}
-        v1 = cl.create_view('test_view', video_t, iterator_class=TestIterator, iterator_args=args)
+        v1 = cl.create_view('test_view', video_t, iterator_class=ConstantImgIterator, iterator_args=args)
         # computed column that references stored base column
         v1.add_column(int3=v1.int1 + 1)
         # stored computed column that references an unstored and a stored computed view column

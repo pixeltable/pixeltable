@@ -40,6 +40,7 @@ optional = true
 # pytest-related
 pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
+coverage = "^7.4"
 # mypy-related
 mypy = "^1.8.0"
 types-pillow = "^10.1.0.2"

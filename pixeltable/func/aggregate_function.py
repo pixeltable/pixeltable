@@ -59,8 +59,8 @@ class AggregateFunction(Function):
         py_params = update_params + init_params  # init_params are keyword-only and come last
         py_signature = inspect.Signature(py_params)
 
-        params = [Parameter(p.name, update_types[i], p.kind) for i, p in enumerate(update_params)]
-        params.extend([Parameter(p.name, init_types[i], p.kind) for i, p in enumerate(init_params)])
+        params = [Parameter(p.name, update_types[i], p.kind, is_batched=False) for i, p in enumerate(update_params)]
+        params.extend([Parameter(p.name, init_types[i], p.kind, is_batched=False) for i, p in enumerate(init_params)])
         signature = Signature(value_type, params)
         super().__init__(signature, py_signature=py_signature, self_path=self_path)
         self.init_param_names = [p.name for p in init_params]
