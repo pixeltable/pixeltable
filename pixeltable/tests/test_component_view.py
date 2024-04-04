@@ -1,23 +1,18 @@
-import math
-from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
 import PIL
-import cv2
 import numpy as np
 import pandas as pd
 import pytest
 
-import pixeltable as pt
-from pixeltable import exceptions as exc
-
+import pixeltable as pxt
+from pixeltable import exceptions as excs
 from pixeltable.iterators import ComponentIterator
-from pixeltable.type_system import IntType, VideoType, JsonType
-from pixeltable.tests.utils import assert_resultset_eq, get_test_video_files
 from pixeltable.iterators.video import FrameIterator
+from pixeltable.tests.utils import assert_resultset_eq, get_test_video_files
+from pixeltable.type_system import IntType, VideoType, JsonType
 
-
-class TestIterator(ComponentIterator):
+class ConstantImgIterator(ComponentIterator):
     """Component iterator that generates a fixed number of all-black 1280x720 images."""
     def __init__(self, video: str, num_frames: int = 10):
         self.img = PIL.Image.new('RGB', (1280, 720))
@@ -27,19 +22,19 @@ class TestIterator(ComponentIterator):
         self.pos_frame = 0.0
 
     @classmethod
-    def input_schema(cls) -> Dict[str, pt.ColumnType]:
+    def input_schema(cls) -> Dict[str, pxt.ColumnType]:
         return {
             'video': VideoType(nullable=False),
-            'fps': pt.FloatType()
+            'fps': pxt.FloatType()
         }
 
     @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, pt.ColumnType], List[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, pxt.ColumnType], List[str]]:
         return {
             'frame_idx': IntType(),
-            'pos_msec': pt.FloatType(),
-            'pos_frame': pt.FloatType(),
-            'frame': pt.ImageType(),
+            'pos_msec': pxt.FloatType(),
+            'pos_frame': pxt.FloatType(),
+            'frame': pxt.ImageType(),
         }, ['frame']
 
     def __next__(self) -> Dict[str, Any]:
@@ -64,7 +59,7 @@ class TestIterator(ComponentIterator):
         self.next_frame_idx = pos
 
 class TestComponentView:
-    def test_basic(self, test_client: pt.Client) -> None:
+    def test_basic(self, test_client: pxt.Client) -> None:
         cl = test_client
         # create video table
         schema = {'video': VideoType(), 'angle': IntType(), 'other_angle': IntType()}
@@ -72,24 +67,24 @@ class TestComponentView:
         video_filepaths = get_test_video_files()
 
         # cannot add 'pos' column
-        with pytest.raises(exc.Error) as excinfo:
+        with pytest.raises(excs.Error) as excinfo:
             video_t.add_column(pos=IntType())
         assert 'reserved' in str(excinfo.value)
 
         # parameter missing
-        with pytest.raises(exc.Error) as excinfo:
+        with pytest.raises(excs.Error) as excinfo:
             args = {'fps': 1}
             _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
         assert 'missing a required argument' in str(excinfo.value)
 
         # bad parameter type
-        with pytest.raises(exc.Error) as excinfo:
+        with pytest.raises(excs.Error) as excinfo:
             args = {'video': video_t.video, 'fps': '1'}
             _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
         assert 'expected float' in str(excinfo.value)
 
         # bad parameter type
-        with pytest.raises(exc.Error) as excinfo:
+        with pytest.raises(excs.Error) as excinfo:
             args = {'video': 1, 'fps': 1}
             _ = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
         assert 'expected file path' in str(excinfo.value)
@@ -123,7 +118,7 @@ class TestComponentView:
         assert len(result) > 0
         assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
 
-    def test_add_column(self, test_client: pt.Client) -> None:
+    def test_add_column(self, test_client: pxt.Client) -> None:
         cl = test_client
         # create video table
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
@@ -142,11 +137,11 @@ class TestComponentView:
         _ = view_t.where(view_t.annotation == None).count()
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
-        with pytest.raises(exc.Error) as excinfo:
+        with pytest.raises(excs.Error) as excinfo:
             view_t.add_column(annotation=JsonType(nullable=False))
         assert 'must be nullable' in str(excinfo.value)
 
-    def test_update(self, test_client: pt.Client) -> None:
+    def test_update(self, test_client: pxt.Client) -> None:
         cl = test_client
         # create video table
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
@@ -167,42 +162,42 @@ class TestComponentView:
         c2 = view_t.where(view_t.video == video_url).count()
         assert c1 == c2
 
-        with pytest.raises(exc.Error) as excinfo:
+        with pytest.raises(excs.Error) as excinfo:
             _ = cl.create_view(
                 'bad_view', video_t, schema={'annotation': JsonType(nullable=False)},
                 iterator_class=FrameIterator, iterator_args=args)
         assert 'must be nullable' in str(excinfo.value)
 
     # break up the snapshot tests for better (future) parallelization
-    def test_snapshot1(self, test_client: pt.Client) -> None:
+    def test_snapshot1(self, test_client: pxt.Client) -> None:
         has_column = False
         has_filter  = False
         for reload_md in [False, True]:
-            cl = pt.Client(reload=True)
+            cl = pxt.Client(reload=True)
             self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
-    def test_snapshot2(self, test_client: pt.Client) -> None:
+    def test_snapshot2(self, test_client: pxt.Client) -> None:
         has_column = True
         has_filter  = False
         for reload_md in [False, True]:
-            cl = pt.Client(reload=True)
+            cl = pxt.Client(reload=True)
             self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
-    def test_snapshot3(self, test_client: pt.Client) -> None:
+    def test_snapshot3(self, test_client: pxt.Client) -> None:
         has_column = False
         has_filter  = True
         for reload_md in [False, True]:
-            cl = pt.Client(reload=True)
+            cl = pxt.Client(reload=True)
             self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
-    def test_snapshot4(self, test_client: pt.Client) -> None:
+    def test_snapshot4(self, test_client: pxt.Client) -> None:
         has_column = True
         has_filter  = True
         for reload_md in [False, True]:
-            cl = pt.Client(reload=True)
+            cl = pxt.Client(reload=True)
             self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
-    def run_snapshot_test(self, cl: pt.Client, has_column: bool, has_filter: bool, reload_md: bool) -> None:
+    def run_snapshot_test(self, cl: pxt.Client, has_column: bool, has_filter: bool, reload_md: bool) -> None:
         base_path = 'video_tbl'
         view_path = 'test_view'
         snap_path = 'test_snap'
@@ -218,7 +213,7 @@ class TestComponentView:
         # create frame view with a computed column
         args = {'video': video_t.video}
         view_t = cl.create_view(
-            view_path, video_t, iterator_class=TestIterator, iterator_args=args, is_snapshot=False)
+            view_path, video_t, iterator_class=ConstantImgIterator, iterator_args=args, is_snapshot=False)
         view_t.add_column(
             cropped=view_t.frame.crop([view_t.margin, view_t.margin, view_t.frame.width, view_t.frame.height]),
             stored=True)
@@ -245,7 +240,7 @@ class TestComponentView:
         assert_resultset_eq(snap_query.collect(), orig_resultset)
 
         if reload_md:
-            cl = pt.Client(reload=True)
+            cl = pxt.Client(reload=True)
             video_t = cl.get_table(base_path)
             snap_t = cl.get_table(snap_path)
             snap_cols = [snap_t.c1] if has_column else []
@@ -274,7 +269,7 @@ class TestComponentView:
         cl.drop_table(view_path)
         cl.drop_table(base_path)
 
-    def test_chained_views(self, test_client: pt.Client) -> None:
+    def test_chained_views(self, test_client: pxt.Client) -> None:
         """Component view followed by a standard view"""
         cl = test_client
         # create video table
@@ -284,7 +279,7 @@ class TestComponentView:
 
         # create first view
         args = {'video': video_t.video}
-        v1 = cl.create_view('test_view', video_t, iterator_class=TestIterator, iterator_args=args)
+        v1 = cl.create_view('test_view', video_t, iterator_class=ConstantImgIterator, iterator_args=args)
         # computed column that references stored base column
         v1.add_column(int3=v1.int1 + 1)
         # stored computed column that references an unstored and a stored computed view column

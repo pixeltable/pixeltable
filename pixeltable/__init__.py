@@ -1,14 +1,15 @@
+from .catalog import Column, Table, InsertableTable, View
 from .client import Client
 from .dataframe import DataFrame
-from .catalog import Column, Table, InsertableTable, View
 from .exceptions import Error, Error
-from .type_system import \
-    ColumnType, StringType, IntType, FloatType, BoolType,  TimestampType, JsonType, ArrayType, ImageType, VideoType, \
-    AudioType, DocumentType
-from .func import Function, udf, uda, Aggregator
 from .exprs import RELATIVE_PATH_ROOT
+from .func import Function, udf, uda, Aggregator, expr_udf
+from .type_system import \
+    ColumnType, StringType, IntType, FloatType, BoolType, TimestampType, JsonType, ArrayType, ImageType, VideoType, \
+    AudioType, DocumentType
 from .utils.help import help
-
+# noinspection PyUnresolvedReferences
+from . import functions
 
 __all__ = [
     'Client',
@@ -36,6 +37,7 @@ __all__ = [
     'udf',
     'Aggregator',
     'uda',
+    'expr_udf',
 ]
 
 
