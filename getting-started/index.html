@@ -787,28 +787,29 @@ or 3.11 running on Linux or MacOS.</p>
 <h2 id="install-pixeltable">Install Pixeltable</h2>
 <ol>
 <li>Install Miniconda here:</li>
-<li><a href="https://docs.anaconda.com/free/miniconda/miniconda-install/">Installing Miniconda</a></li>
-<li>Create your environment:</li>
-<li><code>conda create --name pxt python=3.10</code></li>
-<li><code>conda activate pxt</code></li>
-<li>Install pixeltable and Jupyter inside the new environment:</li>
-<li><code>pip install pixeltable jupyter</code></li>
 </ol>
+<p><a href="https://docs.anaconda.com/free/miniconda/miniconda-install/">Installing Miniconda</a>
+2. Create your environment:</p>
+<p><code>conda create --name pxt python=3.10</code></p>
+<p><code>conda activate pxt</code>
+3. Install pixeltable and Jupyter inside the new environment:</p>
+<p><code>pip install pixeltable jupyter</code></p>
 <h2 id="create-a-notebook">Create a Notebook</h2>
 <ol>
-<li>Start your Jupyter notebook server and create a new notebook:</li>
-<li><code>jupyter notebook</code></li>
-<li>Select "Python 3 (ipykernel)" as the kernel</li>
-<li>File / New / Notebook</li>
-<li>Test that everything is working by entering these commands into the notebook:</li>
-<li>
-<p><code>import pixeltable as pxt
-     cl = pxt.Client()</code></p>
-</li>
-<li>
-<p>Wait a minute for Pixeltable to load; then you should see a message indicating that
-   Pixeltable has successfully connected to the database.</p>
-</li>
+<li>Start your Jupyter notebook server:</li>
+</ol>
+<p><code>jupyter notebook</code>
+5. Create a new notebook:</p>
+<p>Select "Python 3 (ipykernel)" as the kernel</p>
+<p>File / New / Notebook
+6. Test that everything is working by entering these commands into the notebook:</p>
+<pre><code>`import pixeltable as pxt`
+
+`cl = pxt.Client()`
+</code></pre>
+<ol>
+<li>Wait a minute for Pixeltable to load; then you should see a message indicating that
+   Pixeltable has successfully connected to the database.</li>
 </ol>
 <p>At this point, you're set up to start using pixeltable! For a tour of what it can
 do, a good place to start is the
