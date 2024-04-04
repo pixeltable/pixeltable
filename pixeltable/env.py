@@ -92,7 +92,7 @@ class Env:
     def db_url(self) -> str:
         assert self._db_url is not None
         return self._db_url
-    
+
     @property
     def http_address(self) -> str:
         assert self._http_address is not None
@@ -142,7 +142,7 @@ class Env:
     def set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
             return
-        
+
         self._initialized = True
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
@@ -153,7 +153,6 @@ class Env:
         self._dataset_cache_dir = self._home / 'dataset_cache'
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
-        self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
 
         # Read in the config
         if os.path.isfile(self._config_file):
@@ -204,8 +203,9 @@ class Env:
             os.remove(path)
 
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
+        self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
 
-        # cleanup_mode=None will leave db on for debugging purposes
+        # in pgserver.get_server(): cleanup_mode=None will leave db on for debugging purposes
         self._db_server = pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
         self._db_url = self._db_server.get_uri(database=self._db_name)
 
@@ -285,15 +285,15 @@ class Env:
         """
         The http server root is the file system root.
         eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
-        This arrangement enables serving media hosted within _home, 
+        This arrangement enables serving media hosted within _home,
         as well as external media inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.
-        """        
+        """
         # Port 0 means OS picks one for us.
         address = ("127.0.0.1", 0)
         class FixedRootHandler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
-                super().__init__(*args, directory='/', **kwargs)        
+                super().__init__(*args, directory='/', **kwargs)
         self._httpd = socketserver.TCPServer(address, FixedRootHandler)
         port = self._httpd.server_address[1]
         self._http_address = f'http://127.0.0.1:{port}'
