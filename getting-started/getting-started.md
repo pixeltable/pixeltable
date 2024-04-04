@@ -10,34 +10,35 @@ or 3.11 running on Linux or MacOS.
 
 1. Install Miniconda here:
 
-   [Installing Miniconda](https://docs.anaconda.com/free/miniconda/miniconda-install/)
+    - [Installing Miniconda](https://docs.anaconda.com/free/miniconda/miniconda-install/)
+
 2. Create your environment:
 
-   `conda create --name pxt python=3.10`
+    - `conda create --name pxt python=3.10`
+    - `conda activate pxt`
 
-   `conda activate pxt`
 3. Install pixeltable and Jupyter inside the new environment:
 
-   `pip install pixeltable jupyter`
+    - `pip install pixeltable jupyter`
 
 ## Create a Notebook
 
 4. Start your Jupyter notebook server:
 
-   `jupyter notebook`
+    - `jupyter notebook`
+
 5. Create a new notebook:
 
-   Select "Python 3 (ipykernel)" as the kernel
+    - Select "Python 3 (ipykernel)" as the kernel
+    - File / New / Notebook
 
-   File / New / Notebook
 6. Test that everything is working by entering these commands into the notebook:
 
-    `import pixeltable as pxt`
-
-    `cl = pxt.Client()`
+    - `import pixeltable as pxt`
+    - `cl = pxt.Client()`
 
 7. Wait a minute for Pixeltable to load; then you should see a message indicating that
-   Pixeltable has successfully connected to the database.
+    Pixeltable has successfully connected to the database.
 
 At this point, you're set up to start using pixeltable! For a tour of what it can
 do, a good place to start is the
