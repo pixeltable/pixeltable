@@ -138,6 +138,9 @@ class Client:
         self.catalog.paths.check_is_valid(path, expected=None)
         dir = self.catalog.paths[path.parent]
 
+        if len(schema) == 0:
+            raise excs.Error(f'Table schema is empty: `{path_str}`')
+
         if primary_key is None:
             primary_key = []
         elif isinstance(primary_key, str):
