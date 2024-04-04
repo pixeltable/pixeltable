@@ -103,7 +103,7 @@ class Function(abc.ABC):
         raise NotImplementedError()
 
     @classmethod
-    def from_store(self, md: Dict, binary_obj: bytes) -> Function:
+    def from_store(cls, name: Optional[str], md: Dict, binary_obj: bytes) -> Function:
         """
         Create a Function instance from the serialized representation returned by to_store()
         """

@@ -61,3 +61,9 @@ class CallableFunction(Function):
 
     def to_store(self) -> Tuple[Dict, bytes]:
         return (self.signature.as_dict(), cloudpickle.dumps(self.py_fn))
+
+    @classmethod
+    def from_store(cls, name: Optional[str], md: Dict, binary_obj: bytes) -> Function:
+        py_fn = cloudpickle.loads(binary_obj)
+        assert isinstance(py_fn, Callable)
+        return CallableFunction(Signature.from_dict(md), py_fn, self_name=name)

@@ -144,7 +144,6 @@ class Env:
             return
         
         self._initialized = True
-        self.log_to_stdout(True)
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
         self._home = home
@@ -171,11 +170,10 @@ class Env:
             raise RuntimeError(f'{self._home} is not a directory')
 
         if not self._home.exists():
-            msg = f'setting up Pixeltable at {self._home}'
             # we don't have our logger set up yet, so print to stdout
-            print(msg)
+            print(f'Creating a Pixeltable instance at: {self._home}')
             self._home.mkdir()
-            # TODO (asiegel) This is the existing behavior, but it seems scary. If something happens to
+            # TODO (aaron-siegel) This is the existing behavior, but it seems scary. If something happens to
             # self._home, it will cause the DB to be destroyed even if pgdata is in an alternate location.
             # PROPOSAL: require `reinit_db` to be set explicitly to destroy the DB.
             reinit_db = True
@@ -229,6 +227,8 @@ class Env:
             self._logger.info(f'found database {self.db_url}')
             if self._sa_engine is None:
                 self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
+
+        print(f'Connected to Pixeltable database at: {self.db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()

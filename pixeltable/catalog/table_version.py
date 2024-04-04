@@ -289,6 +289,7 @@ class TableVersion:
             if col.is_stored:
                 self.store_tbl.add_column(col, conn)
 
+        print(f'Added column `{col.name}` to table `{self.name}`.')
         if row_count == 0:
             return UpdateStatus()
         if (not col.is_computed or not col.is_stored) and not col.is_indexed:

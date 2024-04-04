@@ -1,6 +1,6 @@
 import tempfile
 from pathlib import Path
-from typing import Optional, Union, Any
+from typing import Optional, Union
 
 import PIL.Image
 import av
@@ -13,13 +13,9 @@ import pixeltable.func as func
 # import all standard function modules here so they get registered with the FunctionRegistry
 import pixeltable.functions.pil.image
 from pixeltable import exprs
-from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
-
+from pixeltable.type_system import IntType, ColumnType, FloatType, ImageType, VideoType
 # automatically import all submodules so that the udfs get registered
-from . import image
-from . import string
-from . import video
-
+from . import image, string, video, openai, together, fireworks, huggingface
 
 # TODO: remove and replace calls with astype()
 def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:

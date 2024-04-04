@@ -90,6 +90,12 @@ class TestTable:
         with pytest.raises(excs.Error):
             cl.drop_table('.test2')
 
+    def test_empty_table(self, test_client: pxt.Client) -> None:
+        cl = test_client
+        with pytest.raises(excs.Error) as exc_info:
+            cl.create_table('empty_table', {})
+        assert 'Table schema is empty' in str(exc_info.value)
+
     def test_table_attrs(self, test_client: pxt.Client) -> None:
         cl = test_client
         schema = {'c': StringType(nullable=False)}

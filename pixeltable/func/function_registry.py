@@ -160,7 +160,7 @@ class FunctionRegistry:
             md = schema.md_from_dict(schema.FunctionMd, row[0])
             func_module = importlib.import_module(self.__module__.rsplit('.', 1)[0])
             func_class = getattr(func_module, md.class_name)
-            instance = func_class.from_store(md.md, row[1])
+            instance = func_class.from_store(md.name, md.md, row[1])
             self.stored_fns_by_id[id] = instance
             return instance
 
