@@ -18,6 +18,8 @@ from pixeltable.type_system import \
     ColumnType, StringType, IntType, FloatType, ArrayType, BoolType, TimestampType, JsonType, ImageType, VideoType
 
 
+
+
 def make_default_type(t: ColumnType.Type) -> ColumnType:
     if t == ColumnType.Type.STRING:
         return StringType()
@@ -228,6 +230,13 @@ def get_video_files(include_bad_video=False) -> List[str]:
     glob_result = glob.glob(f'{tests_dir}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
+
+    half_res = [f for f in glob_result if 'half_res' in f or 'bad_video' in f]
+    return half_res
+
+def get_test_video_files() -> List[str]:
+    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    glob_result = glob.glob(f'{tests_dir}/**/test_videos/*', recursive=True)
     return glob_result
 
 def get_image_files() -> List[str]:
