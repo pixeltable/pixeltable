@@ -23,7 +23,7 @@ def init_env(tmp_path_factory) -> None:
     from pixeltable.env import Env
     # set the relevant env vars for Client() to connect to the test db
 
-    shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable'))).expanduser()
+    shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.yaml')
