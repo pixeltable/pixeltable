@@ -5,8 +5,6 @@ from typing import Optional, TypeVar, Union
 import PIL.Image
 import numpy as np
 from openai._types import NOT_GIVEN, NotGiven
-from openai.types.chat import ChatCompletionToolParam, ChatCompletionToolChoiceOptionParam
-from openai.types.chat.completion_create_params import ResponseFormat
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -35,6 +33,7 @@ def chat_completions(
         tool_choice: Optional[dict] = None,
         user: Optional[str] = None
 ) -> dict:
+    from openai._types import NOT_GIVEN
     result = env.Env.get().openai_client.chat.completions.create(
         messages=messages,
         model=model,

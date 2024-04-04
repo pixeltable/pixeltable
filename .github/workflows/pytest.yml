@@ -5,6 +5,7 @@ on:
     branches: [master]
   push:
     branches: [master]
+  workflow_dispatch:
 
 jobs:
   pytest:
@@ -39,9 +40,11 @@ jobs:
       - name: Install the project dependencies
         run: poetry install --with dev
       - name: Run the unit tests
-        run: poetry run pytest -v
+        run: poetry run coverage run -m --source=pixeltable pytest -v
         env:
           # In a PR, these secrets will be empty, and the relevant tests will be skipped
           FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+      - name: Generate code coverage report
+        run: poetry run coverage report -m

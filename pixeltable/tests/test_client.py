@@ -1,21 +1,21 @@
 import pytest
 
-import pixeltable as pt
-from pixeltable import exceptions as exc
+import pixeltable as pxt
+import pixeltable.exceptions as excs
 
 
 class TestClient:
     def test_list_functions(self, init_env) -> None:
-        cl = pt.Client()
+        cl = pxt.Client()
         _ = cl.list_functions()
         print(_)
 
-    def test_drop_table(self, test_tbl: pt.Table) -> None:
-        cl = pt.Client()
+    def test_drop_table(self, test_tbl: pxt.Table) -> None:
+        cl = pxt.Client()
         t = cl.get_table('test_tbl')
         cl.drop_table('test_tbl')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = cl.get_table('test_tbl')
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t.show(1)
 

@@ -1,7 +1,5 @@
 from typing import Optional
 
-import together
-
 import pixeltable as pxt
 
 
@@ -16,6 +14,7 @@ def completions(
         top_p: Optional[float] = None,
         temperature: Optional[float] = None
 ) -> dict:
+    import together
     return together.Complete.create(
         prompt,
         model,
