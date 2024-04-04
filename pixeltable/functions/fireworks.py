@@ -27,7 +27,7 @@ def chat_completions(
         'temperature': temperature
     }
     kwargs_not_none = dict(filter(lambda x: x[1] is not None, kwargs.items()))
-    print(kwargs_not_none)
+    import fireworks.client
     return fireworks.client.Completion.create(
         model=model,
         prompt_or_messages=prompt,
