@@ -11,10 +11,6 @@
       
       
       
-        <link rel="prev" href="../comparing_object_detection_models_for_video/">
-      
-      
-        <link rel="next" href="../openai_demo/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -256,21 +252,19 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
@@ -284,7 +278,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             Tutorials
@@ -298,7 +292,28 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable_basics/" class="md-nav__link">
+      <a href="../pixeltable-basics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Pixeltable Basics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../image-operations/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -337,30 +352,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    Object Detection in Videos
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../object_detection_in_videos.ipynb" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -369,44 +364,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#creating-a-tutorial-directory-and-table" class="md-nav__link">
-    <span class="md-ellipsis">
-      Creating a tutorial directory and table
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#object-detection-as-a-user-defined-function" class="md-nav__link">
-    <span class="md-ellipsis">
-      Object Detection as a user-defined function
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -732,7 +689,7 @@
               <article class="md-content__inner md-typeset">
                 
 
-    <a href="object_detection_in_videos.ipynb" title="Download Notebook" class="md-content__button md-icon">
+    <a href="object-detection-in-videos.ipynb" title="Download Notebook" class="md-content__button md-icon">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7 7-7Z"/></svg>
     </a>
 
@@ -1193,12 +1150,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span> <span class="nn">urllib.request</span>
 
-<span class="n">download_url</span> <span class="o">=</span> <span class="s1">'https://raw.github.com/mkornacker/pixeltable/master/docs/source/data/bangkok.mp4'</span>
+<span class="n">download_url</span> <span class="o">=</span> <span class="s1">'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/bangkok.mp4'</span>
 <span class="n">filename</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlretrieve</span><span class="p">(</span><span class="n">download_url</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">import urllib.request
 
-download_url = 'https://raw.github.com/mkornacker/pixeltable/master/docs/source/data/bangkok.mp4'
+download_url = 'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/bangkok.mp4'
 filename, _ = urllib.request.urlretrieve(download_url)</div>
 </div>
 </div>

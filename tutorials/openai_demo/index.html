@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="../object_detection_in_videos/">
+        <link rel="prev" href="../comparing_object_detection_models_for_video/">
       
       
         <link rel="next" href="../rag-demo/">
@@ -298,7 +298,28 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable_basics/" class="md-nav__link">
+      <a href="../pixeltable-basics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Pixeltable Basics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../image-operations/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -340,7 +361,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../object_detection_in_videos/" class="md-nav__link">
+      <a href="../object_detection_in_videos.ipynb" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1115,12 +1136,12 @@ We will keep all artifacts within the <code>demos</code> directory.</p>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span> <span class="nn">pixeltable</span> <span class="k">as</span> <span class="nn">pxt</span>
 <span class="n">cl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Client</span><span class="p">()</span>
 <span class="n">cl</span><span class="o">.</span><span class="n">create_dir</span><span class="p">(</span><span class="s1">'demos'</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">path</span> <span class="o">=</span> <span class="s1">'demos.chat_completion_demo'</span>
+<span class="n">path</span> <span class="o">=</span> <span class="s1">'demos.chat_completions_demo'</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">import pixeltable as pxt
 cl = pxt.Client()
 cl.create_dir('demos', ignore_errors=True)
-path = 'demos.chat_completion_demo'</div>
+path = 'demos.chat_completions_demo'</div>
 </div>
 </div>
 </div>
@@ -1486,12 +1507,12 @@ t.add_column(input_msgs=msgs)</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span> <span class="nn">pixeltable.functions.openai</span> <span class="kn">import</span> <span class="n">chat_completion</span>
-<span class="n">t</span><span class="p">[</span><span class="s1">'chat_output'</span><span class="p">]</span> <span class="o">=</span> <span class="n">chat_completion</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s1">'gpt-3.5-turbo'</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">t</span><span class="o">.</span><span class="n">input_msgs</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span> <span class="nn">pixeltable.functions.openai</span> <span class="kn">import</span> <span class="n">chat_completions</span>
+<span class="n">t</span><span class="p">[</span><span class="s1">'chat_output'</span><span class="p">]</span> <span class="o">=</span> <span class="n">chat_completions</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s1">'gpt-3.5-turbo'</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">t</span><span class="o">.</span><span class="n">input_msgs</span><span class="p">)</span>
 <span class="n">t</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">from pixeltable.functions.openai import chat_completion
-t['chat_output'] = chat_completion(model='gpt-3.5-turbo', messages=t.input_msgs)
+<div class="clipboard-copy-txt" id="cell-7">from pixeltable.functions.openai import chat_completions
+t['chat_output'] = chat_completions(model='gpt-3.5-turbo', messages=t.input_msgs)
 t.show()</div>
 </div>
 </div>
@@ -2250,10 +2271,10 @@ Return a json object with the following format:
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="p">[</span><span class="s1">'eval'</span><span class="p">]</span> <span class="o">=</span> <span class="n">chat_completion</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s1">'gpt-3.5-turbo'</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">t</span><span class="o">.</span><span class="n">eval_prompt</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">t</span><span class="p">[</span><span class="s1">'eval'</span><span class="p">]</span> <span class="o">=</span> <span class="n">chat_completions</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s1">'gpt-3.5-turbo'</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">t</span><span class="o">.</span><span class="n">eval_prompt</span><span class="p">)</span>
 <span class="n">t</span><span class="p">[</span><span class="s1">'eval_output'</span><span class="p">]</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">eval</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-16">t['eval'] = chat_completion(model='gpt-3.5-turbo', messages=t.eval_prompt)
+<div class="clipboard-copy-txt" id="cell-16">t['eval'] = chat_completions(model='gpt-3.5-turbo', messages=t.eval_prompt)
 t['eval_output'] = t.eval.choices[0].message.content</div>
 </div>
 </div>

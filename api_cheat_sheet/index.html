@@ -14,7 +14,7 @@
         <link rel="prev" href="..">
       
       
-        <link rel="next" href="../tutorials/pixeltable_basics/">
+        <link rel="next" href="../tutorials/pixeltable-basics/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -450,7 +450,28 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/pixeltable_basics/" class="md-nav__link">
+      <a href="../tutorials/pixeltable-basics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Pixeltable Basics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/image-operations/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -492,7 +513,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/object_detection_in_videos/" class="md-nav__link">
+      <a href="../tutorials/object_detection_in_videos.ipynb" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1030,11 +1051,11 @@ import pixeltable.functions as pxtf
 <tbody>
 <tr>
 <td>Create a stored function</td>
-<td>cl.<a class="autorefs autorefs-internal" href="../api/client/#pixeltable.Client.create_function">create_function</a>('func_name', ...)</td>
+<td>cl.[create_function][pixeltable.Client.create_function]('func_name', ...)</td>
 </tr>
 <tr>
 <td>Load a stored function</td>
-<td>f = cl.<a class="autorefs autorefs-internal" href="../api/client/#pixeltable.Client.get_function">get_function</a>('func_name')</td>
+<td>f = cl.[get_function][pixeltable.Client.get_function]('func_name')</td>
 </tr>
 <tr>
 <td>Rename a stored function</td>
@@ -1046,11 +1067,11 @@ import pixeltable.functions as pxtf
 </tr>
 <tr>
 <td>Update a stored function</td>
-<td>cl.<a class="autorefs autorefs-internal" href="../api/client/#pixeltable.Client.update_function">update_function</a>('func_name', ...)</td>
+<td>cl.[update_function][pixeltable.Client.update_function]('func_name', ...)</td>
 </tr>
 <tr>
 <td>Delete a stored function</td>
-<td>cl.<a class="autorefs autorefs-internal" href="../api/client/#pixeltable.Client.drop_function">drop_function</a>('func_name')</td>
+<td>cl.[drop_function][pixeltable.Client.drop_function]('func_name')</td>
 </tr>
 </tbody>
 </table>
@@ -1131,7 +1152,11 @@ f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_
 <td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(t.col2, t.col3 + 5).where(t.col1 == 'green').show()</td>
 </tr>
 <tr>
-<td>Insert rows into a table</td>
+<td>Insert a single row into a table</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/insertable_table/#pixeltable.InsertableTable.insert">insert</a>(col1='green', ...)</td>
+</tr>
+<tr>
+<td>Insert multiple rows into a table</td>
 <td>t.<a class="autorefs autorefs-internal" href="../api/insertable_table/#pixeltable.InsertableTable.insert">insert</a>([{'col1': 'green', ...}, {'col1': 'red', ...}, ...])</td>
 </tr>
 <tr>

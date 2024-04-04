@@ -64,7 +64,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#pixeltable-a-table-interface-for-ml-data" class="md-skip">
+        <a href="#pixeltable-the-multimodal-ai-data-plane" class="md-skip">
           Skip to content
         </a>
       
@@ -272,9 +272,27 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#first-steps" class="md-nav__link">
+  <a href="#what-problems-does-pixeltable-solve" class="md-nav__link">
     <span class="md-ellipsis">
-      First Steps
+      What problems does Pixeltable solve?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-should-you-use-pixeltable" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why should you use Pixeltable?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-use-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example Use Cases
     </span>
   </a>
   
@@ -352,7 +370,28 @@
   
   
     <li class="md-nav__item">
-      <a href="tutorials/pixeltable_basics/" class="md-nav__link">
+      <a href="tutorials/pixeltable-basics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Pixeltable Basics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="tutorials/image-operations/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -394,7 +433,7 @@
   
   
     <li class="md-nav__item">
-      <a href="tutorials/object_detection_in_videos/" class="md-nav__link">
+      <a href="tutorials/object_detection_in_videos.ipynb" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -707,9 +746,27 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#first-steps" class="md-nav__link">
+  <a href="#what-problems-does-pixeltable-solve" class="md-nav__link">
     <span class="md-ellipsis">
-      First Steps
+      What problems does Pixeltable solve?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-should-you-use-pixeltable" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why should you use Pixeltable?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-use-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example Use Cases
     </span>
   </a>
   
@@ -736,16 +793,73 @@
   
 
 
-<h1 id="pixeltable-a-table-interface-for-ml-data">Pixeltable: A Table Interface for ML Data</h1>
-<p>Pixeltable is a Python library that lets ML engineers and data scientists focus on experiments and models
-without having to deal with the customary data plumbing.</p>
+<p><img src="docs/pixeltable-banner.png" width="45%"/></p>
+<h1 id="pixeltable-the-multimodal-ai-data-plane">Pixeltable: The Multimodal AI Data Plane</h1>
+<p><a href="https://opensource.org/licenses/Apache-2.0"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" /></a>
+&nbsp;&nbsp;
+<img alt="pytest status" src="https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg" /></p>
+<p>Pixeltable is a Python library that lets AI engineers and data scientists focus on
+exploration, modeling, and app development without having to deal with the customary
+data plumbing.</p>
+<p><strong>Pixeltable redefines data infrastructure and workflow orchestration for AI development.</strong>
+It brings together data storage, versioning, and indexing with orchestration and model
+versioning under a declarative table interface, with transformations, model inference,
+and custom logic represented as computed columns.</p>
+<!--
+## Quick Start
+
+If you just want to play around with Pixeltable to see what it's capable of, the easiest way is to run
+the Pixeltable Basics tutorial in colab:
+
+<a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/docs/tutorials/pixeltable-basics.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+-->
+<h2 id="installation">Installation</h2>
+<p>Pixeltable works with Python 3.9, 3.10, or 3.11 running on Linux or MacOS.</p>
+<pre><code>pip install pixeltable
+</code></pre>
+<p>To verify that it's working:</p>
+<pre><code>import pixeltable as pxt
+cl = pxt.Client()
+</code></pre>
+<p>For more detailed installation instructions, see the
+<a href="https://pixeltable.github.io/pixeltable/getting-started/">Getting Started with Pixeltable</a>
+guide. Then, check out the
+<a href="https://pixeltable.github.io/pixeltable/tutorials/pixeltable-basics/">Pixeltable Basics</a>
+tutorial for a tour of its most important features.</p>
+<h2 id="what-problems-does-pixeltable-solve">What problems does Pixeltable solve?</h2>
+<p>Today’s solutions for AI app development require extensive custom coding and infrastructure
+plumbing. Tracking lineage and versions between and across data transformations, models, and
+deployment is cumbersome. Pixeltable is a replacement for traditional data plumbing, providing
+a unified plane for data, models, and orchestration. It removes the data plumbing overhead in
+building and productionizing AI applications.</p>
+<h2 id="why-should-you-use-pixeltable">Why should you use Pixeltable?</h2>
+<ul>
+<li>It gives you transparency and reproducibility<ul>
+<li>All generated data is automatically recorded and versioned</li>
+<li>You will never need to re-run a workload because you lost track of the input data</li>
+</ul>
+</li>
+<li>It saves you money<ul>
+<li>All data changes are automatically incremental</li>
+<li>You never need to re-run pipelines from scratch because you’re adding data</li>
+</ul>
+</li>
+<li>It integrates with any existing Python code or libraries<ul>
+<li>Bring your ever-changing code and workloads</li>
+<li>You choose the models, tools, and AI practices (e.g., your embedding model for a vector index); Pixeltable orchestrates the data</li>
+</ul>
+</li>
+</ul>
+<h2 id="example-use-cases">Example Use Cases</h2>
 <ul>
 <li>Interact with video data at the frame level without having to think about frame extraction,
 intermediate file storage, or storage space explosion.</li>
-<li>Augment your data incrementally and interactively with built-in and user-defined functions such as
-image transformations, model inference, visualizations, etc., without having to think about data pipelines,
-incremental updates, capturing function output, etc.</li>
-<li>Interact with all the data relevant to your ML project (video, images, documents, audio, structured data, JSON) through
+<li>Augment your data incrementally and interactively with built-in functions and UDFs, such as
+image transformations, model inference, and visualizations, without having to think about data pipelines,
+incremental updates, or capturing function output.</li>
+<li>Interact with all the data relevant to your AI application (video, images, documents, audio, structured data, JSON) through
 a simple dataframe-style API directly in Python. This includes:<ul>
 <li>similarity search on embeddings, supported by high-dimensional vector indexing</li>
 <li>path expressions and transformations on JSON data</li>
@@ -757,25 +871,10 @@ a simple dataframe-style API directly in Python. This includes:<ul>
 storage.</li>
 <li>Access all Pixeltable-resident data directly as a PyTorch dataset in your training scripts.</li>
 <li>Understand the compute and storage costs of your data at the granularity of individual augmentations and
-get cost projections <strong>before</strong> adding new data and new augmentations.</li>
+get cost projections before adding new data and new augmentations.</li>
 <li>Rely on Pixeltable's automatic versioning and snapshot functionality to protect against regressions
 and to ensure reproducibility.</li>
 </ul>
-<h2 id="installation">Installation</h2>
-<ol>
-<li>
-<p>Install Docker</p>
-<p>On MacOS: follow <a href="https://docs.docker.com/desktop/install/mac-install/">these</a> instructions.</p>
-</li>
-<li>
-<p><code>pip install git+https://github.com/mkornacker/pixeltable</code></p>
-</li>
-</ol>
-<h2 id="first-steps">First Steps</h2>
-<p><a href="https://pixeltable.github.io/pixeltable/tutorials/pixeltable_basics/">This tutorial</a>
-gives you a 10-minute overview of Pixeltable.</p>
-<p>If you are interested in working with video and how to interact with videos at the frame level through Pixeltable,
-take a look at <a href="https://pixeltable.github.io/pixeltable/tutorials/comparing_object_detection_models_for_video/">this tutorial</a>.</p>
 
 
 

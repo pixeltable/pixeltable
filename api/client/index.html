@@ -296,7 +296,28 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tutorials/pixeltable_basics/" class="md-nav__link">
+      <a href="../../tutorials/pixeltable-basics/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Pixeltable Basics
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/image-operations/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -338,7 +359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../tutorials/object_detection_in_videos/" class="md-nav__link">
+      <a href="../../tutorials/object_detection_in_videos.ipynb" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -667,42 +688,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pixeltable.Client.create_function" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;create_function
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Client.update_function" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;update_function
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Client.get_function" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;get_function
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Client.drop_function" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;drop_function
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#pixeltable.Client.logging" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;logging
@@ -946,42 +931,6 @@
   <a href="#pixeltable.Client.list_dirs" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;list_dirs
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Client.create_function" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;create_function
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Client.update_function" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;update_function
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Client.get_function" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;get_function
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Client.drop_function" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;drop_function
     </span>
   </a>
   
@@ -1889,257 +1838,6 @@ below.</p>
 <p><strong>Examples:</strong></p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">list_dirs</span><span class="p">(</span><span class="s1">&#39;my_dir&#39;</span><span class="p">,</span> <span class="n">recursive</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="go">[&#39;my_dir&#39;, &#39;my_dir.sub_dir1&#39;]</span>
-</code></pre></div>
-
-  </div>
-
-</div>
-
-
-<div class="doc doc-object doc-function">
-
-
-
-<h3 id="pixeltable.Client.create_function" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>          <span class="doc doc-object-name doc-function-name">create_function</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">create_function</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">fn</span><span class="p">:</span> <span class="n"><span title="pixeltable.Function">Function</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
-</code></pre></div>
-
-  <div class="doc doc-contents ">
-  
-      <p>Create a stored function.</p>
-
-
-
-  <p>Parameters:</p>
-  <ul>
-      <li class="field-body">
-        <b><code>path_str</code></b>
-            (<code>str</code>)
-        –
-        <div class="doc-md-description">
-          <p>path where the function gets stored</p>
-        </div>
-      </li>
-      <li class="field-body">
-        <b><code>func</code></b>
-        –
-        <div class="doc-md-description">
-          <p>previously created Function object</p>
-        </div>
-      </li>
-  </ul>
-
-
-
-  <p>Raises:</p>
-  <ul>
-      <li class="field-body">
-            <code><span title="pixeltable.exceptions.Error">Error</span></code>
-          –
-        <div class="doc-md-description">
-          <p>if the path already exists or the parent is not a directory</p>
-        </div>
-      </li>
-  </ul>
-
-
-
-<p><strong>Examples:</strong></p>
-    <p>Create a function <code>detect()</code> that takes an image and returns a JSON object, and store it in <code>my_dir</code>:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="nd">@pxt</span><span class="o">.</span><span class="n">udf</span><span class="p">(</span><span class="n">param_types</span><span class="o">=</span><span class="p">[</span><span class="n">ImageType</span><span class="p">()],</span> <span class="n">return_type</span><span class="o">=</span><span class="n">JsonType</span><span class="p">())</span>
-<span class="gp">... </span><span class="k">def</span> <span class="nf">detect</span><span class="p">(</span><span class="n">img</span><span class="p">):</span>
-<span class="gp">... </span><span class="o">...</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">create_function</span><span class="p">(</span><span class="s1">&#39;my_dir.detect&#39;</span><span class="p">,</span> <span class="n">detect</span><span class="p">)</span>
-</code></pre></div>
-
-  </div>
-
-</div>
-
-
-<div class="doc doc-object doc-function">
-
-
-
-<h3 id="pixeltable.Client.update_function" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>          <span class="doc doc-object-name doc-function-name">update_function</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">update_function</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">fn</span><span class="p">:</span> <span class="n"><span title="pixeltable.Function">Function</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
-</code></pre></div>
-
-  <div class="doc doc-contents ">
-  
-      <p>Update the implementation of a stored function.</p>
-
-
-
-  <p>Parameters:</p>
-  <ul>
-      <li class="field-body">
-        <b><code>path_str</code></b>
-            (<code>str</code>)
-        –
-        <div class="doc-md-description">
-          <p>path to the function to be updated</p>
-        </div>
-      </li>
-      <li class="field-body">
-        <b><code>func</code></b>
-        –
-        <div class="doc-md-description">
-          <p>new function implementation</p>
-        </div>
-      </li>
-  </ul>
-
-
-
-  <p>Raises:</p>
-  <ul>
-      <li class="field-body">
-            <code><span title="pixeltable.exceptions.Error">Error</span></code>
-          –
-        <div class="doc-md-description">
-          <p>if the path does not exist or <code>func</code> has a different signature than the stored function.</p>
-        </div>
-      </li>
-  </ul>
-
-  </div>
-
-</div>
-
-
-<div class="doc doc-object doc-function">
-
-
-
-<h3 id="pixeltable.Client.get_function" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>          <span class="doc doc-object-name doc-function-name">get_function</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">get_function</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.Function">Function</span></span>
-</code></pre></div>
-
-  <div class="doc doc-contents ">
-  
-      <p>Get a handle to a stored function.</p>
-
-
-
-  <p>Parameters:</p>
-  <ul>
-      <li class="field-body">
-        <b><code>path_str</code></b>
-            (<code>str</code>)
-        –
-        <div class="doc-md-description">
-          <p>path to the function</p>
-        </div>
-      </li>
-  </ul>
-
-
-
-  <p>Returns:</p>
-  <ul>
-      <li class="field-body">
-            <code><span title="pixeltable.Function">Function</span></code>
-        –
-        <div class="doc-md-description">
-          <p>Function object</p>
-      </div>
-      </li>
-  </ul>
-
-
-
-  <p>Raises:</p>
-  <ul>
-      <li class="field-body">
-            <code><span title="pixeltable.exceptions.Error">Error</span></code>
-          –
-        <div class="doc-md-description">
-          <p>if the path does not exist or is not a function</p>
-        </div>
-      </li>
-  </ul>
-
-
-
-<p><strong>Examples:</strong></p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">detect</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">get_function</span><span class="p">(</span><span class="s1">&#39;my_dir.detect&#39;</span><span class="p">)</span>
-</code></pre></div>
-
-  </div>
-
-</div>
-
-
-<div class="doc doc-object doc-function">
-
-
-
-<h3 id="pixeltable.Client.drop_function" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>          <span class="doc doc-object-name doc-function-name">drop_function</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">drop_function</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
-</code></pre></div>
-
-  <div class="doc doc-contents ">
-  
-      <p>Deletes stored function.</p>
-
-
-
-  <p>Parameters:</p>
-  <ul>
-      <li class="field-body">
-        <b><code>path_str</code></b>
-            (<code>str</code>)
-        –
-        <div class="doc-md-description">
-          <p>path to the function</p>
-        </div>
-      </li>
-      <li class="field-body">
-        <b><code>ignore_errors</code></b>
-            (<code>bool</code>, default:
-                <code>False</code>
-)
-        –
-        <div class="doc-md-description">
-          <p>if True, does not raise if the function does not exist</p>
-        </div>
-      </li>
-  </ul>
-
-
-
-  <p>Raises:</p>
-  <ul>
-      <li class="field-body">
-            <code><span title="pixeltable.exceptions.Error">Error</span></code>
-          –
-        <div class="doc-md-description">
-          <p>if the path does not exist or is not a function</p>
-        </div>
-      </li>
-  </ul>
-
-
-
-<p><strong>Examples:</strong></p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">drop_function</span><span class="p">(</span><span class="s1">&#39;my_dir.detect&#39;</span><span class="p">)</span>
 </code></pre></div>
 
   </div>
