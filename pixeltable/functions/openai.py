@@ -33,25 +33,24 @@ def chat_completions(
         tool_choice: Optional[dict] = None,
         user: Optional[str] = None
 ) -> dict:
-    from openai._types import NOT_GIVEN
     result = env.Env.get().openai_client.chat.completions.create(
         messages=messages,
         model=model,
-        frequency_penalty=frequency_penalty if frequency_penalty is not None else NOT_GIVEN,
-        logit_bias=logit_bias if logit_bias is not None else NOT_GIVEN,
-        logprobs=logprobs if logprobs is not None else NOT_GIVEN,
-        top_logprobs=top_logprobs if top_logprobs is not None else NOT_GIVEN,
-        max_tokens=max_tokens if max_tokens is not None else NOT_GIVEN,
-        n=n if n is not None else NOT_GIVEN,
-        presence_penalty=presence_penalty if presence_penalty is not None else NOT_GIVEN,
-        response_format=response_format if response_format is not None else NOT_GIVEN,
-        seed=seed if seed is not None else NOT_GIVEN,
-        stop=stop if stop is not None else NOT_GIVEN,
-        temperature=temperature if temperature is not None else NOT_GIVEN,
-        top_p=top_p if top_p is not None else NOT_GIVEN,
-        tools=tools if tools is not None else NOT_GIVEN,
-        tool_choice=tool_choice if tool_choice is not None else NOT_GIVEN,
-        user=user if user is not None else NOT_GIVEN
+        frequency_penalty=_opt(frequency_penalty),
+        logit_bias=_opt(logit_bias),
+        logprobs=_opt(logprobs),
+        top_logprobs=_opt(top_logprobs),
+        max_tokens=_opt(max_tokens),
+        n=_opt(n),
+        presence_penalty=_opt(presence_penalty),
+        response_format=_opt(response_format),
+        seed=_opt(seed),
+        stop=_opt(stop),
+        temperature=_opt(temperature),
+        top_p=_opt(top_p),
+        tools=_opt(tools),
+        tool_choice=_opt(tool_choice),
+        user=_opt(user)
     )
     return result.dict()
 
@@ -93,7 +92,7 @@ def embeddings(
     result = env.Env().get().openai_client.embeddings.create(
         input=input,
         model=model,
-        user=user if user is not None else NOT_GIVEN,
+        user=_opt(user),
         encoding_format='float'
     )
     embeddings = [
@@ -111,7 +110,7 @@ def moderations(
 ) -> dict:
     result = env.Env().get().openai_client.moderations.create(
         input=input,
-        model=model if model is not None else NOT_GIVEN
+        model=_opt(model)
     )
     return result.dict()
 
@@ -136,8 +135,10 @@ def image_generations(
         response_format="b64_json"
     )
     b64_str = result.data[0].b64_json
-    b64_bytes = b64_str.encode('utf-8')
-    return PIL.Image.open(io.BytesIO(b64_bytes))
+    b64_bytes = base64.b64decode(b64_str)
+    img = PIL.Image.open(io.BytesIO(b64_bytes))
+    img.load()
+    return img
 
 
 _T = TypeVar('_T')
