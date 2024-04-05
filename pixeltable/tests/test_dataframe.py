@@ -7,7 +7,6 @@ import bs4
 import numpy as np
 import pytest
 import requests
-from pycocotools.coco import COCO
 
 import pixeltable as pxt
 from pixeltable import catalog
@@ -208,6 +207,7 @@ class TestDataFrame:
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table):
         """ tests all types are handled correctly in this conversion
         """
+        skip_test_if_not_installed('torch')
         import torch
 
         t = all_datatypes_tbl
@@ -238,6 +238,7 @@ class TestDataFrame:
     def test_to_pytorch_image_format(self, all_datatypes_tbl: catalog.Table) -> None:
         """ tests the image_format parameter is honored
         """
+        skip_test_if_not_installed('torch')
         import torch
         import torchvision.transforms as T
 
@@ -295,6 +296,7 @@ class TestDataFrame:
             1. compatibility with multiprocessing
             2. compatibility of all types with default collate_fn
         """
+        skip_test_if_not_installed('torch')
         import torch.utils.data
         @pxt.udf(param_types=[pxt.JsonType()], return_type=pxt.JsonType())
         def restrict_json_for_default_collate(obj):
@@ -352,6 +354,7 @@ class TestDataFrame:
             2. adding a row to the table invalidates the cached version
             3. changing the select list invalidates the cached version
         """
+        skip_test_if_not_installed('torch')
         t = all_datatypes_tbl
 
         t.drop_column('c_video') # null value video column triggers internal assertions in DataRow
@@ -383,6 +386,7 @@ class TestDataFrame:
 
     def test_to_coco(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('nos')
+        from pycocotools.coco import COCO
         cl = test_client
         base_t = cl.create_table('videos', {'video': pxt.VideoType()})
         args = {'video': base_t.video, 'fps': 1}

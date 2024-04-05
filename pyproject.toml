@@ -17,7 +17,7 @@ exclude = [
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
-numpy = "^1.24.1"
+numpy = "^1.26"
 pandas = ">=2.0,<3.0"
 pillow = "^9.4.0"
 opencv-python-headless = "^4.7.0.68"
@@ -31,6 +31,8 @@ sqlalchemy = {extras = ["mypy"], version = "^2.0.23"}
 sqlalchemy-utils = "^0.41.1"
 pgvector = "^0.2.1"
 av = ">=10.0.0"
+beautifulsoup4 = "^4.0.0"
+requests = "^2.31.0"
 pyyaml = "^6.0.1"
 jinja2 = "^3.1.3"
 pgserver = "0.0.7"
@@ -61,8 +63,6 @@ mkdocs-jupyter = "^0.24"
 pycocotools = "^2.0.7"
 ipykernel = "^6.27.1"
 nbmake = "^1.4.6"
-bs4 = "^0.0.2"
-requests = "^2.31.0"
 # packages required by various optional pieces of the codebase
 torch = "^2.2"
 torchvision = "^0.17"
@@ -74,7 +74,6 @@ boto3 = "^1.17"
 spacy = "^3.0"
 en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
 tiktoken = ">=0.3"
-beautifulsoup4 = "^4.0.0"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 
