@@ -50,7 +50,7 @@ jobs:
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}
-        run:
+        run: |
           pip install --upgrade pip
           pip install pytest coverage
           pip list
