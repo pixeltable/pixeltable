@@ -8,6 +8,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.iterators.document import DocumentSplitter
 from pixeltable.tests.utils import get_documents, get_video_files, get_audio_files, get_image_files
+from pixeltable.tests.utils import skip_test_if_not_installed
 from pixeltable.type_system import DocumentType
 
 
@@ -34,6 +35,7 @@ class TestDocument:
         assert status.num_excs == len(file_paths)
 
     def test_doc_splitter(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('tiktoken')
         file_paths = self.valid_doc_paths()
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})
@@ -88,6 +90,7 @@ class TestDocument:
                     cl.drop_table('chunks')
 
     def test_doc_splitter_headings(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('spacy')
         file_paths = self.valid_doc_paths()
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})

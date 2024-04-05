@@ -509,20 +509,6 @@ urllib3 = [
 crt = ["awscrt (==0.19.19)"]
 
 [[package]]
-name = "bs4"
-version = "0.0.2"
-description = "Dummy package for Beautiful Soup (beautifulsoup4)"
-optional = false
-python-versions = "*"
-files = [
-    {file = "bs4-0.0.2-py2.py3-none-any.whl", hash = "sha256:abf8742c0805ef7f662dce4b51cca104cffe52b835238afc169142ab9b3fbccc"},
-    {file = "bs4-0.0.2.tar.gz", hash = "sha256:a48685c58f50fe127722417bae83fe6badf500d54b55f7e39ffe43b798653925"},
-]
-
-[package.dependencies]
-beautifulsoup4 = "*"
-
-[[package]]
 name = "catalogue"
 version = "2.0.10"
 description = "Super lightweight function registries for your library"
@@ -6369,4 +6355,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "4b008856e654292c8ed9a7c7d336ce8d18ed650326f3840c8a9024c3197a949c"
+content-hash = "758f625dfa643adf06ee4dcda11e86afd3b93f466a69db2760da5aaa8ce279fe"
