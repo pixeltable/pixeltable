@@ -44,12 +44,13 @@ jobs:
           # - poetry.lock and related .toml files (so that if the dependencies
           #   or poetry config change, the cache will be invalidated)
           path: ./.venv
-          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
+          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
       - name: Install the project dependencies
         run: poetry install ${{ matrix.poetry-options }}
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
-        run: pip install pytest
+        if: ${{ matrix.poetry-options == "" }}
+        run: pip install pytest coverage
       - name: Run the unit tests
         run: poetry run coverage run -m --source=pixeltable pytest -v
         env:
