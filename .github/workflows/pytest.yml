@@ -51,9 +51,8 @@ jobs:
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}
         run: |
-          pip install --upgrade pip
-          pip install pytest coverage
-          pip list
+          poetry run pip install pytest coverage
+          poetry run pip list
       - name: Run the unit tests
         run: poetry run coverage run -m --source=pixeltable pytest -v
         env:
