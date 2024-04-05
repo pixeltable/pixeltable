@@ -49,7 +49,7 @@ jobs:
         run: poetry install ${{ matrix.poetry-options }}
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
-        if: ${{ matrix.poetry-options == "" }}
+        if: ${{ matrix.poetry-options == '' }}
         run: pip install pytest coverage
       - name: Run the unit tests
         run: poetry run coverage run -m --source=pixeltable pytest -v
