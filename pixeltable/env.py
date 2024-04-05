@@ -257,16 +257,17 @@ class Env:
         _ = create_nos_modules()
 
     def _create_openai_client(self) -> None:
+        if not self.is_installed_package('openai'):
+            raise excs.Error('OpenAI client not initialized (cannot find package `openai`: `pip install openai`?)')
+        import openai
         if 'openai' in self._config and 'api_key' in self._config['openai']:
             api_key = self._config['openai']['api_key']
         else:
             api_key = os.environ.get('OPENAI_API_KEY')
         if api_key is None or api_key == '':
-            self._logger.info("OpenAI client not initialized (no API key configured).")
-            return
-        import openai
-        self._logger.info('Initializing OpenAI client.')
+            raise excs.Error('OpenAI client not initialized (no API key configured).')
         self._openai_client = openai.OpenAI(api_key=api_key)
+        self._logger.info('Initialized OpenAI client.')
 
     def _create_together_client(self) -> None:
         if 'together' in self._config and 'api_key' in self._config['together']:
@@ -330,8 +331,6 @@ class Env:
             self._spacy_nlp = spacy.load('en_core_web_sm')
         check('tiktoken')
         check('openai')
-        if self.is_installed_package('openai'):
-            self._create_openai_client()
         check('together')
         if self.is_installed_package('together'):
             self._create_together_client()
@@ -401,7 +400,10 @@ class Env:
         return self._nos_client
 
     @property
-    def openai_client(self) -> Optional['openai.OpenAI']:
+    def openai_client(self) -> 'openai.OpenAI':
+        if self._openai_client is None:
+            self._create_openai_client()
+        assert self._openai_client is not None
         return self._openai_client
 
     @property
