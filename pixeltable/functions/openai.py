@@ -120,6 +120,7 @@ def image_generations(
         prompt: str,
         *,
         model: Optional[str] = None,
+        n: Optional[int] = None,
         quality: Optional[str] = None,
         size: Optional[str] = None,
         style: Optional[str] = None,
@@ -128,6 +129,7 @@ def image_generations(
     result = env.Env.get().openai_client.images.generate(
         prompt=prompt,
         model=_opt(model),
+        n=_opt(n),
         quality=_opt(quality),
         size=_opt(size),
         style=_opt(style),

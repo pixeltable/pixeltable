@@ -264,6 +264,7 @@ def get_sentences(n: int = 100) -> List[str]:
     # this dataset contains \' around the questions
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
+
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
     assert len(r1.column_names()) == len(r2.column_names())  # we don't care about the actual column names
@@ -278,6 +279,11 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
         else:
             assert s1.equals(s2)
 
+
 def skip_test_if_not_installed(package) -> None:
     if not Env.get().is_installed_package(package):
         pytest.skip(f'Package `{package}` is not installed.')
+
+
+SAMPLE_IMAGE_URL = \
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'

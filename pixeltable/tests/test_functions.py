@@ -5,10 +5,10 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable.env import Env
-import pixeltable.exceptions as excs
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed, get_sentences, get_image_files
+from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed, get_sentences, get_image_files, \
+    SAMPLE_IMAGE_URL
 from pixeltable.type_system import VideoType, StringType, JsonType, ImageType, BoolType, FloatType, ArrayType
 
 
@@ -64,55 +64,6 @@ class TestFunctions:
         assert status.num_excs == 0
         row = t.head()[0]
         assert row == {'input': 'MNO', 's1': 'ABC MNO', 's2': 'DEF MNO', 's3': 'GHI MNO JKL MNO'}
-
-    def test_openai(self, test_client: pxt.Client) -> None:
-        skip_test_if_not_installed('openai')
-        TestFunctions.skip_test_if_no_openai_client()
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.openai import chat_completions, embeddings, moderations
-        msgs = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": t.input}
-        ]
-        t.add_column(input_msgs=msgs)
-        t.add_column(chat_output=chat_completions(model='gpt-3.5-turbo', messages=t.input_msgs))
-        # with inlined messages
-        t.add_column(chat_output2=chat_completions(model='gpt-3.5-turbo', messages=msgs))
-        t.add_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
-        t.add_column(text_3=embeddings(model='text-embedding-3-small', input=t.input))
-        t.add_column(moderation=moderations(input=t.input))
-        t.insert(input='I find you really annoying')
-        _ = t.head()
-
-    def test_gpt_4_vision(self, test_client: pxt.Client) -> None:
-        skip_test_if_not_installed('openai')
-        TestFunctions.skip_test_if_no_openai_client()
-        cl = test_client
-        t = cl.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
-        from pixeltable.functions.openai import chat_completions
-        from pixeltable.functions.string import str_format
-        msgs = [
-            {'role': 'user',
-             'content': [
-                 {'type': 'text', 'text': t.prompt},
-                 {'type': 'image_url', 'image_url': {
-                     'url': str_format('data:image/png;base64,{0}', t.img.b64_encode())
-                 }}
-             ]}
-        ]
-        t.add_column(response=chat_completions(model='gpt-4-vision-preview', messages=msgs, max_tokens=300))
-        t.add_column(response_content=t.response.choices[0].message.content)
-        t.insert(prompt="What's in this image?", img=_sample_image_url)
-        result = t.collect()['response_content'][0]
-        assert len(result) > 0
-
-    @staticmethod
-    def skip_test_if_no_openai_client() -> None:
-        try:
-            _ = Env.get().openai_client
-        except excs.Error as exc:
-            pytest.skip(str(exc))
 
     def test_together(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('together')
@@ -281,14 +232,10 @@ class TestFunctions:
         t = cl.create_table('test_tbl', {'img': ImageType()})
         from pixeltable.functions.huggingface import detr_for_object_detection
         t['detect'] = detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
-        status = t.insert(img=_sample_image_url)
+        status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
         assert status.num_excs == 0
         result = t.select(t.detect).collect()[0]['detect']
         assert 'orange' in result['label_text']
         assert 'bowl' in result['label_text']
         assert 'broccoli' in result['label_text']
-
-
-_sample_image_url = \
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
