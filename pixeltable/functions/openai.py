@@ -1,5 +1,8 @@
 import base64
 import io
+import os
+import pathlib
+import uuid
 from typing import Optional, TypeVar, Union
 
 import PIL.Image
@@ -11,6 +14,77 @@ import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
 
+
+#####################################
+# Audio Endpoints
+
+@pxt.udf(return_type=ts.AudioType())
+def speech(
+        input: str,
+        *,
+        model: str,
+        voice: str,
+        response_format: Optional[str] = None,
+        speed: Optional[float] = None
+) -> str:
+    content = env.Env.get().openai_client.audio.speech.create(
+        input=input,
+        model=model,
+        voice=voice,
+        response_format=_opt(response_format),
+        speed=_opt(speed)
+    )
+    ext = response_format or 'mp3'
+    output_filename = str(env.Env.get().tmp_dir / f"{uuid.uuid4()}.{ext}")
+    content.stream_to_file(output_filename, chunk_size=1 << 20)
+    return output_filename
+
+
+@pxt.udf(
+    param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True),
+                 ts.StringType(nullable=True), ts.FloatType(nullable=True)]
+)
+def transcriptions(
+        audio: str,
+        *,
+        model: str,
+        language: Optional[str] = None,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None
+) -> dict:
+    file = pathlib.Path(audio)
+    transcription = env.Env.get().openai_client.audio.transcriptions.create(
+        file=file,
+        model=model,
+        language=_opt(language),
+        prompt=_opt(prompt),
+        temperature=_opt(temperature)
+    )
+    return transcription.dict()
+
+
+@pxt.udf(
+    param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True), ts.FloatType(nullable=True)]
+)
+def translations(
+        audio: str,
+        *,
+        model: str,
+        prompt: Optional[str] = None,
+        temperature: Optional[float] = None
+) -> dict:
+    file = pathlib.Path(audio)
+    translation = env.Env.get().openai_client.audio.translations.create(
+        file=file,
+        model=model,
+        prompt=_opt(prompt),
+        temperature=_opt(temperature)
+    )
+    return translation.dict()
+
+
+#####################################
+# Chat Endpoints
 
 @pxt.udf
 def chat_completions(
@@ -82,6 +156,9 @@ def vision(
     return result.choices[0].message.content
 
 
+#####################################
+# Embeddings Endpoints
+
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
 def embeddings(
         input: Batch[str],
@@ -102,25 +179,14 @@ def embeddings(
     return embeddings
 
 
-@pxt.udf
-def moderations(
-        input: str,
-        *,
-        model: Optional[str] = None
-) -> dict:
-    result = env.Env().get().openai_client.moderations.create(
-        input=input,
-        model=_opt(model)
-    )
-    return result.dict()
-
+#####################################
+# Images Endpoints
 
 @pxt.udf
 def image_generations(
         prompt: str,
         *,
         model: Optional[str] = None,
-        n: Optional[int] = None,
         quality: Optional[str] = None,
         size: Optional[str] = None,
         style: Optional[str] = None,
@@ -129,7 +195,6 @@ def image_generations(
     result = env.Env.get().openai_client.images.generate(
         prompt=prompt,
         model=_opt(model),
-        n=_opt(n),
         quality=_opt(quality),
         size=_opt(size),
         style=_opt(style),
@@ -141,6 +206,22 @@ def image_generations(
     img = PIL.Image.open(io.BytesIO(b64_bytes))
     img.load()
     return img
+
+
+#####################################
+# Moderations Endpoints
+
+@pxt.udf
+def moderations(
+        input: str,
+        *,
+        model: Optional[str] = None
+) -> dict:
+    result = env.Env().get().openai_client.moderations.create(
+        input=input,
+        model=_opt(model)
+    )
+    return result.dict()
 
 
 _T = TypeVar('_T')

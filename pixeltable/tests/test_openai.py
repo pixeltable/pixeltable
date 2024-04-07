@@ -1,6 +1,3 @@
-from typing import cast
-
-import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -11,6 +8,32 @@ from pixeltable.type_system import StringType, ImageType
 
 
 class TestOpenai:
+
+    def test_audio(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        cl = test_client
+        t = cl.create_table('test_tbl', {'input': StringType()})
+        from pixeltable.functions.openai import speech, transcriptions, translations
+        t.add_column(speech=speech(t.input, model='tts-1', voice='onyx'))
+        t.add_column(speech_2=speech(t.input, model='tts-1', voice='onyx', response_format='flac', speed=1.05))
+        t.add_column(transcription=transcriptions(t.speech, model='whisper-1'))
+        t.add_column(transcription_2=transcriptions(
+            t.speech, model='whisper-1', language='en', prompt='Transcribe the contents of this recording.'
+        ))
+        t.add_column(translation=translations(t.speech, model='whisper-1'))
+        t.add_column(translation_2=translations(
+            t.speech, model='whisper-1', prompt='Translate the recording from Spanish into English.', temperature=0.7
+        ))
+        t.insert(input='I am a banana.')
+        t.insert(input='Es fácil traducir del español al inglés.')
+        # The audio generation -> transcription loop on these examples should be simple and clear enough
+        # that the unit test can reliably expect the output closely enough to pass these checks.
+        results = t.collect()
+        assert results[0]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
+        assert results[0]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
+        assert 'easy to translate from Spanish' in results[1]['translation']['text']
+        assert 'easy to translate from Spanish' in results[1]['translation_2']['text']
 
     def test_chat_completions(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openai')
@@ -45,7 +68,7 @@ class TestOpenai:
         assert len(result['chat_output_4'][0]) > 0
 
         # TODO This should probably not be throwing an exception, but rather logging the error in
-        # the Pixeltable virtual columns for error records.
+        # `t.chat_output_4.errormsg` etc.
         with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
