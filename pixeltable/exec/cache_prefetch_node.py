@@ -83,7 +83,7 @@ class CachePrefetchNode(ExecNode):
         """Fetches a remote URL into Env.tmp_dir and returns its path"""
         url = row.file_urls[slot_idx]
         parsed = urllib.parse.urlparse(url)
-        assert parsed.scheme != '' and parsed.scheme != 'file'
+        assert len(parsed.scheme) > 1 and parsed.scheme != 'file'
         # preserve the file extension, if there is one
         extension = ''
         if parsed.path != '':
@@ -97,7 +97,6 @@ class CachePrefetchNode(ExecNode):
                     if self.boto_client is None:
                         self.boto_client = get_client()
                     self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
-                    return tmp_path
             elif parsed.scheme == 'http' or parsed.scheme == 'https':
                 with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
                     data = resp.read()

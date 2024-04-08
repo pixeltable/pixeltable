@@ -106,6 +106,7 @@ class DataRow:
             assert self.file_paths[index] is not None
             if self.vals[index] is None:
                 self.vals[index] = PIL.Image.open(self.file_paths[index])
+                self.vals[index].load()
 
         return self.vals[index]
 
