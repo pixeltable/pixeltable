@@ -83,6 +83,8 @@ class CachePrefetchNode(ExecNode):
         """Fetches a remote URL into Env.tmp_dir and returns its path"""
         url = row.file_urls[slot_idx]
         parsed = urllib.parse.urlparse(url)
+        # Use len(parsed.scheme) > 1 here to ensure we're not being passed
+        # a Windows filename
         assert len(parsed.scheme) > 1 and parsed.scheme != 'file'
         # preserve the file extension, if there is one
         extension = ''

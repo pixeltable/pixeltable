@@ -225,7 +225,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[List[
         df[col_name] = df.apply(lambda r: str(abs_path / r[col_name]), axis=1)
     return df.to_dict(orient='records')
 
-def get_video_files(include_bad_video=False) -> List[str]:
+def get_video_files(include_bad_video: bool = False) -> List[str]:
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/videos/*', recursive=True)
     if not include_bad_video:
@@ -239,14 +239,14 @@ def get_test_video_files() -> List[str]:
     glob_result = glob.glob(f'{tests_dir}/**/test_videos/*', recursive=True)
     return glob_result
 
-def get_image_files(include_bad_image=False) -> List[str]:
+def get_image_files(include_bad_image: bool = False) -> List[str]:
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
     if not include_bad_image:
         glob_result = [f for f in glob_result if 'bad_image' not in f]
     return glob_result
 
-def get_audio_files(include_bad_audio=False) -> List[str]:
+def get_audio_files(include_bad_audio: bool = False) -> List[str]:
     tests_dir = os.path.dirname(__file__)
     glob_result = glob.glob(f'{tests_dir}/**/audio/*', recursive=True)
     if not include_bad_audio:

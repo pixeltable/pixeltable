@@ -183,6 +183,7 @@ class TestDataFrame:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[res.column_names()[0]] == [1.0] * 10
 
+    # TODO This test doesn't work on Windows due to reliance on the structure of file URLs
     @pytest.mark.skip('Test is not portable')
     def test_html_media_url(self, test_client: pxt.Client) -> None:
         tab = test_client.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType()})
