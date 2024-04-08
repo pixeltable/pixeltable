@@ -3,8 +3,10 @@ from typing import Dict, Any
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions.together
 from pixeltable import catalog
 from pixeltable.env import Env
+import pixeltable.exceptions as excs
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
 from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed, get_sentences, get_image_files, \
@@ -67,16 +69,22 @@ class TestFunctions:
 
     def test_together(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('together')
-        if not Env.get().has_together_client:
-            pytest.skip(f'Together client does not exist (missing API key?)')
+        TestFunctions.skip_test_if_no_together_client()
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.together import completions
         t.add_column(output=completions(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
-        t.add_column(output_text=t.output.output.choices[0].text)
+        t.add_column(output_text=t.output.choices[0].text)
         t.insert(input='I am going to the ')
         result = t.select(t.output_text).collect()['output_text'][0]
         assert len(result) > 0
+
+    @staticmethod
+    def skip_test_if_no_together_client() -> None:
+        try:
+            _ = pixeltable.functions.together.together_client()
+        except excs.Error as exc:
+            pytest.skip(str(exc))
 
     def test_fireworks(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('fireworks')

@@ -1,33 +1,28 @@
 from __future__ import annotations
+
 import datetime
-import os
-from typing import Optional, Dict, Any, List
-from pathlib import Path
-import sqlalchemy as sql
-import uuid
+import glob
+import http.server
 import importlib
 import importlib.util
-
-import http.server
+import logging
+import os
 import socketserver
+import sys
 import threading
 import typing
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Callable, Optional, Dict, Any, List
 
+import pgserver
+import sqlalchemy as sql
 import yaml
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
-import pgserver
-import logging
-import sys
-import glob
 
-from pixeltable import metadata
 import pixeltable.exceptions as excs
+from pixeltable import metadata
 
-if typing.TYPE_CHECKING:
-    import openai
 
 class Env:
     """
@@ -59,11 +54,11 @@ class Env:
         # package name -> version; version == []: package is installed, but we haven't determined the version yet
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
         self._nos_client: Optional[Any] = None
-        self._openai_client: Optional['openai.OpenAI'] = None
-        self._has_together_client: bool = False
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
         self._httpd: Optional[socketserver.TCPServer] = None
         self._http_address: Optional[str] = None
+
+        self._registered_clients: dict[str, Any] = {}
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -256,31 +251,32 @@ class Env:
         from pixeltable.functions.util import create_nos_modules
         _ = create_nos_modules()
 
-    def _create_openai_client(self) -> None:
-        if not self.is_installed_package('openai'):
-            raise excs.Error('OpenAI client not initialized (cannot find package `openai`: `pip install openai`?)')
-        import openai
-        if 'openai' in self._config and 'api_key' in self._config['openai']:
-            api_key = self._config['openai']['api_key']
-        else:
-            api_key = os.environ.get('OPENAI_API_KEY')
-        if api_key is None or api_key == '':
-            raise excs.Error('OpenAI client not initialized (no API key configured).')
-        self._openai_client = openai.OpenAI(api_key=api_key)
-        self._logger.info('Initialized OpenAI client.')
+    def get_client(self, name: str, init: Callable, environ: Optional[str] = None) -> Any:
+        """
+        Instantiates a client with the specified name.
 
-    def _create_together_client(self) -> None:
-        if 'together' in self._config and 'api_key' in self._config['together']:
-            api_key = self._config['together']['api_key']
+        - name: The name of the client
+        - init: A `Callable` with signature `fn(api_key: str) -> Any` that constructs a client object
+        - environ: The name of the environment variable to use for the API key, if no API key is found in config
+            (defaults to f'{name.upper()}_API_KEY')
+        """
+        if name in self._registered_clients:
+            return self._registered_clients[name]
+
+        if environ is None:
+            environ = f'{name.upper()}_API_KEY'
+
+        if name in self._config and 'api_key' in self._config[name]:
+            api_key = self._config[name]['api_key']
         else:
-            api_key = os.environ.get('TOGETHER_API_KEY')
+            api_key = os.environ.get(environ)
         if api_key is None or api_key == '':
-            self._logger.info('Together client not initialized (no API key configured).')
-            return
-        import together
-        self._logger.info('Initializing Together client.')
-        together.api_key = api_key
-        self._has_together_client = True
+            raise excs.Error(f'`{name}` client not initialized (no API key configured).')
+
+        client = init(api_key)
+        self._registered_clients[name] = client
+        self._logger.info(f'Initialized `{name}` client.')
+        return client
 
     def _start_web_server(self) -> None:
         """
@@ -332,8 +328,6 @@ class Env:
         check('tiktoken')
         check('openai')
         check('together')
-        if self.is_installed_package('together'):
-            self._create_together_client()
         check('fireworks')
         check('nos')
         if self.is_installed_package('nos'):
@@ -398,17 +392,6 @@ class Env:
     @property
     def nos_client(self) -> Any:
         return self._nos_client
-
-    @property
-    def openai_client(self) -> 'openai.OpenAI':
-        if self._openai_client is None:
-            self._create_openai_client()
-        assert self._openai_client is not None
-        return self._openai_client
-
-    @property
-    def has_together_client(self) -> bool:
-        return self._has_together_client
 
     @property
     def spacy_nlp(self) -> Any:

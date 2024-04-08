@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.env import Env
+import pixeltable.functions.openai
 from pixeltable.tests.utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed
 from pixeltable.type_system import StringType, ImageType
 
@@ -141,6 +141,7 @@ class TestOpenai:
     @staticmethod
     def skip_test_if_no_openai_client() -> None:
         try:
-            _ = Env.get().openai_client
+            import pixeltable.functions.openai
+            _ = pixeltable.functions.openai.openai_client()
         except excs.Error as exc:
             pytest.skip(str(exc))

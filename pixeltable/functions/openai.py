@@ -16,6 +16,10 @@ from pixeltable import env
 from pixeltable.func import Batch
 
 
+def openai_client() -> openai.OpenAI:
+    return env.Env.get().get_client('openai', lambda api_key: openai.OpenAI(api_key=api_key))
+
+
 # Exponential backoff decorator using tenacity.
 # TODO(aaron-siegel): Right now this hardwires random exponential backoff with defaults suggested
 # by OpenAI. Should we investigate making this more customizable in the future?
@@ -40,7 +44,7 @@ def speech(
         response_format: Optional[str] = None,
         speed: Optional[float] = None
 ) -> str:
-    content = env.Env.get().openai_client.audio.speech.create(
+    content = openai_client().audio.speech.create(
         input=input,
         model=model,
         voice=voice,
@@ -67,7 +71,7 @@ def transcriptions(
         temperature: Optional[float] = None
 ) -> dict:
     file = pathlib.Path(audio)
-    transcription = env.Env.get().openai_client.audio.transcriptions.create(
+    transcription = openai_client().audio.transcriptions.create(
         file=file,
         model=model,
         language=_opt(language),
@@ -89,7 +93,7 @@ def translations(
         temperature: Optional[float] = None
 ) -> dict:
     file = pathlib.Path(audio)
-    translation = env.Env.get().openai_client.audio.translations.create(
+    translation = openai_client().audio.translations.create(
         file=file,
         model=model,
         prompt=_opt(prompt),
@@ -123,7 +127,7 @@ def chat_completions(
         tool_choice: Optional[dict] = None,
         user: Optional[str] = None
 ) -> dict:
-    result = env.Env.get().openai_client.chat.completions.create(
+    result = openai_client().chat.completions.create(
         messages=messages,
         model=model,
         frequency_penalty=_opt(frequency_penalty),
@@ -166,7 +170,7 @@ def vision(
              }}
          ]}
     ]
-    result = env.Env.get().openai_client.chat.completions.create(
+    result = openai_client().chat.completions.create(
         messages=messages,
         model=model
     )
@@ -184,7 +188,7 @@ def embeddings(
         model: str,
         user: Optional[str] = None
 ) -> Batch[np.ndarray]:
-    result = env.Env().get().openai_client.embeddings.create(
+    result = openai_client().embeddings.create(
         input=input,
         model=model,
         user=_opt(user),
@@ -211,7 +215,7 @@ def image_generations(
         style: Optional[str] = None,
         user: Optional[str] = None
 ) -> PIL.Image.Image:
-    result = env.Env.get().openai_client.images.generate(
+    result = openai_client().images.generate(
         prompt=prompt,
         model=_opt(model),
         quality=_opt(quality),
@@ -237,7 +241,7 @@ def moderations(
         *,
         model: Optional[str] = None
 ) -> dict:
-    result = env.Env().get().openai_client.moderations.create(
+    result = openai_client().moderations.create(
         input=input,
         model=_opt(model)
     )
