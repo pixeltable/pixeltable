@@ -1,5 +1,6 @@
 import json
 import urllib.parse
+import urllib.request
 from typing import List, Dict
 
 import pytest
@@ -174,7 +175,7 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).show(0).to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        all_urls  = set([urllib.parse.urljoin('file:', path) for path in get_image_files()])
+        all_urls = set(urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files())
         assert stored_urls <= all_urls
 
         # localpath
