@@ -127,7 +127,7 @@ class TestOpenai:
         t.add_column(img=image_generations(t.input))
         # Test dall-e-2 options
         t.add_column(img_2=image_generations(
-            t.input, model='dall-e-2', n=3, size='512x512', user='pixeltable'
+            t.input, model='dall-e-2', size='512x512', user='pixeltable'
         ))
         # Test dall-e-3 options
         t.add_column(img_3=image_generations(

@@ -1,12 +1,13 @@
 import base64
 import io
-import os
 import pathlib
 import uuid
-from typing import Optional, TypeVar, Union
+from typing import Optional, TypeVar, Union, Callable
 
 import PIL.Image
 import numpy as np
+import openai
+import tenacity
 from openai._types import NOT_GIVEN, NotGiven
 
 import pixeltable as pxt
@@ -15,10 +16,22 @@ from pixeltable import env
 from pixeltable.func import Batch
 
 
+# Exponential backoff decorator using tenacity.
+# TODO(aaron-siegel): Right now this hardwires random exponential backoff with defaults suggested
+# by OpenAI. Should we investigate making this more customizable in the future?
+def _retry(fn: Callable) -> Callable:
+    return tenacity.retry(
+        retry=tenacity.retry_if_exception_type(openai.RateLimitError),
+        wait=tenacity.wait_random_exponential(min=1, max=60),
+        stop=tenacity.stop_after_attempt(6)
+    )(fn)
+
+
 #####################################
 # Audio Endpoints
 
 @pxt.udf(return_type=ts.AudioType())
+@_retry
 def speech(
         input: str,
         *,
@@ -44,6 +57,7 @@ def speech(
     param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True),
                  ts.StringType(nullable=True), ts.FloatType(nullable=True)]
 )
+@_retry
 def transcriptions(
         audio: str,
         *,
@@ -66,6 +80,7 @@ def transcriptions(
 @pxt.udf(
     param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True), ts.FloatType(nullable=True)]
 )
+@_retry
 def translations(
         audio: str,
         *,
@@ -87,6 +102,7 @@ def translations(
 # Chat Endpoints
 
 @pxt.udf
+@_retry
 def chat_completions(
         messages: list,
         *,
@@ -130,6 +146,7 @@ def chat_completions(
 
 
 @pxt.udf
+@_retry
 def vision(
         prompt: str,
         image: PIL.Image.Image,
@@ -160,6 +177,7 @@ def vision(
 # Embeddings Endpoints
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
+@_retry
 def embeddings(
         input: Batch[str],
         *,
@@ -183,6 +201,7 @@ def embeddings(
 # Images Endpoints
 
 @pxt.udf
+@_retry
 def image_generations(
         prompt: str,
         *,
@@ -212,6 +231,7 @@ def image_generations(
 # Moderations Endpoints
 
 @pxt.udf
+@_retry
 def moderations(
         input: str,
         *,
