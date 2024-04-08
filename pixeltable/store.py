@@ -123,10 +123,10 @@ class StoreBase:
         if file_url is None:
             return None
         parsed = urllib.parse.urlparse(file_url)
-        # Determine if this is a local file or a remote URL. If the scheme length is <= 1,
-        # we assume it's a local file. (This is because a Windows path will be interpreted
-        # by urllib as a URL with scheme equal to the drive letter.)
-        if len(parsed.scheme) > 1 and parsed.scheme != 'file':
+        # We should never be passed a local file path here. The "len > 1" ensures that Windows
+        # file paths aren't mistaken for URLs with a single-character scheme.
+        assert len(parsed.scheme) > 1
+        if parsed.scheme != 'file':
             # remote url
             return file_url
         file_path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))

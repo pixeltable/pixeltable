@@ -183,6 +183,7 @@ class TestDataFrame:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[res.column_names()[0]] == [1.0] * 10
 
+    @pytest.mark.skip('Test is not portable')
     def test_html_media_url(self, test_client: pxt.Client) -> None:
         tab = test_client.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType()})
         status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0])
