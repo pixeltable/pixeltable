@@ -1,24 +1,26 @@
 from __future__ import annotations
 
+import abc
+import logging
 import os
 import sys
+import urllib.parse
+import urllib.request
 import warnings
 from typing import Optional, Dict, Any, List, Tuple, Set
-import logging
-import urllib
+
 import sqlalchemy as sql
 from tqdm import tqdm, TqdmWarning
-import abc
 
 import pixeltable.catalog as catalog
+import pixeltable.env as env
+from pixeltable import exprs
+import pixeltable.exceptions as excs
+from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
 from pixeltable.type_system import StringType
-from pixeltable.exec import ExecNode
-from pixeltable import exprs
-from pixeltable.utils.sql import log_stmt, log_explain
-import pixeltable.env as env
 from pixeltable.utils.media_store import MediaStore
-
+from pixeltable.utils.sql import log_stmt, log_explain
 
 _logger = logging.getLogger('pixeltable')
 
@@ -121,7 +123,10 @@ class StoreBase:
         if file_url is None:
             return None
         parsed = urllib.parse.urlparse(file_url)
-        if parsed.scheme != '' and parsed.scheme != 'file':
+        # Determine if this is a local file or a remote URL. If the scheme length is <= 1,
+        # we assume it's a local file. (This is because a Windows path will be interpreted
+        # by urllib as a URL with scheme equal to the drive letter.)
+        if len(parsed.scheme) > 1 and parsed.scheme != 'file':
             # remote url
             return file_url
         file_path = urllib.parse.unquote(parsed.path)

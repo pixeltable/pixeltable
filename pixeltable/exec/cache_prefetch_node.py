@@ -1,19 +1,21 @@
 from __future__ import annotations
-from typing import List, Optional, Any, Tuple, Dict
-import threading
-from collections import defaultdict
-from uuid import UUID
-import concurrent
-import logging
-import urllib
-from pathlib import Path
 
-from .data_row_batch import DataRowBatch
-from .exec_node import ExecNode
-import pixeltable.exprs as exprs
-from pixeltable.utils.filecache import FileCache
+import concurrent.futures
+import logging
+import threading
+import urllib.parse
+import urllib.request
+from collections import defaultdict
+from pathlib import Path
+from typing import List, Optional, Any, Tuple, Dict
+from uuid import UUID
+
 import pixeltable.env as env
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
+from pixeltable.utils.filecache import FileCache
+from .data_row_batch import DataRowBatch
+from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
 
