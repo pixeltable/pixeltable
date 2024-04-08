@@ -1,30 +1,30 @@
+<div align="center">
 <img src="docs/pixeltable-banner.png" width="45%"/>
 
-# Pixeltable: The Multimodal AI Data Plane
+# The Multimodal AI Data Plane
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 &nbsp;&nbsp;
 ![pytest status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)
 
-Pixeltable is a Python library that lets AI engineers and data scientists focus on
-exploration, modeling, and app development without having to deal with the customary
-data plumbing.
+[Installation](https://pixeltable.github.io/pixeltable/getting-started/) | [Documentation](https://pixeltable.github.io/pixeltable/)
+</div>
 
 **Pixeltable redefines data infrastructure and workflow orchestration for AI development.**
-It brings together data storage, versioning, and indexing with orchestration and model
-versioning under a declarative table interface, with transformations, model inference,
-and custom logic represented as computed columns.
+It brings together data storage, versioning, and indexing with orchestration and model versioning under a declarative table interface, with transformations, model inference, and custom logic represented as computed columns.
 
-## Quick Start
+## ⚡Quick Start
+Learn the basics of Pixeltable through interactive examples. View the notebooks on Google Colab or Kaggle, for free.
 
-If you just want to play around with Pixeltable to see what it's capable of, the easiest way is to run
-the Pixeltable Basics tutorial in colab:
+### Pixeltable Basics
+In this tutorial, we'll survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations!
 
 <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/tutorials/pixeltable-basics.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
-## Installation
+## 💾 Installation
+Pixeltable is a Python library that lets AI engineers and data scientists focus on exploration, modeling, and app development without having to deal with the customary data plumbing.
 
 Pixeltable works with Python 3.9, 3.10, or 3.11 running on Linux or MacOS.
 
@@ -85,3 +85,7 @@ storage.
 get cost projections before adding new data and new augmentations.
 * Rely on Pixeltable's automatic versioning and snapshot functionality to protect against regressions
 and to ensure reproducibility.
+
+## :classical_building: License
+
+This library is licensed under the Apache 2.0 License.
