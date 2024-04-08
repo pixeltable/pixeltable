@@ -129,7 +129,7 @@ class StoreBase:
         if len(parsed.scheme) > 1 and parsed.scheme != 'file':
             # remote url
             return file_url
-        file_path = urllib.parse.unquote(parsed.path)
+        file_path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
         if not file_path.startswith(pxt_tmp_dir):
             # not a tmp file
             return file_url

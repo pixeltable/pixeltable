@@ -146,7 +146,7 @@ class DataRow:
                 # local file path
                 assert self.file_urls[idx] is None and self.file_paths[idx] is None
                 if len(parsed.scheme) <= 1:
-                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(parsed.path))
+                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(val))
                     self.file_paths[idx] = val
                 else:
                     self.file_urls[idx] = val
