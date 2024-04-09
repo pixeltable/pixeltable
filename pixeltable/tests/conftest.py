@@ -80,8 +80,8 @@ def test_tbl(test_client: pxt.Client) -> catalog.Table:
     return create_test_tbl(test_client)
 
 # @pytest.fixture(scope='function')
-# def test_stored_fn(test_client: pt.Client) -> pt.Function:
-#     @pt.udf(return_type=pt.IntType(), param_types=[pt.IntType()])
+# def test_stored_fn(test_client: pxt.Client) -> pxt.Function:
+#     @pxt.udf(return_type=pxt.IntType(), param_types=[pxt.IntType()])
 #     def test_fn(x):
 #         return x + 1
 #     test_client.create_function('test_fn', test_fn)
@@ -89,7 +89,7 @@ def test_tbl(test_client: pxt.Client) -> catalog.Table:
 
 @pytest.fixture(scope='function')
 def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
-#def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pt.Function) -> List[exprs.Expr]:
+#def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pxt.Function) -> List[exprs.Expr]:
 
     t = test_tbl
     return [
@@ -156,7 +156,7 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
 # TODO: why does this not work with a session scope? (some user tables don't get created with create_all())
 #@pytest.fixture(scope='session')
 #def indexed_img_tbl(init_env: None) -> catalog.Table:
-#    cl = pt.Client()
+#    cl = pxt.Client()
 #    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')
 def indexed_img_tbl(test_client: pxt.Client) -> catalog.Table:

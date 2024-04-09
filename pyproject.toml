@@ -50,6 +50,7 @@ coverage = "^7.4"
 mypy = "^1.8.0"
 types-pillow = ">=10.1"
 types-pyyaml = "^6.0.1"
+pyarrow-stubs = "^10.0.1.7"
 # linting
 pylint = "^3.1.0"
 ruff = "^0.3.1"
@@ -77,6 +78,7 @@ en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/down
 tiktoken = ">=0.3"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
+datasets = ">=2.15.0"
 
 [tool.mypy]
 plugins = "sqlalchemy.ext.mypy.plugin"
