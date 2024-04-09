@@ -6,11 +6,9 @@ from typing import List, Tuple
 
 import PIL
 import cv2
-import datasets
 import numpy as np
 import pandas as pd
 import pathlib
-import pyarrow as pa
 import pytest
 
 import pixeltable as pxt
@@ -27,7 +25,6 @@ from pixeltable.type_system import \
     DocumentType
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
-from pixeltable.utils.arrow import iter_tuples
 
 class TestTable:
     # exc for a % 10 == 0
@@ -120,6 +117,10 @@ class TestTable:
         assert tbl.num_retained_versions == num_retained_versions
 
     def test_import_parquet(self, test_client: pxt.Client, tmp_path: pathlib.Path) -> None:
+        skip_test_if_not_installed('pyarrow')
+        import pyarrow as pa
+        from pixeltable.utils.arrow import iter_tuples
+
         parquet_dir = tmp_path / 'test_data'
         parquet_dir.mkdir()
         make_test_arrow_table(parquet_dir)
@@ -148,9 +149,12 @@ class TestTable:
                     assert val == arrow_tup[col]
 
     def test_import_huggingface_dataset(self, test_client: pxt.Client, tmp_path: pathlib.Path) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
         test_cases = [
             # { # includes a timestamp. 20MB for specific slice
-            # Disbled this test case because download is failing, and its not critical
+            # Disbled this test case because download is failing, and its not critical.
             #     'dataset_name': 'c4',
             #     # see https://huggingface.co/datasets/allenai/c4/blob/main/realnewslike/c4-train.00000-of-00512.json.gz
             #     'dataset': datasets.load_dataset(
