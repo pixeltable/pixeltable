@@ -6,10 +6,8 @@ from collections import namedtuple
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-import datasets
 import numpy as np
 import pandas as pd
-import pyarrow as pa
 import pytest
 
 import pixeltable as pxt
@@ -297,6 +295,8 @@ def skip_test_if_not_installed(package) -> None:
 
 
 def make_test_arrow_table(output_path: Path) -> None:
+    import pyarrow as pa
+
     value_dict = {
         'c_id': [1, 2, 3, 4, 5],
         'c_int64': [-10, -20, -30, -40, None],
@@ -354,7 +354,8 @@ def make_test_arrow_table(output_path: Path) -> None:
     pa.parquet.write_table(test_table, str(output_path / 'test.parquet'))
 
 
-def assert_hf_dataset_equal(hf_dataset: datasets.Dataset, df: pxt.DataFrame, split_column_name: str) -> None:
+def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, split_column_name: str) -> None:
+    import datasets
     assert df.count() == hf_dataset.num_rows
     assert set(df.get_column_names()) == (set(hf_dataset.features.keys()) | {split_column_name})
 
