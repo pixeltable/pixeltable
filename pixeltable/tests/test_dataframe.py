@@ -33,7 +33,7 @@ class TestDataFrame:
         assert res1 == res4
 
         _ = t.where(t.c2 < 10).select(t.c2, t.c2).show(0) # repeated name no error
-        
+
         # duplicate select list
         with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c1).select(t.c2).show(0)
@@ -220,7 +220,7 @@ class TestDataFrame:
         for tup in ds:
             for col in df.get_column_names():
                 assert col in tup
-        
+
             arrval = tup['c_array']
             assert isinstance(arrval, np.ndarray)
             col_type = type_dict['c_array']
@@ -304,7 +304,7 @@ class TestDataFrame:
         def restrict_json_for_default_collate(obj):
             keys = ['id', 'label', 'iscrowd', 'bounding_box']
             return {k: obj[k] for k in keys}
-        
+
         t = all_datatypes_tbl
         df = t.select(
             t.row_id,
@@ -370,7 +370,7 @@ class TestDataFrame:
         #  check result cached
         ds1 = t.to_pytorch_dataset(image_format='pt')
         ds1_mtimes = _get_mtimes(ds1.path)
-        
+
         ds2 = t.to_pytorch_dataset(image_format='pt')
         ds2_mtimes = _get_mtimes(ds2.path)
         assert ds2.path == ds1.path, 'result should be cached'

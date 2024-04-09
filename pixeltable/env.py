@@ -320,6 +320,7 @@ class Env:
             else:
                 self._installed_packages[package] = None
 
+        check('datasets')
         check('torch')
         check('torchvision')
         check('transformers')

@@ -61,7 +61,7 @@ class Column:
             raise excs.Error(f"Invalid column name: '{name}'")
         self.name = name
         if col_type is None and computed_with is None:
-            raise excs.Error(f'Column {name}: col_type is required if computed_with is not specified')
+            raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
         self.value_expr: Optional['Expr'] = None
         self.compute_func: Optional[Callable] = None
