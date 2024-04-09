@@ -194,11 +194,10 @@ def embeddings(
         user=_opt(user),
         encoding_format='float'
     )
-    embeddings = [
+    return [
         np.array(data.embedding, dtype=np.float64)
         for data in result.data
     ]
-    return embeddings
 
 
 #####################################

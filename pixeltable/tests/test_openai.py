@@ -2,7 +2,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.functions.openai
 from pixeltable.tests.utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed
 from pixeltable.type_system import StringType, ImageType
 
@@ -62,10 +61,10 @@ class TestOpenai:
         # TODO Also test the `tools` and `tool_choice` parameters.
         t.insert(input='Give me an example of a typical JSON structure.')
         result = t.collect()
-        assert len(result['chat_output'][0]) > 0
-        assert len(result['chat_output_2'][0]) > 0
-        assert len(result['chat_output_3'][0]) > 0
-        assert len(result['chat_output_4'][0]) > 0
+        assert len(result['chat_output'][0]['choices'][0]['message']['content']) > 0
+        assert len(result['chat_output_2'][0]['choices'][0]['message']['content']) > 0
+        assert len(result['chat_output_3'][0]['choices'][0]['message']['content']) > 0
+        assert len(result['chat_output_4'][0]['choices'][0]['message']['content']) > 0
 
         # TODO This should probably not be throwing an exception, but rather logging the error in
         # `t.chat_output_4.errormsg` etc.
