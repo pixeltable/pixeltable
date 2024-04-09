@@ -8,6 +8,7 @@ from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 from pixeltable.tests.utils import get_video_files
+from pixeltable.tests.utils import skip_test_if_not_installed
 from pixeltable.type_system import VideoType, ImageType
 from pixeltable.utils.media_store import MediaStore
 
@@ -61,6 +62,7 @@ class TestVideo:
         assert MediaStore.count(view.get_id()) == view.count()
 
     def test_query(self, test_client: pxt.client) -> None:
+        skip_test_if_not_installed('boto3')
         video_filepaths = get_video_files()
         cl = test_client
         base_t, view_t = self.create_tbls(cl)

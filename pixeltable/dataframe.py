@@ -39,7 +39,7 @@ def _format_img(img: object) -> str:
     with io.BytesIO() as buffer:
         img.save(buffer, 'jpeg')
         img_base64 = base64.b64encode(buffer.getvalue()).decode()
-        return f'<img src="data:image/jpeg;base64,{img_base64}">'
+        return f'<div style="width:200px;"><img src="data:image/jpeg;base64,{img_base64}" width="200" /></div>'
 
 def _create_source_tag(file_path: str) -> str:
     abs_path = Path(file_path)
@@ -80,11 +80,12 @@ class DataFrameResultSet:
         return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
-        formatters = {}
-        for col_name, col_type in zip(self._col_names, self._col_types):
-                if col_type.__class__ in self._formatters:
-                    formatters[col_name] = self._formatters[col_type.__class__]
-        
+        formatters = {
+            col_name: self._formatters[col_type.__class__]
+            for col_name, col_type in zip(self._col_names, self._col_types)
+            if col_type.__class__ in self._formatters
+        }
+
         # TODO: why does mypy complain about formatters having an incorrect type?
         return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)  # type: ignore[arg-type]
 
@@ -211,7 +212,7 @@ class DataFrame:
         """
         if select_list is None: # basic check for valid select list
             return
-        
+
         assert len(select_list) > 0
         for ent in select_list:
             assert isinstance(ent, tuple)

@@ -18,6 +18,7 @@ from pixeltable.iterators import FrameIterator
 from pixeltable.tests.utils import \
     make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
     assert_resultset_eq
+from pixeltable.tests.utils import skip_test_if_not_installed
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
     DocumentType
@@ -89,6 +90,12 @@ class TestTable:
             cl.drop_table('dir1.test2')
         with pytest.raises(excs.Error):
             cl.drop_table('.test2')
+
+    def test_empty_table(self, test_client: pxt.Client) -> None:
+        cl = test_client
+        with pytest.raises(excs.Error) as exc_info:
+            cl.create_table('empty_table', {})
+        assert 'Table schema is empty' in str(exc_info.value)
 
     def test_table_attrs(self, test_client: pxt.Client) -> None:
         cl = test_client
@@ -290,6 +297,7 @@ class TestTable:
         self.check_bad_media(test_client, rows, DocumentType(nullable=True))
 
     def test_validate_external_url(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         rows = [
             {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
             {'media': 'https://archive.random.org/download?file=2024-01-28.bin', 'is_bad_media': True},  # 403 error
@@ -309,6 +317,7 @@ class TestTable:
         self.check_bad_media(test_client, rows, VideoType(nullable=True))
 
     def test_create_s3_image_table(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         cl = test_client
         tbl = cl.create_table('test', {'img': ImageType(nullable=False)})
         # this is needed because Client.reset_catalog() doesn't call TableVersion.drop(), which would
@@ -365,6 +374,7 @@ class TestTable:
         assert cache_stats.total_size == 0
 
     def test_video_url(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         cl = test_client
         schema = {
             'payload': IntType(nullable=False),
@@ -384,6 +394,7 @@ class TestTable:
         cap.release()
 
     def test_create_video_table(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         cl = test_client
         tbl = cl.create_table(
             'test_tbl',
@@ -523,6 +534,7 @@ class TestTable:
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
     def test_query(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         cl = test_client
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
         t = make_tbl(cl, 'test', col_names)

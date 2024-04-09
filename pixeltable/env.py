@@ -93,7 +93,7 @@ class Env:
     def db_url(self) -> str:
         assert self._db_url is not None
         return self._db_url
-    
+
     @property
     def http_address(self) -> str:
         assert self._http_address is not None
@@ -143,9 +143,8 @@ class Env:
     def set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
             return
-        
+
         self._initialized = True
-        self.log_to_stdout(True)
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
         self._home = home
@@ -155,7 +154,6 @@ class Env:
         self._dataset_cache_dir = self._home / 'dataset_cache'
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
-        self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
 
         # Read in the config
         if os.path.isfile(self._config_file):
@@ -172,11 +170,10 @@ class Env:
             raise RuntimeError(f'{self._home} is not a directory')
 
         if not self._home.exists():
-            msg = f'setting up Pixeltable at {self._home}'
             # we don't have our logger set up yet, so print to stdout
-            print(msg)
+            print(f'Creating a Pixeltable instance at: {self._home}')
             self._home.mkdir()
-            # TODO (asiegel) This is the existing behavior, but it seems scary. If something happens to
+            # TODO (aaron-siegel) This is the existing behavior, but it seems scary. If something happens to
             # self._home, it will cause the DB to be destroyed even if pgdata is in an alternate location.
             # PROPOSAL: require `reinit_db` to be set explicitly to destroy the DB.
             reinit_db = True
@@ -207,8 +204,9 @@ class Env:
             os.remove(path)
 
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
+        self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
 
-        # cleanup_mode=None will leave db on for debugging purposes
+        # in pgserver.get_server(): cleanup_mode=None will leave db on for debugging purposes
         self._db_server = pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
         self._db_url = self._db_server.get_uri(database=self._db_name)
 
@@ -230,6 +228,8 @@ class Env:
             self._logger.info(f'found database {self.db_url}')
             if self._sa_engine is None:
                 self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
+
+        print(f'Connected to Pixeltable database at: {self.db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
@@ -258,16 +258,17 @@ class Env:
         _ = create_nos_modules()
 
     def _create_openai_client(self) -> None:
+        if not self.is_installed_package('openai'):
+            raise excs.Error('OpenAI client not initialized (cannot find package `openai`: `pip install openai`?)')
+        import openai
         if 'openai' in self._config and 'api_key' in self._config['openai']:
             api_key = self._config['openai']['api_key']
         else:
             api_key = os.environ.get('OPENAI_API_KEY')
         if api_key is None or api_key == '':
-            self._logger.info("OpenAI client not initialized (no API key configured).")
-            return
-        import openai
-        self._logger.info('Initializing OpenAI client.')
+            raise excs.Error('OpenAI client not initialized (no API key configured).')
         self._openai_client = openai.OpenAI(api_key=api_key)
+        self._logger.info('Initialized OpenAI client.')
 
     def _create_together_client(self) -> None:
         if 'together' in self._config and 'api_key' in self._config['together']:
@@ -286,15 +287,15 @@ class Env:
         """
         The http server root is the file system root.
         eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
-        This arrangement enables serving media hosted within _home, 
+        This arrangement enables serving media hosted within _home,
         as well as external media inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.
-        """        
+        """
         # Port 0 means OS picks one for us.
         address = ("127.0.0.1", 0)
         class FixedRootHandler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
-                super().__init__(*args, directory='/', **kwargs)        
+                super().__init__(*args, directory='/', **kwargs)
         self._httpd = socketserver.TCPServer(address, FixedRootHandler)
         port = self._httpd.server_address[1]
         self._http_address = f'http://127.0.0.1:{port}'
@@ -331,8 +332,6 @@ class Env:
             self._spacy_nlp = spacy.load('en_core_web_sm')
         check('tiktoken')
         check('openai')
-        if self.is_installed_package('openai'):
-            self._create_openai_client()
         check('together')
         if self.is_installed_package('together'):
             self._create_together_client()
@@ -402,7 +401,10 @@ class Env:
         return self._nos_client
 
     @property
-    def openai_client(self) -> Optional['openai.OpenAI']:
+    def openai_client(self) -> 'openai.OpenAI':
+        if self._openai_client is None:
+            self._create_openai_client()
+        assert self._openai_client is not None
         return self._openai_client
 
     @property

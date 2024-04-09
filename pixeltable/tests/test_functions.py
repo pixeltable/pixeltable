@@ -5,6 +5,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable.env import Env
+import pixeltable.exceptions as excs
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
 from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed, get_sentences, get_image_files
@@ -67,8 +68,6 @@ class TestFunctions:
     def test_openai(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openai')
         TestFunctions.skip_test_if_no_openai_client()
-        if Env.get().openai_client is None:
-            pytest.skip(f'OpenAI client does not exist (missing API key?).')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.openai import chat_completions, embeddings, moderations
@@ -110,8 +109,10 @@ class TestFunctions:
 
     @staticmethod
     def skip_test_if_no_openai_client() -> None:
-        if Env.get().openai_client is None:
-            pytest.skip(f'OpenAI client does not exist (missing API key?)')
+        try:
+            _ = Env.get().openai_client
+        except excs.Error as exc:
+            pytest.skip(str(exc))
 
     def test_together(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('together')

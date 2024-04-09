@@ -911,7 +911,7 @@ class DocumentType(ColumnType):
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         from pixeltable.utils.documents import get_document_handle
-        with open(val, 'r') as fh:
+        with open(val, 'r', encoding='utf8') as fh:
             try:
                 s = fh.read()
                 dh = get_document_handle(s)
