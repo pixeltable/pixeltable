@@ -17,7 +17,7 @@ It brings together data storage, versioning, and indexing with orchestration and
 Learn the basics of Pixeltable through interactive examples. View the notebooks on Google Colab or Kaggle, for free.
 
 ### Pixeltable Basics
-In this tutorial, we'll survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations!
+In this tutorial, we'll survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations.
 
 [![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://www.kaggle.com/code/brunep/pixeltable-basics) <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/tutorials/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a>
 
