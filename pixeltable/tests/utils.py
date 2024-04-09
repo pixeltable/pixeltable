@@ -1,27 +1,34 @@
 import datetime
 import glob
-import os
-import pytest
-from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional, Set
 import json
-
+import os
 from collections import namedtuple
-import datasets
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
+import datasets
 import numpy as np
 import pandas as pd
-
 import pyarrow as pa
-import pyarrow.parquet
+import pytest
 
-import pixeltable as pt
-from pixeltable import catalog
-from pixeltable.env import Env
-from pixeltable.type_system import \
-    ColumnType, StringType, IntType, FloatType, ArrayType, BoolType, TimestampType, JsonType, ImageType, VideoType
-from pixeltable.dataframe import DataFrameResultSet
+import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable import catalog
+from pixeltable.dataframe import DataFrameResultSet
+from pixeltable.env import Env
+from pixeltable.type_system import (
+    ArrayType,
+    BoolType,
+    ColumnType,
+    FloatType,
+    ImageType,
+    IntType,
+    JsonType,
+    StringType,
+    TimestampType,
+    VideoType,
+)
 
 
 def make_default_type(t: ColumnType.Type) -> ColumnType:
@@ -37,7 +44,7 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
         return TimestampType()
     assert False
 
-def make_tbl(cl: pt.Client, name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
+def make_tbl(cl: pxt.Client, name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
     if col_names is None:
         col_names = ['c1']
     schema: Dict[str, ts.ColumnType] = {}
@@ -118,7 +125,7 @@ def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, n
     rows = [{col_name: data[col_name][i] for col_name in col_names} for i in range(num_rows)]
     return rows
 
-def create_test_tbl(client: pt.Client, name: str = 'test_tbl') -> catalog.Table:
+def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table:
     schema = {
         'c1': StringType(nullable=False),
         'c1n': StringType(nullable=True),
@@ -183,7 +190,7 @@ def create_test_tbl(client: pt.Client, name: str = 'test_tbl') -> catalog.Table:
     t.insert(rows)
     return t
 
-def create_all_datatypes_tbl(test_client: pt.Client) -> catalog.Table:
+def create_all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
     """ Creates a table with all supported datatypes.
     """
     schema = {
@@ -229,19 +236,28 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[List[
         df[col_name] = df.apply(lambda r: str(abs_path / r[col_name]), axis=1)
     return df.to_dict(orient='records')
 
-def get_video_files(include_bad_video=False) -> List[str]:
+def get_video_files(include_bad_video: bool = False) -> List[str]:
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
+
+    half_res = [f for f in glob_result if 'half_res' in f or 'bad_video' in f]
+    return half_res
+
+def get_test_video_files() -> List[str]:
+    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    glob_result = glob.glob(f'{tests_dir}/**/test_videos/*', recursive=True)
     return glob_result
 
-def get_image_files() -> List[str]:
+def get_image_files(include_bad_image: bool = False) -> List[str]:
     tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
+    if not include_bad_image:
+        glob_result = [f for f in glob_result if 'bad_image' not in f]
     return glob_result
 
-def get_audio_files(include_bad_audio=False) -> List[str]:
+def get_audio_files(include_bad_audio: bool = False) -> List[str]:
     tests_dir = os.path.dirname(__file__)
     glob_result = glob.glob(f'{tests_dir}/**/audio/*', recursive=True)
     if not include_bad_audio:
@@ -256,7 +272,7 @@ def get_documents() -> List[str]:
 def get_sentences(n: int = 100) -> List[str]:
     tests_dir = os.path.dirname(__file__)
     path = glob.glob(f'{tests_dir}/**/jeopardy.json', recursive=True)[0]
-    with open(path, 'r') as f:
+    with open(path, 'r', encoding='utf8') as f:
         questions_list = json.load(f)
     # this dataset contains \' around the questions
     return [q['question'].replace("'", '') for q in questions_list[:n]]
@@ -338,7 +354,7 @@ def make_test_arrow_table(output_path: Path) -> None:
     pa.parquet.write_table(test_table, str(output_path / 'test.parquet'))
 
 
-def assert_hf_dataset_equal(hf_dataset: datasets.Dataset, df: pt.DataFrame, split_column_name: str) -> None:
+def assert_hf_dataset_equal(hf_dataset: datasets.Dataset, df: pxt.DataFrame, split_column_name: str) -> None:
     assert df.count() == hf_dataset.num_rows
     assert set(df.get_column_names()) == (set(hf_dataset.features.keys()) | {split_column_name})
 

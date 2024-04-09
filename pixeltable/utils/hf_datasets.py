@@ -17,7 +17,7 @@ _K_BATCH_SIZE_BYTES = 100_000_000
 # note, there are many more types. we allow overrides in the schema_override parameter
 # to handle cases where the appropriate type is not yet mapped, or to override this mapping.
 # https://huggingface.co/docs/datasets/v2.17.0/en/package_reference/main_classes#datasets.Value
-_hf_to_pt: Dict[str, ts.ColumnType] = {
+_hf_to_pxt: Dict[str, ts.ColumnType] = {
     'int32': ts.IntType(nullable=True),  # pixeltable widens to big int
     'int64': ts.IntType(nullable=True),
     'bool': ts.BoolType(nullable=True),
@@ -36,7 +36,7 @@ def _to_pixeltable_type(
         return ts.StringType(nullable=True)
     elif isinstance(feature_type, datasets.Value):
         # example: Value(dtype='int64', id=None)
-        return _hf_to_pt.get(feature_type.dtype, None)
+        return _hf_to_pxt.get(feature_type.dtype, None)
     elif isinstance(feature_type, datasets.Sequence):
         # example: cohere wiki. Sequence(feature=Value(dtype='float32', id=None), length=-1, id=None)
         dtype = _to_pixeltable_type(feature_type.feature)

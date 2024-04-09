@@ -1,29 +1,27 @@
 from __future__ import annotations
 
-import logging
-from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple
-from uuid import UUID
-from pathlib import Path
 import dataclasses
 import json
+import logging
+from pathlib import Path
+from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple
+from uuid import UUID
 
 import pandas as pd
 import sqlalchemy as sql
 
-from .schema_object import SchemaObject
-from .column import Column
-from .table_version_path import TableVersionPath
-from .table_version import TableVersion
-from .globals import is_valid_identifier, is_system_column_name
-from pixeltable import exceptions as exc
 import pixeltable
-import pixeltable.type_system as ts
 import pixeltable.catalog as catalog
 import pixeltable.env as env
-import pixeltable.metadata.schema as schema
-import pixeltable.exprs as exprs
 import pixeltable.exceptions as excs
-
+import pixeltable.exprs as exprs
+import pixeltable.metadata.schema as schema
+import pixeltable.type_system as ts
+from .column import Column
+from .globals import is_valid_identifier, is_system_column_name
+from .schema_object import SchemaObject
+from .table_version import TableVersion
+from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
 
@@ -67,7 +65,7 @@ class Table(SchemaObject):
 
     def _check_is_dropped(self) -> None:
         if self.is_dropped:
-            raise exc.Error(f'{self.display_name()} {self.name} has been dropped')
+            raise excs.Error(f'{self.display_name()} {self.name} has been dropped')
 
     def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
         """Return a ColumnRef for the given column name.

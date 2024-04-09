@@ -2,9 +2,10 @@ from typing import Dict, Any
 
 import pytest
 
-import pixeltable as pt
+import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable.env import Env
+import pixeltable.exceptions as excs
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
 from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed, get_sentences, get_image_files
@@ -16,7 +17,7 @@ class TestFunctions:
         t = img_tbl
         _ = t[t.img, t.img.rotate(90), blend(t.img, t.img.rotate(90), 0.5)].show()
 
-    def test_eval_detections(self, test_client: pt.Client) -> None:
+    def test_eval_detections(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('nos')
         cl = test_client
         video_t = cl.create_table('video_tbl', {'video': VideoType()})
@@ -25,7 +26,7 @@ class TestFunctions:
         v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
 
         files = get_video_files()
-        video_t.insert([{'video': files[-1]}])
+        video_t.insert(video=files[-1])
         v.add_column(frame_s=v.frame.resize([640, 480]))
         from pixeltable.functions.nos.object_detection_2d import yolox_nano, yolox_small, yolox_large
         v.add_column(detections_a=yolox_nano(v.frame_s))
@@ -51,24 +52,22 @@ class TestFunctions:
         # for k in common_classes:
         # assert ap_a[k] <= ap_b[k]
 
-    def test_str(self, test_client: pt.Client) -> None:
+    def test_str(self, test_client: pxt.Client) -> None:
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.string import str_format
         t.add_column(s1=str_format('ABC {0}', t.input))
         t.add_column(s2=str_format('DEF {this}', this=t.input))
         t.add_column(s3=str_format('GHI {0} JKL {this}', t.input, this=t.input))
-        status = t.insert([{'input': 'MNO'}])
+        status = t.insert(input='MNO')
         assert status.num_rows == 1
         assert status.num_excs == 0
         row = t.head()[0]
         assert row == {'input': 'MNO', 's1': 'ABC MNO', 's2': 'DEF MNO', 's3': 'GHI MNO JKL MNO'}
 
-    def test_openai(self, test_client: pt.Client) -> None:
+    def test_openai(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openai')
         TestFunctions.skip_test_if_no_openai_client()
-        if Env.get().openai_client is None:
-            pytest.skip(f'OpenAI client does not exist (missing API key?).')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.openai import chat_completions, embeddings, moderations
@@ -83,10 +82,10 @@ class TestFunctions:
         t.add_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
         t.add_column(text_3=embeddings(model='text-embedding-3-small', input=t.input))
         t.add_column(moderation=moderations(input=t.input))
-        t.insert([{'input': 'I find you really annoying'}])
+        t.insert(input='I find you really annoying')
         _ = t.head()
 
-    def test_gpt_4_vision(self, test_client: pt.Client) -> None:
+    def test_gpt_4_vision(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openai')
         TestFunctions.skip_test_if_no_openai_client()
         cl = test_client
@@ -104,19 +103,18 @@ class TestFunctions:
         ]
         t.add_column(response=chat_completions(model='gpt-4-vision-preview', messages=msgs, max_tokens=300))
         t.add_column(response_content=t.response.choices[0].message.content)
-        t.insert([{
-            'prompt': "What's in this image?",
-            'img': 'https://raw.githubusercontent.com/mkornacker/pixeltable/master/docs/source/data/images/000000000009.jpg'
-        }])
+        t.insert(prompt="What's in this image?", img=_sample_image_url)
         result = t.collect()['response_content'][0]
         assert len(result) > 0
 
     @staticmethod
     def skip_test_if_no_openai_client() -> None:
-        if Env.get().openai_client is None:
-            pytest.skip(f'OpenAI client does not exist (missing API key?)')
+        try:
+            _ = Env.get().openai_client
+        except excs.Error as exc:
+            pytest.skip(str(exc))
 
-    def test_together(self, test_client: pt.Client) -> None:
+    def test_together(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('together')
         if not Env.get().has_together_client:
             pytest.skip(f'Together client does not exist (missing API key?)')
@@ -125,11 +123,11 @@ class TestFunctions:
         from pixeltable.functions.together import completions
         t.add_column(output=completions(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
         t.add_column(output_text=t.output.output.choices[0].text)
-        t.insert([{'input': 'I am going to the '}])
+        t.insert(input='I am going to the ')
         result = t.select(t.output_text).collect()['output_text'][0]
         assert len(result) > 0
 
-    def test_fireworks(self, test_client: pt.Client) -> None:
+    def test_fireworks(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('fireworks')
         try:
             from pixeltable.functions.fireworks import initialize
@@ -144,7 +142,7 @@ class TestFunctions:
         result = t.select(t.output).collect()['output'][0]
         assert len(result) > 0
 
-    def test_hf_function(self, test_client: pt.Client) -> None:
+    def test_hf_function(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('sentence_transformers')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType(), 'bool_col': BoolType()})
@@ -152,7 +150,7 @@ class TestFunctions:
         model_id = 'intfloat/e5-large-v2'
         t.add_column(e5=sentence_transformer(t.input, model_id=model_id))
         sents = get_sentences()
-        status = t.insert([{'input': s, 'bool_col': True} for s in sents])
+        status = t.insert({'input': s, 'bool_col': True} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -168,12 +166,12 @@ class TestFunctions:
         # TODO: is there some way to capture the output?
         t.describe()
 
-    def test_sentence_transformer(self, test_client: pt.Client) -> None:
+    def test_sentence_transformer(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('sentence_transformers')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
         sents = get_sentences(10)
-        status = t.insert([{'input': s, 'input_list': sents} for s in sents])
+        status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -198,19 +196,19 @@ class TestFunctions:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
-        status = t.insert([{'input': s, 'input_list': sents} for s in sents])
+        status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_cross_encoder(self, test_client: pt.Client) -> None:
+    def test_cross_encoder(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('sentence_transformers')
         cl = test_client
         t = cl.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
         sents = get_sentences(10)
-        status = t.insert([{'input': s, 'input_list': sents} for s in sents])
+        status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -233,21 +231,21 @@ class TestFunctions:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
-        status = t.insert([{'input': s, 'input_list': sents} for s in sents])
+        status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_clip(self, test_client: pt.Client) -> None:
+    def test_clip(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('transformers')
         cl = test_client
         t = cl.create_table('test_tbl', {'text': StringType(), 'img': ImageType()})
         num_rows = 10
         sents = get_sentences(num_rows)
         imgs = get_image_files()[:num_rows]
-        status = t.insert([{'text': text, 'img': img} for text, img in zip(sents, imgs)])
+        status = t.insert({'text': text, 'img': img} for text, img in zip(sents, imgs))
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -270,9 +268,27 @@ class TestFunctions:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        cl = pt.Client(reload=True)
+        cl = pxt.Client(reload=True)
         t = cl.get_table('test_tbl')
-        status = t.insert([{'text': text, 'img': img} for text, img in zip(sents, imgs)])
+        status = t.insert({'text': text, 'img': img} for text, img in zip(sents, imgs))
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
+
+    def test_detr_for_object_detection(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('transformers')
+        cl = test_client
+        t = cl.create_table('test_tbl', {'img': ImageType()})
+        from pixeltable.functions.huggingface import detr_for_object_detection
+        t['detect'] = detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
+        status = t.insert(img=_sample_image_url)
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+        result = t.select(t.detect).collect()[0]['detect']
+        assert 'orange' in result['label_text']
+        assert 'bowl' in result['label_text']
+        assert 'broccoli' in result['label_text']
+
+
+_sample_image_url = \
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'

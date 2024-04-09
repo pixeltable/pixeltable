@@ -1,12 +1,12 @@
 from typing import Optional
+
 import av
 
 import pixeltable as pxt
-from pixeltable.type_system import VideoType, AudioType
-from pixeltable.tests.utils import get_video_files, get_audio_files
-from pixeltable import catalog
-from pixeltable.utils.media_store import MediaStore
 import pixeltable.env as env
+from pixeltable.tests.utils import get_video_files, get_audio_files
+from pixeltable.type_system import VideoType, AudioType
+from pixeltable.utils.media_store import MediaStore
 
 
 class TestAudio:
@@ -22,7 +22,7 @@ class TestAudio:
         audio_filepaths = get_audio_files()
         cl = test_client
         audio_t = cl.create_table('audio', {'audio_file': AudioType()})
-        status = audio_t.insert([{'audio_file': p} for p in audio_filepaths])
+        status = audio_t.insert({'audio_file': p} for p in audio_filepaths)
         assert status.num_rows == len(audio_filepaths)
         assert status.num_excs == 0
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
@@ -36,7 +36,7 @@ class TestAudio:
         video_t.add_column(audio=extract_audio(video_t.video))
 
         # one of the 3 videos doesn't have audio
-        status = video_t.insert([{'video': p} for p in video_filepaths])
+        status = video_t.insert({'video': p} for p in video_filepaths)
         assert status.num_rows == len(video_filepaths)
         assert status.num_excs == 0
         assert MediaStore.count(video_t.get_id()) == len(video_filepaths) - 1

@@ -1,14 +1,15 @@
-from typing import Optional, Set, List
+import itertools
 import json
 import re
-import itertools
+from typing import Optional, Set, List
 
 import pytest
 
 import pixeltable as pxt
-from pixeltable.type_system import DocumentType
-from pixeltable.tests.utils import get_documents, get_video_files, get_audio_files, get_image_files
 from pixeltable.iterators.document import DocumentSplitter
+from pixeltable.tests.utils import get_documents, get_video_files, get_audio_files, get_image_files
+from pixeltable.tests.utils import skip_test_if_not_installed
+from pixeltable.type_system import DocumentType
 
 
 class TestDocument:
@@ -22,22 +23,23 @@ class TestDocument:
         file_paths = self.valid_doc_paths()
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})
-        status = doc_t.insert([{'doc': p} for p in file_paths])
+        status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_rows == len(file_paths)
         assert status.num_excs == 0
         stored_paths = doc_t.select(output=doc_t.doc.localpath).collect()['output']
         assert set(stored_paths) == set(file_paths)
 
         file_paths = self.invalid_doc_paths()
-        status = doc_t.insert([{'doc': p} for p in file_paths], fail_on_exception=False)
+        status = doc_t.insert(({'doc': p} for p in file_paths), fail_on_exception=False)
         assert status.num_rows == len(file_paths)
         assert status.num_excs == len(file_paths)
 
     def test_doc_splitter(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('tiktoken')
         file_paths = self.valid_doc_paths()
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})
-        status = doc_t.insert([{'doc': p} for p in file_paths])
+        status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 
         def normalize(s: str) -> str:
@@ -88,10 +90,11 @@ class TestDocument:
                     cl.drop_table('chunks')
 
     def test_doc_splitter_headings(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('spacy')
         file_paths = self.valid_doc_paths()
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})
-        status = doc_t.insert([{'doc': p} for p in file_paths])
+        status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 
         # verify that only the requested metadata is present in the view

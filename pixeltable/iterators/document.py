@@ -61,7 +61,7 @@ class DocumentSplitter(ComponentIterator):
         import bs4
         if html_skip_tags is None:
             html_skip_tags = ['nav']
-        with open(document, 'r') as fh:
+        with open(document, 'r', encoding='utf8') as fh:
             s = fh.read()
             self._doc_handle = get_document_handle(s)
             assert self._doc_handle is not None

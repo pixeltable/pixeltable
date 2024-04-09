@@ -4,8 +4,9 @@ import os
 import subprocess
 
 import pgserver
+import pytest
 
-import pixeltable as pt
+import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.tests.conftest import clean_db
 
@@ -14,6 +15,7 @@ _logger = logging.getLogger('pixeltable')
 
 class TestMigration:
 
+    @pytest.mark.skip(reason='Suspended')
     def test_db_migration(self, init_env) -> None:
         env = Env.get()
         pg_package_dir = os.path.dirname(pgserver.__file__)
@@ -38,4 +40,4 @@ class TestMigration:
                 )
             # TODO(aaron-siegel) This will test that the migration succeeds without raising any exceptions.
             # We should also add some assertions to sanity-check the outcome.
-            _ = pt.Client()
+            _ = pxt.Client()

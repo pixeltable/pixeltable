@@ -1,24 +1,24 @@
 import json
-import typing
-from typing import List, Dict
 import urllib.parse
+import urllib.request
+from typing import List, Dict
 
-import sqlalchemy as sql
 import pytest
+import sqlalchemy as sql
 
-import pixeltable as pt
+import pixeltable as pxt
+import pixeltable.func as func
 from pixeltable import catalog
-from pixeltable.type_system import StringType, BoolType, IntType, ImageType, ArrayType, ColumnType, FloatType, \
-    VideoType, JsonType
-from pixeltable.exprs import Expr, CompoundPredicate, FunctionCall, Literal, InlineDict, InlineArray, ColumnRef
+from pixeltable import exceptions as excs
+from pixeltable import exprs
+from pixeltable.exprs import Expr, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import cast, sum, count
 from pixeltable.functions.pil.image import blend
-from pixeltable import exceptions as exc
-from pixeltable import exprs
-import pixeltable.func as func
-from pixeltable.tests.utils import get_image_files, skip_test_if_not_installed
 from pixeltable.iterators import FrameIterator
+from pixeltable.tests.utils import get_image_files, skip_test_if_not_installed
+from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
+    VideoType
 
 
 class TestExprs:
@@ -63,10 +63,10 @@ class TestExprs:
         assert 'cannot be used in conjunction with python boolean operators' in str(exc_info.value).lower()
 
         # compound predicates with Python functions
-        @pt.udf(return_type=BoolType(), param_types=[StringType()])
+        @pxt.udf(return_type=BoolType(), param_types=[StringType()])
         def udf(_: str) -> bool:
             return True
-        @pt.udf(return_type=BoolType(), param_types=[IntType()])
+        @pxt.udf(return_type=BoolType(), param_types=[IntType()])
         def udf2(_: int) -> bool:
             return True
 
@@ -112,54 +112,54 @@ class TestExprs:
         t = test_tbl
 
         # error in expr that's handled in SQL
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t[(t.c2 + 1) / t.c2].show()
 
         # error in expr that's handled in Python
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t[(t.c6.f2 + 1) / (t.c2 - 10)].show()
 
         # the same, but with an inline function
-        @pt.udf(return_type=FloatType(), param_types=[IntType(), IntType()])
+        @pxt.udf(return_type=FloatType(), param_types=[IntType(), IntType()])
         def f(a: int, b: int) -> float:
             return a / b
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t[f(t.c2 + 1, t.c2)].show()
 
         # error in agg.init()
-        @pt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
-        class Aggregator(pt.Aggregator):
+        @pxt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
+        class Aggregator(pxt.Aggregator):
             def __init__(self):
                 self.sum = 1 / 0
             def update(self, val):
                 pass
             def value(self):
                 return 1
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t[agg(t.c2)].show()
 
         # error in agg.update()
-        @pt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
-        class Aggregator(pt.Aggregator):
+        @pxt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
+        class Aggregator(pxt.Aggregator):
             def __init__(self):
                 self.sum = 0
             def update(self, val):
                 self.sum += 1 / val
             def value(self):
                 return 1
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t[agg(t.c2 - 10)].show()
 
         # error in agg.value()
-        @pt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
-        class Aggregator(pt.Aggregator):
+        @pxt.uda(update_types=[IntType()], value_type=IntType(), name='agg')
+        class Aggregator(pxt.Aggregator):
             def __init__(self):
                 self.sum = 0
             def update(self, val):
                 self.sum += val
             def value(self):
                 return 1 / self.sum
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t[t.c2 <= 2][agg(t.c2 - 1)].show()
 
     def test_props(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
@@ -175,7 +175,7 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).show(0).to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        all_urls  = set([urllib.parse.urljoin('file:', path) for path in get_image_files()])
+        all_urls = set(urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files())
         assert stored_urls <= all_urls
 
         # localpath
@@ -193,28 +193,28 @@ class TestExprs:
 
         for c in [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]:
             # errortype/errormsg only applies to stored computed and media columns
-            with pytest.raises(exc.Error) as excinfo:
+            with pytest.raises(excs.Error) as excinfo:
                 _ = t.select(c.errortype).show()
             assert 'only valid for' in str(excinfo.value)
-            with pytest.raises(exc.Error) as excinfo:
+            with pytest.raises(excs.Error) as excinfo:
                 _ = t.select(c.errormsg).show()
             assert 'only valid for' in str(excinfo.value)
 
             # fileurl/localpath only applies to media columns
-            with pytest.raises(exc.Error) as excinfo:
+            with pytest.raises(excs.Error) as excinfo:
                 _ = t.select(t.c1.fileurl).show()
             assert 'only valid for' in str(excinfo.value)
-            with pytest.raises(exc.Error) as excinfo:
+            with pytest.raises(excs.Error) as excinfo:
                 _ = t.select(t.c1.localpath).show()
             assert 'only valid for' in str(excinfo.value)
 
         # fileurl/localpath doesn't apply to unstored computed img columns
         img_t.add_column(c9=img_t.img.rotate(30))
-        with pytest.raises(exc.Error) as excinfo:
+        with pytest.raises(excs.Error) as excinfo:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
 
-    def test_null_args(self, test_client: pt.Client) -> None:
+    def test_null_args(self, test_client: pxt.Client) -> None:
         # create table with two int columns
         schema = {'c1': FloatType(nullable=True), 'c2': FloatType(nullable=True)}
         t = test_client.create_table('test', schema)
@@ -222,8 +222,8 @@ class TestExprs:
         # computed column that doesn't allow nulls
         t.add_column(c3=lambda c1, c2: c1 + c2, type=FloatType(nullable=False))
         # function that does allow nulls
-        @pt.udf(return_type=FloatType(nullable=True),
-                param_types=[FloatType(nullable=False), FloatType(nullable=True)])
+        @pxt.udf(return_type=FloatType(nullable=True),
+                 param_types=[FloatType(nullable=False), FloatType(nullable=True)])
         def f(a: int, b: int) -> int:
             if b is None:
                 return a
@@ -255,13 +255,13 @@ class TestExprs:
             (t.c1, t.c2), (t.c1, 1), (t.c2, t.c1), (t.c2, 'a'),
             (t.c1, t.c3), (t.c1, 1.0), (t.c3, t.c1), (t.c3, 'a')
         ]:
-            with pytest.raises(exc.Error):
+            with pytest.raises(excs.Error):
                 _ = t[op1 + op2]
-            with pytest.raises(exc.Error):
+            with pytest.raises(excs.Error):
                 _ = t[op1 - op2]
-            with pytest.raises(exc.Error):
+            with pytest.raises(excs.Error):
                 _ = t[op1 * op2]
-            with pytest.raises(exc.Error):
+            with pytest.raises(excs.Error):
                 _ = t[op1 / op2]
 
         # TODO: test division; requires predicate
@@ -269,18 +269,18 @@ class TestExprs:
             _ = t[op1 + op2].show()
             _ = t[op1 - op2].show()
             _ = t[op1 * op2].show()
-            with pytest.raises(exc.Error):
+            with pytest.raises(excs.Error):
                 _ = t[op1 / op2].show()
 
         for op1, op2 in [
             (t.c6.f1, t.c6.f2), (t.c6.f1, t.c6.f3), (t.c6.f1, 1), (t.c6.f1, 1.0),
             (t.c6.f2, t.c6.f1), (t.c6.f3, t.c6.f1), (t.c6.f2, 'a'), (t.c6.f3, 'a'),
         ]:
-            with pytest.raises(exc.Error):
+            with pytest.raises(excs.Error):
                 _ = t[op1 + op2].show()
-            with pytest.raises(exc.Error):
+            with pytest.raises(excs.Error):
                 _ = t[op1 - op2].show()
-            with pytest.raises(exc.Error):
+            with pytest.raises(excs.Error):
                 _ = t[op1 * op2].show()
 
 
@@ -409,7 +409,7 @@ class TestExprs:
             return str(x)
 
         # Now test that a function without a return type throws an exception ...
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             t.c2.apply(f1)
         assert 'Column type of `f1` cannot be inferred.' in str(exc_info.value)
 
@@ -429,21 +429,21 @@ class TestExprs:
         def f3(x, y) -> str:
             return f'{x}{y}'
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             t.c2.apply(f3)  # Too many required parameters
         assert str(exc_info.value) == 'Function `f3` has multiple required parameters.'
 
         def f4() -> str:
             return "pixeltable"
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             t.c2.apply(f4)  # No positional parameters
         assert str(exc_info.value) == 'Function `f4` has no positional parameters.'
 
         def f5(**kwargs) -> str:
             return ""
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             t.c2.apply(f5)  # No positional parameters
         assert str(exc_info.value) == 'Function `f5` has no positional parameters.'
 
@@ -471,7 +471,7 @@ class TestExprs:
         df = t[[t.img, t.img.rotate(60)]]
         _ = df.show(n=100)._repr_html_()
 
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t[t.img.rotate]
 
     def test_img_members(self, img_tbl) -> None:
@@ -525,7 +525,7 @@ class TestExprs:
         result = t[t.img.nearest(img) & (t.category == probe[0, 1]) & (t.img.width > 1)].show(10)
         # TODO: figure out how to verify results
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t[t.img.nearest(img)].order_by(t.category).show()
         assert 'cannot be used in conjunction with' in str(exc_info.value)
 
@@ -537,7 +537,7 @@ class TestExprs:
             t.img.nearest('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)
         ].show(10)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t[t.img.nearest(5)].show()
         assert 'requires' in str(exc_info.value)
 
@@ -548,9 +548,9 @@ class TestExprs:
         probe = t[t.img].show(1)
         img = probe[0, 0]
 
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t[t.img.nearest(img)].show(10)
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t[t.img.nearest('musical instrument')].show(10)
 
     def test_ids(
@@ -601,15 +601,15 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, test_client: pt.Client, test_tbl: catalog.Table) -> None:
+    def test_window_fns(self, test_client: pxt.Client, test_tbl: catalog.Table) -> None:
         cl = test_client
         t = test_tbl
         _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
         # conflicting ordering requirements
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3), sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3), sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
 
         # backfill works
@@ -622,7 +622,7 @@ class TestExprs:
         v = cl.create_view('frame_view', base_t, iterator_class=FrameIterator, iterator_args=args)
         # compatible ordering
         _ = v.select(v.frame, sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             # incompatible ordering
             _ = v.select(v.frame, sum(v.c2, order_by=base_t, group_by=v.pos)).show(100)
 
@@ -643,23 +643,23 @@ class TestExprs:
             .group_by(t.c2 % 2).show()
 
         # check that aggregates don't show up in the wrong places
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             # aggregate in where clause
             _ = t[sum(t.c2) > 0][sum(t.c2)].group_by(t.c2 % 2).show()
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             # aggregate in group_by clause
             _ = t[sum(t.c2)].group_by(sum(t.c2)).show()
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             # mixing aggregates and non-aggregates
             _ = t[sum(t.c2) + t.c2].group_by(t.c2 % 2).show()
-        with pytest.raises(exc.Error):
+        with pytest.raises(excs.Error):
             # nested aggregates
             _ = t[sum(count(t.c2))].group_by(t.c2 % 2).show()
 
     def test_udas(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
-        @pt.uda(
+        @pxt.uda(
             name='window_agg', init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
             allows_window=True, requires_order_by=False)
         class WindowAgg:
@@ -670,7 +670,7 @@ class TestExprs:
             def value(self) -> int:
                 return self.val
 
-        @pt.uda(
+        @pxt.uda(
             name='ordered_agg', init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
             requires_order_by=True, allows_window=True)
         class WindowAgg:
@@ -681,7 +681,7 @@ class TestExprs:
             def value(self) -> int:
                 return self.val
 
-        @pt.uda(
+        @pxt.uda(
             name='std_agg', init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
             requires_order_by=False, allows_window=False)
         class StdAgg:
@@ -696,33 +696,33 @@ class TestExprs:
         assert t.select(out=window_agg(t.c2, order_by=t.c2)).collect()[0]['out'] == 0
         assert t.select(out=window_agg(t.c2, val=1, order_by=t.c2)).collect()[0]['out'] == 1
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.select(window_agg(t.c2, val=t.c2, order_by=t.c2)).collect()
         assert 'needs to be a constant' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # ordering expression not a pixeltable expr
             _ = t.select(ordered_agg(1, t.c2)).collect()
         assert 'but instead is a' in str(exc_info.value).lower()
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # explicit order_by
             _ = t.select(ordered_agg(t.c2, order_by=t.c2)).collect()
         assert 'order_by invalid' in str(exc_info.value).lower()
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # order_by for non-window function
             _ = t.select(std_agg(t.c2, order_by=t.c2)).collect()
         assert 'does not allow windows' in str(exc_info.value).lower()
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # group_by for non-window function
             _ = t.select(std_agg(t.c2, group_by=t.c4)).collect()
         assert 'group_by invalid' in str(exc_info.value).lower()
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # missing init type
-            @pt.uda(update_types=[IntType()], value_type=IntType())
+            @pxt.uda(update_types=[IntType()], value_type=IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -732,9 +732,9 @@ class TestExprs:
                     return self.val
         assert 'init_types must be a list of' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # missing update parameter
-            @pt.uda(init_types=[IntType()], update_types=[], value_type=IntType())
+            @pxt.uda(init_types=[IntType()], update_types=[], value_type=IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -744,9 +744,9 @@ class TestExprs:
                     return self.val
         assert 'must have at least one parameter' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # missing update type
-            @pt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            @pxt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -756,9 +756,9 @@ class TestExprs:
                     return self.val
         assert 'update_types must be a list of' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # duplicate parameter names
-            @pt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            @pxt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -768,9 +768,9 @@ class TestExprs:
                     return self.val
         assert 'cannot have parameters with the same name: val' in str(exc_info.value)
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # invalid name
-            @pt.uda(name='not an identifier', init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            @pxt.uda(name='not an identifier', init_types=[IntType()], update_types=[IntType()], value_type=IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -780,9 +780,9 @@ class TestExprs:
                     return self.val
         assert 'invalid name' in str(exc_info.value).lower()
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            @pxt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -792,9 +792,9 @@ class TestExprs:
                     return self.val
         assert 'order_by is reserved' in str(exc_info.value).lower()
 
-        with pytest.raises(exc.Error) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            @pxt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
