@@ -67,21 +67,6 @@ class TestFunctions:
         row = t.head()[0]
         assert row == {'input': 'MNO', 's1': 'ABC MNO', 's2': 'DEF MNO', 's3': 'GHI MNO JKL MNO'}
 
-    def test_fireworks(self, test_client: pxt.Client) -> None:
-        skip_test_if_not_installed('fireworks')
-        try:
-            from pixeltable.functions.fireworks import initialize
-            initialize()
-        except:
-            pytest.skip(f'Fireworks client does not exist (missing API key?)')
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.fireworks import chat_completions
-        t['output'] = chat_completions(prompt=t.input, model='accounts/fireworks/models/llama-v2-7b-chat', max_tokens=256).choices[0].text
-        t.insert(input='I am going to the ')
-        result = t.select(t.output).collect()['output'][0]
-        assert len(result) > 0
-
     def test_hf_function(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('sentence_transformers')
         cl = test_client

@@ -253,7 +253,7 @@ class Env:
 
     def get_client(self, name: str, init: Callable, environ: Optional[str] = None) -> Any:
         """
-        Instantiates a client with the specified name.
+        Gets the client with the specified name, using `init` to construct one if necessary.
 
         - name: The name of the client
         - init: A `Callable` with signature `fn(api_key: str) -> Any` that constructs a client object
