@@ -61,6 +61,7 @@ class Env:
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
         self._nos_client: Optional[Any] = None
         self._openai_client: Optional['openai.OpenAI'] = None
+        self._label_studio_client: Optional['label_studio_sdk.client.Client'] = None
         self._has_together_client: bool = False
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
         self._httpd: Optional[socketserver.TCPServer] = None
@@ -283,6 +284,22 @@ class Env:
         together.api_key = api_key
         self._has_together_client = True
 
+    def _create_label_studio_client(self) -> None:
+        if 'label_studio' in self._config and 'api_key' in self._config['label_studio']:
+            api_key = self._config['label_studio']['api_key']
+        else:
+            api_key = os.environ.get('LABEL_STUDIO_API_KEY')
+        if api_key is None or api_key == '':
+            self._logger.info('Label Studio client not initialized (no API key configured).')
+            return
+        import label_studio_sdk.client
+        self._logger.info('Initializing Label Studio client.')
+        if 'label_studio' in self._config and 'url' in self._config['label_studio']:
+            url = self._config['label_studio']['url']
+        else:
+            url = 'http://localhost:8080/'
+        self._label_studio_client = label_studio_sdk.client.Client(url=url, api_key=api_key)
+
     def _start_web_server(self) -> None:
         """
         The http server root is the file system root.
@@ -409,10 +426,6 @@ class Env:
         return self._openai_client
 
     @property
-    def label_studio_client(self) -> Optional['label_studio_sdk.Client']:
-        return None
-
-    @property
     def has_together_client(self) -> bool:
         return self._has_together_client
 
@@ -420,3 +433,10 @@ class Env:
     def spacy_nlp(self) -> Any:
         assert self._spacy_nlp is not None
         return self._spacy_nlp
+
+    @property
+    def label_studio_client(self) -> 'label_studio_sdk.Client':
+        if self._label_studio_client is None:
+            self._create_label_studio_client()
+        assert self._label_studio_client is not None
+        return self._label_studio_client
