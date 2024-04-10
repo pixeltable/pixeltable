@@ -118,6 +118,10 @@ class TableMd:
 
     column_history: Dict[int, ColumnHistory]  # col_id -> ColumnHistory
 
+    # Metadata format for remotes:
+    # {'class': 'pixeltable.datatransfer.LabelStudioProject', 'md': {'project_id': 3}}
+    remotes: list[dict[str, Any]]
+
     view_md: Optional[ViewMd]
 
 

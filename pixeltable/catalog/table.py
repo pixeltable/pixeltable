@@ -580,5 +580,24 @@ class Table(SchemaObject):
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.revert()
 
-    def link_remote(self, remote: 'pixeltable.datatransfer.remote') -> None:
-        ...
+    def link_remote(
+            self,
+            remote: 'pixeltable.datatransfer.Remote',
+            col_mapping: Optional[dict[str, str]] = None
+    ) -> None:
+        self._check_is_dropped()
+        if col_mapping is None:
+            col_mapping = {col_name: col_name for col_name in self.column_names()}
+        self.tbl_version_path.tbl_version.link_remote(remote, col_mapping)
+        print(f'Linked table `{self.get_name()}` to {remote}.')
+
+    def get_remotes(self) -> list[tuple[pixeltable.datatransfer.Remote, dict[str, str]]]:
+        return self.tbl_version_path.tbl_version.get_remotes()
+
+    def push(self) -> None:
+        for remote, col_mapping in self.get_remotes():
+            remote.push(self, col_mapping)
+
+    def pull(self) -> None:
+        for remote, col_mapping in self.get_remotes():
+            remote.pull(self, col_mapping)

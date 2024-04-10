@@ -499,7 +499,24 @@ class Client:
         self.catalog.paths.check_is_valid(path, expected=catalog.Dir)
         return [str(p) for p in self.catalog.paths.get_children(path, child_type=catalog.Dir, recursive=recursive)]
 
-    # TODO: for now, named functions are deprecated, until we understand the use case and requirements better
+    def create_ls_project_view(
+            self,
+            t: 'pixeltable.Table',
+            name: str,
+            label_config: str,
+            where: Optional[pixeltable.exprs.Predicate] = None
+    ) -> 'pixeltable.View':
+        from pixeltable.datatransfer.label_studio import LabelStudioProject
+        from pixeltable import env
+        view = self.create_view(name, t, filter=where)
+        ls_client = env.Env.get().label_studio_client
+        project = ls_client.create_project(title=name, label_config=label_config)
+        lsp = LabelStudioProject(project.get_params()['id'])
+        view.link_remote(lsp)
+        return view
+
+
+# TODO: for now, named functions are deprecated, until we understand the use case and requirements better
     # def create_function(self, path_str: str, fn: func.Function) -> None:
     #     """Create a stored function.
     #

@@ -73,6 +73,8 @@ class TableVersion:
             self.next_col_id = tbl_md.next_col_id
             self.next_rowid = tbl_md.next_row_id
         self.column_history = tbl_md.column_history
+        self.remotes_md = tbl_md.remotes
+        self.remotes = [TableVersion._init_remote(remote_md) for remote_md in self.remotes_md]
 
         # view-specific initialization
         from pixeltable import exprs
@@ -139,7 +141,7 @@ class TableVersion:
         table_md = schema.TableMd(
             name=name, current_version=0, current_schema_version=0,
             next_col_id=len(cols), next_row_id=0, column_history=column_history,
-            view_md=view_md)
+            remotes=[], view_md=view_md)
         tbl_record = schema.Table(dir_id=dir_id, md=dataclasses.asdict(table_md))
         session.add(tbl_record)
         session.flush()  # sets tbl_record.id
@@ -642,6 +644,32 @@ class TableVersion:
             view._revert(session)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
+    @classmethod
+    def _init_remote(cls, remote_md: dict[str, Any]) -> Tuple[pixeltable.datatransfer.Remote, dict[str, str]]:
+        module = importlib.import_module(remote_md['module'])
+        remote_cls = getattr(module, remote_md['class'])
+        remote = remote_cls.from_dict(remote_md['remote_md'])
+        col_mapping = remote_md['col_mapping']
+        return remote, col_mapping
+
+    def link_remote(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
+        # TODO Need lots of validation here
+        remote_md = {
+            'module': type(remote).__module__,
+            'class': type(remote).__qualname__,
+            'remote_md': remote.to_dict(),
+            'col_mapping': col_mapping
+        }
+        ts = time.time()
+        self.version += 1
+        self.remotes.append((remote, col_mapping))
+        self.remotes_md.append(remote_md)
+        with Env.get().engine.begin() as conn:
+            self._update_md(ts, None, conn)
+
+    def get_remotes(self) -> list[tuple[pixeltable.datatransfer.Remote, dict[str, str]]]:
+        return self.remotes
+
     def is_view(self) -> bool:
         return self.base is not None
 
@@ -679,7 +707,7 @@ class TableVersion:
         return names
 
     @classmethod
-    def _create_value_expr(cls, col: Column, path: 'TableVersionPath') -> None:
+    def _create_value_expr(cls, col: Column, path: 'pixeltable.catalog.TableVersionPath') -> None:
         """
         Create col.value_expr, given col.compute_func.
         Interprets compute_func's parameters to be references to columns and construct ColumnRefs as args.
@@ -731,7 +759,7 @@ class TableVersion:
         return schema.TableMd(
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
             next_col_id=self.next_col_id, next_row_id=self.next_rowid, column_history=self.column_history,
-            view_md=self.view_md)
+            remotes=self.remotes_md, view_md=self.view_md)
 
     def _create_version_md(self, ts: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(created_at=ts, version=self.version, schema_version=self.schema_version)
