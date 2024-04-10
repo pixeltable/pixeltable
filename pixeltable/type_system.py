@@ -6,6 +6,7 @@ import enum
 import json
 import typing
 import urllib.parse
+import urllib.request
 from copy import copy
 from pathlib import Path
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union
@@ -275,7 +276,7 @@ class ColumnType:
             parsed = urllib.parse.urlparse(val)
             if parsed.scheme != '' and parsed.scheme != 'file':
                 return
-            path = Path(urllib.parse.unquote(parsed.path))
+            path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
             if not path.is_file():
                 raise TypeError(f'File not found: {str(path)}')
         else:

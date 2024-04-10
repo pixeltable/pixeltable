@@ -89,7 +89,7 @@ class CachePrefetchNode(ExecNode):
         # preserve the file extension, if there is one
         extension = ''
         if parsed.path != '':
-            p = Path(urllib.parse.unquote(parsed.path))
+            p = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
             extension = p.suffix
         tmp_path = env.Env.get().create_tmp_path(extension=extension)
         try:
