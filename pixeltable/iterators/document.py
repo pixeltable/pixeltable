@@ -290,29 +290,22 @@ class DocumentSplitter(ComponentIterator):
 
     def _pdf_sections(self) -> Generator[DocumentSection, None, None]:
         """Create DocumentSections reflecting the pdf-specific separators"""
-        import pdfminer
-        import pdfminer.high_level
-        import pdfminer.layout
-
-        assert self._doc_handle.pdf_doc is not None
-
-        # see https://pdfminersix.readthedocs.io/en/latest/topic/converting_pdf_to_text.html#topic-pdf-to-text-layout
-        # for conceptual layout structure for page
-        #
-        # see https://pdfminersix.readthedocs.io/en/latest/tutorial/extract_pages.html
-        # for usage
-        for page_number, page_layout in enumerate(pdfminer.high_level.extract_pages(self._doc_handle.pdf_doc)):
-            for _, element in enumerate(page_layout, start=1):
-                if isinstance(element, pdfminer.layout.LTTextContainer):
-                    # note LTText includes many other types as long as they have text
-                    text = element.get_text().strip()
-                    if len(text) > 0:
-                        # extract from type Rect
-                        (x0, y0, x1, y1) = element.bbox
-                        bbox = {'x0': x0, 'y0': y0,
-                                'x1': x1, 'y1': y1}
-                        metadata = DocumentSectionMetadata(0, headings={}, page_number=page_number, bbox=bbox)
-                        yield DocumentSection(text=text, metadata=metadata)
+        import fitz
+        doc : fitz.Document = self._doc_handle.pdf_doc
+        assert doc is not None
+        for page_number, page in enumerate(doc.pages()):
+            for block in page.get_text('blocks'):
+                x1, y1, x2, y2, text, _, _ = block
+                text = text.replace('\x00', ' ') # some pdf extractions have \x00
+                # TODO: insertions from iterators should go through the same logic as normal inserts
+                # we are replace NUL char here because that is currently not the case.
+                # in principle, html docs could also have this NUL string problem,
+                # or any user provided iterator.
+                if len(text) > 0:
+                    bbox = {'x1': x1, 'y1': y1,
+                            'x2': x2, 'y2': y2}
+                    metadata = DocumentSectionMetadata(0, headings={}, page_number=page_number, bbox=bbox)
+                    yield DocumentSection(text=text, metadata=metadata)
 
 
     def _sentence_sections(self, input_sections: Iterable[DocumentSection]) -> Generator[DocumentSection, None, None]:

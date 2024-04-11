@@ -9,7 +9,7 @@ class DocumentHandle:
     format: ts.DocumentType.DocumentFormat
     bs_doc: Optional['bs4.BeautifulSoup'] = None
     md_ast: Optional[Dict] = None
-    pdf_doc: Optional[str] = None
+    pdf_doc: Optional['fitz.Document'] = None
 
 def get_document_handle(path: str) -> Optional[DocumentHandle]:
     # NB: try pdf first, because correct PDF must be opened in binary mode,
@@ -50,21 +50,15 @@ def get_markdown_handle(path: str) -> Optional[Dict]:
         except Exception:
             return None
 
-def get_pdf_handle(path : str) -> Optional[str]:
-    import pdfminer
-    import pdfminer.high_level
-    # concepts: https://pdfminersix.readthedocs.io/en/latest/topic/converting_pdf_to_text.html#topic-pdf-to-text-layout
-    # usage: https://pdfminersix.readthedocs.io/en/latest/tutorial/extract_pages.html
-
-    with open(path, 'rb') as file:
-        try:
-            page_iter = pdfminer.high_level.extract_pages(file)
-            i = -1
-            for i, _ in enumerate(page_iter):
-                break
-            if i == -1:
-                return None
-            # the API needs the file name, not some other object, so just use that as the handle
-            return path
-        except Exception:
+def get_pdf_handle(path : str) -> Optional['fitz.Document']:
+    import fitz # aka pymupdf
+    try:
+        doc = fitz.open(path)
+        # check pdf (bc it will work for images)
+        if not doc.is_pdf:
             return None
+        # try to read one page
+        next(page for page in doc)
+    except Exception:
+        return None
+    return doc
