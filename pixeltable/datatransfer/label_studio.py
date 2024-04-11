@@ -6,9 +6,10 @@ from typing import Optional, Any
 import label_studio_sdk
 import more_itertools
 
+import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.exceptions as excs
-from pixeltable import Table, View
+from pixeltable import Table
 from pixeltable.datatransfer.remote import Remote
 
 
@@ -32,9 +33,6 @@ class LabelStudioProject(Remote):
             raise excs.Error(
                 f'`LabelStudioProject` supports at most 1 media column; found {len(media_cols)}: {media_cols}'
             )
-        print('PUSH')
-        print(col_mapping)
-        print(media_cols)
         if media_cols:
             # This project has a media column. We will iterate through the rows of the Table, one
             # at a time. For each row, we upload the media file, then fill in the remaining fields.
@@ -54,6 +52,7 @@ class LabelStudioProject(Remote):
                 }
                 meta = {'row_id': row.pk, 'pk_hack': row.vals[-1]}
                 self.project.update_task(task_id, meta=meta)
+            print(f'Created {t.count()} task(s) in {self}.')
         else:
             # No media column, just structured data; we upload the rows in pages.
             rows = t.select(*col_mapping.keys())
@@ -67,18 +66,26 @@ class LabelStudioProject(Remote):
                 self.project.import_tasks(tasks)
 
     def pull(self, t: Table, col_mapping: dict[str, str]) -> None:
-        rev_mapping = {v: k for k, v in col_mapping.items()}
+        # rev_mapping = {v: k for k, v in col_mapping.items()}
         page = 1
+        if 'annotations' not in t.column_names():
+            t.add_column(annotations=pxt.JsonType(nullable=True))
         while True:
             result = self.project.get_paginated_tasks(page=page, page_size=_PAGE_SIZE)
             if result.get('end_pagination'):
                 break
             for task in result['tasks']:
-                self.pull_task(t, rev_mapping, task)
+                self.pull_task(t, task)
             page += 1
+        print(f'Updated annotations from {self}.')
 
-    def pull_task(self, t: Table, rev_mapping: dict[str, str], task: dict) -> None:
+    def pull_task(self, t: Table, task: dict) -> None:
+        if not task['annotations']:
+            return
         pk_hack = task['meta']['pk_hack']
+        annotations = task['annotations']
+        # Total hack for the demo
+        t.update({'annotations': annotations}, where=(t['file'] == pk_hack))
 
     def to_dict(self) -> dict[str, Any]:
         return {'project_id': self.project_id}
