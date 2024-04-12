@@ -26,7 +26,8 @@ class TestFireworks:
             top_p=0.9,
             temperature=0.7
         )
-        t.insert(input="How's everything going today?")
+        status = t.insert(input="How's everything going today?")
+        assert status.num_excs == 0
         results = t.collect()
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0
         assert len(results['output_2'][0]['choices'][0]['message']['content']) > 0

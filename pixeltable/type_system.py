@@ -247,13 +247,16 @@ class ColumnType:
                 # We treat it as the underlying type but with nullable=True.
                 underlying = cls.from_python_type(union_args[0])
                 if underlying is not None:
+                    # Make a copy to ensure we're not mutating the global dictionary entry
                     result = copy(underlying)
                     result.nullable = True
                     return result
         elif t in _python_type_to_column_type:
             return _python_type_to_column_type[t]
         else:
-            base = typing.get_origin(t)  # Discard type parameters
+            # Discard type parameters to ensure that parameterized types such as `list[T]`
+            # are correctly mapped to Pixeltable types.
+            base = typing.get_origin(t)
             if base is not None and base in _python_type_to_column_type:
                 return _python_type_to_column_type[base]
         return None

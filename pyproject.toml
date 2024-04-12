@@ -19,7 +19,7 @@ exclude = [
 python = ">=3.9,<4.0"
 numpy = "^1.26"
 pandas = ">=2.0,<3.0"
-pillow = ">=10.1"
+pillow = ">=10.0"
 opencv-python-headless = "^4.7.0.68"
 tqdm = "^4.64.1"
 jmespath = "^1.0.1"
@@ -48,7 +48,7 @@ pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 coverage = "^7.4"
 # mypy-related
 mypy = "^1.8.0"
-types-pillow = ">=10.1"
+types-pillow = ">=10.0"
 types-pyyaml = "^6.0.1"
 pyarrow-stubs = "^10.0.1.7"
 # linting
