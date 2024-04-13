@@ -1,7 +1,7 @@
 <div align="center">
 <img src="docs/pixeltable-banner.png" width="45%"/>
 
-# The Multimodal AI Data Plane
+# Unifying Data, Models, and Orchestration for AI Products
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 &nbsp;&nbsp;
@@ -10,8 +10,15 @@
 [Installation](https://pixeltable.github.io/pixeltable/getting-started/) | [Documentation](https://pixeltable.github.io/pixeltable/)
 </div>
 
-**Pixeltable redefines data infrastructure and workflow orchestration for AI development.**
-It brings together data storage, versioning, and indexing with orchestration and model versioning under a declarative table interface, with transformations, model inference, and custom logic represented as computed columns.
+Pixeltable is a Python library that lets AI engineers and data scientists focus on exploration, modeling, and app development without dealing with the customary data plumbing.
+
+## What problems does Pixeltable solve?
+
+Today’s solutions for AI app development require extensive custom coding and infrastructure
+plumbing. Tracking lineage and versions between and across data transformations, models, and
+deployment is cumbersome. Pixeltable is a replacement for traditional data plumbing, providing
+a unified plane for data, models, and orchestration. It removes the data plumbing overhead in
+building and productionizing AI applications.
 
 ## ⚡Quick Start
 Learn the basics of Pixeltable through interactive examples. View the notebooks on Google Colab or Kaggle, for free.
@@ -23,8 +30,6 @@ In this tutorial, we'll survey how to create tables, populate them with data, an
 
 
 ## 💾 Installation
-Pixeltable is a Python library that lets AI engineers and data scientists focus on exploration, modeling, and app development without having to deal with the customary data plumbing.
-
 Pixeltable works with Python 3.9, 3.10, or 3.11 running on Linux or MacOS.
 
 ```
@@ -43,14 +48,6 @@ For more detailed installation instructions, see the
 guide. Then, check out the
 [Pixeltable Basics](https://pixeltable.github.io/pixeltable/tutorials/pixeltable-basics/)
 tutorial for a tour of its most important features.
-
-## What problems does Pixeltable solve?
-
-Today’s solutions for AI app development require extensive custom coding and infrastructure
-plumbing. Tracking lineage and versions between and across data transformations, models, and
-deployment is cumbersome. Pixeltable is a replacement for traditional data plumbing, providing
-a unified plane for data, models, and orchestration. It removes the data plumbing overhead in
-building and productionizing AI applications.
 
 ## Why should you use Pixeltable?
 
@@ -84,6 +81,11 @@ storage.
 get cost projections before adding new data and new augmentations.
 * Rely on Pixeltable's automatic versioning and snapshot functionality to protect against regressions
 and to ensure reproducibility.
+
+## Contributions & Feedback
+
+Are you experiencing issues or bugs with Pixeltable? File an [Issue](https://github.com/pixeltable/pixeltable/issues).
+</br>Do you want to contribute? Feel free to open a [PR](https://github.com/pixeltable/pixeltable/pulls).
 
 ## :classical_building: License
 
