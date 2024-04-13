@@ -8,6 +8,7 @@ import PIL
 import cv2
 import numpy as np
 import pandas as pd
+import pathlib
 import pytest
 
 import pixeltable as pxt
@@ -17,13 +18,13 @@ from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 from pixeltable.tests.utils import \
     make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
-    assert_resultset_eq
+    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table
+from pixeltable.tests.utils import skip_test_if_not_installed
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
     DocumentType
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
-
 
 class TestTable:
     # exc for a % 10 == 0
@@ -90,6 +91,12 @@ class TestTable:
         with pytest.raises(excs.Error):
             cl.drop_table('.test2')
 
+    def test_empty_table(self, test_client: pxt.Client) -> None:
+        cl = test_client
+        with pytest.raises(excs.Error) as exc_info:
+            cl.create_table('empty_table', {})
+        assert 'Table schema is empty' in str(exc_info.value)
+
     def test_table_attrs(self, test_client: pxt.Client) -> None:
         cl = test_client
         schema = {'c': StringType(nullable=False)}
@@ -108,6 +115,100 @@ class TestTable:
         assert tbl.comment == comment
         tbl.revert()
         assert tbl.num_retained_versions == num_retained_versions
+
+    def test_import_parquet(self, test_client: pxt.Client, tmp_path: pathlib.Path) -> None:
+        skip_test_if_not_installed('pyarrow')
+        import pyarrow as pa
+        from pixeltable.utils.arrow import iter_tuples
+
+        parquet_dir = tmp_path / 'test_data'
+        parquet_dir.mkdir()
+        make_test_arrow_table(parquet_dir)
+
+        tab = test_client.import_parquet('test_parquet', parquet_path=str(parquet_dir))
+        assert 'test_parquet' in test_client.list_tables()
+        assert tab is not None
+        num_elts = tab.count()
+        arrow_tab: pa.Table = pa.parquet.read_table(str(parquet_dir))
+        assert num_elts == arrow_tab.num_rows
+        assert set(tab.column_names()) == set(arrow_tab.column_names)
+
+        result_set = tab.order_by(tab.c_id).collect()
+        column_types = tab.column_types()
+
+        for tup, arrow_tup in zip(result_set, iter_tuples(arrow_tab)):
+            assert tup['c_id'] == arrow_tup['c_id']
+            for col, val in tup.items():
+                if val is None:
+                    assert arrow_tup[col] is None
+                    continue
+
+                if column_types[col].is_array_type():
+                    assert (val == arrow_tup[col]).all()
+                else:
+                    assert val == arrow_tup[col]
+
+    def test_import_huggingface_dataset(self, test_client: pxt.Client, tmp_path: pathlib.Path) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        test_cases = [
+            # { # includes a timestamp. 20MB for specific slice
+            # Disbled this test case because download is failing, and its not critical.
+            #     'dataset_name': 'c4',
+            #     # see https://huggingface.co/datasets/allenai/c4/blob/main/realnewslike/c4-train.00000-of-00512.json.gz
+            #     'dataset': datasets.load_dataset(
+            #         "allenai/c4",
+            #         data_dir="realnewslike",
+            #         data_files="c4-train.00000-of-00512.json.gz",
+            #         split='train[:1000]',
+            #         cache_dir=tmp_path
+            #     ),
+            # },
+            {  # includes an embedding (array type), common in a few RAG datasets.
+                'dataset_name': 'cohere_wikipedia',
+                'dataset': datasets.load_dataset("Cohere/wikipedia-2023-11-embed-multilingual-v3",
+                                                 data_dir='cr').select_columns(['url', 'title', 'text', 'emb']),
+                # column with name `_id`` is not currently allowed by pixeltable rules,
+                # so filter out that column.
+                # cr subdir has a small number of rows, avoid running out of space in CI runner
+                # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
+                'schema_override': {'emb': ArrayType((1024,), dtype=FloatType(), nullable=False)}
+            },
+            # example of dataset dictionary with multiple splits
+            {
+                'dataset_name': 'rotten_tomatoes',
+                'dataset': datasets.load_dataset("rotten_tomatoes"),
+            },
+        ]
+
+        # test a column name for splits other than the default of 'split'
+        split_column_name = 'my_split_col'
+        for rec in test_cases:
+            dataset_name = rec['dataset_name']
+            hf_dataset = rec['dataset']
+
+            tab = test_client.import_huggingface_dataset(
+                dataset_name,
+                hf_dataset,
+                column_name_for_split=split_column_name,
+                schema_override=rec.get('schema_override', None),
+            )
+            if isinstance(hf_dataset, datasets.Dataset):
+                assert_hf_dataset_equal(hf_dataset, tab.df(), split_column_name)
+            elif isinstance(hf_dataset, datasets.DatasetDict):
+                assert tab.count() == sum(hf_dataset.num_rows.values())
+                assert split_column_name in tab.column_names()
+
+                for dataset_name in hf_dataset:
+                    df = tab.where(tab.my_split_col == dataset_name)
+                    assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
+            else:
+                assert False
+
+        with pytest.raises(excs.Error) as exc_info:
+            test_client.import_huggingface_dataset('test', {})
+        assert 'type(dataset)' in str(exc_info.value)
 
     def test_image_table(self, test_client: pxt.Client) -> None:
         n_sample_rows = 20
@@ -290,6 +391,7 @@ class TestTable:
         self.check_bad_media(test_client, rows, DocumentType(nullable=True))
 
     def test_validate_external_url(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         rows = [
             {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
             {'media': 'https://archive.random.org/download?file=2024-01-28.bin', 'is_bad_media': True},  # 403 error
@@ -309,6 +411,7 @@ class TestTable:
         self.check_bad_media(test_client, rows, VideoType(nullable=True))
 
     def test_create_s3_image_table(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         cl = test_client
         tbl = cl.create_table('test', {'img': ImageType(nullable=False)})
         # this is needed because Client.reset_catalog() doesn't call TableVersion.drop(), which would
@@ -365,6 +468,7 @@ class TestTable:
         assert cache_stats.total_size == 0
 
     def test_video_url(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         cl = test_client
         schema = {
             'payload': IntType(nullable=False),
@@ -384,6 +488,7 @@ class TestTable:
         cap.release()
 
     def test_create_video_table(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         cl = test_client
         tbl = cl.create_table(
             'test_tbl',
@@ -522,7 +627,17 @@ class TestTable:
             t.insert(c5=np.ndarray((3, 2)))
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
+    def test_insert_string_with_null(self, test_client: pxt.Client) -> None:
+        cl = test_client
+        t = cl.create_table('test', {'c1': StringType()})
+
+        t.insert([{'c1': 'this is a python\x00string'}])
+        assert t.count() == 1
+        for tup in t.df().collect():
+            assert tup['c1'] == 'this is a python string'
+
     def test_query(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')
         cl = test_client
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
         t = make_tbl(cl, 'test', col_names)

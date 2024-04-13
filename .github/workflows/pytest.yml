@@ -5,15 +5,24 @@ on:
     branches: [master]
   push:
     branches: [master]
+  workflow_dispatch:
 
 jobs:
   pytest:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest]
+        os: [ubuntu-22.04, macos-latest, windows-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12"]
         poetry-version: ["1.7.1"]
+        poetry-options: ["--with dev"]
+        include:
+          # Adds one additional matrix configuration that runs the unit tests
+          # against a minimal installation of pixeltable (without --with dev).
+          - os: ubuntu-22.04
+            python-version: "3.9"
+            poetry-version: "1.7.1"
+            poetry-options: ""
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repo
@@ -34,9 +43,13 @@ jobs:
           # - poetry.lock and related .toml files (so that if the dependencies
           #   or poetry config change, the cache will be invalidated)
           path: ./.venv
-          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
+          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
       - name: Install the project dependencies
-        run: poetry install --with dev
+        run: poetry install ${{ matrix.poetry-options }}
+      - name: Ensure pytest is installed
+        # This is necessary for running the tests without --with dev
+        if: ${{ matrix.poetry-options == '' }}
+        run: poetry run pip install pytest coverage
       - name: Run the unit tests
         run: poetry run coverage run -m --source=pixeltable pytest -v
         env:

@@ -383,10 +383,6 @@ class ColumnType:
             return sql.VARBINARY
         assert False
 
-    @abc.abstractmethod
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        assert False, f'Have not implemented {self.__class__.__name__} to Arrow'
- 
     @staticmethod
     def no_conversion(v: Any) -> Any:
         """
@@ -411,9 +407,6 @@ class InvalidType(ColumnType):
         assert False
 
     def to_sa_type(self) -> Any:
-        assert False
-
-    def to_arrow_type(self) -> 'pyarrow.DataType':
         assert False
 
     def print_value(self, val: Any) -> str:
@@ -442,10 +435,6 @@ class StringType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.String
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.string()
 
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
@@ -454,6 +443,13 @@ class StringType(ColumnType):
         if not isinstance(val, str):
             raise TypeError(f'Expected string, got {val.__class__.__name__}')
 
+    def _create_literal(self, val: Any) -> Any:
+        # Replace null byte within python string with space to avoid issues with Postgres.
+        # Use a space to avoid merging words.
+        # TODO(orm): this will also be an issue with JSON inputs, would space still be a good replacement?
+        if isinstance(val, str) and '\x00' in val:
+            return val.replace('\x00', ' ')
+        return val
 
 class IntType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -464,10 +460,6 @@ class IntType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.BigInteger
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.int64() # to be consistent with bigint above
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, int):
@@ -483,10 +475,6 @@ class FloatType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.Float
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa
-        return pa.float32()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, float):
@@ -506,10 +494,6 @@ class BoolType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.Boolean
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.bool_()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, bool):
@@ -529,10 +513,6 @@ class TimestampType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.TIMESTAMP
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.timestamp('us') # postgres timestamp is microseconds
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
@@ -570,10 +550,6 @@ class JsonType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.dialects.postgresql.JSONB
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.string() # TODO: weight advantage of pa.struct type.
 
     def print_value(self, val: Any) -> str:
         val_type = self.infer_literal_type(val)
@@ -669,7 +645,9 @@ class ArrayType(ColumnType):
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, (list,tuple)):
-            return np.array(val)
+            # map python float to whichever numpy float is
+            # declared for this type, rather than assume float64
+            return np.array(val, dtype=self.numpy_dtype())
         return val
 
     def to_sql(self) -> str:
@@ -677,12 +655,6 @@ class ArrayType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.LargeBinary
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        if any([n is None for n in self.shape]):
-            raise TypeError(f'Cannot convert array with unknown shape to Arrow')        
-        return pa.fixed_shape_tensor(pa.from_numpy_dtype(self.numpy_dtype()), self.shape)
 
     def numpy_dtype(self) -> np.dtype:
         if self.dtype == self.Type.INT:
@@ -788,10 +760,6 @@ class ImageType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.String
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.binary()
 
     def _validate_literal(self, val: Any) -> None:
         if isinstance(val, PIL.Image.Image):
@@ -815,10 +783,6 @@ class VideoType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.String
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.string()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -853,10 +817,6 @@ class AudioType(ColumnType):
 
     def to_sa_type(self) -> str:
         return sql.String
-
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa  # pylint: disable=import-outside-toplevel
-        return pa.string()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -901,17 +861,13 @@ class DocumentType(ColumnType):
     def to_sa_type(self) -> str:
         return sql.String
 
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa  # pylint: disable=import-outside-toplevel
-        return pa.string()
-
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
 
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         from pixeltable.utils.documents import get_document_handle
-        with open(val, 'r') as fh:
+        with open(val, 'r', encoding='utf8') as fh:
             try:
                 s = fh.read()
                 dh = get_document_handle(s)
