@@ -18,10 +18,7 @@ exclude = [
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
 numpy = ">=1.26"
-pandas = [
-    { version = ">=2.0", python = ">=3.9,<3.12" },
-    { version = ">=2.2", python = ">=3.12" }
-]
+pandas = ">=2.0,<3.0"
 pillow = ">=10.0"
 opencv-python-headless = "^4.7.0.68"
 tqdm = "^4.64.1"
