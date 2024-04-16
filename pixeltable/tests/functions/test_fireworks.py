@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.tests.utils import skip_test_if_not_installed
+from pixeltable.tests.utils import skip_test_if_not_installed, validate_update_status
 
 
 class TestFireworks:
@@ -26,12 +26,13 @@ class TestFireworks:
             top_p=0.9,
             temperature=0.7
         )
-        status = t.insert(input="How's everything going today?")
-        assert status.num_excs == 0
+        validate_update_status(t.insert(input="How's everything going today?"), 1)
         results = t.collect()
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0
         assert len(results['output_2'][0]['choices'][0]['message']['content']) > 0
 
+    # This ensures that the test will be skipped, rather than returning an error, when no API key is
+    # available (for example, when a PR runs in CI).
     @staticmethod
     def skip_test_if_no_fireworks_client() -> None:
         try:

@@ -252,13 +252,13 @@ class ColumnType:
                     result.nullable = True
                     return result
         elif t in _python_type_to_column_type:
-            return _python_type_to_column_type[t]
+            return copy(_python_type_to_column_type[t])
         else:
             # Discard type parameters to ensure that parameterized types such as `list[T]`
             # are correctly mapped to Pixeltable types.
             base = typing.get_origin(t)
             if base is not None and base in _python_type_to_column_type:
-                return _python_type_to_column_type[base]
+                return copy(_python_type_to_column_type[base])
         return None
 
 

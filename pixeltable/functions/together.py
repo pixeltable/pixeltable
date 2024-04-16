@@ -105,6 +105,7 @@ def image_generations(
         width: Optional[int] = None,
         negative_prompt: Optional[str] = None,
 ) -> PIL.Image.Image:
+    # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     result = together_client().images.generate(
         prompt=prompt,
         model=model,

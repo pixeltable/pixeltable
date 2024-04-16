@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.tests.utils import skip_test_if_not_installed
+from pixeltable.tests.utils import skip_test_if_not_installed, validate_update_status
 
 
 class TestTogether:
@@ -28,7 +28,7 @@ class TestTogether:
             n=3,
             safety_model='Meta-Llama/Llama-Guard-7b'
         ))
-        t.insert(input='I am going to the ')
+        validate_update_status(t.insert(input='I am going to the '), 1)
         result = t.collect()
         assert len(result['output'][0]['choices'][0]['text']) > 0
         assert len(result['output_2'][0]['choices'][0]['text']) > 0
@@ -56,7 +56,7 @@ class TestTogether:
             safety_model='Meta-Llama/Llama-Guard-7b',
             response_format={'type': 'json_object'}
         ))
-        t.insert(input='Give me a typical example of a JSON structure.')
+        validate_update_status(t.insert(input='Give me a typical example of a JSON structure.'), 1)
         result = t.collect()
         assert len(result['output'][0]['choices'][0]['message']) > 0
         assert len(result['output_2'][0]['choices'][0]['message']) > 0
@@ -68,7 +68,7 @@ class TestTogether:
         t = cl.create_table('test_tbl', {'input': pxt.StringType()})
         from pixeltable.functions.together import embeddings
         t.add_column(embed=embeddings(input=t.input, model='togethercomputer/m2-bert-80M-8k-retrieval'))
-        t.insert(input='Together AI provides a variety of embeddings models.')
+        validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
 
     def test_image_generations(self, test_client: pxt.Client) -> None:
@@ -90,14 +90,18 @@ class TestTogether:
             width=512,
             negative_prompt=t.negative_prompt
         ))
-        t.insert(input='A friendly dinosaur playing tennis in a cornfield')
-        t.insert(input='A friendly dinosaur playing tennis in a cornfield', negative_prompt='tennis court')
+        validate_update_status(t.insert([
+            {'input': 'A friendly dinosaur playing tennis in a cornfield'},
+            {'input': 'A friendly dinosaur playing tennis in a cornfield',
+             'negative_prompt': 'tennis court'}
+        ]), 2)
         assert t.collect()['img'][0].size == (512, 512)
         assert t.collect()['img_2'][0].size == (512, 768)
         assert t.collect()['img'][1].size == (512, 512)
         assert t.collect()['img_2'][1].size == (512, 768)
 
-
+    # This ensures that the test will be skipped, rather than returning an error, when no API key is
+    # available (for example, when a PR runs in CI).
     @staticmethod
     def skip_test_if_no_together_client() -> None:
         try:

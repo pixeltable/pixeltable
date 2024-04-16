@@ -13,6 +13,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import catalog
+from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.type_system import (
@@ -294,6 +295,12 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
 def skip_test_if_not_installed(package) -> None:
     if not Env.get().is_installed_package(package):
         pytest.skip(f'Package `{package}` is not installed.')
+
+
+def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = None) -> None:
+    assert status.num_excs == 0
+    if expected_rows is not None:
+        assert status.num_rows == expected_rows
 
 
 def make_test_arrow_table(output_path: Path) -> None:

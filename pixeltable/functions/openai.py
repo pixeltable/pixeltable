@@ -157,6 +157,7 @@ def vision(
         *,
         model: str = 'gpt-4-vision-preview'
 ) -> str:
+    # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     bytes_arr = io.BytesIO()
     image.save(bytes_arr, format='png')
     b64_bytes = base64.b64encode(bytes_arr.getvalue())
@@ -214,6 +215,7 @@ def image_generations(
         style: Optional[str] = None,
         user: Optional[str] = None
 ) -> PIL.Image.Image:
+    # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     result = openai_client().images.generate(
         prompt=prompt,
         model=_opt(model),
