@@ -6,9 +6,8 @@ import enum
 import json
 import typing
 import urllib.parse
-from copy import copy
 from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union
+from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
 
 import PIL.Image
 import av
@@ -247,20 +246,30 @@ class ColumnType:
                 # We treat it as the underlying type but with nullable=True.
                 underlying = cls.from_python_type(union_args[0])
                 if underlying is not None:
-                    # Make a copy to ensure we're not mutating the global dictionary entry
-                    result = copy(underlying)
-                    result.nullable = True
-                    return result
-        elif t in _python_type_to_column_type:
-            return copy(_python_type_to_column_type[t])
+                    underlying.nullable = True
+                    return underlying
         else:
             # Discard type parameters to ensure that parameterized types such as `list[T]`
             # are correctly mapped to Pixeltable types.
             base = typing.get_origin(t)
-            if base is not None and base in _python_type_to_column_type:
-                return copy(_python_type_to_column_type[base])
+            if base is None:
+                # No type parameters; the base type is just `t` itself
+                base = t
+            if base is str:
+                return StringType()
+            if base is int:
+                return IntType()
+            if base is float:
+                return FloatType()
+            if base is bool:
+                return BoolType()
+            if base is datetime.date or base is datetime.datetime:
+                return TimestampType()
+            if issubclass(base, Sequence) or issubclass(base, Mapping):
+                return JsonType()
+            if issubclass(base, PIL.Image.Image):
+                return ImageType()
         return None
-
 
     def validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
@@ -884,20 +893,3 @@ class DocumentType(ColumnType):
                     raise excs.Error(f'Not a recognized document format: {val}')
             except Exception as e:
                 raise excs.Error(f'Not a recognized document format: {val}') from None
-
-
-# A dictionary mapping various Python types to their respective ColumnTypes.
-# This can be used to infer Pixeltable ColumnTypes from type hints on Python
-# functions. (Since Python functions do not necessarily have type hints, this
-# should always be an optional/convenience inference.)
-_python_type_to_column_type: dict[type, ColumnType] = {
-    str: StringType(),
-    int: IntType(),
-    float: FloatType(),
-    bool: BoolType(),
-    datetime.datetime: TimestampType(),
-    datetime.date: TimestampType(),
-    list: JsonType(),
-    dict: JsonType(),
-    PIL.Image.Image: ImageType()
-}
