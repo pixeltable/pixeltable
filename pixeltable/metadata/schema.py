@@ -93,9 +93,6 @@ class ColumnMd:
     # if True, the column is present in the stored table
     stored: Optional[bool]
 
-    # if stored: name of the column in the storage table
-    #store_name: Optional[str]
-
 
 @dataclasses.dataclass
 class IndexMd:

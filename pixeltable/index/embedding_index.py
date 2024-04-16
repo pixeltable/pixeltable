@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from typing import Optional
-import sqlalchemy as sql
+
 import pgvector.sqlalchemy
+import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.type_system as ts
+from .base import IndexBase
 
 
-class EmbeddingIndex:
+class EmbeddingIndex(IndexBase):
     """
     Internal interface used by the catalog and runtime system to interact with (embedding) indices:
     - types and expressions needed to create and populate the index value column
@@ -60,6 +62,10 @@ class EmbeddingIndex:
             postgresql_ops={index_value_col.sa_col.name: 'vector_cosine_ops'}
         )
         idx.create(bind=conn)
+
+    @classmethod
+    def display_name(cls) -> str:
+        return 'embedding'
 
     @classmethod
     def _validate_embedding_fn(cls, embed_fn: func.Function, name: str, expected_type: ts.ColumnType.Type) -> None:

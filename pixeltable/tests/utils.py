@@ -6,6 +6,7 @@ from collections import namedtuple
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+import PIL.Image
 import numpy as np
 import pandas as pd
 import pytest
@@ -15,6 +16,7 @@ import pixeltable.type_system as ts
 from pixeltable import catalog
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
+from pixeltable.functions.huggingface import clip_image, clip_text
 from pixeltable.type_system import (
     ArrayType,
     BoolType,
@@ -42,6 +44,7 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
         return TimestampType()
     assert False
 
+
 def make_tbl(cl: pxt.Client, name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
     if col_names is None:
         col_names = ['c1']
@@ -50,7 +53,9 @@ def make_tbl(cl: pxt.Client, name: str = 'test', col_names: Optional[List[str]] 
         schema[f'{col_name}'] = make_default_type(ColumnType.Type(i % 5))
     return cl.create_table(name, schema)
 
-def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, num_rows: int = 10) -> List[Dict[str, Any]]:
+
+def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, num_rows: int = 10) -> List[
+    Dict[str, Any]]:
     if col_names is None:
         col_names = []
     data: Dict[str, Any] = {}
@@ -123,6 +128,7 @@ def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, n
     rows = [{col_name: data[col_name][i] for col_name in col_names} for i in range(num_rows)]
     return rows
 
+
 def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table:
     schema = {
         'c1': StringType(nullable=False),
@@ -188,12 +194,25 @@ def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table
     t.insert(rows)
     return t
 
+
+def create_img_tbl(cl: pxt.Client, name: str = 'test_img_tbl') -> catalog.Table:
+    schema = {
+        'img': ImageType(nullable=False),
+        'category': StringType(nullable=False),
+        'split': StringType(nullable=False),
+    }
+    tbl = cl.create_table(name, schema)
+    rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+    tbl.insert(rows)
+    return tbl
+
+
 def create_all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
     """ Creates a table with all supported datatypes.
     """
     schema = {
-        'row_id': IntType(nullable=False), # used for row selection
-        'c_array': ArrayType(shape=(10,),  dtype=FloatType(), nullable=True),
+        'row_id': IntType(nullable=False),  # used for row selection
+        'c_array': ArrayType(shape=(10,), dtype=FloatType(), nullable=True),
         'c_bool': BoolType(nullable=True),
         'c_float': FloatType(nullable=True),
         'c_image': ImageType(nullable=True),
@@ -206,11 +225,12 @@ def create_all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
     tbl = test_client.create_table('all_datatype_tbl', schema)
     example_rows = create_table_data(tbl, num_rows=11)
 
-    for i,r in enumerate(example_rows):
-        r['row_id'] = i # row_id
+    for i, r in enumerate(example_rows):
+        r['row_id'] = i  # row_id
 
     tbl.insert(example_rows)
     return tbl
+
 
 def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """
@@ -222,7 +242,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[List[
     """
     if path_col_names is None:
         path_col_names = []
-    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/{dir_name}', recursive=True)
     assert len(glob_result) == 1, f'Could not find {dir_name}'
     abs_path = Path(glob_result[0])
@@ -234,8 +254,9 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[List[
         df[col_name] = df.apply(lambda r: str(abs_path / r[col_name]), axis=1)
     return df.to_dict(orient='records')
 
+
 def get_video_files(include_bad_video: bool = False) -> List[str]:
-    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
@@ -243,17 +264,20 @@ def get_video_files(include_bad_video: bool = False) -> List[str]:
     half_res = [f for f in glob_result if 'half_res' in f or 'bad_video' in f]
     return half_res
 
+
 def get_test_video_files() -> List[str]:
-    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/test_videos/*', recursive=True)
     return glob_result
 
+
 def get_image_files(include_bad_image: bool = False) -> List[str]:
-    tests_dir = os.path.dirname(__file__) # search with respect to tests/ dir
+    tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
     if not include_bad_image:
         glob_result = [f for f in glob_result if 'bad_image' not in f]
     return glob_result
+
 
 def get_audio_files(include_bad_audio: bool = False) -> List[str]:
     tests_dir = os.path.dirname(__file__)
@@ -262,10 +286,12 @@ def get_audio_files(include_bad_audio: bool = False) -> List[str]:
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
     return glob_result
 
+
 def get_documents() -> List[str]:
     tests_dir = os.path.dirname(__file__)
     # for now, we can only handle .html and .md
     return [p for p in glob.glob(f'{tests_dir}/**/documents/*', recursive=True) if not p.endswith('.pdf')]
+
 
 def get_sentences(n: int = 100) -> List[str]:
     tests_dir = os.path.dirname(__file__)
@@ -274,6 +300,7 @@ def get_sentences(n: int = 100) -> List[str]:
         questions_list = json.load(f)
     # this dataset contains \' around the questions
     return [q['question'].replace("'", '') for q in questions_list[:n]]
+
 
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
@@ -288,6 +315,7 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
             assert np.allclose(s1, s2)
         else:
             assert s1.equals(s2)
+
 
 def skip_test_if_not_installed(package) -> None:
     if not Env.get().is_installed_package(package):
@@ -393,3 +421,11 @@ def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, s
 
         check_tup = DatasetTuple(**encoded_tup)
         assert check_tup in acc_dataset
+
+@pxt.expr_udf
+def img_embed(img: PIL.Image.Image) -> np.ndarray:
+    return clip_image(img, model_id='openai/clip-vit-base-patch32')
+
+@pxt.expr_udf
+def text_embed(txt: str) -> np.ndarray:
+    return clip_text(txt, model_id='openai/clip-vit-base-patch32')

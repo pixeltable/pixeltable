@@ -38,7 +38,7 @@ class StoreBase:
         self.tbl_version = tbl_version
         self.sa_md = sql.MetaData()
         self.sa_tbl: Optional[sql.Table] = None
-        self._create_sa_tbl()
+        self.create_sa_tbl()
 
     def pk_columns(self) -> List[sql.Column]:
         return self._pk_columns
@@ -62,7 +62,7 @@ class StoreBase:
         return [*rowid_cols, self.v_min_col, self.v_max_col]
 
 
-    def _create_sa_tbl(self) -> None:
+    def create_sa_tbl(self) -> None:
         """Create self.sa_tbl from self.tbl_version."""
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
@@ -165,22 +165,19 @@ class StoreBase:
 
         return table_row, num_excs
 
-    def count(self, conn: Optional[sql.engine.Connection] = None) -> None:
+    def count(self, conn: Optional[sql.engine.Connection] = None) -> int:
         """Return the number of rows visible in self.tbl_version"""
         stmt = sql.select(sql.func.count('*'))\
             .select_from(self.sa_tbl)\
             .where(self.v_min_col <= self.tbl_version.version)\
             .where(self.v_max_col > self.tbl_version.version)
-        try:
-            needs_close = conn is None
-            if conn is None:
-                conn = env.Env.get().engine.connect()
+        if conn is None:
+            with env.Env.get().engine.connect() as conn:
+                result = conn.execute(stmt).scalar_one()
+        else:
             result = conn.execute(stmt).scalar_one()
-            assert isinstance(result, int)
-            return result
-        finally:
-            if needs_close:
-                conn.close()
+        assert isinstance(result, int)
+        return result
 
     def create(self, conn: sql.engine.Connection) -> None:
         self.sa_md.create_all(bind=conn)
@@ -210,21 +207,18 @@ class StoreBase:
                     f'ADD COLUMN {col.errortype_store_name()} {StringType().to_sql()} DEFAULT NULL')
             conn.execute(sql.text(stmt))
             added_storage_cols.extend([col.errormsg_store_name(), col.errortype_store_name()])
-        self._create_sa_tbl()
+        self.create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 
-    def drop_column(self, col: Optional[catalog.Column] = None, conn: Optional[sql.engine.Connection] = None) -> None:
-        """Re-create self.sa_tbl and drop column, if one is given"""
-        if col is not None:
-            assert conn is not None
-            stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
+    def drop_column(self, col: catalog.Column, conn: sql.engine.Connection) -> None:
+        """Execute Alter Table Drop Column statement"""
+        stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
+        conn.execute(sql.text(stmt))
+        if col.records_errors:
+            stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errormsg_store_name()}'
             conn.execute(sql.text(stmt))
-            if col.records_errors:
-                stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errormsg_store_name()}'
-                conn.execute(sql.text(stmt))
-                stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errortype_store_name()}'
-                conn.execute(sql.text(stmt))
-        self._create_sa_tbl()
+            stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errortype_store_name()}'
+            conn.execute(sql.text(stmt))
 
     def load_column(
             self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, conn: sql.engine.Connection
@@ -419,8 +413,8 @@ class StoreComponentView(StoreView):
         self.rowid_cols.append(self.pos_col)
         return self.rowid_cols
 
-    def _create_sa_tbl(self) -> None:
-        super()._create_sa_tbl()
+    def create_sa_tbl(self) -> None:
+        super().create_sa_tbl()
         # we need to fix up the 'pos' column in TableVersion
         self.tbl_version.cols_by_name['pos'].sa_col = self.pos_col
 

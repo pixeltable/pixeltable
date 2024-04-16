@@ -668,7 +668,7 @@ class TestTable:
         t2 = cl.get_table('test')
         _  = t2.show(n=0)
 
-    def test_update(self, test_tbl: pxt.Table, indexed_img_tbl: pxt.Table) -> None:
+    def test_update(self, test_tbl: pxt.Table, small_img_tbl) -> None:
         t = test_tbl
         # update every type with a literal
         test_cases = [
@@ -773,7 +773,7 @@ class TestTable:
             t.update({'c3': 1.0}, where=lambda c2: c2 == 10)
         assert 'Predicate' in str(excinfo.value)
 
-        img_t = indexed_img_tbl
+        img_t = small_img_tbl
 
         # can't update image col
         with pytest.raises(excs.Error) as excinfo:
@@ -803,7 +803,7 @@ class TestTable:
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).show(0)
         assert_resultset_eq(r1, r2)
 
-    def test_delete(self, test_tbl: pxt.Table, indexed_img_tbl: pxt.Table) -> None:
+    def test_delete(self, test_tbl: pxt.Table, small_img_tbl) -> None:
         t = test_tbl
 
         cnt = t.where(t.c3 < 10.0).count()
@@ -831,7 +831,7 @@ class TestTable:
             t.delete(where=lambda c2: c2 == 10)
         assert 'Predicate' in str(excinfo.value)
 
-        img_t = indexed_img_tbl
+        img_t = small_img_tbl
         # similarity search is not supported
         with pytest.raises(excs.Error) as excinfo:
             img_t.delete(where=img_t.img.nearest('car'))

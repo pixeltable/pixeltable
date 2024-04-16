@@ -476,34 +476,41 @@ class Table(SchemaObject):
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.rename_column(old_name, new_name)
 
-    def add_index(
-            self, col_name: str, *, idx_name: Optional[str] = None, idx_type: str = 'embedding', **kwargs: Any
+    def add_embedding_index(
+            self, col_name: str, *, idx_name: Optional[str] = None,
+            text_embed: Optional[pixeltable.Function] = None, img_embed: Optional[pixeltable.Function] = None
     ) -> None:
         """Add an index to the table.
         Args:
             col_name: name of column to index
-            idx_name: name of index (if not provided, a name will be generated)
+            idx_name: name of index, which needs to be unique for the table; if not provided, a name will be generated
             idx_type: type of index (one of 'embedding')
 
         Raises:
-            Error: If the index already exists or if the column does not exist.
+            Error: If an index with that name already exists for the table or if the column does not exist.
 
         Examples:
             Add an index to the ``img`` column:
 
-            >>> tbl.add_index('img', idx_type='embedding', text_embed=...)
+            >>> tbl.add_embedding_index('img', text_embed=...)
 
             Add another index to the ``img`` column, with a specific name:
 
-            >>> tbl.add_index('img', idx_name='clip_idx', idx_type='embedding', text_embed=...)
+            >>> tbl.add_embedding_index('img', idx_name='clip_idx', text_embed=...)
         """
+        if self.tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot add an index to a snapshot')
         self._check_is_dropped()
         col = self.tbl_version_path.get_column(col_name, include_bases=True)
         if col is None:
             raise excs.Error(f'Column {col_name} unknown')
         if idx_name is not None and idx_name in self.tbl_version_path.tbl_version.idxs_by_name:
             raise excs.Error(f'Duplicate index name: {idx_name}')
-        self.tbl_version_path.tbl_version.add_index(col, idx_name=idx_name, idx_type=idx_type, **kwargs)
+        from pixeltable.index import EmbeddingIndex
+        # create the EmbeddingIndex instance to verify args
+        idx = EmbeddingIndex(col, text_embed=text_embed, img_embed=img_embed)
+        status = self.tbl_version_path.tbl_version.add_index(col, idx_name=idx_name, idx=idx)
+        # TODO: how to deal with exceptions here? drop the index and raise?
 
     def drop_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
         """Drop an index from the table.
@@ -520,6 +527,8 @@ class Table(SchemaObject):
 
             >>> tbl.drop_index(column_name='img')
         """
+        if self.tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot drop an index from a snapshot')
         self._check_is_dropped()
         if (column_name is None) == (idx_name is None):
             raise excs.Error('Exactly one of column_name or idx_name must be provided')
@@ -528,12 +537,15 @@ class Table(SchemaObject):
         if idx_name is not None:
             if idx_name not in tbl_version.idxs_by_name:
                 raise excs.Error(f'Index {idx_name} does not exist')
-            idx_id = [md for md in tbl_version.index_md.values() if md.name == idx_name][0].id
+            idx_id = tbl_version.idxs_by_name[idx_name].id
         else:
             col = self.tbl_version_path.get_column(column_name, include_bases=True)
             if col is None:
                 raise excs.Error(f'Column {column_name} unknown')
-            idx_ids = [idx.id for idx in tbl_version.index_md.values() if idx.indexed_col_id == col.id]
+            if col.tbl.id != tbl_version.id:
+                raise excs.Error(
+                    f'Column {column_name}: cannot drop index from column that belongs to base ({col.tbl.name})')
+            idx_ids = [info.id for info in tbl_version.idxs_by_name.values() if info.col.id == col.id]
             if len(idx_ids) == 0:
                 raise excs.Error(f'Column {column_name} does not have an index')
             if len(idx_ids) > 1:
@@ -569,6 +581,10 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
+        if self.tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot update a snapshot')
+        self._check_is_dropped()
+
         from pixeltable import exprs
         update_targets: List[Tuple[Column, exprs.Expr]] = []
         for col_name, val in value_spec.items():
@@ -620,5 +636,7 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
+        if self.tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot revert a snapshot')
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.revert()

@@ -4,17 +4,10 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
+from pixeltable.tests.utils import text_embed, img_embed
 
 
 class TestIndex:
-
-    @pxt.expr_udf
-    def img_embed(img: PIL.Image.Image) -> np.ndarray:
-        return clip_image(img, model_id='openai/clip-vit-base-patch32')
-
-    @pxt.expr_udf
-    def text_embed(txt: str) -> np.ndarray:
-        return clip_text(txt, model_id='openai/clip-vit-base-patch32')
 
     # wrong signature
     @pxt.udf
@@ -35,13 +28,19 @@ class TestIndex:
         img_t = cl.create_table(tbl_name, schema=schema)
         img_t.insert(rows[:30])
 
-        img_t.add_index('img', img_embed=self.img_embed)
-        img_t.add_index('category', text_embed=self.text_embed)
+        img_t.add_embedding_index('img', img_embed=img_embed, text_embed=text_embed)
 
         with pytest.raises(pxt.Error) as exc_info:
             # duplicate name
-            img_t.add_index('img', idx_name='idx0', img_embed=self.img_embed)
+            img_t.add_embedding_index('img', idx_name='idx0', img_embed=img_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
+
+        img_t.add_embedding_index('category', text_embed=text_embed)
+        # revert() removes the index
+        img_t.revert()
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_index(column_name='category')
+        assert 'does not have an index' in str(exc_info.value).lower()
 
         rows = list(img_t.collect())
         status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
@@ -77,6 +76,18 @@ class TestIndex:
             img_t.drop_index(column_name='img')
         assert 'does not have an index' in str(exc_info.value).lower()
 
+        # revert() makes the index reappear
+        img_t.revert()
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.add_embedding_index('img', idx_name='idx0', img_embed=img_embed)
+        assert 'duplicate index name' in str(exc_info.value).lower()
+
+        # dropping the indexed column also drops indices
+        img_t.drop_column('img')
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_index(idx_name='idx0')
+        assert 'does not exist' in str(exc_info.value).lower()
+
     def test_errors(self, img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
@@ -93,35 +104,40 @@ class TestIndex:
 
         with pytest.raises(pxt.Error) as exc_info:
             # unknown column
-            img_t.add_index('does_not_exist', idx_name='idx0', img_embed=self.img_embed)
+            img_t.add_embedding_index('does_not_exist', idx_name='idx0', img_embed=img_embed)
         assert 'column does_not_exist unknown' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong column type
-            test_tbl.add_index('c2', img_embed=self.img_embed)
+            test_tbl.add_embedding_index('c2', img_embed=img_embed)
         assert 'requires string or image column' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # missing embedding function
-            img_tbl.add_index('img', text_embed=self.text_embed)
+            img_tbl.add_embedding_index('img', text_embed=text_embed)
         assert 'image embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
-            img_tbl.add_index('img', img_embed=clip_image)
+            img_tbl.add_embedding_index('img', img_embed=clip_image)
         assert 'but has signature' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # missing embedding function
-            img_tbl.add_index('category', img_embed=self.img_embed)
+            img_tbl.add_embedding_index('category', img_embed=img_embed)
         assert 'text embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
-            img_tbl.add_index('category', text_embed=clip_text)
+            img_tbl.add_embedding_index('category', text_embed=clip_text)
         assert 'but has signature' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_tbl.add_index('category', text_embed=self.bad_embed)
+            img_tbl.add_embedding_index('category', text_embed=self.bad_embed)
         assert 'must return an array' in str(exc_info.value).lower()
+
+        # can't create index on snapshot
+        snap = cl.create_view('snap', img_t, is_snapshot=True)
+        with pytest.raises(pxt.Error) as exc_info:
+            snap.add_embedding_index('category', text_embed=text_embed)
 

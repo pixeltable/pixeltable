@@ -523,9 +523,9 @@ class TestExprs:
         print(result)
 
     @pytest.mark.skip(reason='temporarily disabled')
-    def test_similarity(self, indexed_img_tbl: catalog.Table) -> None:
+    def test_similarity(self, small_img_tbl) -> None:
         skip_test_if_not_installed('nos')
-        t = indexed_img_tbl
+        t = small_img_tbl
         _ = t.show(30)
         probe = t.select(t.img, t.category).show(1)
         img = probe[0, 0]

@@ -172,7 +172,7 @@ class TestDataFrame:
         _ = df.__repr__()
         _ = df._repr_html_()
 
-    def test_count(self, test_tbl: catalog.Table, indexed_img_tbl: catalog.Table) -> None:
+    def test_count(self, test_tbl: catalog.Table, small_img_tbl) -> None:
         skip_test_if_not_installed('nos')
         t = test_tbl
         cnt = t.count()
@@ -182,7 +182,7 @@ class TestDataFrame:
         assert cnt == 10
 
         # count() doesn't work with similarity search
-        t = indexed_img_tbl
+        t = small_img_tbl
         probe = t.select(t.img).show(1)
         img = probe[0, 0]
         with pytest.raises(excs.Error):

@@ -122,7 +122,6 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
         t.c8.errortype,
         t.c8.errormsg,
         pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3),
-        #test_stored_fn(t.c2),
     ]
 
 @pytest.fixture(scope='function')
@@ -154,19 +153,8 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
         img_t.img.localpath,
     ]
 
-# TODO: why does this not work with a session scope? (some user tables don't get created with create_all())
-#@pytest.fixture(scope='session')
-#def indexed_img_tbl(init_env: None) -> catalog.Table:
-#    cl = pxt.Client()
-#    db = cl.create_db('test_indexed')
-
-@pxt.expr_udf
-def img_embed(img: PIL.Image.Image) -> np.ndarray:
-    from pixeltable.functions.huggingface import clip_image
-    return clip_image(img, model_id='openai/clip-vit-base-patch32')
-
 @pytest.fixture(scope='function')
-def indexed_img_tbl(test_client: pxt.Client) -> catalog.Table:
+def small_img_tbl(test_client: pxt.Client) -> catalog.Table:
     cl = test_client
     schema = {
         'img': ImageType(nullable=False),
@@ -174,7 +162,6 @@ def indexed_img_tbl(test_client: pxt.Client) -> catalog.Table:
         'split': StringType(nullable=False),
     }
     tbl = cl.create_table('test_indexed_img_tbl', schema)
-    tbl.add_index('img', img_embed=img_embed)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     # select output_rows randomly in the hope of getting a good sample of the available categories
     rng = np.random.default_rng(17)
