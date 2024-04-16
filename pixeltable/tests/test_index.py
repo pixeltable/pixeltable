@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
-from pixeltable.tests.utils import text_embed, img_embed
+from pixeltable.tests.utils import text_embed, img_embed, skip_test_if_not_installed
 
 
 class TestIndex:
@@ -15,6 +15,7 @@ class TestIndex:
         return x
 
     def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
+        skip_test_if_not_installed('transformers')
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
@@ -135,9 +136,3 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             img_tbl.add_embedding_index('category', text_embed=self.bad_embed)
         assert 'must return an array' in str(exc_info.value).lower()
-
-        # can't create index on snapshot
-        snap = cl.create_view('snap', img_t, is_snapshot=True)
-        with pytest.raises(pxt.Error) as exc_info:
-            snap.add_embedding_index('category', text_embed=text_embed)
-

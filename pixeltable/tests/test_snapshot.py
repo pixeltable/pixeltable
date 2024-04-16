@@ -106,6 +106,7 @@ class TestSnapshot:
             img_tbl = create_img_tbl(cl)
             snap = cl.create_view('img_snap', img_tbl, is_snapshot=True)
             snap.add_embedding_index('img', img_embed=img_embed)
+        assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
     def test_views_of_snapshots(self, test_client: pxt.Client) -> None:
         cl = test_client
