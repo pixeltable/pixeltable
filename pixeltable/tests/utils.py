@@ -13,6 +13,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import catalog
+from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.type_system import (
@@ -275,6 +276,7 @@ def get_sentences(n: int = 100) -> List[str]:
     # this dataset contains \' around the questions
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
+
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
     assert len(r1.column_names()) == len(r2.column_names())  # we don't care about the actual column names
@@ -289,9 +291,16 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
         else:
             assert s1.equals(s2)
 
+
 def skip_test_if_not_installed(package) -> None:
     if not Env.get().is_installed_package(package):
         pytest.skip(f'Package `{package}` is not installed.')
+
+
+def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = None) -> None:
+    assert status.num_excs == 0
+    if expected_rows is not None:
+        assert status.num_rows == expected_rows
 
 
 def make_test_arrow_table(output_path: Path) -> None:
@@ -393,3 +402,7 @@ def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, s
 
         check_tup = DatasetTuple(**encoded_tup)
         assert check_tup in acc_dataset
+
+
+SAMPLE_IMAGE_URL = \
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'

@@ -33,5 +33,5 @@ cd "$PROJECT_ROOT"
 poetry build
 poetry publish --username __token__ --password "$PYPI_API_KEY"
 git tag "v$VERSION"
-git push "v$VERSION"
+git push origin "v$VERSION"
 # TODO: Also run mkdocs and create a release using github CLI
