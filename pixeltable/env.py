@@ -297,7 +297,7 @@ class Env:
         if 'label_studio' in self._config and 'url' in self._config['label_studio']:
             url = self._config['label_studio']['url']
         else:
-            url = 'http://localhost:8080/'
+            url = os.environ.get('LABEL_STUDIO_URL')
         self._label_studio_client = label_studio_sdk.client.Client(url=url, api_key=api_key)
 
     def _start_web_server(self) -> None:
@@ -354,6 +354,7 @@ class Env:
         if self.is_installed_package('together'):
             self._create_together_client()
         check('fireworks')
+        check('label_studio_sdk')
         check('nos')
         if self.is_installed_package('nos'):
             self._create_nos_client()
@@ -366,7 +367,7 @@ class Env:
             return
 
         # check whether we have a version >= the required one
-        if self._installed_packages[package] == []:
+        if not self._installed_packages[package]:
             m = importlib.import_module(package)
             module_version = [int(x) for x in m.__version__.split('.')]
             self._installed_packages[package] = module_version
