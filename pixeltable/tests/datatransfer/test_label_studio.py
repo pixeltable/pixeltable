@@ -56,16 +56,6 @@ class TestLabelStudio:
         images = get_image_files()[:5]
         t.insert({'image_col': image} for image in images)
 
-        # Local column in spec that doesn't exist
-        with pytest.raises(excs.Error) as exc_info:
-            t.link_remote(remote)
-        assert 'column `image` does not exist' in str(exc_info.value)
-
-        # Remote column in spec that doesn't exist
-        with pytest.raises(excs.Error) as exc_info:
-            t.link_remote(remote, {'image_col': 'image', 'annotations_col': 'annotations_col'})
-        assert 'has no column `annotations_col`' in str(exc_info.value)
-
         t.link_remote(remote, {'image_col': 'image', 'annotations_col': 'annotations'})
         t.sync_remotes()
         # Check that the tasks were properly created

@@ -591,19 +591,45 @@ class Table(SchemaObject):
         pull_cols = remote.get_pull_columns()
         if col_mapping is None:
             col_mapping = {col: col for col in itertools.chain(push_cols.keys(), pull_cols.keys())}
-        t_cols = self.column_names()
-        print(col_mapping)
-        for t_col, r_col in col_mapping.items():
-            if t_col not in t_cols:
-                raise excs.Error(
-                    f'Pixeltable column `{t_col}` does not exist in Table `{self.get_name()}`.'
-                    '(Specify `col_mapping` explicitly?)'
-                )
-            if r_col not in push_cols and r_col not in pull_cols:
-                raise excs.Error(f'Remote configuration has no column `{r_col}`. (Specify `col_mapping explicitly?)')
+        self._validate_remote(push_cols, pull_cols, col_mapping)
         # TODO type validation
         self.tbl_version_path.tbl_version.link_remote(remote, col_mapping)
         print(f'Linked table `{self.get_name()}` to {remote}.')
+
+    def _validate_remote(
+            self,
+            push_cols: dict[str, ts.ColumnType],
+            pull_cols: dict[str, ts.ColumnType],
+            col_mapping: dict[str, str]
+    ):
+        # Validate names
+        t_cols = self.column_names()
+        for t_col, r_col in col_mapping.items():
+            if t_col not in t_cols:
+                raise excs.Error(
+                    f'Column `{t_col}` does not exist in Table `{self.get_name()}`. '
+                    '(Specify `col_mapping` explicitly?)'
+                )
+            if r_col not in push_cols and r_col not in pull_cols:
+                raise excs.Error(f'Remote configuration has no column `{r_col}`. (Specify `col_mapping` explicitly?)')
+        # Validate types
+        t_col_types = self.column_types()
+        for t_col, r_col in col_mapping.items():
+            t_col_type = t_col_types[t_col]
+            if r_col in push_cols:
+                # Validate that the table column can be assigned to the remote column
+                r_col_type = push_cols[r_col]
+                if not r_col_type.is_supertype_of(t_col_type):
+                    raise excs.Error(
+                        f'Column `{t_col}` cannot be pushed to remote column `{r_col}` (incompatible types)'
+                    )
+            if r_col in pull_cols:
+                # Validate that the remote column can be assigned to the table column
+                r_col_type = pull_cols[r_col]
+                if not t_col_type.is_supertype_of(r_col_type):
+                    raise excs.Error(
+                        f'Column `{t_col}` cannot be pulled from remote column `{r_col}` (incompatible types)'
+                    )
 
     def get_remotes(self) -> list[tuple[pixeltable.datatransfer.Remote, dict[str, str]]]:
         return self.tbl_version_path.tbl_version.get_remotes()
