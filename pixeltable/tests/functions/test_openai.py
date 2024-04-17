@@ -22,7 +22,7 @@ class TestOpenai:
         ))
         t.add_column(translation=translations(t.speech, model='whisper-1'))
         t.add_column(translation_2=translations(
-            t.speech, model='whisper-1', prompt='Translate the recording from Spanish into English.', temperature=0.7
+            t.speech, model='whisper-1', prompt='Translate the recording from Spanish into English.', temperature=0.05
         ))
         validate_update_status(t.insert([
             {'input': 'I am a banana.'},
@@ -132,13 +132,22 @@ class TestOpenai:
         t.add_column(img_2=image_generations(
             t.input, model='dall-e-2', size='512x512', user='pixeltable'
         ))
+        validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
+        assert t.collect()['img'][0].size == (1024, 1024)
+        assert t.collect()['img_2'][0].size == (512, 512)
+
+    @pytest.mark.skip('Test is expensive and slow')
+    def test_image_generations_dall_e_3(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        cl = test_client
+        t = cl.create_table('test_tbl', {'input': StringType()})
+        from pixeltable.functions.openai import image_generations
         # Test dall-e-3 options
         t.add_column(img_3=image_generations(
             t.input, model='dall-e-3', quality='hd', size='1792x1024', style='natural', user='pixeltable'
         ))
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
-        assert t.collect()['img'][0].size == (1024, 1024)
-        assert t.collect()['img_2'][0].size == (512, 512)
         assert t.collect()['img_3'][0].size == (1792, 1024)
 
     # This ensures that the test will be skipped, rather than returning an error, when no API key is
