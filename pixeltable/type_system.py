@@ -808,19 +808,22 @@ class VideoType(ColumnType):
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         try:
-            with av.open(val, 'r') as fh:
-                if len(fh.streams.video) == 0:
+            with av.open(val, 'r') as container:
+                if len(container.streams.video) == 0:
                     raise excs.Error(f'Not a valid video: {val}')
                 # decode a few frames to make sure it's playable
-                # TODO: decode all frames? but that's very slow
-                num_decoded = 0
-                for frame in fh.decode(video=0):
+                # may want to consider reading all packets,
+                # but without decoding all frames
+                for num_decoded, frame in enumerate(container.decode(video=0)):
                     _ = frame.to_image()
-                    num_decoded += 1
-                    if num_decoded == 10:
+                    if num_decoded == 3:
                         break
                 if num_decoded < 2:
                     # this is most likely an image file
+                    # TODO: should we really be effectively banning 1 frame videos?
+                    # what if there is a format only readable as a video,
+                    # like h264 encoding images
+                    # not sure PIL can handle it. but av would.
                     raise excs.Error(f'Not a valid video: {val}')
         except av.AVError:
             raise excs.Error(f'Not a valid video: {val}') from None

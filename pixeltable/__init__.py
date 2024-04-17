@@ -11,6 +11,10 @@ from .utils.help import help
 # noinspection PyUnresolvedReferences
 from . import functions
 
+import logging
+# avoid libav logging so much
+logging.getLogger('libav').setLevel(logging.ERROR)
+
 __all__ = [
     'Client',
     'DataFrame',

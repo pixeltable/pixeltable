@@ -5,7 +5,7 @@ import random
 from typing import List, Tuple
 
 import PIL
-import cv2
+import av
 import numpy as np
 import pandas as pd
 import pathlib
@@ -482,10 +482,10 @@ class TestTable:
         # row[1] contains valid path to an mp4 file
         local_path = row['video_localpath']
         assert os.path.exists(local_path) and os.path.isfile(local_path)
-        cap = cv2.VideoCapture(local_path)
-        # TODO: this isn't sufficient to determine that this is actually a video, rather than an image
-        assert cap.isOpened()
-        cap.release()
+
+        with av.open(local_path, 'r') as video_container:
+            assert len(video_container.streams.video) > 0
+            # TODO: this isn't sufficient to determine that this is actually a video, rather than an image
 
     def test_create_video_table(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('boto3')
