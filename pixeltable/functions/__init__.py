@@ -15,7 +15,7 @@ import pixeltable.functions.pil.image
 from pixeltable import exprs
 from pixeltable.type_system import IntType, ColumnType, FloatType, ImageType, VideoType
 # automatically import all submodules so that the udfs get registered
-from . import image, string, video, openai, together, fireworks, huggingface
+from . import image, string, video, huggingface
 
 # TODO: remove and replace calls with astype()
 def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
