@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import json
 import logging
 from pathlib import Path
-from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple
+from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple, Iterable
 from uuid import UUID
 
 import pandas as pd
@@ -586,18 +587,31 @@ class Table(SchemaObject):
             col_mapping: Optional[dict[str, str]] = None
     ) -> None:
         self._check_is_dropped()
+        push_cols = remote.get_push_columns()
+        pull_cols = remote.get_pull_columns()
         if col_mapping is None:
-            col_mapping = {col_name: col_name for col_name in self.column_names()}
+            col_mapping = {col: col for col in itertools.chain(push_cols.keys(), pull_cols.keys())}
+        t_cols = self.column_names()
+        print(col_mapping)
+        for t_col, r_col in col_mapping.items():
+            if t_col not in t_cols:
+                raise excs.Error(
+                    f'Pixeltable column `{t_col}` does not exist in Table `{self.get_name()}`.'
+                    '(Specify `col_mapping` explicitly?)'
+                )
+            if r_col not in push_cols and r_col not in pull_cols:
+                raise excs.Error(f'Remote configuration has no column `{r_col}`. (Specify `col_mapping explicitly?)')
+        # TODO type validation
         self.tbl_version_path.tbl_version.link_remote(remote, col_mapping)
         print(f'Linked table `{self.get_name()}` to {remote}.')
 
     def get_remotes(self) -> list[tuple[pixeltable.datatransfer.Remote, dict[str, str]]]:
         return self.tbl_version_path.tbl_version.get_remotes()
 
-    def push(self) -> None:
+    def sync_remotes(
+            self,
+            push: bool = True,
+            pull: bool = True
+    ) -> None:
         for remote, col_mapping in self.get_remotes():
-            remote.push(self, col_mapping)
-
-    def pull(self) -> None:
-        for remote, col_mapping in self.get_remotes():
-            remote.pull(self, col_mapping)
+            remote.sync(self, col_mapping, push=push, pull=pull)

@@ -191,10 +191,13 @@ class Env:
         fh = logging.FileHandler(self._log_dir / self._logfilename, mode='w')
         fh.setFormatter(logging.Formatter(self._log_fmt_str))
         self._logger.addHandler(fh)
-        sql_logger = logging.getLogger('sqlalchemy.engine')
-        sql_logger.setLevel(logging.INFO)
+        sql_logger = logging.getLogger('sqlalchemy.engine.Engine')
         sql_logger.addHandler(fh)
         sql_logger.propagate = False
+        if self.config.get('sql-logging', False):
+            sql_logger.setLevel(logging.INFO)
+        else:
+            sql_logger.setLevel(logging.WARNING)
 
         # empty tmp dir
         for path in glob.glob(f'{self._tmp_dir}/*'):

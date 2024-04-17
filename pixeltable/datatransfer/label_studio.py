@@ -64,7 +64,7 @@ class LabelStudioProject(Remote):
     def _update_table_from_tasks(cls, t: Table, col_mapping: dict[str, str], tasks: list[dict]) -> None:
         # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
         # of `get_pull_columns`
-        annotations_column = next(k for k, v in col_mapping if v == 'annotations')
+        annotations_column = next(k for k, v in col_mapping.items() if v == 'annotations')
         updates = [
             {'row_id': task['meta']['row_id'], annotations_column: task['annotations']}
             for task in tasks
