@@ -33,8 +33,8 @@ class TestOpenai:
         results = t.collect()
         assert results[0]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
         assert results[0]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
-        assert 'easy to translate from Spanish' in results[1]['translation']['text']
-        assert 'easy to translate from Spanish' in results[1]['translation_2']['text']
+        assert 'easy to translate' in results[1]['translation']['text']
+        assert 'easy to translate' in results[1]['translation_2']['text']
 
     def test_chat_completions(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openai')

@@ -26,8 +26,8 @@ def openai_client() -> openai.OpenAI:
 def _retry(fn: Callable) -> Callable:
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(openai.RateLimitError),
-        wait=tenacity.wait_random_exponential(min=1, max=60),
-        stop=tenacity.stop_after_attempt(6)
+        wait=tenacity.wait_random_exponential(multiplier=3, max=180),
+        stop=tenacity.stop_after_attempt(20)
     )(fn)
 
 
