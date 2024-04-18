@@ -39,7 +39,7 @@ def _format_img(img: object) -> str:
     with io.BytesIO() as buffer:
         img.save(buffer, 'jpeg')
         img_base64 = base64.b64encode(buffer.getvalue()).decode()
-        return f'<div style="width:200px;"><img src="data:image/jpeg;base64,{img_base64}" width="200" /></div>'
+        return f'<div style="width:240px;"><img src="data:image/jpeg;base64,{img_base64}" width="240" /></div>'
 
 def _create_source_tag(file_path: str) -> str:
     abs_path = Path(file_path)
