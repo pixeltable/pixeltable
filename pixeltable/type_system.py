@@ -6,9 +6,8 @@ import enum
 import json
 import typing
 import urllib.parse
-from copy import copy
 from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union
+from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
 
 import PIL.Image
 import av
@@ -240,18 +239,37 @@ class ColumnType:
 
     @classmethod
     def from_python_type(cls, t: type) -> Optional[ColumnType]:
-        if t in _python_type_to_column_type:
-            return _python_type_to_column_type[t]
-        elif isinstance(t, typing._UnionGenericAlias) and t.__args__[1] is type(None):
-            # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
-            # We treat it as the underlying type but with nullable=True.
-            if t.__args__[0] in _python_type_to_column_type:
-                underlying = copy(_python_type_to_column_type[t.__args__[0]])
-                underlying.nullable = True
-                return underlying
-
+        if typing.get_origin(t) is typing.Union:
+            union_args = typing.get_args(t)
+            if union_args[1] is type(None):
+                # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
+                # We treat it as the underlying type but with nullable=True.
+                underlying = cls.from_python_type(union_args[0])
+                if underlying is not None:
+                    underlying.nullable = True
+                    return underlying
+        else:
+            # Discard type parameters to ensure that parameterized types such as `list[T]`
+            # are correctly mapped to Pixeltable types.
+            base = typing.get_origin(t)
+            if base is None:
+                # No type parameters; the base type is just `t` itself
+                base = t
+            if base is str:
+                return StringType()
+            if base is int:
+                return IntType()
+            if base is float:
+                return FloatType()
+            if base is bool:
+                return BoolType()
+            if base is datetime.date or base is datetime.datetime:
+                return TimestampType()
+            if issubclass(base, Sequence) or issubclass(base, Mapping):
+                return JsonType()
+            if issubclass(base, PIL.Image.Image):
+                return ImageType()
         return None
-
 
     def validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
