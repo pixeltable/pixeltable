@@ -1,7 +1,8 @@
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
 import PIL.Image
 import numpy as np
+import torch
 
 import pixeltable as pxt
 import pixeltable.env as env
@@ -59,10 +60,13 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    model.eval()
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
-    inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
-    embeddings = model.get_text_features(**inputs).detach().numpy()
+    with torch.no_grad():
+        inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
+        embeddings = model.get_text_features(**inputs).detach().numpy()
+
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
@@ -72,25 +76,39 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    model.eval()
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
-    inputs = processor(images=image, return_tensors='pt', padding=True)
-    embeddings = model.get_image_features(**inputs).detach().numpy()
+    with torch.no_grad():
+        inputs = processor(images=image, return_tensors='pt', padding=True)
+        embeddings = model.get_image_features(**inputs).detach().numpy()
+
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
-@pxt.udf(batch_size=32)
-def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
+@pxt.udf(batch_size=4)
+def detr_for_object_detection(
+        image: Batch[PIL.Image.Image],
+        *,
+        model_id: str,
+        threshold: float = 0.5,
+        device: str = 'cpu'
+) -> Batch[dict]:
     env.Env.get().require_package('transformers')
     from transformers import DetrImageProcessor, DetrForObjectDetection
 
     model = _lookup_model(model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'))
+    model = model.to(device)
+    model.eval()
     processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision='no_timm'))
 
-    inputs = processor(images=image, return_tensors='pt')
-    outputs = model(**inputs)
+    with torch.no_grad():
+        inputs = processor(images=image, return_tensors='pt')
+        outputs = model(**inputs.to(device))
+        results = processor.post_process_object_detection(
+            outputs, threshold=threshold, target_sizes=[(img.height, img.width) for img in image]
+        )
 
-    results = processor.post_process_object_detection(outputs, threshold=threshold)
     return [
         {
             'scores': [score.item() for score in result['scores']],
@@ -102,14 +120,17 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
     ]
 
 
-def _lookup_model(model_id: str, create: Callable) -> Any:
+T = TypeVar('T')
+
+
+def _lookup_model(model_id: str, create: Callable[[str], T]) -> T:
     key = (model_id, create)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
         _model_cache[key] = create(model_id)
     return _model_cache[key]
 
 
-def _lookup_processor(model_id: str, create: Callable) -> Any:
+def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
     key = (model_id, create)  # For safety, include the `create` callable in the cache key
     if key not in _processor_cache:
         _processor_cache[key] = create(model_id)

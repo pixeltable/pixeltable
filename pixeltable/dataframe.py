@@ -51,7 +51,7 @@ def _create_source_tag(file_path: str) -> str:
     return f'<source src="{src_url}" {mime_attr} />'
 
 def _format_video(file_path: str) -> str:
-    return f'<video controls>{_create_source_tag(file_path)}</video>'
+    return f'<div style="width:320px;"><video controls width="320">{_create_source_tag(file_path)}</video></div>'
 
 def _format_audio(file_path: str) -> str:
     return f'<audio controls>{_create_source_tag(file_path)}</audio>'
