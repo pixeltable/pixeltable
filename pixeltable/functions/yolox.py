@@ -11,10 +11,12 @@ from yolox.utils import postprocess
 
 import pixeltable as pxt
 from pixeltable import env
+from pixeltable.functions.util import resolve_torch_device
 
 
 @pxt.udf
-def yolox(image: PIL.Image.Image, *, model_id: str, device: str = 'cpu') -> dict:
+def yolox(image: PIL.Image.Image, *, model_id: str, threshold: float = 0.5, device: str = 'cpu') -> dict:
+    device = resolve_torch_device(device)
     model, exp = __lookup_model(model_id, device)
     image_transform, _ = __val_transform(np.array(image), None, exp.test_size)
     image_tensor = torch.from_numpy(image_transform).unsqueeze(0).float()
@@ -23,13 +25,14 @@ def yolox(image: PIL.Image.Image, *, model_id: str, device: str = 'cpu') -> dict
     with torch.no_grad():
         outputs = model(image_tensor)
         outputs = postprocess(
-            outputs, 1, exp.test_conf, exp.nmsthre, class_agnostic=True
+            outputs, 80, threshold, exp.nmsthre, class_agnostic=False
         )
 
     ratio = min(exp.test_size[0] / image.height, exp.test_size[1] / image.width)
     return {
         'boxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
-        'scores': [output[4].item() * output[5].item() for output in outputs[0]]
+        'scores': [output[4].item() * output[5].item() for output in outputs[0]],
+        'labels': [int(output[6]) for output in outputs[0]]
     }
 
 

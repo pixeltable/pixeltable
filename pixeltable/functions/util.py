@@ -39,3 +39,14 @@ def create_nos_modules() -> List[types.ModuleType]:
         setattr(sub_module, model_id, pt_func)
 
     return new_modules
+
+
+def resolve_torch_device(device: str) -> str:
+    import torch
+    if device == 'auto':
+        if torch.cuda.is_available():
+            return 'cuda'
+        if torch.backends.mps.is_available():
+            return 'mps'
+        return 'cpu'
+    return device
