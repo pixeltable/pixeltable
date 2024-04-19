@@ -2,7 +2,6 @@ from typing import Callable, TypeVar
 
 import PIL.Image
 import numpy as np
-import torch
 
 import pixeltable as pxt
 import pixeltable.env as env
@@ -57,6 +56,7 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
+    import torch
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained)
@@ -73,6 +73,7 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
+    import torch
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained)
@@ -95,6 +96,7 @@ def detr_for_object_detection(
         device: str = 'cpu'
 ) -> Batch[dict]:
     env.Env.get().require_package('transformers')
+    import torch
     from transformers import DetrImageProcessor, DetrForObjectDetection
 
     model = _lookup_model(model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'))

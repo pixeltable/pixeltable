@@ -32,9 +32,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install poetry
-        uses: abatilo/actions-poetry@v2
-        with:
-          poetry-version: ${{ matrix.poetry-version }}
+        run: python -m pip install poetry==${{ matrix.poetry-version }}
       - name: Define a venv cache
         uses: actions/cache@v4
         with:
@@ -47,8 +45,7 @@ jobs:
       - name: Install the project dependencies
         run: poetry install ${{ matrix.poetry-options }}
       - name: Install additional dependencies
-        # Additional dev dependencies that have to be installed separately from poetry
-        if: ${{ matrix.poetry-options != '' }}
+        # These dependencies cannot be installed with poetry
         run: poetry run python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
