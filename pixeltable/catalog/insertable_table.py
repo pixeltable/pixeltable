@@ -11,14 +11,17 @@ import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from .catalog import Catalog
+from .globals import UpdateStatus
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
 
+
 class InsertableTable(Table):
     """A `Table` that allows inserting and deleting rows."""
+
     def __init__(self, dir_id: UUID, tbl_version: TableVersion):
         tbl_version_path = TableVersionPath(tbl_version)
         super().__init__(tbl_version.id, dir_id, tbl_version.name, tbl_version_path)
@@ -42,7 +45,7 @@ class InsertableTable(Table):
             col = columns[column_names.index(pk_col)]
             if col.col_type.nullable:
                 raise excs.Error(f'Primary key column {pk_col} cannot be nullable')
-            col.primary_key = True
+            col.is_primary_key = True
 
         with orm.Session(Env.get().engine, future=True) as session:
             _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, comment)
@@ -62,7 +65,7 @@ class InsertableTable(Table):
     @overload
     def insert(self, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any): ...
 
-    def insert(self, *args, **kwargs) -> Table.UpdateStatus:
+    def insert(self, *args, **kwargs) -> UpdateStatus:
         """Insert rows into table.
 
         To insert multiple rows at a time:
@@ -161,7 +164,7 @@ class InsertableTable(Table):
                     msg = str(e)
                     raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> Table.UpdateStatus:
+    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:

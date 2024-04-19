@@ -433,6 +433,7 @@ class InvalidType(ColumnType):
     def _validate_literal(self, val: Any) -> None:
         assert False
 
+
 class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.STRING, nullable=nullable)
@@ -469,6 +470,7 @@ class StringType(ColumnType):
             return val.replace('\x00', ' ')
         return val
 
+
 class IntType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INT, nullable=nullable)
@@ -503,6 +505,7 @@ class FloatType(ColumnType):
             return float(val)
         return val
 
+
 class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.BOOL, nullable=nullable)
@@ -522,6 +525,7 @@ class BoolType(ColumnType):
             return bool(val)
         return val
 
+
 class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
@@ -540,6 +544,7 @@ class TimestampType(ColumnType):
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
         return val
+
 
 class JsonType(ColumnType):
     # TODO: type_spec also needs to be able to express lists
@@ -587,6 +592,7 @@ class JsonType(ColumnType):
         if isinstance(val, tuple):
             val = list(val)
         return val
+
 
 class ArrayType(ColumnType):
     def __init__(
@@ -791,6 +797,7 @@ class ImageType(ColumnType):
         except PIL.UnidentifiedImageError:
             raise excs.Error(f'Not a valid image: {val}') from None
 
+
 class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.VIDEO, nullable=nullable)
@@ -825,6 +832,7 @@ class VideoType(ColumnType):
         except av.AVError:
             raise excs.Error(f'Not a valid video: {val}') from None
 
+
 class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.AUDIO, nullable=nullable)
@@ -853,6 +861,7 @@ class AudioType(ColumnType):
                         pass
         except av.AVError as e:
             raise excs.Error(f'Not a valid audio file: {val}\n{e}') from None
+
 
 class DocumentType(ColumnType):
     @enum.unique

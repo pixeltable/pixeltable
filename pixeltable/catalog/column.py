@@ -22,7 +22,7 @@ class Column:
     def __init__(
             self, name: str, col_type: Optional[ColumnType] = None,
             computed_with: Optional[Union['Expr', Callable]] = None,
-            primary_key: bool = False, stored: Optional[bool] = None,
+            is_primary_key: bool = False, stored: Optional[bool] = None,
             indexed: bool = False,
             # these parameters aren't set by users
             col_id: Optional[int] = None):
@@ -32,7 +32,7 @@ class Column:
             name: column name
             col_type: column type; can be None if the type can be derived from ``computed_with``
             computed_with: a callable or an Expr object that computes the column value
-            primary_key: if True, this column is part of the primary key
+            is_primary_key: if True, this column is part of the primary key
             stored: determines whether a computed column is present in the stored table or recomputed on demand
             indexed: if True, this column has a nearest neighbor index (only valid for image columns)
             col_id: column ID (only used internally)
@@ -90,7 +90,7 @@ class Column:
         self.stored = stored
         self.dependent_cols: Set[Column] = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
-        self.primary_key = primary_key
+        self.is_primary_key = is_primary_key
 
         # column in the stored table for the values of this Column
         self.sa_col: Optional[sql.schema.Column] = None
@@ -114,7 +114,7 @@ class Column:
         Leaves out value_expr, because that requires TableVersion.cols to be complete.
         """
         col = cls(
-            md.name, col_type=ColumnType.from_dict(md.col_type), primary_key=md.is_pk,
+            md.name, col_type=ColumnType.from_dict(md.col_type), is_primary_key=md.is_pk,
             stored=md.stored, indexed=md.is_indexed, col_id=col_id)
         col.tbl = tbl
         return col

@@ -18,7 +18,7 @@ from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 from pixeltable.tests.utils import \
     make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
-    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table
+    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table, validate_update_status
 from pixeltable.tests.utils import skip_test_if_not_installed
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
@@ -649,6 +649,41 @@ class TestTable:
         cl = pxt.Client(reload=True)
         t2 = cl.get_table('test')
         _  = t2.show(n=0)
+
+    def test_batch_update(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        validate_update_status(
+            t.update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]),
+            expected_rows=2)
+        assert t.where(t.c2 == 1).collect()[0]['c1'] == '1'
+        assert t.where(t.c2 == 2).collect()[0]['c1'] == '2'
+        validate_update_status(
+            t.update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]),
+            expected_rows=2)
+        assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
+        assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
+
+        cl = pxt.Client()
+        # test composite primary key
+        schema = {'c1': StringType(), 'c2': IntType(), 'c3': FloatType()}
+        t = cl.create_table('composite', schema=schema, primary_key=['c1', 'c2'])
+        rows = [{'c1': str(i), 'c2': i, 'c3': float(i)} for i in range(10)]
+        validate_update_status(t.insert(rows), expected_rows=10)
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.update([{'c1': '1', 'c3': 2.0}])
+        assert 'primary key columns (c2) missing' in str(exc_info.value).lower()
+
+        validate_update_status(
+            t.update([{'c1': '1', 'c2': 1, 'c3': 2.0}, {'c1': '2', 'c2': 2, 'c3': 3.0}]),
+            expected_rows=2)
+
+        # table without primary key
+        t2 = cl.create_table('no_pk', schema=schema)
+        validate_update_status(t.insert(rows), expected_rows=10)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t2.update([{'c1': '1', 'c2': 1, 'c3': 2.0}])
+        assert 'must have primary key for batch update' in str(exc_info.value).lower()
 
     def test_update(self, test_tbl: pxt.Table, indexed_img_tbl: pxt.Table) -> None:
         t = test_tbl

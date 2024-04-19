@@ -18,7 +18,7 @@ import pixeltable.exprs as exprs
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
 from .column import Column
-from .globals import is_valid_identifier, is_system_column_name
+from .globals import is_valid_identifier, is_system_column_name, UpdateStatus
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -28,14 +28,7 @@ _logger = logging.getLogger('pixeltable')
 class Table(SchemaObject):
     """Base class for all tabular SchemaObjects."""
 
-    @dataclasses.dataclass
-    class UpdateStatus:
-        num_rows: int = 0
-        # TODO: change to num_computed_columns (the number of computed slots isn't really meaningful to the user)
-        num_computed_values: int = 0
-        num_excs: int = 0
-        updated_cols: List[str] = dataclasses.field(default_factory=list)
-        cols_with_excs: List[str] = dataclasses.field(default_factory=list)
+    ROWID_COLUMN_NAME = '_rowid'
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -433,7 +426,7 @@ class Table(SchemaObject):
 
             column = Column(
                 name, col_type=col_type, computed_with=value_expr, stored=stored, indexed=indexed,
-                primary_key=primary_key)
+                is_primary_key=primary_key)
             columns.append(column)
         return columns
 
@@ -499,22 +492,24 @@ class Table(SchemaObject):
         self.tbl_version_path.tbl_version.rename_column(old_name, new_name)
 
     def update(
-            self, value_spec: Dict[str, Union['pixeltable.exprs.Expr', Any]],
+            self, value_spec: Union[list[dict[str, Any]], dict[str, Any]],
             where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
 
         Args:
-            value_spec: a dictionary mapping column names to literal values or Pixeltable expressions.
+            value_spec: one of
+            * a dictionary mapping column names to literal values or Pixeltable expressions.
+            * a list of dictionaries containing values for the updated columns plus values for the primary key columns.
             where: a Predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
 
         Examples:
-            Set newly-added column `int_col` to 1 for all rows:
+            Set column `int_col` to 1 for all rows:
 
             >>> tbl.update({'int_col': 1})
 
-            Set newly-added column `int_col` to 1 for all rows where `int_col` is 0:
+            Set column `int_col` to 1 for all rows where `int_col` is 0:
 
             >>> tbl.update({'int_col': 1}, where=tbl.int_col == 0)
 
@@ -525,28 +520,83 @@ class Table(SchemaObject):
             Increment `int_col` by 1 for all rows where `int_col` is 0:
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
+
+            Update the 'name' and 'age' columns for the rows with ids 1 and 2 (assuming 'id' is the primary key):
+
+            >>> tbl.update([{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}])
         """
+        if isinstance(value_spec, list):
+            # batch update
+            row_updates: List[Dict[Column, exprs.Expr]] = []
+            pk_col_names = set(c.name for c in self.tbl_version_path.tbl_version.primary_key_columns())
+
+            # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
+            has_rowid = self.ROWID_COLUMN_NAME in value_spec[0]
+            rowids: list[Tuple[int, ...]] = []
+            if len(pk_col_names) == 0 and not has_rowid:
+                raise excs.Error('Table must have primary key for batch update')
+
+            for row_spec in value_spec:
+                col_vals = self._validate_update_spec(row_spec, allow_pk=True, allow_exprs=False)
+                col_names = set(col.name for col in col_vals.keys())
+                if not pk_col_names.issubset(col_names) and not has_rowid:
+                    missing_cols = pk_col_names - col_names
+                    raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
+                if has_rowid:
+                    # we assume the _rowid column to be present for each row
+                    assert self.ROWID_COLUMN_NAME in row_spec
+                    rowids.append(row_spec[self.ROWID_COLUMN_NAME])
+                row_updates.append(col_vals)
+            if where is not None:
+                raise excs.Error('where argument not allowed for batch update')
+            return self.tbl_version_path.tbl_version.batch_update(row_updates, rowids, cascade)
+
+        else:
+            update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
+            from pixeltable.plan import Planner
+            if where is not None:
+                if not isinstance(where, exprs.Predicate):
+                    raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
+                analysis_info = Planner.analyze(self.tbl_version_path, where)
+                if analysis_info.similarity_clause is not None:
+                    raise excs.Error('nearest() cannot be used with update()')
+                # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+                if analysis_info.filter is not None:
+                    raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+
+            return self.tbl_version_path.tbl_version.update(update_spec, where, cascade)
+
+    def _validate_update_spec(
+            self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
+    ) -> dict[Column, 'pixeltable.exprs.Expr']:
         from pixeltable import exprs
-        update_targets: List[Tuple[Column, exprs.Expr]] = []
+        update_targets: dict[Column, exprs.Expr] = {}
         for col_name, val in value_spec.items():
             if not isinstance(col_name, str):
                 raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
+            if col_name == self.ROWID_COLUMN_NAME:
+                # ignore pseudo-column _rowid
+                continue
             col = self.tbl_version_path.get_column(col_name, include_bases=False)
             if col is None:
                 # TODO: return more informative error if this is trying to update a base column
                 raise excs.Error(f'Column {col_name} unknown')
             if col.is_computed:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
-            if col.primary_key:
+            if col.is_primary_key and not allow_pk:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
             if col.col_type.is_media_type():
                 raise excs.Error(f'Column {col_name} has type image/video/audio/document and cannot be updated')
 
             # make sure that the value is compatible with the column type
-            # check if this is a literal
             try:
+                # check if this is a literal
                 value_expr = exprs.Literal(val, col_type=col.col_type)
             except TypeError:
+                if not allow_exprs:
+                    raise excs.Error(
+                        f'Column {col_name}: value {val!r} is not a valid literal for this column '
+                        f'(expected {col.col_type})')
                 # it's not a literal, let's try to create an expr from it
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
@@ -556,20 +606,10 @@ class Table(SchemaObject):
                         f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
                         f'{col_name} ({col.col_type})'
                     ))
-            update_targets.append((col, value_expr))
+            update_targets[col] = value_expr
 
-        from pixeltable.plan import Planner
-        if where is not None:
-            if not isinstance(where, exprs.Predicate):
-                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self.tbl_version_path, where)
-            if analysis_info.similarity_clause is not None:
-                raise excs.Error('nearest() cannot be used with update()')
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+        return update_targets
 
-        return self.tbl_version_path.tbl_version.update(update_targets, where, cascade)
 
     def revert(self) -> None:
         """Reverts the table to the previous version.
