@@ -11,6 +11,8 @@ import traceback
 from pathlib import Path
 from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 
+import PIL.Image
+import cv2
 import pandas as pd
 import pandas.io.formats.style
 import sqlalchemy as sql
@@ -72,9 +74,7 @@ class DataFrameResultSet:
             for col_name, col_type in zip(self._col_names, self._col_types)
             if col_type.__class__ in self._formatters
         }
-
-        # TODO: why does mypy complain about formatters having an incorrect type?
-        return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)  # type: ignore[arg-type]
+        return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)
 
     def __str__(self) -> str:
         return self.to_pandas().to_string()
@@ -96,15 +96,54 @@ class DataFrameResultSet:
         Create <img> tag for Image object.
         """
         assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
-        width = 240 if len(self._rows) > 1 else 640
+        # Try to make it look decent in a variety of display scenarios
+        if len(self._rows) > 1:
+            width = 240  # Multiple rows: display small images
+        elif len(self._col_names) > 1:
+            width = 480  # Multiple columns: display medium images
+        else:
+            width = 640  # A single image: larger display
         with io.BytesIO() as buffer:
             img.save(buffer, 'jpeg')
             img_base64 = base64.b64encode(buffer.getvalue()).decode()
-            return f'<div style="width:{width}px;"><img src="data:image/jpeg;base64,{img_base64}" width="{width}" /></div>'
+            return f'''
+            <div style="width:{width}px;">
+                <img src="data:image/jpeg;base64,{img_base64}" width="{width}" />
+            </div>
+            '''
 
     def _format_video(self, file_path: str) -> str:
-        width = 320 if len(self._rows) > 1 else 640
-        return f'<div style="width:{width}px;"><video controls width="{width}">{_create_source_tag(file_path)}</video></div>'
+        thumb_tag = ""
+        # Attempt to extract the first frame of the video to use as a thumbnail,
+        # so that the notebook can be exported as HTML and viewed in contexts where
+        # the video itself is not accessible.
+        # TODO(aaron-siegel): If the video is backed by a concrete external URL,
+        # should we link to that instead?
+        video_reader = cv2.VideoCapture(str(file_path))
+        if video_reader.isOpened():
+            status, img_array = video_reader.read()
+            if status:
+                img_array = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
+                thumb = PIL.Image.fromarray(img_array)
+                with io.BytesIO() as buffer:
+                    thumb.save(buffer, 'jpeg')
+                    thumb_base64 = base64.b64encode(buffer.getvalue()).decode()
+                    thumb_tag = f'<meta itemprop="thumbnail" content="data:image/jpeg;base64,{thumb_base64}" />'
+            video_reader.release()
+        if len(self._rows) > 1:
+            width = 320
+        elif len(self._col_names) > 1:
+            width = 480
+        else:
+            width = 800
+        return f'''
+        <div style="width:{width}px;">
+            <video controls width="{width}">
+                {_create_source_tag(file_path)}
+                {thumb_tag}
+            </video>
+        </div>
+        '''
 
     def _format_audio(self, file_path: str) -> str:
         return f'<audio controls>{_create_source_tag(file_path)}</audio>'

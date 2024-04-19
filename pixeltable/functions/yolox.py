@@ -19,25 +19,27 @@ from pixeltable.functions.util import resolve_torch_device
 _logger = logging.getLogger('pixeltable')
 
 
-@pxt.udf(batch_size=8)
+@pxt.udf(batch_size=4)
 def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, device: str = 'auto') -> Batch[dict]:
     device = resolve_torch_device(device)
     model, exp = __lookup_model(model_id, device)
     image_tensors = list(__images_to_tensors(images, exp))
     batch_tensor = torch.stack(image_tensors)
-    batch_tensor.to(device)
 
+    batch_tensor.to(device)
     with torch.no_grad():
-        outputs = model(batch_tensor)
-        outputs = postprocess(
-            outputs, 80, threshold, exp.nmsthre, class_agnostic=False
-        )
+        output_tensor = model(batch_tensor)
+    output_tensor.to('cpu')
+
+    outputs = postprocess(
+        output_tensor, 80, threshold, exp.nmsthre, class_agnostic=False
+    )
 
     results: list[dict] = []
     for image in images:
         ratio = min(exp.test_size[0] / image.height, exp.test_size[1] / image.width)
         results.append({
-            'boxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
+            'bboxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
             'scores': [output[4].item() * output[5].item() for output in outputs[0]],
             'labels': [int(output[6]) for output in outputs[0]]
         })
