@@ -38,11 +38,14 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
     results: list[dict] = []
     for image in images:
         ratio = min(exp.test_size[0] / image.height, exp.test_size[1] / image.width)
-        results.append({
-            'bboxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
-            'scores': [output[4].item() * output[5].item() for output in outputs[0]],
-            'labels': [int(output[6]) for output in outputs[0]]
-        })
+        if outputs[0] is None:
+            results.append({'bboxes': [], 'scores': [], 'labels': []})
+        else:
+            results.append({
+                'bboxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
+                'scores': [output[4].item() * output[5].item() for output in outputs[0]],
+                'labels': [int(output[6]) for output in outputs[0]]
+            })
     return results
 
 

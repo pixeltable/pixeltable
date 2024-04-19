@@ -324,6 +324,7 @@ class Env:
         check('torchvision')
         check('transformers')
         check('sentence_transformers')
+        check('yolox')
         check('boto3')
         check('pyarrow')
         check('spacy')  # TODO: deal with en-core-web-sm
