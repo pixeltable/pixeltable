@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Iterable, Iterator
 from urllib.request import urlretrieve
 
 import PIL.Image
@@ -12,31 +13,41 @@ from yolox.utils import postprocess
 
 import pixeltable as pxt
 from pixeltable import env
+from pixeltable.func import Batch
 from pixeltable.functions.util import resolve_torch_device
 
 _logger = logging.getLogger('pixeltable')
 
 
-@pxt.udf
-def yolox(image: PIL.Image.Image, *, model_id: str, threshold: float = 0.5, device: str = 'cpu') -> dict:
+@pxt.udf(batch_size=8)
+def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, device: str = 'auto') -> Batch[dict]:
     device = resolve_torch_device(device)
     model, exp = __lookup_model(model_id, device)
-    image_transform, _ = __val_transform(np.array(image), None, exp.test_size)
-    image_tensor = torch.from_numpy(image_transform).unsqueeze(0).float()
-    image_tensor.to(device)
+    image_tensors = list(__images_to_tensors(images, exp))
+    batch_tensor = torch.stack(image_tensors)
+    batch_tensor.to(device)
 
     with torch.no_grad():
-        outputs = model(image_tensor)
+        outputs = model(batch_tensor)
         outputs = postprocess(
             outputs, 80, threshold, exp.nmsthre, class_agnostic=False
         )
 
-    ratio = min(exp.test_size[0] / image.height, exp.test_size[1] / image.width)
-    return {
-        'boxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
-        'scores': [output[4].item() * output[5].item() for output in outputs[0]],
-        'labels': [int(output[6]) for output in outputs[0]]
-    }
+    results: list[dict] = []
+    for image in images:
+        ratio = min(exp.test_size[0] / image.height, exp.test_size[1] / image.width)
+        results.append({
+            'boxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
+            'scores': [output[4].item() * output[5].item() for output in outputs[0]],
+            'labels': [int(output[6]) for output in outputs[0]]
+        })
+    return results
+
+
+def __images_to_tensors(images: Iterable[PIL.Image.Image], exp: Exp) -> Iterator[torch.Tensor]:
+    for image in images:
+        image_transform, _ = __val_transform(np.array(image), None, exp.test_size)
+        yield torch.from_numpy(image_transform)
 
 
 def __lookup_model(model_id: str, device: str) -> (YOLOX, Exp):
