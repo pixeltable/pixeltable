@@ -46,6 +46,10 @@ jobs:
           key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
       - name: Install the project dependencies
         run: poetry install ${{ matrix.poetry-options }}
+      - name: Install additional dependencies
+        # Additional dev dependencies that have to be installed separately from poetry
+        if: ${{ matrix.poetry-options != '' }}
+        run: poetry run pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}

@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from urllib.request import urlretrieve
 
@@ -12,6 +13,8 @@ from yolox.utils import postprocess
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.functions.util import resolve_torch_device
+
+_logger = logging.getLogger('pixeltable')
 
 
 @pxt.udf
@@ -44,8 +47,7 @@ def __lookup_model(model_id: str, device: str) -> (YOLOX, Exp):
     weights_url = f'https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/{model_id}.pth'
     weights_file = Path(f'{env.Env.get().tmp_dir}/{model_id}.pth')
     if not weights_file.exists():
-        print(f'Downloading weights for YOLOX model {model_id}')
-        print(f'Downloading from {weights_url} to {weights_file}')
+        _logger.info(f'Downloading weights for YOLOX model {model_id}: from {weights_url} -> {weights_file}')
         urlretrieve(weights_url, weights_file)
 
     exp = get_exp(exp_name=model_id)

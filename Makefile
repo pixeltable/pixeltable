@@ -24,7 +24,7 @@ poetry.lock: pyproject.toml
 .make-install: poetry.lock
 	@echo "Installing dependencies ..."
 	@poetry run python -m pip install --upgrade pip
-	@poetry install --with=dev
+	@poetry install --with dev
 	# YOLOX cannot be installed via poetry, sadly
 	@poetry run python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
 	@echo "Installing Jupyter kernel ..."

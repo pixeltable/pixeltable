@@ -31,15 +31,6 @@ __all__ = [
 
 _logger = logging.getLogger('pixeltable')
 
-def _format_img(img: object) -> str:
-    """
-    Create <img> tag for Image object.
-    """
-    assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
-    with io.BytesIO() as buffer:
-        img.save(buffer, 'jpeg')
-        img_base64 = base64.b64encode(buffer.getvalue()).decode()
-        return f'<div style="width:240px;"><img src="data:image/jpeg;base64,{img_base64}" width="240" /></div>'
 
 def _create_source_tag(file_path: str) -> str:
     abs_path = Path(file_path)
@@ -50,21 +41,17 @@ def _create_source_tag(file_path: str) -> str:
     mime_attr = f'type="{mime}"' if mime is not None else ''
     return f'<source src="{src_url}" {mime_attr} />'
 
-def _format_video(file_path: str) -> str:
-    return f'<div style="width:320px;"><video controls width="320">{_create_source_tag(file_path)}</video></div>'
-
-def _format_audio(file_path: str) -> str:
-    return f'<audio controls>{_create_source_tag(file_path)}</audio>'
 
 class DataFrameResultSet:
+
     def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
         self._rows = rows
         self._col_names = col_names
         self._col_types = col_types
         self._formatters = {
-            ts.ImageType: _format_img,
-            ts.VideoType: _format_video,
-            ts.AudioType: _format_audio,
+            ts.ImageType: self._format_img,
+            ts.VideoType: self._format_video,
+            ts.AudioType: self._format_audio,
         }
 
     def __len__(self) -> int:
@@ -101,6 +88,26 @@ class DataFrameResultSet:
 
     def _row_to_dict(self, row_idx: int) -> Dict[str, Any]:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
+
+    # Formatters
+
+    def _format_img(self, img: Image.Image) -> str:
+        """
+        Create <img> tag for Image object.
+        """
+        assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
+        width = 240 if len(self._rows) > 1 else 640
+        with io.BytesIO() as buffer:
+            img.save(buffer, 'jpeg')
+            img_base64 = base64.b64encode(buffer.getvalue()).decode()
+            return f'<div style="width:{width}px;"><img src="data:image/jpeg;base64,{img_base64}" width="{width}" /></div>'
+
+    def _format_video(self, file_path: str) -> str:
+        width = 320 if len(self._rows) > 1 else 640
+        return f'<div style="width:{width}px;"><video controls width="{width}">{_create_source_tag(file_path)}</video></div>'
+
+    def _format_audio(self, file_path: str) -> str:
+        return f'<audio controls>{_create_source_tag(file_path)}</audio>'
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
@@ -171,7 +178,6 @@ class AnalysisInfo:
         exprs.Expr.release_list(self.agg_output_exprs)
         if self.filter is not None:
             self.filter.release()
-
 
 
 class DataFrame:

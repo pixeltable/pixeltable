@@ -10,8 +10,8 @@ import os
 import socketserver
 import sys
 import threading
-import typing
 import uuid
+import warnings
 from pathlib import Path
 from typing import Callable, Optional, Dict, Any, List
 
@@ -19,6 +19,7 @@ import pgserver
 import sqlalchemy as sql
 import yaml
 from sqlalchemy_utils.functions import database_exists, create_database, drop_database
+from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
 from pixeltable import metadata
@@ -228,6 +229,9 @@ class Env:
         # we now have a home directory and db; start other services
         self._set_up_runtime()
         self.log_to_stdout(False)
+
+        # Disable spurious warnings
+        warnings.simplefilter("ignore", category=TqdmWarning)
 
     def upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
