@@ -16,7 +16,6 @@ from pixeltable import env
 @pxt.udf
 def yolox(image: PIL.Image.Image, *, model_id: str, device: str = 'cpu') -> dict:
     model, exp = __lookup_model(model_id, device)
-
     image_transform, _ = __val_transform(np.array(image), None, exp.test_size)
     image_tensor = torch.from_numpy(image_transform).unsqueeze(0).float()
     image_tensor.to(device)
@@ -27,8 +26,9 @@ def yolox(image: PIL.Image.Image, *, model_id: str, device: str = 'cpu') -> dict
             outputs, 1, exp.test_conf, exp.nmsthre, class_agnostic=True
         )
 
+    ratio = min(exp.test_size[0] / image.height, exp.test_size[1] / image.width)
     return {
-        'boxes': [output[:4].tolist() for output in outputs[0]],
+        'boxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
         'scores': [output[4].item() * output[5].item() for output in outputs[0]]
     }
 
