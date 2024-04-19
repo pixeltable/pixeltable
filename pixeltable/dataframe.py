@@ -128,7 +128,7 @@ class DataFrameResultSet:
                 with io.BytesIO() as buffer:
                     thumb.save(buffer, 'jpeg')
                     thumb_base64 = base64.b64encode(buffer.getvalue()).decode()
-                    thumb_tag = f'<meta itemprop="thumbnail" content="data:image/jpeg;base64,{thumb_base64}" />'
+                    thumb_tag = f'poster="data:image/jpeg;base64,{thumb_base64}"'
             video_reader.release()
         if len(self._rows) > 1:
             width = 320
@@ -138,9 +138,8 @@ class DataFrameResultSet:
             width = 800
         return f'''
         <div style="width:{width}px;">
-            <video controls width="{width}">
+            <video controls width="{width}" {thumb_tag}>
                 {_create_source_tag(file_path)}
-                {thumb_tag}
             </video>
         </div>
         '''
