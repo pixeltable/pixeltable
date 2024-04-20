@@ -16,7 +16,6 @@ nav:
 - Getting Started: getting-started.md
 - Tutorials:
   - Pixeltable Basics: tutorials/pixeltable-basics.ipynb
-  - Image Operations in Pixeltable: tutorials/image-operations.ipynb
   - Object Detection in Videos: tutorials/object-detection-in-videos.ipynb
   - Using the OpenAI API with Pixeltable: tutorials/openai-demo.ipynb
   - RAG Operations in Pixeltable: tutorials/rag-demo.ipynb
