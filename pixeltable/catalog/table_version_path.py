@@ -101,8 +101,8 @@ class TableVersionPath:
         return DataFrame(self).__getitem__(index)
 
     def columns(self) -> List[Column]:
-        """Return all columns visible in this tbl version path, including columns from bases"""
-        result = self.tbl_version.cols.copy()
+        """Return all user columns visible in this tbl version path, including columns from bases"""
+        result = list(self.tbl_version.cols_by_name.values())
         if self.base is not None:
             base_cols = self.base.columns()
             # we only include base columns that don't conflict with one of our column names

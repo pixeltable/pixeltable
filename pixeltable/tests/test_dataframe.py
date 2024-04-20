@@ -16,6 +16,22 @@ from pixeltable.tests.utils import get_video_files, get_audio_files, skip_test_i
 
 
 class TestDataFrame:
+
+    @pxt.udf(return_type=pxt.JsonType(nullable=False), param_types=[pxt.JsonType(nullable=False)])
+    def yolo_to_coco(detections):
+        bboxes, labels = detections['bboxes'], detections['labels']
+        num_annotations = len(detections['bboxes'])
+        assert num_annotations == len(detections['labels'])
+        result = []
+        for i in range(num_annotations):
+            bbox = bboxes[i]
+            ann = {
+                'bbox': [round(bbox[0]), round(bbox[1]), round(bbox[2] - bbox[0]), round(bbox[3] - bbox[1])],
+                'category': labels[i],
+            }
+            result.append(ann)
+        return result
+
     def test_select_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res1 = t[t.c1, t.c2, t.c3].show(0)
@@ -156,7 +172,7 @@ class TestDataFrame:
         _ = df.__repr__()
         _ = df._repr_html_()
 
-    def test_count(self, test_tbl: catalog.Table, indexed_img_tbl: catalog.Table) -> None:
+    def test_count(self, test_tbl: catalog.Table, small_img_tbl) -> None:
         skip_test_if_not_installed('nos')
         t = test_tbl
         cnt = t.count()
@@ -166,7 +182,7 @@ class TestDataFrame:
         assert cnt == 10
 
         # count() doesn't work with similarity search
-        t = indexed_img_tbl
+        t = small_img_tbl
         probe = t.select(t.img).show(1)
         img = probe[0, 0]
         with pytest.raises(excs.Error):
@@ -397,22 +413,7 @@ class TestDataFrame:
         view_t.add_column(detections=yolox_medium(view_t.frame))
         base_t.insert(video=get_video_files()[0])
 
-        @pxt.udf(return_type=pxt.JsonType(nullable=False), param_types=[pxt.JsonType(nullable=False)])
-        def yolo_to_coco(detections):
-            bboxes, labels = detections['bboxes'], detections['labels']
-            num_annotations = len(detections['bboxes'])
-            assert num_annotations == len(detections['labels'])
-            result = []
-            for i in range(num_annotations):
-                bbox = bboxes[i]
-                ann = {
-                    'bbox': [round(bbox[0]), round(bbox[1]), round(bbox[2] - bbox[0]), round(bbox[3] - bbox[1])],
-                    'category': labels[i],
-                }
-                result.append(ann)
-            return result
-
-        query = view_t.select({'image': view_t.frame, 'annotations': yolo_to_coco(view_t.detections)})
+        query = view_t.select({'image': view_t.frame, 'annotations': self.yolo_to_coco(view_t.detections)})
         path = query.to_coco_dataset()
         # we get a valid COCO dataset
         coco_ds = COCO(path)
