@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import List, Tuple, Dict
 from collections import defaultdict
 import sys

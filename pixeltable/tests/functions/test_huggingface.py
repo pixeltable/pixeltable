@@ -3,144 +3,12 @@ from typing import Dict, Any
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog
-from pixeltable.env import Env
-import pixeltable.exceptions as excs
-from pixeltable.functions.pil.image import blend
-from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed, get_sentences, get_image_files
-from pixeltable.type_system import VideoType, StringType, JsonType, ImageType, BoolType, FloatType, ArrayType
+from pixeltable.tests.utils import skip_test_if_not_installed, get_sentences, get_image_files, \
+    SAMPLE_IMAGE_URL
+from pixeltable.type_system import StringType, JsonType, ImageType, BoolType, FloatType, ArrayType
 
 
-class TestFunctions:
-    def test_pil(self, img_tbl: catalog.Table) -> None:
-        t = img_tbl
-        _ = t[t.img, t.img.rotate(90), blend(t.img, t.img.rotate(90), 0.5)].show()
-
-    def test_eval_detections(self, test_client: pxt.Client) -> None:
-        skip_test_if_not_installed('nos')
-        cl = test_client
-        video_t = cl.create_table('video_tbl', {'video': VideoType()})
-        # create frame view
-        args = {'video': video_t.video, 'fps': 1}
-        v = cl.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
-
-        files = get_video_files()
-        video_t.insert(video=files[-1])
-        v.add_column(frame_s=v.frame.resize([640, 480]))
-        from pixeltable.functions.nos.object_detection_2d import yolox_nano, yolox_small, yolox_large
-        v.add_column(detections_a=yolox_nano(v.frame_s))
-        v.add_column(detections_b=yolox_small(v.frame_s))
-        v.add_column(gt=yolox_large(v.frame_s))
-        from pixeltable.functions.eval import eval_detections, mean_ap
-        res = v.select(
-            eval_detections(
-                v.detections_a.bboxes, v.detections_a.labels, v.detections_a.scores, v.gt.bboxes, v.gt.labels
-            )).show()
-        v.add_column(
-            eval_a=eval_detections(
-                v.detections_a.bboxes, v.detections_a.labels, v.detections_a.scores, v.gt.bboxes, v.gt.labels))
-        v.add_column(
-            eval_b=eval_detections(
-                v.detections_b.bboxes, v.detections_b.labels, v.detections_b.scores, v.gt.bboxes, v.gt.labels))
-        ap_a = v.select(mean_ap(v.eval_a)).show()[0, 0]
-        ap_b = v.select(mean_ap(v.eval_b)).show()[0, 0]
-        common_classes = set(ap_a.keys()) & set(ap_b.keys())
-
-        ## TODO: following assertion is failing on CI, 
-        # It is not necessarily a bug, as assert codition is not expected to be always true
-        # for k in common_classes:
-        # assert ap_a[k] <= ap_b[k]
-
-    def test_str(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.string import str_format
-        t.add_column(s1=str_format('ABC {0}', t.input))
-        t.add_column(s2=str_format('DEF {this}', this=t.input))
-        t.add_column(s3=str_format('GHI {0} JKL {this}', t.input, this=t.input))
-        status = t.insert(input='MNO')
-        assert status.num_rows == 1
-        assert status.num_excs == 0
-        row = t.head()[0]
-        assert row == {'input': 'MNO', 's1': 'ABC MNO', 's2': 'DEF MNO', 's3': 'GHI MNO JKL MNO'}
-
-    def test_openai(self, test_client: pxt.Client) -> None:
-        skip_test_if_not_installed('openai')
-        TestFunctions.skip_test_if_no_openai_client()
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.openai import chat_completions, embeddings, moderations
-        msgs = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": t.input}
-        ]
-        t.add_column(input_msgs=msgs)
-        t.add_column(chat_output=chat_completions(model='gpt-3.5-turbo', messages=t.input_msgs))
-        # with inlined messages
-        t.add_column(chat_output2=chat_completions(model='gpt-3.5-turbo', messages=msgs))
-        t.add_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
-        t.add_column(text_3=embeddings(model='text-embedding-3-small', input=t.input))
-        t.add_column(moderation=moderations(input=t.input))
-        t.insert(input='I find you really annoying')
-        _ = t.head()
-
-    def test_gpt_4_vision(self, test_client: pxt.Client) -> None:
-        skip_test_if_not_installed('openai')
-        TestFunctions.skip_test_if_no_openai_client()
-        cl = test_client
-        t = cl.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
-        from pixeltable.functions.openai import chat_completions
-        from pixeltable.functions.string import str_format
-        msgs = [
-            {'role': 'user',
-             'content': [
-                 {'type': 'text', 'text': t.prompt},
-                 {'type': 'image_url', 'image_url': {
-                     'url': str_format('data:image/png;base64,{0}', t.img.b64_encode())
-                 }}
-             ]}
-        ]
-        t.add_column(response=chat_completions(model='gpt-4-vision-preview', messages=msgs, max_tokens=300))
-        t.add_column(response_content=t.response.choices[0].message.content)
-        t.insert(prompt="What's in this image?", img=_sample_image_url)
-        result = t.collect()['response_content'][0]
-        assert len(result) > 0
-
-    @staticmethod
-    def skip_test_if_no_openai_client() -> None:
-        try:
-            _ = Env.get().openai_client
-        except excs.Error as exc:
-            pytest.skip(str(exc))
-
-    def test_together(self, test_client: pxt.Client) -> None:
-        skip_test_if_not_installed('together')
-        if not Env.get().has_together_client:
-            pytest.skip(f'Together client does not exist (missing API key?)')
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.together import completions
-        t.add_column(output=completions(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
-        t.add_column(output_text=t.output.output.choices[0].text)
-        t.insert(input='I am going to the ')
-        result = t.select(t.output_text).collect()['output_text'][0]
-        assert len(result) > 0
-
-    def test_fireworks(self, test_client: pxt.Client) -> None:
-        skip_test_if_not_installed('fireworks')
-        try:
-            from pixeltable.functions.fireworks import initialize
-            initialize()
-        except:
-            pytest.skip(f'Fireworks client does not exist (missing API key?)')
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.fireworks import chat_completions
-        t['output'] = chat_completions(prompt=t.input, model='accounts/fireworks/models/llama-v2-7b-chat', max_tokens=256).choices[0].text
-        t.insert(input='I am going to the ')
-        result = t.select(t.output).collect()['output'][0]
-        assert len(result) > 0
+class TestHuggingface:
 
     def test_hf_function(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('sentence_transformers')
@@ -281,14 +149,10 @@ class TestFunctions:
         t = cl.create_table('test_tbl', {'img': ImageType()})
         from pixeltable.functions.huggingface import detr_for_object_detection
         t['detect'] = detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
-        status = t.insert(img=_sample_image_url)
+        status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
         assert status.num_excs == 0
         result = t.select(t.detect).collect()[0]['detect']
         assert 'orange' in result['label_text']
         assert 'bowl' in result['label_text']
         assert 'broccoli' in result['label_text']
-
-
-_sample_image_url = \
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'

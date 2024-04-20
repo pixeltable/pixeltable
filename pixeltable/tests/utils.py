@@ -14,6 +14,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import catalog
+from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip_image, clip_text
@@ -322,6 +323,12 @@ def skip_test_if_not_installed(package) -> None:
         pytest.skip(f'Package `{package}` is not installed.')
 
 
+def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = None) -> None:
+    assert status.num_excs == 0
+    if expected_rows is not None:
+        assert status.num_rows == expected_rows
+
+
 def make_test_arrow_table(output_path: Path) -> None:
     import pyarrow as pa
 
@@ -429,3 +436,7 @@ def img_embed(img: PIL.Image.Image) -> np.ndarray:
 @pxt.expr_udf
 def text_embed(txt: str) -> np.ndarray:
     return clip_text(txt, model_id='openai/clip-vit-base-patch32')
+
+SAMPLE_IMAGE_URL = \
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
+
