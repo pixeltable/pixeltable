@@ -42,7 +42,7 @@ class InsertableTable(Table):
             col = columns[column_names.index(pk_col)]
             if col.col_type.nullable:
                 raise excs.Error(f'Primary key column {pk_col} cannot be nullable')
-            col.primary_key = True
+            col.is_pk = True
 
         with orm.Session(Env.get().engine, future=True) as session:
             _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, comment)
@@ -181,7 +181,7 @@ class InsertableTable(Table):
         if where is not None:
             if not isinstance(where, Predicate):
                 raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self.tbl_version, where)
+            analysis_info = Planner.analyze(self.tbl_version_path, where)
             if analysis_info.similarity_clause is not None:
                 raise excs.Error('nearest() cannot be used with delete()')
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter

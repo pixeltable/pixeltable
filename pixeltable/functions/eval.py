@@ -180,8 +180,8 @@ def eval_detections(
     return result
 
 @func.uda(
-    update_types=[ts.JsonType()], value_type=ts.JsonType(), name='mean_ap', allows_std_agg=True, allows_window=False)
-class MeanAPAggregator:
+    update_types=[ts.JsonType()], value_type=ts.JsonType(), allows_std_agg=True, allows_window=False)
+class mean_ap(func.Aggregator):
     def __init__(self):
         self.class_tpfp: Dict[int, List[Dict]] = defaultdict(list)
 
