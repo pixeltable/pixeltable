@@ -382,27 +382,7 @@ class ColumnType:
         """
         Return corresponding SQLAlchemy type.
         """
-        assert False
-        x = isinstance(sql.String, sql.types.TypeEngine)
-        assert self._type != self.Type.INVALID
-        if self._type == self.Type.STRING:
-            return sql.String
-        if self._type == self.Type.INT:
-            return sql.Integer
-        if self._type == self.Type.FLOAT:
-            return sql.Float
-        if self._type == self.Type.BOOL:
-            return sql.Boolean
-        if self._type == self.Type.TIMESTAMP:
-            return sql.TIMESTAMP
-        if self._type == self.Type.IMAGE:
-            # the URL
-            return sql.String
-        if self._type == self.Type.JSON:
-            return sql.dialects.postgresql.JSONB
-        if self._type == self.Type.ARRAY:
-            return sql.VARBINARY
-        assert False
+        pass
 
     @staticmethod
     def no_conversion(v: Any) -> Any:

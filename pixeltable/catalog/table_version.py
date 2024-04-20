@@ -477,7 +477,7 @@ class TableVersion:
         self._update_md(ts, preceding_schema_version, conn)
         if print_stats:
             plan.ctx.profile.print(num_rows=row_count)
-        # TODO: what to do about system columns with exceptions?
+        # TODO(mkornacker): what to do about system columns with exceptions?
         return UpdateStatus(
             num_rows=row_count, num_computed_values=row_count, num_excs=num_excs,
             cols_with_excs=[f'{col.tbl.name}.{col.name}'for col in cols_with_excs if col.name is not None])
