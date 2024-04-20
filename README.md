@@ -30,7 +30,7 @@ In this tutorial, we'll survey how to create tables, populate them with data, an
 
 
 ## 💾 Installation
-Pixeltable works with Python 3.9, 3.10, or 3.11 running on Linux or MacOS.
+Pixeltable works with Python 3.9, 3.10, 3.11, or 3.12 running on Linux, MacOS, or Windows.
 
 ```
 pip install pixeltable
