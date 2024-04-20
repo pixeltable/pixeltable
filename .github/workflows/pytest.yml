@@ -36,6 +36,7 @@ jobs:
           miniconda-version: latest
           activate-environment: pxt
           python-version: ${{ matrix.python-version }}
+          use-only-tar-bz2: true
       - name: Show conda info
         run: conda info
       - name: Install poetry
@@ -49,7 +50,7 @@ jobs:
           # - Matrix parameters
           # - poetry.lock and related .toml files (so that if the dependencies
           #   or poetry config change, the cache will be invalidated)
-          path: ${{ env.CONDA_PREFIX }}
+          path: ${{ env.CONDA }}/envs
           key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
         run: poetry install ${{ matrix.poetry-options }}
