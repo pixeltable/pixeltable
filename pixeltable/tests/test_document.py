@@ -146,15 +146,8 @@ class TestDocument:
                         all_text = normalize(''.join([r['text'] for r in res]))
                         headings = set(json.dumps(r['heading']) for r in res)
 
-                        # for debugging
-                        first_diff_index = next(
-                            (i for i, (c1, c2) in enumerate(zip(all_text, all_text_reference)) if c1 != c2),
-                            len(all_text) if len(all_text) != len(all_text_reference) else None)
-                        if first_diff_index is not None:
-                            a = all_text[max(0, first_diff_index - 10):first_diff_index + 10]
-                            b = all_text_reference[max(0, first_diff_index - 10):first_diff_index + 10]
-
-                        assert all_text == all_text_reference, f'{sep1}, {sep2}, {limit}'
+                        diff = diff_snippet(all_text, all_text_reference)
+                        assert not diff, f'{sep1}, {sep2}, {limit}\n{diff}'
                         assert headings == headings_reference, f'{sep1}, {sep2}, {limit}'
                         # TODO: verify chunk limit
                     cl.drop_table('chunks')
