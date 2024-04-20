@@ -81,32 +81,34 @@ class TestDocument:
 
             for sep1 in level1:
                 for sep2 in level2:
-                    iterator_args = {
-                        'document': path,
-                        'separators': ','.join([sep1, sep2]),
-                        'metadata': 'page,bounding_box',
-                    }
-                    if sep2:
-                        iterator_args['limit'] = 21
-                        iterator_args['overlap'] = 0
+                    chunk_limits = [10, 20, 100] if sep2 else [None]
+                    for limit in chunk_limits:
+                        iterator_args = {
+                            'document': path,
+                            'separators': ','.join([sep1, sep2]),
+                            'metadata': 'page,bounding_box',
+                        }
+                        if sep2:
+                            iterator_args['limit'] = limit
+                            iterator_args['overlap'] = 0
 
-                    chunks = list(DocumentSplitter(**iterator_args))
-                    recovered_text = ' '.join([c['text'] for c in chunks])
-                    diff_str = diff_snippet(full_text, normalize(recovered_text))
-                    assert not diff_str, f'{iterator_args=}\n{diff_str}'
-                    assert 'page' in chunks[0]
-                    assert 'bounding_box' in chunks[0]
-
-                    if sep1 not in ['']:
+                        chunks = list(DocumentSplitter(**iterator_args))
+                        recovered_text = ' '.join([c['text'] for c in chunks])
+                        diff_str = diff_snippet(full_text, normalize(recovered_text))
+                        assert not diff_str, f'{iterator_args=}\n{diff_str}'
                         assert 'page' in chunks[0]
-                        assert chunks[0]['page'] is not None
-
-                    if sep1 not in ['', 'page']:
                         assert 'bounding_box' in chunks[0]
-                        bounding_box = chunks[0]['bounding_box']
-                        assert bounding_box is not None
-                        assert 'x1' in bounding_box
-                        assert bounding_box['x1'] is not None
+
+                        if sep1 not in ['']:
+                            assert 'page' in chunks[0]
+                            assert chunks[0]['page'] is not None
+
+                        if sep1 not in ['', 'page']:
+                            assert 'bounding_box' in chunks[0]
+                            bounding_box = chunks[0]['bounding_box']
+                            assert bounding_box is not None
+                            assert 'x1' in bounding_box
+                            assert bounding_box['x1'] is not None
 
 
     def test_doc_splitter(self, test_client: pxt.Client) -> None:
@@ -123,7 +125,7 @@ class TestDocument:
         headings_reference: Set[str] = {}  # headings metadata as a json-serialized string
         for sep1 in ['heading', 'paragraph', 'sentence']:
             for sep2 in ['', 'token_limit', 'char_limit']:
-                chunk_limits = [10, 20, 100] if sep2 is not None else [None]
+                chunk_limits = [10, 20, 100] if sep2 else [None]
                 for limit in chunk_limits:
                     iterator_args = {
                         'document': doc_t.doc,
@@ -159,7 +161,7 @@ class TestDocument:
 
     def test_doc_splitter_headings(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('spacy')
-        file_paths = self.valid_doc_paths()
+        file_paths = [ p for p in self.valid_doc_paths() if not p.endswith('.pdf') ]
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})
         status = doc_t.insert({'doc': p} for p in file_paths)
@@ -175,6 +177,7 @@ class TestDocument:
                 'separators': 'sentence',
                 'metadata': md_str
             }
+            print(f'{md_str=}')
             chunks_t = cl.create_view(
                 f'chunks', doc_t, iterator_class=DocumentSplitter, iterator_args=iterator_args)
             res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()

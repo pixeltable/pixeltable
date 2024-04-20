@@ -231,7 +231,7 @@ class DocumentSplitter(ComponentIterator):
         def emit() -> None:
             nonlocal accumulated_text, headings, sourceline
             if len(accumulated_text) > 0:
-                md = DocumentSectionMetadata(sourceline, headings.copy())
+                md = DocumentSectionMetadata(sourceline=sourceline, heading=headings.copy())
                 full_text = ' '.join(accumulated_text)
                 full_text = ftfy.fix_text(full_text)
                 yield DocumentSection(text=full_text, metadata=md)
@@ -289,7 +289,7 @@ class DocumentSplitter(ComponentIterator):
         def emit() -> None:
             nonlocal accumulated_text, headings
             if len(accumulated_text) > 0:
-                metadata = DocumentSectionMetadata(0, headings.copy())
+                metadata = DocumentSectionMetadata(sourceline=0, heading=headings.copy())
                 yield DocumentSection(text=ftfy.fix_text(' '.join(accumulated_text)), metadata=metadata)
                 accumulated_text = []
 
