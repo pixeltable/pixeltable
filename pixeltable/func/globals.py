@@ -2,9 +2,12 @@ from typing import Optional
 from types import ModuleType
 import importlib
 import inspect
+from typing import Optional
+
+import pixeltable.exceptions as excs
 
 
-def resolve_symbol(symbol_path: str) -> object:
+def resolve_symbol(symbol_path: str) -> Optional[object]:
     path_elems = symbol_path.split('.')
     module: Optional[ModuleType] = None
     if path_elems[0:2] == ['pixeltable', 'functions'] and len(path_elems) > 2:
@@ -23,6 +26,16 @@ def resolve_symbol(symbol_path: str) -> object:
     for el in path_elems:
         obj = getattr(obj, el)
     return obj
+
+def validate_symbol_path(fn_path: str) -> None:
+    path_elems = fn_path.split('.')
+    fn_name = path_elems[-1]
+    if any(el == '<locals>' for el in path_elems):
+        raise excs.Error(
+            f'{fn_name}(): nested functions are not supported. Move the function to the module level or into a class.')
+    if any(not el.isidentifier() for el in path_elems):
+        raise excs.Error(
+            f'{fn_name}(): cannot resolve symbol path {fn_path}. Move the function to the module level or into a class.')
 
 def get_caller_module_path() -> str:
     """Return the module path of our caller's caller"""

@@ -41,6 +41,21 @@ class TestTable:
     def add1(a: int) -> int:
         return a + 1
 
+    @pxt.uda(
+        update_types=[IntType()], value_type=IntType(), requires_order_by=True,
+        allows_window=True)
+    class window_fn:
+        def __init__(self):
+            pass
+        def update(self, i: int) -> None:
+            pass
+        def value(self) -> int:
+            return 1
+
+    @pxt.expr_udf(param_types=[IntType(nullable=False)])
+    def add1(a: int) -> int:
+        return a + 1
+
     def test_create(self, test_client: pxt.Client) -> None:
         cl = test_client
         cl.create_dir('dir1')
@@ -56,7 +71,7 @@ class TestTable:
         with pytest.raises(excs.Error):
             _ = cl.create_table('1test', schema)
         with pytest.raises(excs.Error):
-            _ = catalog.Column('1c', StringType())
+            _ = cl.create_table('bad name', schema={'c1': StringType()})
         with pytest.raises(excs.Error):
             _ = cl.create_table('test', schema)
         with pytest.raises(excs.Error):
@@ -300,10 +315,6 @@ class TestTable:
         assert '"stored" must be a bool' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': {'type': StringType(), 'indexed': 'true'}})
-        assert '"indexed" must be a bool' in str(exc_info.value)
-
-        with pytest.raises(excs.Error) as exc_info:
             cl.create_table('test', {'c1': StringType()}, primary_key='c2')
         assert 'primary key column c2 not found' in str(exc_info.value).lower()
 
@@ -501,18 +512,8 @@ class TestTable:
         # a non-materialized column that refers to another non-materialized column
         view.add_column(c4=view.c2.rotate(60), stored=False)
 
-        @pxt.uda(
-            name='window_fn', update_types=[IntType()], value_type=IntType(), requires_order_by = True,
-            allows_window = True)
-        class WindowFnAggregator:
-            def __init__(self):
-                pass
-            def update(self, i: int) -> None:
-                pass
-            def value(self) -> int:
-                return 1
         # cols computed with window functions are stored by default
-        view.add_column(c5=window_fn(view.frame_idx, 1, group_by=view.video))
+        view.add_column(c5=self.window_fn(view.frame_idx, 1, group_by=view.video))
 
         # reload to make sure that metadata gets restored correctly
         cl = pxt.Client(reload=True)
@@ -552,6 +553,23 @@ class TestTable:
         cl.drop_table('test_view')
         cl.drop_table('test_tbl')
         assert MediaStore.count(view.get_id()) == 0
+
+    def test_insert_nulls(self, test_client: pxt.Client) -> None:
+        cl = test_client
+        schema = {
+            'c1': StringType(nullable=True),
+            'c2': IntType(nullable=True),
+            'c3': FloatType(nullable=True),
+            'c4': BoolType(nullable=True),
+            'c5': ArrayType((2, 3), dtype=IntType(), nullable=True),
+            'c6': JsonType(nullable=True),
+            'c7': ImageType(nullable=True),
+            'c8': VideoType(nullable=True),
+        }
+        t = cl.create_table('test1', schema)
+        status = t.insert(c1='abc')
+        assert status.num_rows == 1
+        assert status.num_excs == 0
 
     def test_insert(self, test_client: pxt.Client) -> None:
         cl = test_client
@@ -685,7 +703,7 @@ class TestTable:
             _ = t2.update([{'c1': '1', 'c2': 1, 'c3': 2.0}])
         assert 'must have primary key for batch update' in str(exc_info.value).lower()
 
-    def test_update(self, test_tbl: pxt.Table, indexed_img_tbl: pxt.Table) -> None:
+    def test_update(self, test_tbl: pxt.Table, small_img_tbl) -> None:
         t = test_tbl
         # update every type with a literal
         test_cases = [
@@ -790,7 +808,7 @@ class TestTable:
             t.update({'c3': 1.0}, where=lambda c2: c2 == 10)
         assert 'Predicate' in str(excinfo.value)
 
-        img_t = indexed_img_tbl
+        img_t = small_img_tbl
 
         # can't update image col
         with pytest.raises(excs.Error) as excinfo:
@@ -820,7 +838,7 @@ class TestTable:
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).show(0)
         assert_resultset_eq(r1, r2)
 
-    def test_delete(self, test_tbl: pxt.Table, indexed_img_tbl: pxt.Table) -> None:
+    def test_delete(self, test_tbl: pxt.Table, small_img_tbl) -> None:
         t = test_tbl
 
         cnt = t.where(t.c3 < 10.0).count()
@@ -848,7 +866,7 @@ class TestTable:
             t.delete(where=lambda c2: c2 == 10)
         assert 'Predicate' in str(excinfo.value)
 
-        img_t = indexed_img_tbl
+        img_t = small_img_tbl
         # similarity search is not supported
         with pytest.raises(excs.Error) as excinfo:
             img_t.delete(where=img_t.img.nearest('car'))
@@ -1014,6 +1032,10 @@ class TestTable:
         t2.revert()
         assert MediaStore.count(t2.get_id()) == t2.count() * stores_img_col
 
+    @pxt.udf(return_type=ImageType(), param_types=[ImageType()])
+    def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
+        raise RuntimeError
+
     def test_computed_img_cols(self, test_client: pxt.Client) -> None:
         cl = test_client
         schema = {'img': ImageType(nullable=False)}
@@ -1031,10 +1053,7 @@ class TestTable:
 
         # computed img col with exceptions
         t = cl.create_table('test3', schema)
-        @pxt.udf(return_type=ImageType(), param_types=[ImageType()])
-        def f(img: PIL.Image.Image) -> PIL.Image.Image:
-            raise RuntimeError
-        t.add_column(c3=f(t.img), stored=True)
+        t.add_column(c3=self.img_fn_with_exc(t.img), stored=True)
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         t.insert(rows, fail_on_exception=False)
@@ -1246,6 +1265,7 @@ class TestTable:
         check_rename(t, 'c1_renamed', 'c1')
 
         # revert() works
+        _ = t.select(t.c1_renamed).collect()
         t.revert()
         _ = t.select(t.c1).collect()
         #check_rename(t, 'c1', 'c1_renamed')

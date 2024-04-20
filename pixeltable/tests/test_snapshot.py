@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq
+from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq, create_img_tbl, img_embed
 from pixeltable.type_system import IntType
 
 
@@ -88,6 +88,25 @@ class TestSnapshot:
                     filter = tbl.c2 < 10 if has_filter else None
                     snap = cl.create_view(snap_path, tbl, schema=schema, filter=filter, is_snapshot=True)
                     self.run_basic_test(cl, tbl, snap, extra_items=extra_items, filter=filter, reload_md=reload_md)
+
+    def test_errors(self, test_client: pxt.Client) -> None:
+        cl = test_client
+        tbl = create_test_tbl(client=cl)
+        snap = cl.create_view('snap', tbl, is_snapshot=True)
+
+        with pytest.raises(pxt.Error) as excinfo:
+            _ = snap.update({'c3': snap.c3 + 1.0})
+        assert 'cannot update a snapshot' in str(excinfo.value).lower()
+
+        with pytest.raises(pxt.Error) as excinfo:
+            _ = snap.revert()
+        assert 'cannot revert a snapshot' in str(excinfo.value).lower()
+
+        with pytest.raises(pxt.Error) as excinfo:
+            img_tbl = create_img_tbl(cl)
+            snap = cl.create_view('img_snap', img_tbl, is_snapshot=True)
+            snap.add_embedding_index('img', img_embed=img_embed)
+        assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
     def test_views_of_snapshots(self, test_client: pxt.Client) -> None:
         cl = test_client

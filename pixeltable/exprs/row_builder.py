@@ -54,14 +54,12 @@ class RowBuilder:
         target_exprs: List[Expr]  # exprs corresponding to target_slot_idxs
 
     def __init__(
-            self, output_exprs: List[Expr], columns: List[catalog.Column],
-            indices: List[Tuple[catalog.Column, func.Function]], input_exprs: List[Expr]
+            self, output_exprs: List[Expr], columns: List[catalog.Column], input_exprs: List[Expr]
     ):
         """
         Args:
             output_exprs: list of Exprs to be evaluated
             columns: list of columns to be materialized
-            indices: list of embeddings to be materialized (Tuple[indexed column, embedding function])
         """
         self.unique_exprs = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
@@ -73,7 +71,6 @@ class RowBuilder:
         # output exprs: all exprs the caller wants to materialize
         # - explicitly requested output_exprs
         # - values for computed columns
-        # - embedding values for indices
         resolve_cols = set(columns)
         self.output_exprs = [
             self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
@@ -96,21 +93,6 @@ class RowBuilder:
                 ref = ColumnRef(col)
                 ref = self._record_unique_expr(ref, recursive=False)
                 self.add_table_column(col, ref.slot_idx)
-
-        # record indices; indexed by slot_idx
-        self.index_columns: List[catalog.Column] = []
-        for col, embedding_fn in indices:
-            # we assume that the parameter of the embedding function is a ref to an image column
-            assert col.col_type.is_image_type()
-            # construct expr to compute embedding; explicitly resize images to the required size
-            target_img_type = next(iter(embedding_fn.signature.parameters.values())).col_type
-            expr = embedding_fn(ColumnRef(col).resize(target_img_type.size))
-            expr = self._record_unique_expr(expr, recursive=True)
-            self.output_exprs.append(expr)
-            if len(self.index_columns) <= expr.slot_idx:
-                # pad to slot_idx
-                self.index_columns.extend([None] * (expr.slot_idx - len(self.index_columns) + 1))
-            self.index_columns[expr.slot_idx] = col
 
         # default eval ctx: all output exprs
         self.default_eval_ctx = self.create_eval_ctx(self.output_exprs, exclude=unique_input_exprs)
@@ -169,13 +151,6 @@ class RowBuilder:
     def output_slot_idxs(self) -> List[ColumnSlotIdx]:
         """Return ColumnSlotIdx for output columns"""
         return self.table_columns
-
-    def index_slot_idxs(self) -> List[ColumnSlotIdx]:
-        """Return ColumnSlotIdx for index columns"""
-        return [
-            ColumnSlotIdx(self.output_columns[i], i) for i in range(len(self.index_columns))
-            if self.output_columns[i] is not None
-        ]
 
     @property
     def num_materialized(self) -> int:
@@ -334,22 +309,15 @@ class RowBuilder:
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
                 exc_col_ids.add(col.id)
-                table_row[col.storage_name()] = None
-                table_row[col.errortype_storage_name()] = type(exc).__name__
-                table_row[col.errormsg_storage_name()] = str(exc)
+                table_row[col.store_name()] = None
+                table_row[col.errortype_store_name()] = type(exc).__name__
+                table_row[col.errormsg_store_name()] = str(exc)
             else:
-                val = data_row.get_stored_val(slot_idx)
-                table_row[col.storage_name()] = val
+                val = data_row.get_stored_val(slot_idx, col.sa_col.type)
+                table_row[col.store_name()] = val
                 # we unfortunately need to set these, even if there are no errors
-                table_row[col.errortype_storage_name()] = None
-                table_row[col.errormsg_storage_name()] = None
-
-        for slot_idx, col in enumerate(self.index_columns):
-            if col is None:
-                continue
-            # don't use get_stored_val() here, we need to pass in the ndarray
-            val = data_row[slot_idx]
-            table_row[col.index_storage_name()] = val
+                table_row[col.errortype_store_name()] = None
+                table_row[col.errormsg_store_name()] = None
 
         return table_row, num_excs
 

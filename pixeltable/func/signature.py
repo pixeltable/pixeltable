@@ -114,20 +114,12 @@ class Signature:
         return (col_type, is_batched)
 
     @classmethod
-    def create(
-            cls, c: Callable,
-            param_types: Optional[List[ts.ColumnType]] = None,
-            return_type: Optional[Union[ts.ColumnType, Callable]] = None
-    ) -> Signature:
-        """Create a signature for the given Callable.
-        Infer the parameter and return types, if none are specified.
-        Raises an exception if the types cannot be inferred.
-        """
+    def create_parameters(
+            cls, c: Callable, param_types: Optional[List[ts.ColumnType]] = None) -> List[Parameter]:
         sig = inspect.signature(c)
         py_parameters = list(sig.parameters.values())
-
-        # check non-var parameters for name collisions and default value compatibility
         parameters: List[Parameter] = []
+
         for idx, param in enumerate(py_parameters):
             if param.name in cls.SPECIAL_PARAM_NAMES:
                 raise excs.Error(f"'{param.name}' is a reserved parameter name")
@@ -135,6 +127,7 @@ class Signature:
                 parameters.append(Parameter(param.name, None, param.kind, False))
                 continue
 
+            # check non-var parameters for name collisions and default value compatibility
             if param_types is not None:
                 if idx >= len(param_types):
                     raise excs.Error(f'Missing type for parameter {param.name}')
@@ -155,7 +148,20 @@ class Signature:
 
             parameters.append(Parameter(param.name, param_type, param.kind, is_batched))
 
-        return_is_batched = False
+        return parameters
+
+    @classmethod
+    def create(
+            cls, c: Callable,
+            param_types: Optional[List[ts.ColumnType]] = None,
+            return_type: Optional[Union[ts.ColumnType, Callable]] = None
+    ) -> Signature:
+        """Create a signature for the given Callable.
+        Infer the parameter and return types, if none are specified.
+        Raises an exception if the types cannot be inferred.
+        """
+        parameters = cls.create_parameters(c, param_types)
+        sig = inspect.signature(c)
         if return_type is None:
             return_type, return_is_batched = cls._infer_type(sig.return_annotation)
             if return_type is None:

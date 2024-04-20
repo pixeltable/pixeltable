@@ -10,7 +10,9 @@ from pixeltable.func import Batch
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
-def sentence_transformer(sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False) -> Batch[np.ndarray]:
+def sentence_transformer(
+        sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False
+) -> Batch[np.ndarray]:
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import SentenceTransformer
 
@@ -53,12 +55,13 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
     return array.tolist()
 
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((512,), dtype=ts.FloatType(), nullable=False))
 def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    assert model.config.projection_dim == 512
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
     inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
@@ -66,12 +69,13 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((512,), dtype=ts.FloatType(), nullable=False))
 def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    assert model.config.projection_dim == 512
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
     inputs = processor(images=image, return_tensors='pt', padding=True)
