@@ -7,6 +7,7 @@ import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.type_system as ts
 from pixeltable.func import Batch
+from pixeltable.functions.util import resolve_torch_device
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
@@ -97,9 +98,10 @@ def detr_for_object_detection(
         *,
         model_id: str,
         threshold: float = 0.5,
-        device: str = 'cpu'
+        device: str = 'auto'
 ) -> Batch[dict]:
     env.Env.get().require_package('transformers')
+    device = resolve_torch_device(device)
     import torch
     from transformers import DetrImageProcessor, DetrForObjectDetection
 
