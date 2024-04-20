@@ -188,10 +188,20 @@ class Env:
         fh = logging.FileHandler(self._log_dir / self._logfilename, mode='w')
         fh.setFormatter(logging.Formatter(self._log_fmt_str))
         self._logger.addHandler(fh)
+
+        # configure sqlalchemy logging
         sql_logger = logging.getLogger('sqlalchemy.engine')
         sql_logger.setLevel(logging.INFO)
         sql_logger.addHandler(fh)
         sql_logger.propagate = False
+
+        # configure pyav logging
+        av_logfilename = self._logfilename.replace('.log', '_av.log')
+        av_fh = logging.FileHandler(self._log_dir / av_logfilename, mode='w')
+        av_fh.setFormatter(logging.Formatter(self._log_fmt_str))
+        av_logger = logging.getLogger('libav')
+        av_logger.addHandler(av_fh)
+        av_logger.propagate = False
 
         # empty tmp dir
         for path in glob.glob(f'{self._tmp_dir}/*'):

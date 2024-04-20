@@ -225,7 +225,7 @@ class Table(SchemaObject):
             value: column type or value expression or column specification dictionary:
                 column type: a Pixeltable column type (if the table already contains rows, it must be nullable)
                 value expression: a Pixeltable expression that computes the column values
-                column specification: a dictionary with possible keys 'type', 'value', 'stored', 'indexed'
+                column specification: a dictionary with possible keys 'type', 'value', 'stored'
         Examples:
             Add an int column with ``None`` values:
 
@@ -247,11 +247,6 @@ class Table(SchemaObject):
             Do the same, but now the column is stored:
 
             >>> tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
-
-            Add a resized version of the ``frame`` column and index it. The column does not need to be stored in order
-            to be indexed:
-
-            >>> tbl['small_frame'] = {'value': tbl.frame.resize([224, 224]), 'indexed': True}
         """
         if not isinstance(column_name, str):
             raise excs.Error(f'Column name must be a string, got {type(column_name)}')
@@ -264,8 +259,8 @@ class Table(SchemaObject):
 
     def add_column(
             self, *,
-            type: Optional[ts.ColumnType] = None, stored: Optional[bool] = None, indexed: Optional[bool] = None,
-            print_stats: bool = False, **kwargs: Any
+            type: Optional[ts.ColumnType] = None, stored: Optional[bool] = None, print_stats: bool = False,
+            **kwargs: Any
     ) -> UpdateStatus:
         """Adds a column to the table.
 
@@ -273,7 +268,6 @@ class Table(SchemaObject):
             kwargs: Exactly one keyword argument of the form ``column-name=type|value-expression``.
             type: The type of the column. Only valid and required if ``value-expression`` is a Callable.
             stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
-            indexed: Whether the column is indexed.
             print_stats: If ``True``, print execution metrics.
 
         Returns:
@@ -318,15 +312,6 @@ class Table(SchemaObject):
             Alternatively, this can also be expressed as:
 
             >>> tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
-
-            Add a resized version of the ``frame`` column and index it. The column does not need to be stored in order
-            to be indexed:
-
-            >>> tbl.add_column(small_frame=tbl.frame.resize([224, 224]), indexed=True)
-
-            Alternatively, this can also be expressed as:
-
-            >>> tbl['small_frame'] = {'value': tbl.frame.resize([224, 224]), 'indexed': True}
         """
         self._check_is_dropped()
         # verify kwargs and construct column schema dict
@@ -349,8 +334,6 @@ class Table(SchemaObject):
             col_schema['type'] = type
         if stored is not None:
             col_schema['stored'] = stored
-        if indexed is not None:
-            col_schema['indexed'] = indexed
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, self.column_names())
@@ -364,7 +347,7 @@ class Table(SchemaObject):
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
-        valid_keys = {'type', 'value', 'stored', 'indexed'}
+        valid_keys = {'type', 'value', 'stored'}
         has_type = False
         for k in spec.keys():
             if k not in valid_keys:
@@ -393,8 +376,6 @@ class Table(SchemaObject):
 
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')
-        if 'indexed' in spec and not isinstance(spec['indexed'], bool):
-            raise excs.Error(f'Column {name}: "indexed" must be a bool, got {spec["indexed"]}')
         if not has_type:
             raise excs.Error(f'Column {name}: "type" is required')
 
@@ -406,7 +387,6 @@ class Table(SchemaObject):
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
             stored: Optional[bool] = None
-            indexed: Optional[bool] = None
             primary_key: Optional[bool] = None
 
             if isinstance(spec, ts.ColumnType):
@@ -428,12 +408,10 @@ class Table(SchemaObject):
                     # create copy so we can modify it
                     value_expr = value_expr.copy()
                 stored = spec.get('stored')
-                indexed = spec.get('indexed')
                 primary_key = spec.get('primary_key')
 
             column = Column(
-                name, col_type=col_type, computed_with=value_expr, stored=stored, indexed=indexed,
-                primary_key=primary_key)
+                name, col_type=col_type, computed_with=value_expr, stored=stored, is_pk=primary_key)
             columns.append(column)
         return columns
 
@@ -498,6 +476,83 @@ class Table(SchemaObject):
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.rename_column(old_name, new_name)
 
+    def add_embedding_index(
+            self, col_name: str, *, idx_name: Optional[str] = None,
+            text_embed: Optional[pixeltable.Function] = None, img_embed: Optional[pixeltable.Function] = None
+    ) -> None:
+        """Add an index to the table.
+        Args:
+            col_name: name of column to index
+            idx_name: name of index, which needs to be unique for the table; if not provided, a name will be generated
+            idx_type: type of index (one of 'embedding')
+
+        Raises:
+            Error: If an index with that name already exists for the table or if the column does not exist.
+
+        Examples:
+            Add an index to the ``img`` column:
+
+            >>> tbl.add_embedding_index('img', text_embed=...)
+
+            Add another index to the ``img`` column, with a specific name:
+
+            >>> tbl.add_embedding_index('img', idx_name='clip_idx', text_embed=...)
+        """
+        if self.tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot add an index to a snapshot')
+        self._check_is_dropped()
+        col = self.tbl_version_path.get_column(col_name, include_bases=True)
+        if col is None:
+            raise excs.Error(f'Column {col_name} unknown')
+        if idx_name is not None and idx_name in self.tbl_version_path.tbl_version.idxs_by_name:
+            raise excs.Error(f'Duplicate index name: {idx_name}')
+        from pixeltable.index import EmbeddingIndex
+        # create the EmbeddingIndex instance to verify args
+        idx = EmbeddingIndex(col, text_embed=text_embed, img_embed=img_embed)
+        status = self.tbl_version_path.tbl_version.add_index(col, idx_name=idx_name, idx=idx)
+        # TODO: how to deal with exceptions here? drop the index and raise?
+
+    def drop_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
+        """Drop an index from the table.
+
+        Args:
+            column_name: The name of the column whose index to drop. Invalid if the column has multiple indices.
+            idx_name: The name of the index to drop.
+
+        Raises:
+            Error: If the index does not exist.
+
+        Examples:
+            Drop index on the ``img`` column:
+
+            >>> tbl.drop_index(column_name='img')
+        """
+        if self.tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot drop an index from a snapshot')
+        self._check_is_dropped()
+        if (column_name is None) == (idx_name is None):
+            raise excs.Error('Exactly one of column_name or idx_name must be provided')
+        tbl_version = self.tbl_version_path.tbl_version
+
+        if idx_name is not None:
+            if idx_name not in tbl_version.idxs_by_name:
+                raise excs.Error(f'Index {idx_name} does not exist')
+            idx_id = tbl_version.idxs_by_name[idx_name].id
+        else:
+            col = self.tbl_version_path.get_column(column_name, include_bases=True)
+            if col is None:
+                raise excs.Error(f'Column {column_name} unknown')
+            if col.tbl.id != tbl_version.id:
+                raise excs.Error(
+                    f'Column {column_name}: cannot drop index from column that belongs to base ({col.tbl.name})')
+            idx_ids = [info.id for info in tbl_version.idxs_by_name.values() if info.col.id == col.id]
+            if len(idx_ids) == 0:
+                raise excs.Error(f'Column {column_name} does not have an index')
+            if len(idx_ids) > 1:
+                raise excs.Error(f'Column {column_name} has multiple indices; specify idx_name instead')
+            idx_id = idx_ids[0]
+        self.tbl_version_path.tbl_version.drop_index(idx_id)
+
     def update(
             self, value_spec: Dict[str, Union['pixeltable.exprs.Expr', Any]],
             where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
@@ -526,6 +581,10 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
+        if self.tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot update a snapshot')
+        self._check_is_dropped()
+
         from pixeltable import exprs
         update_targets: List[Tuple[Column, exprs.Expr]] = []
         for col_name, val in value_spec.items():
@@ -537,7 +596,7 @@ class Table(SchemaObject):
                 raise excs.Error(f'Column {col_name} unknown')
             if col.is_computed:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
-            if col.primary_key:
+            if col.is_pk:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
             if col.col_type.is_media_type():
                 raise excs.Error(f'Column {col_name} has type image/video/audio/document and cannot be updated')
@@ -577,5 +636,7 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
+        if self.tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot revert a snapshot')
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.revert()

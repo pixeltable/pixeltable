@@ -76,7 +76,8 @@ class Analyzer:
                             f'order_by()'))
                     self.similarity_clause = similarity_clauses[0]
                     img_col = self.similarity_clause.img_col_ref.col
-                    if not img_col.is_indexed:
+                    indexed_col_ids = {info.col.id for info in tbl.tbl_version.idxs_by_name.values()}
+                    if img_col.id not in indexed_col_ids:
                         raise excs.Error(f'nearest() not available for unindexed column {img_col.name}')
 
         # all exprs that are evaluated in Python; not executable
@@ -220,18 +221,11 @@ class Planner:
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
-        # things we need to materialize:
-        # 1. stored_cols: all cols we need to store, incl computed cols (and indices)
+        # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols if c.is_stored]
         assert len(stored_cols) > 0
-        # 2. values to insert into indices
-        indexed_cols = [c for c in tbl.cols if c.is_indexed]
-        index_info: List[Tuple[catalog.Column, func.Function]] = []
-        if len(indexed_cols) > 0:
-            from pixeltable.functions.nos.image_embedding import openai_clip
-            index_info = [(c, openai_clip) for c in tbl.cols if c.is_indexed]
 
-        row_builder = exprs.RowBuilder([], stored_cols, index_info, [])
+        row_builder = exprs.RowBuilder([], stored_cols, [])
 
         # create InMemoryDataNode for 'rows'
         stored_col_info = row_builder.output_slot_idxs()
@@ -375,16 +369,10 @@ class Planner:
         #   the store
         target = view.tbl_version  # the one we need to populate
         stored_cols = [c for c in target.cols if c.is_stored and (c.is_computed or target.is_iterator_column(c))]
-        # 2. index values
-        indexed_cols = [c for c in target.cols if c.is_indexed]
-        index_info: List[Tuple[catalog.Column, func.Function]] = []
-        if len(indexed_cols) > 0:
-            from pixeltable.functions.nos.image_embedding import openai_clip
-            index_info = [(c, openai_clip) for c in target.cols if c.is_indexed]
-        # 3. for component views: iterator args
+        # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
-        row_builder = exprs.RowBuilder(iterator_args, stored_cols, index_info, [])
+        row_builder = exprs.RowBuilder(iterator_args, stored_cols, [])
 
         # execution plan:
         # 1. materialize exprs computed from the base that are needed for stored view columns
@@ -548,7 +536,7 @@ class Planner:
         analyzer = Analyzer(
             tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
             order_by_clause=order_by_clause)
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], analyzer.sql_exprs)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], analyzer.sql_exprs)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -627,21 +615,15 @@ class Planner:
     @classmethod
     def create_add_column_plan(
             cls, tbl: catalog.TableVersionPath, col: catalog.Column
-    ) -> Tuple[exec.ExecNode, Optional[int], Optional[int]]:
+    ) -> Tuple[exec.ExecNode, Optional[int]]:
         """Creates a plan for InsertableTable.add_column()
         Returns:
             plan: the plan to execute
-            ctx: the context to use for the plan
             value_expr slot idx for the plan output (for computed cols)
-            embedding slot idx for the plan output (for indexed image cols)
         """
         assert isinstance(tbl, catalog.TableVersionPath)
         index_info: List[Tuple[catalog.Column, func.Function]] = []
-        if col.is_indexed:
-            from pixeltable.functions.nos.image_embedding import openai_clip
-            index_info = [(col, openai_clip)]
-        row_builder = exprs.RowBuilder(
-            output_exprs=[], columns=[col], indices=index_info, input_exprs=[])
+        row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[])
         analyzer = Analyzer(tbl, row_builder.default_eval_ctx.target_exprs)
         plan = cls._create_query_plan(tbl, row_builder=row_builder, analyzer=analyzer, with_pk=True)
         plan.ctx.batch_size = 16
@@ -651,6 +633,5 @@ class Planner:
         # we want to flush images
         if col.is_computed and col.is_stored and col.col_type.is_image_type():
             plan.set_stored_img_cols(row_builder.output_slot_idxs())
-        value_expr_slot_idx: Optional[int] = row_builder.output_slot_idxs()[0].slot_idx if col.is_computed else None
-        embedding_slot_idx: Optional[int] = row_builder.index_slot_idxs()[0].slot_idx if col.is_indexed else None
-        return plan, value_expr_slot_idx, embedding_slot_idx
+        value_expr_slot_idx = row_builder.output_slot_idxs()[0].slot_idx if col.is_computed else None
+        return plan, value_expr_slot_idx

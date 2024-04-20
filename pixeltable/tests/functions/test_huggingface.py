@@ -123,10 +123,10 @@ class TestHuggingface:
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed_text{idx}'
             t[col_name] = clip_text(t.text, model_id=model_id)
-            assert t.column_types()[col_name] == ArrayType((None,), dtype=FloatType(), nullable=False)
+            assert t.column_types()[col_name].is_array_type()
             col_name = f'embed_img{idx}'
             t[col_name] = clip_image(t.img, model_id=model_id)
-            assert t.column_types()[col_name] == ArrayType((None,), dtype=FloatType(), nullable=False)
+            assert t.column_types()[col_name].is_array_type()
 
         def verify_row(row: Dict[str, Any]) -> None:
             for idx, _ in enumerate(model_ids):

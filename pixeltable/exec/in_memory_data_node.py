@@ -29,18 +29,21 @@ class InMemoryDataNode(ExecNode):
 
     def _open(self) -> None:
         """Create row batch and populate with self.input_rows"""
-        column_info = {info.col.name: info for info in self.row_builder.output_slot_idxs()}
+        column_info = {info.col.id: info for info in self.row_builder.output_slot_idxs()}
+        # exclude system columns
+        user_column_info = {info.col.name: info for _, info in column_info.items() if info.col.name is not None}
         # stored columns that are not computed
-        inserted_column_names = set([
-            info.col.name for info in self.row_builder.output_slot_idxs()
+        inserted_col_ids = set([
+            info.col.id for info in self.row_builder.output_slot_idxs()
             if info.col.is_stored and not info.col.is_computed
         ])
 
         self.output_rows = DataRowBatch(self.tbl, self.row_builder, len(self.input_rows))
         for row_idx, input_row in enumerate(self.input_rows):
             # populate the output row with the values provided in the input row
+            input_col_ids: List[int] = []
             for col_name, val in input_row.items():
-                col_info = column_info.get(col_name)
+                col_info = user_column_info.get(col_name)
                 assert col_info is not None
 
                 if col_info.col.col_type.is_image_type() and isinstance(val, bytes):
@@ -49,11 +52,12 @@ class InMemoryDataNode(ExecNode):
                     open(path, 'wb').write(val)
                     val = path
                 self.output_rows[row_idx][col_info.slot_idx] = val
+                input_col_ids.append(col_info.col.id)
 
             # set the remaining stored non-computed columns to null
-            null_col_names = inserted_column_names - set(input_row.keys())
-            for col_name in null_col_names:
-                col_info = column_info.get(col_name)
+            null_col_ids = inserted_col_ids - set(input_col_ids)
+            for col_id in null_col_ids:
+                col_info = column_info.get(col_id)
                 assert col_info is not None
                 self.output_rows[row_idx][col_info.slot_idx] = None
 

@@ -3,13 +3,14 @@ from __future__ import annotations
 import abc
 import importlib
 import inspect
-from typing import Optional, Any, Type, List, Dict
+from typing import Optional, Any, Type, List, Dict, Callable
 import itertools
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from .function import Function
 from .signature import Signature, Parameter
+from .globals import validate_symbol_path
 
 
 class Aggregator(abc.ABC):
@@ -136,8 +137,7 @@ def uda(
         update_types: List[ts.ColumnType],
         init_types: Optional[List[ts.ColumnType]] = None,
         requires_order_by: bool = False, allows_std_agg: bool = True, allows_window: bool = False,
-        name: Optional[str] = None
-) -> Type[Aggregator]:
+) -> Callable:
     """Decorator for user-defined aggregate functions.
 
     The decorated class must inherit from Aggregator and implement the following methods:
@@ -155,14 +155,11 @@ def uda(
     - requires_order_by: if True, the first parameter to the function is the order-by expression
     - allows_std_agg: if True, the function can be used as a standard aggregate function w/o a window
     - allows_window: if True, the function can be used with a window
-    - name: name of the AggregateFunction instance; if None, the class name is used
     """
-    if name is not None and not name.isidentifier():
-        raise excs.Error(f'Invalid name: {name}')
     if init_types is None:
         init_types = []
 
-    def decorator(cls: Type[Aggregator]) -> Type[Aggregator]:
+    def decorator(cls: Type[Aggregator]) -> Type[Function]:
         # validate type parameters
         num_init_params = len(inspect.signature(cls.__init__).parameters) - 1
         if num_init_params > 0:
@@ -178,17 +175,20 @@ def uda(
         assert value_type is not None
 
         # the AggregateFunction instance resides in the same module as cls
-        module_path = cls.__module__
-        nonlocal name
-        name = name or cls.__name__
-        instance_path = f'{module_path}.{name}'
+        class_path = f'{cls.__module__}.{cls.__qualname__}'
+        # nonlocal name
+        # name = name or cls.__name__
+        # instance_path_elements = class_path.split('.')[:-1] + [name]
+        # instance_path = '.'.join(instance_path_elements)
 
         # create the corresponding AggregateFunction instance
         instance = AggregateFunction(
-            cls, instance_path, init_types, update_types, value_type, requires_order_by, allows_std_agg, allows_window)
-        module = importlib.import_module(module_path)
-        setattr(module, name, instance)
+            cls, class_path, init_types, update_types, value_type, requires_order_by, allows_std_agg, allows_window)
+        # do the path validation at the very end, in order to be able to write tests for the other failure cases
+        validate_symbol_path(class_path)
+        #module = importlib.import_module(cls.__module__)
+        #setattr(module, name, instance)
 
-        return cls
+        return instance
 
     return decorator
