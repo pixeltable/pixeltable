@@ -66,6 +66,27 @@ class TestDocument:
         assert status.num_rows == len(file_paths)
         assert status.num_excs == len(file_paths)
 
+    def test_invalid_splitter(self, test_client: pxt.Client) -> None:
+        """ Test input parsing provides useful error messages
+        """
+
+        example_file = [p for p in self.valid_doc_paths() if p.endswith('.pdf')][0]
+
+        invalid_separators = ['page paragraph',  # no comma
+                              'pagagaph' # non existent separator
+                              ]
+
+        for sep in invalid_separators:
+            with pytest.raises(pxt.Error) as exc_info:
+                _ = DocumentSplitter(document=example_file, separators=sep)
+            assert 'Invalid separator' in str(exc_info.value)
+
+        invalid_metadata = ['chapter']  # non existent metadata
+        for md in invalid_metadata:
+            with pytest.raises(pxt.Error) as exc_info:
+                _ = DocumentSplitter(document=example_file, separators='', metadata=md)
+            assert 'Invalid metadata' in str(exc_info.value)
+
     def test_pdf_splitter(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('fitz')
         skip_test_if_not_installed('tiktoken')
