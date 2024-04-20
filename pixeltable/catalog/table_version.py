@@ -932,7 +932,7 @@ class TableVersion:
 
     def primary_key_columns(self) -> List[Column]:
         """Return all non-system columns"""
-        return [c for c in self.cols if c.is_primary_key]
+        return [c for c in self.cols if c.is_pk]
 
     def get_required_col_names(self) -> List[str]:
         """Return the names of all columns for which values must be specified in insert()"""
