@@ -26,7 +26,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        shell: bash -el {0}
+        shell: bash -el {0}  # Needed for conda to work
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
           miniconda-version: latest
           activate-environment: pxt
           python-version: ${{ matrix.python-version }}
-          use-only-tar-bz2: true
+          use-only-tar-bz2: true  # Needed to use conda with cache action
       - name: Show conda info
         run: conda info
       - name: Install poetry
@@ -48,10 +48,11 @@ jobs:
         with:
           # The cache is keyed to the following:
           # - Matrix parameters
-          # - poetry.lock and related .toml files (so that if the dependencies
-          #   or poetry config change, the cache will be invalidated)
+          # - poetry.lock and related .toml files and Makefile (so that if the
+          #   dependencies or poetry config change, the cache will be invalidated)
           path: ${{ env.CONDA }}/envs
-          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
+          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{
+            matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
         run: poetry install ${{ matrix.poetry-options }}
       - name: Install yolox
@@ -70,4 +71,4 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       - name: Generate code coverage report
-        run: poetry run coverage report -m
+        run: coverage report -m
