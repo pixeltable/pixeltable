@@ -66,7 +66,7 @@ class TestDocument:
         assert status.num_rows == len(file_paths)
         assert status.num_excs == len(file_paths)
 
-    def test_pdf_splitter(self, test_client : pxt.Client) -> None:
+    def test_pdf_splitter(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('fitz')
         skip_test_if_not_installed('tiktoken')
 

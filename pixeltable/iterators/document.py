@@ -46,7 +46,7 @@ class DocumentSectionMetadata:
 class DocumentSection:
     """A single document chunk, according to some of the splitting criteria"""
     text: Optional[str]
-    metadata: Optional[DocumentSectionMetadata] = None
+    metadata: Optional[DocumentSectionMetadata]
 
 
 def _parse_separators(separators: str) -> List[Separator]:
@@ -106,7 +106,6 @@ class DocumentSplitter(ComponentIterator):
             html_skip_tags: Optional[List[str]] = None, tiktoken_encoding: Optional[str] = 'cl100k_base',
             tiktoken_target_model: Optional[str] = None
     ):
-        import bs4
         if html_skip_tags is None:
             html_skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)
@@ -128,9 +127,11 @@ class DocumentSplitter(ComponentIterator):
         elif self._doc_handle.format == DocumentType.DocumentFormat.MD:
             assert self._doc_handle.md_ast is not None
             self._sections = self._markdown_sections()
-        else:
+        elif self._doc_handle.format == DocumentType.DocumentFormat.PDF:
             assert self._doc_handle.pdf_doc is not None
             self._sections = self._pdf_sections()
+        else:
+            assert False, f'unknown document format: {self._doc_handle.format}'
 
         if Separator.SENTENCE in self._separators:
             self._sections = self._sentence_sections(self._sections)
@@ -210,6 +211,8 @@ class DocumentSplitter(ComponentIterator):
         emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
         # current state
         accumulated_text = []  # currently accumulated text
+        # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
+
         headings: Dict[int, str] = {}   # current state of observed headings (level -> text)
         sourceline = 0  # most recently seen sourceline
 
@@ -229,7 +232,9 @@ class DocumentSplitter(ComponentIterator):
             nonlocal accumulated_text, headings, sourceline
             if len(accumulated_text) > 0:
                 md = DocumentSectionMetadata(sourceline, headings.copy())
-                yield DocumentSection(text=' '.join(accumulated_text), metadata=md)
+                full_text = ' '.join(accumulated_text)
+                full_text = ftfy.fix_text(full_text)
+                yield DocumentSection(text=full_text, metadata=md)
                 accumulated_text = []
 
         def process_element(el: bs4.PageElement) -> Iterator[DocumentSection]:
@@ -240,7 +245,7 @@ class DocumentSplitter(ComponentIterator):
 
             if isinstance(el, bs4.NavigableString):
                 # accumulate text until we see a tag we care about
-                text = el.get_text().strip().replace('\x00', ' ')
+                text = el.get_text().strip()
                 if len(text) > 0:
                     accumulated_text.append(text)
                 return
@@ -265,7 +270,8 @@ class DocumentSplitter(ComponentIterator):
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
         emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
         # current state
-        text_section = ''  # currently accumulated text
+        accumulated_text = []  # currently accumulated text
+        # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
         headings: Dict[int, str] = {}   # current state of observed headings (level -> text)
 
         def update_headings(heading: Dict) -> None:
@@ -281,22 +287,22 @@ class DocumentSplitter(ComponentIterator):
             headings[level] = text
 
         def emit() -> None:
-            nonlocal text_section, headings
-            if len(text_section) > 0:
+            nonlocal accumulated_text, headings
+            if len(accumulated_text) > 0:
                 metadata = DocumentSectionMetadata(0, headings.copy())
-                yield DocumentSection(text=text_section, metadata=metadata)
-                text_section = ''
+                yield DocumentSection(text=ftfy.fix_text(' '.join(accumulated_text)), metadata=metadata)
+                accumulated_text = []
 
         def process_element(el: Dict) -> Iterator[DocumentSection]:
             # process the element and emit sections as necessary
-            nonlocal text_section, headings, emit_on_heading, emit_on_paragraph
+            nonlocal accumulated_text, headings, emit_on_heading, emit_on_paragraph
             assert 'type' in el
 
             if el['type'] == 'text':
                 # accumulate text until we see a separator element
                 text = el['raw'].strip()
                 if len(text) > 0:
-                    text_section += ' ' + text
+                    accumulated_text.append(text)
                 return
 
             if el['type'] == 'heading':
