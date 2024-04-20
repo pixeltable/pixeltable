@@ -2,7 +2,7 @@ site_name: Pixeltable
 site_author: Marcel Kornacker
 
 copyright: |
-  &copy; 20222 - 2024 <a href="https://github.com/mkornacker" target="_blank" rel="noopener">Marcel Kornacker</a> All rights reserved.
+  &copy; 2022 - 2024 <a href="https://github.com/pixeltable" target="_blank" rel="noopener">Pixeltable, Inc.</a> All rights reserved.
 
 #docs_dir: .
 site_dir: site
@@ -12,21 +12,20 @@ repo_name: pixeltable/pixeltable
 
 nav:
 - Home: README.md
-- Cheat Sheet: api_cheat_sheet.md
+- Cheat Sheet: api-cheat-sheet.md
 - Getting Started: getting-started.md
 - Tutorials:
   - Pixeltable Basics: tutorials/pixeltable-basics.ipynb
   - Image Operations in Pixeltable: tutorials/image-operations.ipynb
-  - Comparing Object Detection Models for Video: tutorials/comparing_object_detection_models_for_video.ipynb
-  - Object Detection in Videos: tutorials/object_detection_in_videos.ipynb
-  - Using the OpenAI API with Pixeltable: tutorials/openai_demo.ipynb
+  - Object Detection in Videos: tutorials/object-detection-in-videos.ipynb
+  - Using the OpenAI API with Pixeltable: tutorials/openai-demo.ipynb
   - RAG Operations in Pixeltable: tutorials/rag-demo.ipynb
 - How-To:
-  - Working with external files: howto/working_with_external_files.ipynb
+  - Working with external files: howto/working-with-external-files.ipynb
 - API Reference:
   - Client: api/client.md
-  - DataFrame: api/data_frame.md
-  - InsertableTable: api/insertable_table.md
+  - DataFrame: api/data-frame.md
+  - InsertableTable: api/insertable-table.md
   - Table: api/table.md
   - View: api/view.md
 
