@@ -575,7 +575,35 @@ class Table(SchemaObject):
             Increment `int_col` by 1 for all rows where `int_col` is 0:
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
+        """
+        if self.tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot update a snapshot')
+        self._check_is_dropped()
 
+        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
+        from pixeltable.plan import Planner
+        if where is not None:
+            if not isinstance(where, exprs.Predicate):
+                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            analysis_info = Planner.analyze(self.tbl_version_path, where)
+            if analysis_info.similarity_clause is not None:
+                raise excs.Error('nearest() cannot be used with update()')
+            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+            if analysis_info.filter is not None:
+                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+
+        return self.tbl_version_path.tbl_version.update(update_spec, where, cascade)
+
+    def update_batch(self, rows: list[dict[str, Any]], cascade: bool = True
+    ) -> UpdateStatus:
+        """Update rows in this table.
+
+        Args:
+            rows: a list of dictionaries containing values for the updated columns plus values for the primary key
+                  columns.
+            cascade: if True, also update all computed columns that transitively depend on the updated columns.
+
+        Examples:
             Update the 'name' and 'age' columns for the rows with ids 1 and 2 (assuming 'id' is the primary key):
 
             >>> tbl.update([{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}])
@@ -584,46 +612,27 @@ class Table(SchemaObject):
             raise excs.Error('Cannot update a snapshot')
         self._check_is_dropped()
 
-        if isinstance(value_spec, list):
-            # batch update
-            row_updates: List[Dict[Column, exprs.Expr]] = []
-            pk_col_names = set(c.name for c in self.tbl_version_path.tbl_version.primary_key_columns())
+        row_updates: List[Dict[Column, exprs.Expr]] = []
+        pk_col_names = set(c.name for c in self.tbl_version_path.tbl_version.primary_key_columns())
 
-            # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
-            has_rowid = self.ROWID_COLUMN_NAME in value_spec[0]
-            rowids: list[Tuple[int, ...]] = []
-            if len(pk_col_names) == 0 and not has_rowid:
-                raise excs.Error('Table must have primary key for batch update')
+        # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
+        has_rowid = self.ROWID_COLUMN_NAME in rows[0]
+        rowids: list[Tuple[int, ...]] = []
+        if len(pk_col_names) == 0 and not has_rowid:
+            raise excs.Error('Table must have primary key for batch update')
 
-            for row_spec in value_spec:
-                col_vals = self._validate_update_spec(row_spec, allow_pk=True, allow_exprs=False)
-                col_names = set(col.name for col in col_vals.keys())
-                if not pk_col_names.issubset(col_names) and not has_rowid:
-                    missing_cols = pk_col_names - col_names
-                    raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
-                if has_rowid:
-                    # we assume the _rowid column to be present for each row
-                    assert self.ROWID_COLUMN_NAME in row_spec
-                    rowids.append(row_spec[self.ROWID_COLUMN_NAME])
-                row_updates.append(col_vals)
-            if where is not None:
-                raise excs.Error('where argument not allowed for batch update')
-            return self.tbl_version_path.tbl_version.batch_update(row_updates, rowids, cascade)
-
-        else:
-            update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
-            from pixeltable.plan import Planner
-            if where is not None:
-                if not isinstance(where, exprs.Predicate):
-                    raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-                analysis_info = Planner.analyze(self.tbl_version_path, where)
-                if analysis_info.similarity_clause is not None:
-                    raise excs.Error('nearest() cannot be used with update()')
-                # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-                if analysis_info.filter is not None:
-                    raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
-
-            return self.tbl_version_path.tbl_version.update(update_spec, where, cascade)
+        for row_spec in rows:
+            col_vals = self._validate_update_spec(row_spec, allow_pk=True, allow_exprs=False)
+            col_names = set(col.name for col in col_vals.keys())
+            if not pk_col_names.issubset(col_names) and not has_rowid:
+                missing_cols = pk_col_names - col_names
+                raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
+            if has_rowid:
+                # we assume the _rowid column to be present for each row
+                assert self.ROWID_COLUMN_NAME in row_spec
+                rowids.append(row_spec[self.ROWID_COLUMN_NAME])
+            row_updates.append(col_vals)
+        return self.tbl_version_path.tbl_version.batch_update(row_updates, rowids, cascade)
 
     def _validate_update_spec(
             self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
