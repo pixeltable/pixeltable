@@ -313,9 +313,8 @@ class Expr(abc.ABC):
             return InlineArray(tuple(o))
         return None
 
-    @abc.abstractmethod
     def _equals(self, other: Expr) -> bool:
-        pass
+        return True
 
     @abc.abstractmethod
     def sql_expr(self) -> Optional[sql.ClauseElement]:

@@ -34,6 +34,11 @@ class IndexBase(abc.ABC):
         """Create the index on the index value column"""
         pass
 
+    @abc.abstractmethod
+    def search_clause(self, val_column: catalog.Column, item: Any) -> sql.ClauseElement:
+        """Return a sqlalchemy clause that corresponds to "<indexed col> % <item>" """
+        pass
+
     @classmethod
     @abc.abstractmethod
     def display_name(cls) -> str:

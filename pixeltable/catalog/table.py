@@ -478,7 +478,8 @@ class Table(SchemaObject):
 
     def add_embedding_index(
             self, col_name: str, *, idx_name: Optional[str] = None,
-            text_embed: Optional[pixeltable.Function] = None, img_embed: Optional[pixeltable.Function] = None
+            text_embed: Optional[pixeltable.Function] = None, img_embed: Optional[pixeltable.Function] = None,
+            metric: str = 'cosine'
     ) -> None:
         """Add an index to the table.
         Args:
@@ -508,7 +509,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Duplicate index name: {idx_name}')
         from pixeltable.index import EmbeddingIndex
         # create the EmbeddingIndex instance to verify args
-        idx = EmbeddingIndex(col, text_embed=text_embed, img_embed=img_embed)
+        idx = EmbeddingIndex(col, metric=metric, text_embed=text_embed, img_embed=img_embed)
         status = self.tbl_version_path.tbl_version.add_index(col, idx_name=idx_name, idx=idx)
         # TODO: how to deal with exceptions here? drop the index and raise?
 

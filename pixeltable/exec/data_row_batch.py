@@ -14,9 +14,8 @@ class DataRowBatch:
 
     Contains the metadata needed to initialize DataRows.
     """
-    def __init__(self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder, len: int = 0):
-        self.tbl_id = tbl.id
-        self.tbl_version = tbl.version
+    def __init__(self, tbl: Optional[catalog.TableVersion], row_builder: exprs.RowBuilder, len: int = 0):
+        self.tbl = tbl
         self.row_builder = row_builder
         self.img_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_image_type()]
         # non-image media slots
@@ -42,9 +41,10 @@ class DataRowBatch:
 
     def set_row_ids(self, row_ids: List[int]) -> None:
         """Sets pks for rows in batch"""
+        assert self.tbl is not None
         assert len(row_ids) == len(self.rows)
         for row, row_id in zip(self.rows, row_ids):
-            row.set_pk((row_id, self.tbl_version))
+            row.set_pk((row_id, self.tbl))
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -57,6 +57,7 @@ class DataRowBatch:
             flushed_slot_idxs: Optional[List[int]] = None
     ) -> None:
         """Flushes images in the given range of rows."""
+        assert self.tbl is not None
         if stored_img_info is None:
             stored_img_info = []
         if flushed_slot_idxs is None:
@@ -67,12 +68,10 @@ class DataRowBatch:
             idx_range = slice(0, len(self.rows))
         for row in self.rows[idx_range]:
             for info in stored_img_info:
-                filepath = str(MediaStore.prepare_media_path(self.tbl_id, info.col.id, self.tbl_version))
+                filepath = str(MediaStore.prepare_media_path(self.tbl.id, info.col.id, self.tbl.version))
                 row.flush_img(info.slot_idx, filepath)
             for slot_idx in flushed_slot_idxs:
                 row.flush_img(slot_idx)
-        #_logger.debug(
-            #f'flushed images in range {idx_range}: slot_idxs={flushed_slot_idxs} stored_img_info={stored_img_info}')
 
     def __iter__(self) -> Iterator[exprs.DataRow]:
         return DataRowBatchIterator(self)

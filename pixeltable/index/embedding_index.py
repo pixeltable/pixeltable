@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Any
+import enum
 
+import PIL.Image
 import pgvector.sqlalchemy
 import sqlalchemy as sql
 
@@ -20,9 +22,23 @@ class EmbeddingIndex(IndexBase):
     - translating 'matches' queries into sqlalchemy predicates
     """
 
+    class Metric(enum.Enum):
+        COSINE = 1
+        IP = 2
+        L2 = 3
+
+    PGVECTOR_OPS = {
+        Metric.COSINE: 'vector_cosine_ops',
+        Metric.IP: 'vector_ip_ops',
+        Metric.L2: 'vector_l2_ops'
+    }
+
     def __init__(
-            self, c: catalog.Column, text_embed: Optional[func.Function] = None,
+            self, c: catalog.Column, metric: str, text_embed: Optional[func.Function] = None,
             img_embed: Optional[func.Function] = None):
+        metric_names = [m.name.lower() for m in self.Metric]
+        if metric.lower() not in metric_names:
+            raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
         if not c.col_type.is_string_type() and not c.col_type.is_image_type():
             raise excs.Error(f'Embedding index requires string or image column')
         if c.col_type.is_string_type() and text_embed is None:
@@ -36,6 +52,7 @@ class EmbeddingIndex(IndexBase):
             # verify signature
             self._validate_embedding_fn(img_embed, 'img_embed', ts.ColumnType.Type.IMAGE)
 
+        self.metric = self.Metric[metric.upper()]
         from pixeltable.exprs import ColumnRef
         self.value_expr = text_embed(ColumnRef(c)) if c.col_type.is_string_type() else img_embed(ColumnRef(c))
         assert self.value_expr.col_type.is_array_type()
@@ -59,9 +76,30 @@ class EmbeddingIndex(IndexBase):
             index_name, index_value_col.sa_col,
             postgresql_using='hnsw',
             postgresql_with={'m': 16, 'ef_construction': 64},
-            postgresql_ops={index_value_col.sa_col.name: 'vector_cosine_ops'}
+            postgresql_ops={index_value_col.sa_col.name: self.PGVECTOR_OPS[self.metric]}
         )
         idx.create(bind=conn)
+
+    def search_clause(self, val_column: catalog.Column, item: Any) -> sql.ClauseElement:
+        if not isinstance(item, (str, PIL.Image.Image)):
+            raise excs.Error(f'Embedding index query requires a string or a PIL.Image.Image object, not a {type(item)}')
+        if isinstance(item, str):
+            if self.txt_embed is None:
+                raise excs.Error(
+                    f'Embedding index was created without the text_embed parameter and does not support text queries')
+            embedding = self.txt_embed.exec(item)
+        if isinstance(item, PIL.Image.Image):
+            if self.img_embed is None:
+                raise excs.Error(
+                    f'Embedding index was created without the img_embed parameter and does not support image queries')
+            embedding = self.img_embed.exec(item)
+        if self.metric == self.Metric.COSINE:
+            return val_column.sa_col.cosine_distance(embedding)
+        elif self.metric == self.Metric.IP:
+            return val_column.sa_col.max_inner_product(embedding)
+        else:
+            assert self.metric == self.Metric.L2
+            return val_column.sa_col.l2_distance(embedding)
 
     @classmethod
     def display_name(cls) -> str:
@@ -84,6 +122,7 @@ class EmbeddingIndex(IndexBase):
 
     def as_dict(self) -> dict:
         return {
+            'metric': self.metric.name.lower(),
             'txt_embed': None if self.txt_embed is None else self.txt_embed.as_dict(),
             'img_embed': None if self.img_embed is None else self.img_embed.as_dict()
         }
@@ -92,4 +131,4 @@ class EmbeddingIndex(IndexBase):
     def from_dict(cls, c: catalog.Column, d: dict) -> EmbeddingIndex:
         txt_embed = func.Function.from_dict(d['txt_embed']) if d['txt_embed'] is not None else None
         img_embed = func.Function.from_dict(d['img_embed']) if d['img_embed'] is not None else None
-        return cls(c, text_embed=txt_embed, img_embed=img_embed)
+        return cls(c, metric=d['metric'], text_embed=txt_embed, img_embed=img_embed)

@@ -334,6 +334,7 @@ class FunctionCall(Expr):
             fn_expr = self.components[self.fn_expr_idx]
             data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
         elif isinstance(self.fn, func.CallableFunction):
+            # optimization: avoid additional level of indirection we'd get from calling Function.exec()
             data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:
             if self.has_group_by():
@@ -348,9 +349,10 @@ class FunctionCall(Expr):
                 self.aggregator = self.fn.agg_cls(**self.agg_init_args)
             self.aggregator.update(*args)
             data_row[self.slot_idx] = self.aggregator.value()
-        else:
-            assert self.is_agg_fn_call
+        elif self.is_agg_fn_call:
             data_row[self.slot_idx] = self.aggregator.value()
+        else:
+            data_row[self.slot_idx] = self.fn.exec(*args, **kwargs)
 
     def _as_dict(self) -> Dict:
         result = {

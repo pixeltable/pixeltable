@@ -14,6 +14,28 @@ class TestIndex:
     def bad_embed(x: str) -> str:
         return x
 
+    def test_search(self, img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
+        skip_test_if_not_installed('transformers')
+        img_t = img_tbl
+        rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
+        # create table with fewer rows to speed up testing
+        cl = pxt.Client()
+        schema = {
+            'img': pxt.ImageType(nullable=False),
+            'category': pxt.StringType(nullable=False),
+            'split': pxt.StringType(nullable=False),
+        }
+        tbl_name = 'index_test'
+        img_t = cl.create_table(tbl_name, schema=schema)
+        img_t.insert(rows[:30])
+        img_t.add_embedding_index('img', img_embed=img_embed, text_embed=text_embed)
+
+        img = img_tbl.select(img_tbl.img).head(1)[0, 'img']
+        _ = img_t.select(img_t.img % img).collect()
+        _ = img_t.select(img_t.img.similarity(img)).collect()
+        _ = img_t.select(img_t.img, img_t.img % img).order_by(img_t.img % img).collect()
+        pass
+
     def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
         img_t = img_tbl
