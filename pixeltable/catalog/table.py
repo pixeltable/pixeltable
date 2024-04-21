@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
 from pathlib import Path
-from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple
+from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple, Iterable
 from uuid import UUID
 
 import pandas as pd
@@ -547,15 +546,12 @@ class Table(SchemaObject):
         self.tbl_version_path.tbl_version.drop_index(idx_id)
 
     def update(
-            self, value_spec: Union[list[dict[str, Any]], dict[str, Any]],
-            where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
+            self, value_spec: dict[str, Any], where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
 
         Args:
-            value_spec: one of
-            * a dictionary mapping column names to literal values or Pixeltable expressions.
-            * a list of dictionaries containing values for the updated columns plus values for the primary key columns.
+            value_spec: a dictionary mapping column names to literal values or Pixeltable expressions.
             where: a Predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
 
@@ -594,12 +590,11 @@ class Table(SchemaObject):
 
         return self.tbl_version_path.tbl_version.update(update_spec, where, cascade)
 
-    def update_batch(self, rows: list[dict[str, Any]], cascade: bool = True
-    ) -> UpdateStatus:
+    def batch_update(self, rows: Iterable[dict[str, Any]], cascade: bool = True) -> UpdateStatus:
         """Update rows in this table.
 
         Args:
-            rows: a list of dictionaries containing values for the updated columns plus values for the primary key
+            rows: an Iterable of dictionaries containing values for the updated columns plus values for the primary key
                   columns.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
 
@@ -622,15 +617,16 @@ class Table(SchemaObject):
             raise excs.Error('Table must have primary key for batch update')
 
         for row_spec in rows:
-            col_vals = self._validate_update_spec(row_spec, allow_pk=True, allow_exprs=False)
-            col_names = set(col.name for col in col_vals.keys())
-            if not pk_col_names.issubset(col_names) and not has_rowid:
-                missing_cols = pk_col_names - col_names
-                raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
+            col_vals = self._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
             if has_rowid:
-                # we assume the _rowid column to be present for each row
+                # we expect the _rowid column to be present for each row
                 assert self.ROWID_COLUMN_NAME in row_spec
                 rowids.append(row_spec[self.ROWID_COLUMN_NAME])
+            else:
+                col_names = set(col.name for col in col_vals.keys())
+                if any(pk_col_name not in col_names for pk_col_name in pk_col_names):
+                    missing_cols = pk_col_names - set(col.name for col in col_vals.keys())
+                    raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
         return self.tbl_version_path.tbl_version.batch_update(row_updates, rowids, cascade)
 

@@ -668,15 +668,15 @@ class TestTable:
         t2 = cl.get_table('test')
         _  = t2.show(n=0)
 
-    def test_update_batch(self, test_tbl: pxt.Table) -> None:
+    def test_batch_update(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         validate_update_status(
-            t.update_batch([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]),
+            t.batch_update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]),
             expected_rows=2)
         assert t.where(t.c2 == 1).collect()[0]['c1'] == '1'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == '2'
         validate_update_status(
-            t.update_batch([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]),
+            t.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]),
             expected_rows=2)
         assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
@@ -688,20 +688,41 @@ class TestTable:
         rows = [{'c1': str(i), 'c2': i, 'c3': float(i)} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
-        with pytest.raises(excs.Error) as exc_info:
-            t.update_batch([{'c1': '1', 'c3': 2.0}])
-        assert 'primary key columns (c2) missing' in str(exc_info.value).lower()
-
         validate_update_status(
-            t.update_batch([{'c1': '1', 'c2': 1, 'c3': 2.0}, {'c1': '2', 'c2': 2, 'c3': 3.0}]),
+            t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}, {'c1': '2', 'c2': 2, 'c3': 3.0}]),
             expected_rows=2)
+
+        with pytest.raises(excs.Error) as exc_info:
+            # can't mix _rowid with primary key
+            _ = t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0, '_rowid': (1,)}])
+        assert 'c1 is a primary key column' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            # bad literal
+            _ = t.batch_update([{'c2': 1, 'c3': 'a'}])
+        assert "'a' is not a valid literal" in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            # missing primary key column
+            t.batch_update([{'c1': '1', 'c3': 2.0}])
+        assert 'primary key columns (c2) missing' in str(exc_info.value).lower()
 
         # table without primary key
         t2 = cl.create_table('no_pk', schema=schema)
-        validate_update_status(t.insert(rows), expected_rows=10)
+        validate_update_status(t2.insert(rows), expected_rows=10)
         with pytest.raises(excs.Error) as exc_info:
-            _ = t2.update_batch([{'c1': '1', 'c2': 1, 'c3': 2.0}])
+            _ = t2.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}])
         assert 'must have primary key for batch update' in str(exc_info.value).lower()
+
+        # updating with _rowid still works
+        validate_update_status(
+            t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]),
+            expected_rows=2)
+        assert t2.where(t2.c2 == 1).collect()[0]['c1'] == 'one'
+        assert t2.where(t2.c2 == 2).collect()[0]['c1'] == 'two'
+        with pytest.raises(AssertionError):
+            # some rows are missing rowids
+            _ = t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two'}])
 
     def test_update(self, test_tbl: pxt.Table, small_img_tbl) -> None:
         t = test_tbl
