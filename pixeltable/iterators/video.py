@@ -1,14 +1,13 @@
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Iterator
 from pathlib import Path
-import math
 import logging
 
-import cv2
-import PIL.Image
+import av
 
+import math
 from .base import ComponentIterator
 
-from pixeltable.type_system import ColumnType, VideoType, ImageType, IntType, FloatType
+from pixeltable.type_system import ColumnType, VideoType, ImageType, IntType, FloatType, BoolType
 from pixeltable.exceptions import Error
 
 
@@ -19,22 +18,10 @@ class FrameIterator(ComponentIterator):
         video_path = Path(video)
         assert video_path.exists() and video_path.is_file()
         self.video_path = video_path
-        self.fps = fps
-        self.video_reader = cv2.VideoCapture(str(video_path))
-        if not self.video_reader.isOpened():
-            raise Error(f'Failed to open video: {video}')
-        video_fps = int(self.video_reader.get(cv2.CAP_PROP_FPS))
-        if fps > video_fps:
-            raise Error(f'Video {video}: requested fps ({fps}) exceeds that of the video ({video_fps})')
-        self.frame_freq = int(video_fps / fps) if fps > 0 else 1
-        num_video_frames = int(self.video_reader.get(cv2.CAP_PROP_FRAME_COUNT))
-        if num_video_frames == 0:
-            raise Error(f'Video {video}: failed to get number of frames')
-        # ceil: round up to ensure we count frame 0
-        self.num_frames = math.ceil(num_video_frames / self.frame_freq) if fps > 0 else num_video_frames
-        _logger.debug(f'FrameIterator: path={self.video_path} fps={self.fps}')
+        self.requested_fps = fps
 
-        self.next_frame_idx = 0
+        self.seek_to: int = 0
+        self.iterator = self._make_iterator(self.requested_fps)
 
     @classmethod
     def input_schema(cls) -> Dict[str, ColumnType]:
@@ -48,42 +35,49 @@ class FrameIterator(ComponentIterator):
         return {
             'frame_idx': IntType(),
             'pos_msec': FloatType(),
-            'pos_frame': FloatType(),
+            'pts': IntType(),
+            'key_frame': BoolType(),
             'frame': ImageType(),
         }, ['frame']
 
+    def _make_iterator(self, fps: float) -> Iterator[Dict[str, Any]]:
+        next_target_pts = self.seek_to
+        output_frame_idx = 0
+
+        with av.open(str(self.video_path), 'r') as video_container:
+            video_stream = next(s for s in video_container.streams.video)
+            video_fps = float(video_stream.average_rate)
+            if fps > video_fps:
+                raise Error(f'Video {self.video_path}: requested fps ({fps}) exceeds that of the video ({video_fps})')
+            seconds_between_frames = 1. / fps if fps > 0 else 0.0
+            _logger.debug(f'FrameIterator: path={self.video_path} fps={self.requested_fps}')
+            if self.seek_to > 0:
+                video_container.seek(offset=self.seek_to, backward=True, any_frame=False, stream=video_stream)
+
+            for packet in video_container.demux(video_stream):
+                for frame in packet.decode():
+                    if frame.pts >= next_target_pts:
+                        result = {
+                            'frame_idx': output_frame_idx,
+                            'pos_msec': frame.time * 1000,
+                            'pts': frame.pts,
+                            'key_frame': bool(frame.key_frame),
+                            'frame': frame.to_image()
+                        }
+                        yield result
+                        output_frame_idx += 1
+                        next_target_time = frame.time + seconds_between_frames
+                        next_target_pts = math.ceil(next_target_time / video_stream.time_base)
+
     def __next__(self) -> Dict[str, Any]:
-        while True:
-            pos_msec = self.video_reader.get(cv2.CAP_PROP_POS_MSEC)
-            pos_frame = self.video_reader.get(cv2.CAP_PROP_POS_FRAMES)
-            status, img = self.video_reader.read()
-            if not status:
-                _logger.debug(f'releasing video reader for {self.video_path}')
-                self.video_reader.release()
-                self.video_reader = None
-                raise StopIteration
-            if pos_frame % self.frame_freq == 0:
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                result = {
-                    'frame_idx': self.next_frame_idx,
-                    'pos_msec': pos_msec,
-                    'pos_frame': pos_frame,
-                    'frame': PIL.Image.fromarray(img),
-                }
-                self.next_frame_idx += 1
-                # frame_freq > 1: jumping to the target frame here with video_reader.set() is far slower than just
-                # skipping the unwanted frames
-                return result
+        """ return the next dictionary from the video
+        """
+        return next(self.iterator)
 
     def close(self) -> None:
-        if self.video_reader is not None:
-            self.video_reader.release()
-            self.video_reader = None
+        self.video_container.close()
 
     def set_pos(self, pos: int) -> None:
-        """Seek to frame idx"""
-        if pos == self.next_frame_idx:
-            return
-        _logger.debug(f'seeking to frame {pos}')
-        self.video_reader.set(cv2.CAP_PROP_POS_FRAMES, pos * self.frame_freq)
-        self.next_frame_idx = pos
+        """ Note pos is a presentation time-stamp aka pts, not a frame index, as exact frame index access is not supported """
+        self.seek_to = pos
+        self.iterator = self._make_iterator(self.requested_fps)
