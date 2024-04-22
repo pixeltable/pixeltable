@@ -75,7 +75,7 @@ class LabelStudioProject(Remote):
         # TODO: Apply updates
 
     def _create_tasks_from_table(self, t: Table, col_mapping: dict[str, str], existing_tasks: list[dict]) -> None:
-        row_ids_in_ls = {task['meta']['row_id'] for task in existing_tasks}
+        row_ids_in_ls = {tuple(task['meta']['row_id']) for task in existing_tasks}
         t_col_types = t.column_types()
         media_cols = [col_name for col_name, _ in col_mapping.items() if t_col_types[col_name].is_media_type()]
         if len(media_cols) > 1:
