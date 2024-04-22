@@ -30,7 +30,7 @@ class LabelStudioProject(Remote):
         return self._parse_project_config(config)
 
     def get_pull_columns(self) -> dict[str, ts.ColumnType]:
-        return {'annotations': ts.StringType()}
+        return {'annotations': ts.JsonType(nullable=True)}
 
     def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
         _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
@@ -66,13 +66,14 @@ class LabelStudioProject(Remote):
         # of `get_pull_columns`
         annotations_column = next(k for k, v in col_mapping.items() if v == 'annotations')
         updates = [
-            {'row_id': task['meta']['row_id'], annotations_column: task['annotations']}
+            {'_rowid': task['meta']['row_id'], annotations_column: task['annotations']}
             for task in tasks
         ]
-        _logger.info(
-            f'Updating table `{t.get_name()}`, column `{annotations_column}` with {len(updates)} total annotations.'
-        )
-        # TODO: Apply updates
+        if len(updates) > 0:
+            _logger.info(
+                f'Updating table `{t.get_name()}`, column `{annotations_column}` with {len(updates)} total annotations.'
+            )
+            t.batch_update(updates)
 
     def _create_tasks_from_table(self, t: Table, col_mapping: dict[str, str], existing_tasks: list[dict]) -> None:
         row_ids_in_ls = {tuple(task['meta']['row_id']) for task in existing_tasks}
@@ -100,7 +101,7 @@ class LabelStudioProject(Remote):
                         col_mapping[col_name]: value
                         for col_name, value in zip(col_names, row.vals)
                     }
-                    meta = {'row_id': row.pk}
+                    meta = {'row_id': row.pk[:-1]}
                     self.project.update_task(task_id, meta=meta)
             print(f'Created {t.count()} task(s) in {self}.')
         else:

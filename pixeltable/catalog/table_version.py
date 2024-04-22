@@ -664,7 +664,7 @@ class TableVersion:
                     # construct Where clause to match rowid
                     num_rowid_cols = len(self.store_tbl.rowid_columns())
                     for col_idx in range(num_rowid_cols):
-                        assert len(rowids[i]) == num_rowid_cols
+                        assert len(rowids[i]) == num_rowid_cols, f'len({rowids[i]}) != {num_rowid_cols}'
                         clause = exprs.RowidRef(self, col_idx) == rowids[i][col_idx]
                         if where_clause is None:
                             where_clause = clause

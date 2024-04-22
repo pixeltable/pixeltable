@@ -11,7 +11,7 @@ import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.exceptions as excs
 from pixeltable.datatransfer.label_studio import LabelStudioProject
-from pixeltable.tests.utils import skip_test_if_not_installed, get_image_files
+from pixeltable.tests.utils import skip_test_if_not_installed, get_image_files, validate_update_status
 
 _logger = logging.getLogger('pixeltable')
 
@@ -38,7 +38,7 @@ class TestLabelStudio:
         assert remote.project_id == project_id
         assert remote.project_title == 'test_client_project'
         assert remote.get_push_columns() == {'image': pxt.ImageType()}
-        assert remote.get_pull_columns() == {'annotations': pxt.StringType()}
+        assert remote.get_pull_columns() == {'annotations': pxt.JsonType(nullable=True)}
 
     def test_label_studio_sync(self, init_ls, test_client: pxt.Client):
         cl = test_client
@@ -51,10 +51,10 @@ class TestLabelStudio:
         remote = LabelStudioProject(project_id)
         t = cl.create_table(
             'test_ls_sync',
-            {'image_col': pxt.ImageType(), 'annotations_col': pxt.StringType(nullable=True)}
+            {'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
         )
         images = get_image_files()[:5]
-        t.insert({'image_col': image} for image in images)
+        validate_update_status(t.insert({'image_col': image} for image in images), expected_rows=len(images))
 
         t.link_remote(remote, {'image_col': 'image', 'annotations_col': 'annotations'})
         t.sync_remotes()
@@ -73,6 +73,8 @@ class TestLabelStudio:
             assert len(project.get_task(task_id)['annotations']) == 1
         # Pull the annotations back to Pixeltable
         t.sync_remotes()
+        annotations = t.collect()['annotations_col'][0]
+        assert annotations[0]['result'][0]['image_class'] == 'Cat'
 
 
 @pytest.fixture(scope='session')
