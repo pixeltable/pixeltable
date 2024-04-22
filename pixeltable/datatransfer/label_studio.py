@@ -49,8 +49,8 @@ class LabelStudioProject(Remote):
             if result.get('end_pagination'):
                 break
             for task in result['tasks']:
-                row_id = task['meta'].get('row_id')
-                if row_id is None:
+                rowid = task['meta'].get('rowid')
+                if rowid is None:
                     unknown_task_count += 1
                 else:
                     yield task
@@ -66,7 +66,7 @@ class LabelStudioProject(Remote):
         # of `get_pull_columns`
         annotations_column = next(k for k, v in col_mapping.items() if v == 'annotations')
         updates = [
-            {'_rowid': task['meta']['row_id'], annotations_column: task['annotations']}
+            {'_rowid': task['meta']['rowid'], annotations_column: task['annotations']}
             for task in tasks
         ]
         if len(updates) > 0:
@@ -76,68 +76,61 @@ class LabelStudioProject(Remote):
             t.batch_update(updates)
 
     def _create_tasks_from_table(self, t: Table, col_mapping: dict[str, str], existing_tasks: list[dict]) -> None:
-        row_ids_in_ls = {tuple(task['meta']['row_id']) for task in existing_tasks}
+        row_ids_in_ls = {tuple(task['meta']['rowid']) for task in existing_tasks}
         t_col_types = t.column_types()
-        media_cols = [col_name for col_name, _ in col_mapping.items() if t_col_types[col_name].is_media_type()]
-        if len(media_cols) > 1:
-            raise excs.Error(
-                f'`LabelStudioProject` supports at most 1 media column; found {len(media_cols)}: {media_cols}'
-            )
-        if media_cols:
-            # This project has a media column. We will iterate through the rows of the Table, one
-            # at a time. For each row, we upload the media file, then fill in the remaining fields.
-            media_col = media_cols[0]
-            col_names = [col_name for col_name in col_mapping.keys() if col_name != media_col]
-            columns = [t[col_name] for col_name in col_names]
-            columns.append(t[media_col].localpath)
-            rows = t.select(*columns)
+        t_push_cols = [
+            t_col_name for t_col_name, r_col_name in col_mapping.items()
+            if r_col_name in self.get_push_columns()
+        ]
+        r_push_cols = [col_mapping[col_name] for col_name in t_push_cols]
+        for col_name in t_push_cols:
+            if t_col_types[col_name].is_media_type() and not t[col_name].col.is_stored:
+                raise excs.Error(
+                    f'Media column linked to a `LabelStudioProject` is not a stored column: `{col_name}`'
+                )
+        if len(t_push_cols) == 1 and t_col_types[t_push_cols[0]].is_media_type():
+            # With a single media column, we can push local files to Label Studio using
+            # the file transfer API.
+            col_name = t_push_cols[0]
+            # Select `t[col_name]` as well as `t[col_name].localpath` to ensure that
+            # the image file is properly cached and `localpath` is defined
+            rows = t.select(t[col_name], t[col_name].localpath)
+            tasks_created = 0
             for row in rows._exec():
-                if row.pk not in row_ids_in_ls:
-                    file = Path(row.vals[-1])  # Media column is in last position
+                if row.rowid not in row_ids_in_ls:
+                    file = Path(row.vals[-1])
                     # Upload the media file to Label Studio
                     task_id: int = self.project.import_tasks(file)[0]
                     # Assemble the remaining columns into `data`
-                    data = {
-                        col_mapping[col_name]: value
-                        for col_name, value in zip(col_names, row.vals)
-                    }
-                    meta = {'row_id': row.pk[:-1]}
-                    self.project.update_task(task_id, meta=meta)
-            print(f'Created {t.count()} task(s) in {self}.')
+                    self.project.update_task(task_id, meta={'rowid': row.rowid})
+                    tasks_created += 1
+            print(f'Created {tasks_created} task(s) in {self}.')
         else:
-            # No media column, just structured data; we upload the rows in pages.
-            rows = t.select(*col_mapping.keys())
-            new_rows = filter(lambda row: row.pk not in row_ids_in_ls, rows._exec())
+            # Either a single non-media column or multiple columns. Either way, we can't
+            # use the file upload API and need to rely on externally accessible URLs for
+            # media columns.
+            selection = [
+                t[col_name].fileurl if t_col_types[col_name].is_media_type() else t[col_name]
+                for col_name in t_push_cols
+            ]
+            rows = t.select(*selection)
+            new_rows = filter(lambda row: row.rowid not in row_ids_in_ls, rows._exec())
             for page in more_itertools.batched(new_rows, n=_PAGE_SIZE):
-                tasks = [
-                    {'data': zip(col_mapping.values(), row.vals),
-                     'meta': {'row_id': row.pk}}
-                    for row in page
-                ]
+                tasks = []
+                # Validate media columns
+                for row in page:
+                    for i in range(len(row.vals)):
+                        if t[t_push_cols[i]].col_type.is_media_type() and row.vals[i].startswith("file://"):
+                            raise excs.Error(
+                                'Cannot use locally stored media files in a `LabelStudioProject` with more than one '
+                                'field. (This is a limitation of Label Studio; see warning here: '
+                                'https://labelstud.io/guide/tasks.html)'
+                            )
+                    tasks.append({
+                        'data': zip(r_push_cols, row.vals),
+                        'meta': {'rowid': row.rowid}
+                    })
                 self.project.import_tasks(tasks)
-
-    # def pull_task(self, t: Table, task: dict) -> None:
-    #     if not task['annotations']:
-    #         return
-    #     pk_hack = task['meta']['pk_hack']
-    #     annotations = task['annotations']
-    #     # Total hack for the demo
-    #     t.update({'annotations': annotations}, where=(t['file'] == pk_hack))
-
-    #
-    # def pull(self, t: Table, col_mapping: dict[str, str]) -> None:
-    #     # rev_mapping = {v: k for k, v in col_mapping.items()}
-    #     page = 1
-    #     if 'annotations' not in t.column_names():
-    #         t.add_column(annotations=pxt.JsonType(nullable=True))
-    #     while True:
-    #         result = self.project.get_paginated_tasks(page=page, page_size=_PAGE_SIZE)
-    #         if result.get('end_pagination'):
-    #             break
-    #         for task in result['tasks']:
-    #             self.pull_task(t, task)
-    #         page += 1
-    #     print(f'Updated annotations from {self}.')
 
     def to_dict(self) -> dict[str, Any]:
         return {'project_id': self.project_id}

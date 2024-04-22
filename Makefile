@@ -50,6 +50,7 @@ clean:
 	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
 	@rm -f .make-install || true
 	@rm -rf site || true
+	@rm -rf target || true
 
 .PHONY: build-docs
 build-docs: install

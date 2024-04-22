@@ -197,3 +197,6 @@ class DataRow:
             pass
         self.vals[index] = None
 
+    @property
+    def rowid(self) -> Tuple[int]:
+        return self.pk[:-1]
