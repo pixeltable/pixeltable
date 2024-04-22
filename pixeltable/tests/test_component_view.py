@@ -9,7 +9,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.iterators import ComponentIterator
 from pixeltable.iterators.video import FrameIterator
-from pixeltable.tests.utils import assert_resultset_eq, get_test_video_files
+from pixeltable.tests.utils import assert_resultset_eq, get_test_video_files, validate_update_status
 from pixeltable.type_system import IntType, VideoType, JsonType
 
 class ConstantImgIterator(ComponentIterator):
@@ -157,10 +157,19 @@ class TestComponentView:
         assert status.num_excs == 0
         import urllib
         video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
-        status = view_t.update({'annotation': {'a': 1}}, where=view_t.video == video_url)
-        c1 = view_t.where(view_t.annotation != None).count()
-        c2 = view_t.where(view_t.video == video_url).count()
-        assert c1 == c2
+        validate_update_status(
+            view_t.update({'annotation': {'a': 1}}, where=view_t.video == video_url),
+            expected_rows=view_t.where(view_t.video == video_url).count())
+        assert view_t.where(view_t.annotation != None).count() == view_t.where(view_t.video == video_url).count()
+
+        # batch update with _rowid works
+        validate_update_status(
+            view_t.batch_update(
+                [{'annotation': {'a': 1}, '_rowid': (1, 0)}, {'annotation': {'a': 1}, '_rowid': (1, 1)}]),
+            expected_rows=2)
+        with pytest.raises(AssertionError):
+            # malformed _rowid
+            view_t.batch_update([{'annotation': {'a': 1}, '_rowid': (1,)}])
 
         with pytest.raises(excs.Error) as excinfo:
             _ = cl.create_view(

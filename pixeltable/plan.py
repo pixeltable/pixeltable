@@ -254,7 +254,7 @@ class Planner:
     @classmethod
     def create_update_plan(
             cls, tbl: catalog.TableVersionPath,
-            update_targets: List[Tuple[catalog.Column, exprs.Expr]],
+            update_targets: dict[catalog.Column, exprs.Expr],
             recompute_targets: List[catalog.Column],
             where_clause: Optional[exprs.Predicate], cascade: bool
     ) -> Tuple[exec.ExecNode, List[str], List[catalog.Column]]:
@@ -273,7 +273,7 @@ class Planner:
         # retrieve all stored cols and all target exprs
         assert isinstance(tbl, catalog.TableVersionPath)
         target = tbl.tbl_version  # the one we need to update
-        updated_cols = [col for col, _ in update_targets]
+        updated_cols = list(update_targets.keys())
         if len(recompute_targets) > 0:
             recomputed_cols = recompute_targets.copy()
         else:
@@ -285,12 +285,12 @@ class Planner:
             col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
         select_list = [exprs.ColumnRef(col) for col in copied_cols]
-        select_list.extend([expr for _, expr in update_targets])
+        select_list.extend(update_targets.values())
 
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
         # recomputed cols reference the new values of the updated cols
-        for col, e in update_targets:
+        for col, e in update_targets.items():
             exprs.Expr.list_substitute(recomputed_exprs, exprs.ColumnRef(col), e)
         select_list.extend(recomputed_exprs)
 
