@@ -1,13 +1,14 @@
 from __future__ import annotations
+
 from typing import Optional, List, Any, Dict, Tuple
 
 import sqlalchemy as sql
 
-from .expr import Expr
-from .data_row import DataRow
-from .row_builder import RowBuilder
-import pixeltable.catalog as catalog
 import pixeltable.type_system as ts
+from .data_row import DataRow
+from .expr import Expr
+from .row_builder import RowBuilder
+
 
 class Literal(Expr):
     def __init__(self, val: Any, col_type: Optional[ts.ColumnType] = None):
