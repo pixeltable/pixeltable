@@ -56,10 +56,9 @@ class FrameIterator(ComponentIterator):
         while True:
             pos_msec = self.video_reader.get(cv2.CAP_PROP_POS_MSEC)
             pos_frame = self.video_reader.get(cv2.CAP_PROP_POS_FRAMES)
-            _logger.info(f'pos_frame={pos_frame} pos_msec={pos_msec} {self.video_path=} {self.video_reader.get(cv2.CAP_PROP_FRAME_COUNT)=}')
             status, img = self.video_reader.read()
             if not status:
-                _logger.info(f'(next) releasing video reader for {self.video_path} {self.video_reader=}')
+                _logger.debug(f'releasing video reader for {self.video_path}')
                 self.video_reader.release()
                 self.video_reader = None
                 raise StopIteration
@@ -77,17 +76,14 @@ class FrameIterator(ComponentIterator):
                 return result
 
     def close(self) -> None:
-        _logger.info(f'(close) relese video reader for {self.video_path} {self.video_reader=}')
         if self.video_reader is not None:
             self.video_reader.release()
             self.video_reader = None
 
     def set_pos(self, pos: int) -> None:
         """Seek to frame idx"""
-        if self.video_reader is None:
-            _logger.info(f'set_pos {pos=} {self.next_frame_idx=} {self.video_path=} {self.video_reader=}')
         if pos == self.next_frame_idx:
             return
-        status = self.video_reader.set(cv2.CAP_PROP_POS_FRAMES, pos * self.frame_freq)
-        _logger.info(f'just set {pos=} {self.video_path=} {self.video_reader.get(cv2.CAP_PROP_POS_FRAMES)=} {pos * self.frame_freq=} {status=} ')
+        _logger.debug(f'seeking to frame {pos}')
+        self.video_reader.set(cv2.CAP_PROP_POS_FRAMES, pos * self.frame_freq)
         self.next_frame_idx = pos
