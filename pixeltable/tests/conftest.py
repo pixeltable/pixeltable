@@ -6,11 +6,12 @@ from typing import List
 
 import numpy as np
 import pytest
+import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.catalog as catalog
 from pixeltable import exprs
-from pixeltable import functions as ptf
+import pixeltable.functions as pxtf
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
@@ -120,8 +121,7 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
         t.c1.apply(json.loads),
         t.c8.errortype,
         t.c8.errormsg,
-        ptf.sum(t.c2, group_by=t.c4, order_by=t.c3),
-        #test_stored_fn(t.c2),
+        pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3),
     ]
 
 @pytest.fixture(scope='function')
@@ -153,17 +153,11 @@ def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
         img_t.img.localpath,
     ]
 
-# TODO: why does this not work with a session scope? (some user tables don't get created with create_all())
-#@pytest.fixture(scope='session')
-#def indexed_img_tbl(init_env: None) -> catalog.Table:
-#    cl = pxt.Client()
-#    db = cl.create_db('test_indexed')
 @pytest.fixture(scope='function')
-def indexed_img_tbl(test_client: pxt.Client) -> catalog.Table:
-    skip_test_if_not_installed('nos')
+def small_img_tbl(test_client: pxt.Client) -> catalog.Table:
     cl = test_client
     schema = {
-        'img': { 'type': ImageType(nullable=False), 'indexed': True },
+        'img': ImageType(nullable=False),
         'category': StringType(nullable=False),
         'split': StringType(nullable=False),
     }

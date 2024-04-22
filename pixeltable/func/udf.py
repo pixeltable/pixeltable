@@ -11,6 +11,7 @@ from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
 from .function import Function
 from .function_registry import FunctionRegistry
+from .globals import validate_symbol_path
 from .signature import Signature
 
 
@@ -124,6 +125,8 @@ def make_function(
 
     # If this function is part of a module, register it
     if function_path is not None:
+        # do the validation at the very end, so it's easier to write tests for other failure scenarios
+        validate_symbol_path(function_path)
         FunctionRegistry.get().register_function(function_path, result)
 
     return result
@@ -142,17 +145,19 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         else:
             function_path = None
 
-        sig = Signature.create(py_fn, param_types=param_types, return_type=None)
         # TODO: verify that the inferred return type matches that of the template
         # TODO: verify that the signature doesn't contain batched parameters
 
         # construct Parameters from the function signature
+        params = Signature.create_parameters(py_fn, param_types=param_types)
         import pixeltable.exprs as exprs
-        var_exprs = [exprs.Variable(param.name, param.col_type) for param in sig.parameters.values()]
+        var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
         # call the function with the parameter expressions to construct an Expr with parameters
         template = py_fn(*var_exprs)
         assert isinstance(template, exprs.Expr)
         py_sig = inspect.signature(py_fn)
+        if function_path is not None:
+            validate_symbol_path(function_path)
         return ExprTemplateFunction(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
 
     if len(args) == 1:

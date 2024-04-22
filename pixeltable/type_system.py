@@ -6,6 +6,8 @@ import enum
 import json
 import typing
 import urllib.parse
+import urllib.request
+from copy import copy
 from pathlib import Path
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
 
@@ -293,7 +295,7 @@ class ColumnType:
             parsed = urllib.parse.urlparse(val)
             if parsed.scheme != '' and parsed.scheme != 'file':
                 return
-            path = Path(urllib.parse.unquote(parsed.path))
+            path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
             if not path.is_file():
                 raise TypeError(f'File not found: {str(path)}')
         else:
@@ -376,30 +378,11 @@ class ColumnType:
         pass
 
     @abc.abstractmethod
-    def to_sa_type(self) -> Any:
+    def to_sa_type(self) -> sql.types.TypeEngine:
         """
         Return corresponding SQLAlchemy type.
-        return type Any: there doesn't appear to be a superclass for the sqlalchemy types
         """
-        assert self._type != self.Type.INVALID
-        if self._type == self.Type.STRING:
-            return sql.String
-        if self._type == self.Type.INT:
-            return sql.Integer
-        if self._type == self.Type.FLOAT:
-            return sql.Float
-        if self._type == self.Type.BOOL:
-            return sql.Boolean
-        if self._type == self.Type.TIMESTAMP:
-            return sql.TIMESTAMP
-        if self._type == self.Type.IMAGE:
-            # the URL
-            return sql.String
-        if self._type == self.Type.JSON:
-            return sql.dialects.postgresql.JSONB
-        if self._type == self.Type.ARRAY:
-            return sql.VARBINARY
-        assert False
+        pass
 
     @staticmethod
     def no_conversion(v: Any) -> Any:
@@ -424,7 +407,7 @@ class InvalidType(ColumnType):
     def to_sql(self) -> str:
         assert False
 
-    def to_sa_type(self) -> Any:
+    def to_sa_type(self) -> sql.types.TypeEngine:
         assert False
 
     def print_value(self, val: Any) -> str:
@@ -432,6 +415,7 @@ class InvalidType(ColumnType):
 
     def _validate_literal(self, val: Any) -> None:
         assert False
+
 
 class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -451,8 +435,8 @@ class StringType(ColumnType):
     def to_sql(self) -> str:
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
-        return sql.String
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.String()
 
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
@@ -469,6 +453,7 @@ class StringType(ColumnType):
             return val.replace('\x00', ' ')
         return val
 
+
 class IntType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INT, nullable=nullable)
@@ -476,8 +461,8 @@ class IntType(ColumnType):
     def to_sql(self) -> str:
         return 'BIGINT'
 
-    def to_sa_type(self) -> str:
-        return sql.BigInteger
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.BigInteger()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, int):
@@ -491,8 +476,8 @@ class FloatType(ColumnType):
     def to_sql(self) -> str:
         return 'FLOAT'
 
-    def to_sa_type(self) -> str:
-        return sql.Float
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.Float()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, float):
@@ -503,6 +488,7 @@ class FloatType(ColumnType):
             return float(val)
         return val
 
+
 class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.BOOL, nullable=nullable)
@@ -510,8 +496,8 @@ class BoolType(ColumnType):
     def to_sql(self) -> str:
         return 'BOOLEAN'
 
-    def to_sa_type(self) -> str:
-        return sql.Boolean
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.Boolean()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, bool):
@@ -522,6 +508,7 @@ class BoolType(ColumnType):
             return bool(val)
         return val
 
+
 class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
@@ -529,8 +516,8 @@ class TimestampType(ColumnType):
     def to_sql(self) -> str:
         return 'INTEGER'
 
-    def to_sa_type(self) -> str:
-        return sql.TIMESTAMP
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.TIMESTAMP()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
@@ -540,6 +527,7 @@ class TimestampType(ColumnType):
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
         return val
+
 
 class JsonType(ColumnType):
     # TODO: type_spec also needs to be able to express lists
@@ -566,8 +554,8 @@ class JsonType(ColumnType):
     def to_sql(self) -> str:
         return 'JSONB'
 
-    def to_sa_type(self) -> str:
-        return sql.dialects.postgresql.JSONB
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.dialects.postgresql.JSONB()
 
     def print_value(self, val: Any) -> str:
         val_type = self.infer_literal_type(val)
@@ -587,6 +575,7 @@ class JsonType(ColumnType):
         if isinstance(val, tuple):
             val = list(val)
         return val
+
 
 class ArrayType(ColumnType):
     def __init__(
@@ -671,8 +660,8 @@ class ArrayType(ColumnType):
     def to_sql(self) -> str:
         return 'BYTEA'
 
-    def to_sa_type(self) -> str:
-        return sql.LargeBinary
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.LargeBinary()
 
     def numpy_dtype(self) -> np.dtype:
         if self.dtype == self.Type.INT:
@@ -776,8 +765,8 @@ class ImageType(ColumnType):
     def to_sql(self) -> str:
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
-        return sql.String
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         if isinstance(val, PIL.Image.Image):
@@ -791,6 +780,7 @@ class ImageType(ColumnType):
         except PIL.UnidentifiedImageError:
             raise excs.Error(f'Not a valid image: {val}') from None
 
+
 class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.VIDEO, nullable=nullable)
@@ -799,8 +789,8 @@ class VideoType(ColumnType):
         # stored as a file path
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
-        return sql.String
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -825,6 +815,7 @@ class VideoType(ColumnType):
         except av.AVError:
             raise excs.Error(f'Not a valid video: {val}') from None
 
+
 class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.AUDIO, nullable=nullable)
@@ -833,8 +824,8 @@ class AudioType(ColumnType):
         # stored as a file path
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
-        return sql.String
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -853,6 +844,7 @@ class AudioType(ColumnType):
                         pass
         except av.AVError as e:
             raise excs.Error(f'Not a valid audio file: {val}\n{e}') from None
+
 
 class DocumentType(ColumnType):
     @enum.unique
@@ -876,8 +868,8 @@ class DocumentType(ColumnType):
         # stored as a file path
         return 'VARCHAR'
 
-    def to_sa_type(self) -> str:
-        return sql.String
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)

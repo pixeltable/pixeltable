@@ -5,6 +5,8 @@ import urllib.parse
 import urllib.request
 from typing import Optional, List, Any, Tuple
 
+import sqlalchemy as sql
+import pgvector.sqlalchemy
 import PIL
 import numpy as np
 
@@ -110,7 +112,7 @@ class DataRow:
 
         return self.vals[index]
 
-    def get_stored_val(self, index: object) -> Any:
+    def get_stored_val(self, index: object, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
         """Return the value that gets stored in the db"""
         assert self.excs[index] is None
         if not self.has_val[index]:
@@ -125,6 +127,8 @@ class DataRow:
         if self.vals[index] is not None and index in self.array_slot_idxs:
             assert isinstance(self.vals[index], np.ndarray)
             np_array = self.vals[index]
+            if sa_col_type is not None and isinstance(sa_col_type, pgvector.sqlalchemy.Vector):
+                return np_array
             buffer = io.BytesIO()
             np.save(buffer, np_array)
             return buffer.getvalue()

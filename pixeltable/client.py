@@ -132,10 +132,6 @@ class Client:
             Create a table with an int and a string column:
 
             >>> table = cl.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
-
-            Create a table with a single indexed image column:
-
-            >>> table = cl.create_table('my_table', schema={'col1': {'type': ImageType(), 'indexed': True}})
         """
         path = catalog.Path(path_str)
         self.catalog.paths.check_is_valid(path, expected=None)
