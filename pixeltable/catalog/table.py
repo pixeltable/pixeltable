@@ -698,9 +698,23 @@ class Table(SchemaObject):
         if col_mapping is None:
             col_mapping = {col: col for col in itertools.chain(push_cols.keys(), pull_cols.keys())}
         self._validate_remote(push_cols, pull_cols, col_mapping)
-        # TODO type validation
         self.tbl_version_path.tbl_version.link_remote(remote, col_mapping)
-        print(f'Linked table `{self.get_name()}` to {remote}.')
+        print(f'Linked remote {remote} to table `{self.get_name()}`.')
+
+    def unlink_remote(
+            self,
+            remote: 'pixeltable.datatransfer.Remote',
+            *,
+            ignore_errors: bool = False
+    ) -> None:
+        self._check_is_dropped()
+        if remote not in self.get_remotes():
+            if ignore_errors:
+                return
+            else:
+                raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
+        self.tbl_version_path.tbl_version.unlink_remote(remote)
+        print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
 
     def _validate_remote(
             self,
@@ -737,7 +751,7 @@ class Table(SchemaObject):
                         f'Column `{t_col}` cannot be pulled from remote column `{r_col}` (incompatible types)'
                     )
 
-    def get_remotes(self) -> list[tuple[pixeltable.datatransfer.Remote, dict[str, str]]]:
+    def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
         return self.tbl_version_path.tbl_version.get_remotes()
 
     def sync_remotes(
@@ -745,5 +759,5 @@ class Table(SchemaObject):
             push: bool = True,
             pull: bool = True
     ) -> None:
-        for remote, col_mapping in self.get_remotes():
+        for remote, col_mapping in self.get_remotes().items():
             remote.sync(self, col_mapping, push=push, pull=pull)

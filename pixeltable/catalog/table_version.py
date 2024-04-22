@@ -86,8 +86,7 @@ class TableVersion:
             self.next_idx_id = tbl_md.next_idx_id
             self.next_rowid = tbl_md.next_row_id
 
-        self.remotes_md = tbl_md.remotes
-        self.remotes = [TableVersion._init_remote(remote_md) for remote_md in self.remotes_md]
+        self.remotes = dict(TableVersion._init_remote(remote_md) for remote_md in tbl_md.remotes)
 
         # view-specific initialization
         from pixeltable import exprs
@@ -919,20 +918,21 @@ class TableVersion:
 
     def link_remote(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
         # TODO Need lots of validation here
-        remote_md = {
-            'module': type(remote).__module__,
-            'class': type(remote).__qualname__,
-            'remote_md': remote.to_dict(),
-            'col_mapping': col_mapping
-        }
-        ts = time.time()
+        timestamp = time.time()
         self.version += 1
-        self.remotes.append((remote, col_mapping))
-        self.remotes_md.append(remote_md)
+        self.remotes[remote] = col_mapping
         with Env.get().engine.begin() as conn:
-            self._update_md(ts, None, conn)
+            self._update_md(timestamp, None, conn)
 
-    def get_remotes(self) -> list[tuple[pixeltable.datatransfer.Remote, dict[str, str]]]:
+    def unlink_remote(self, remote: pixeltable.datatransfer.Remote) -> None:
+        assert remote in self.remotes
+        timestamp = time.time()
+        self.version += 1
+        del self.remotes[remote]
+        with Env.get().engine.begin() as conn:
+            self._update_md(timestamp, None, conn)
+
+    def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
         return self.remotes
 
     def is_view(self) -> bool:
@@ -1035,12 +1035,24 @@ class TableVersion:
                 value_expr=value_expr_dict, stored=col.stored)
         return column_md
 
+    @classmethod
+    def _create_remotes_md(cls, remotes: dict['pixeltable.datatransfer.Remote', dict[str, str]]) -> list[dict[str, Any]]:
+        return [
+            {
+                'module': type(remote).__module__,
+                'class': type(remote).__qualname__,
+                'remote_md': remote.to_dict(),
+                'col_mapping': col_mapping
+            }
+            for remote, col_mapping in remotes.items()
+        ]
+
     def _create_tbl_md(self) -> schema.TableMd:
         return schema.TableMd(
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
             next_col_id=self.next_col_id, next_idx_id=self.next_idx_id, next_row_id=self.next_rowid,
-            column_md=self._create_column_md(self.cols), index_md=self.idx_md, remotes=self.remotes_md,
-            view_md=self.view_md)
+            column_md=self._create_column_md(self.cols), index_md=self.idx_md,
+            remotes=self._create_remotes_md(self.remotes), view_md=self.view_md)
 
     def _create_version_md(self, ts: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(created_at=ts, version=self.version, schema_version=self.schema_version)

@@ -28,7 +28,7 @@ class TestLabelStudio:
     </View>
     """
 
-    def test_label_studio_remote(self, init_ls):
+    def test_label_studio_remote(self, init_ls) -> None:
         project = env.Env.get().label_studio_client.start_project(
             title='test_client_project',
             label_config=self.test_config
@@ -40,7 +40,7 @@ class TestLabelStudio:
         assert remote.get_push_columns() == {'image': pxt.ImageType()}
         assert remote.get_pull_columns() == {'annotations': pxt.JsonType(nullable=True)}
 
-    def test_label_studio_sync(self, init_ls, test_client: pxt.Client):
+    def test_label_studio_sync(self, init_ls, test_client: pxt.Client) -> None:
         cl = test_client
         ls_client = env.Env.get().label_studio_client
         project = ls_client.start_project(
@@ -73,9 +73,32 @@ class TestLabelStudio:
             assert len(project.get_task(task_id)['annotations']) == 1
         # Pull the annotations back to Pixeltable
         t.sync_remotes()
-        annotations = t.collect()['annotations_col'][0]
-        assert annotations[0]['result'][0]['image_class'] == 'Cat'
+        annotations = t.collect()['annotations_col']
+        assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(2)), annotations
+        assert all(len(annotations[i]) == 0 for i in range(2, 5)), annotations
 
+    def test_label_studio_sync_errors(self, init_ls, test_client: pxt.Client) -> None:
+        cl = test_client
+        ls_client = env.Env.get().label_studio_client
+        project = ls_client.start_project(
+            title="test_sync_errors_project",
+            label_config=self.test_config
+        )
+        project_id = project.get_params()['id']
+        remote = LabelStudioProject(project_id)
+        t = cl.create_table(
+            'test_ls_sync_errors',
+            {'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
+        )
+        validate_update_status(t.insert(image_col=get_image_files()[0]), expected_rows=1)
+        t['rot_image_col'] = t.image_col.rotate(90)
+        t.link_remote(remote, {'rot_image_col': 'image', 'annotations_col': 'annotations'})
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.sync_remotes()
+        assert 'not a stored column' in str(exc_info.value)
+
+        t.unlink_remote(remote)
 
 @pytest.fixture(scope='session')
 def init_ls(init_env) -> None:
