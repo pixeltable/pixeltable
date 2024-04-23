@@ -61,8 +61,6 @@ class Literal(Expr):
         assert 'val' in d
         if 'val_t' in d:
             val_t = d['val_t']
-            if val_t == ts.ColumnType.Type.TIMESTAMP.name:
-                return cls(datetime.datetime.fromisoformat(d['val']), ts.TimestampType())
-            else:
-                excs.Error(f'Invalid literal metadata: val_t = {val_t}')
+            assert val_t == ts.ColumnType.Type.TIMESTAMP.name
+            return cls(datetime.datetime.fromisoformat(d['val']))
         return cls(d['val'])
