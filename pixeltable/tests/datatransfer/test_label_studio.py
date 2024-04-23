@@ -8,7 +8,6 @@ import pytest
 import requests.exceptions
 
 import pixeltable as pxt
-import pixeltable.env as env
 import pixeltable.exceptions as excs
 from pixeltable.datatransfer.label_studio import LabelStudioProject
 from pixeltable.tests.utils import skip_test_if_not_installed, get_image_files, validate_update_status
@@ -87,10 +86,20 @@ class TestLabelStudio:
         remote = LabelStudioProject.create('test_sync_errors_project', self.test_config)
 
         # Validate that syncing a remote with pull=True must have an `annotations` column mapping
-        # t.link_remote(remote, {'rot_image_col': 'image'})
-        # with pytest.raises(excs.Error) as exc_info:
-        #     t.sync_remotes()
-        # assert 'has no columns to pull'
+        t.link_remote(remote, {'image_col': 'image'})
+        with pytest.raises(excs.Error) as exc_info:
+            t.sync_remotes()
+        assert 'but there are no columns to pull' in str(exc_info.value)
+        # But it's ok if pull=False
+        t.sync_remotes(pull=False)
+
+        # Validate that syncing a remote with push=True must have at least one column to push
+        t.link_remote(remote, {'annotations_col': 'annotations'})
+        with pytest.raises(excs.Error) as exc_info:
+            t.sync_remotes()
+        assert 'but there are no columns to push' in str(exc_info.value)
+        # But it's ok if push=False
+        t.sync_remotes(push=False)
 
         # Validate that non-stored columns cannot be pushed to a remote
         t['rot_image_col'] = t.image_col.rotate(90)

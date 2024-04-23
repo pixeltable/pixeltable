@@ -18,7 +18,7 @@ _logger = logging.getLogger('pixeltable')
 
 class LabelStudioProject(Remote):
 
-    _ANNOTATIONS_COLUMN = 'annotations'
+    ANNOTATIONS_COLUMN = 'annotations'
 
     def __init__(self, project_id: int):
         self.project_id = project_id
@@ -39,7 +39,7 @@ class LabelStudioProject(Remote):
         return self._parse_project_config(config)
 
     def get_pull_columns(self) -> dict[str, ts.ColumnType]:
-        return {self._ANNOTATIONS_COLUMN: ts.JsonType(nullable=True)}
+        return {self.ANNOTATIONS_COLUMN: ts.JsonType(nullable=True)}
 
     def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
         _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
@@ -73,10 +73,10 @@ class LabelStudioProject(Remote):
     def _update_table_from_tasks(cls, t: Table, col_mapping: dict[str, str], tasks: list[dict]) -> None:
         # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
         # of `get_pull_columns`
-        assert cls._ANNOTATIONS_COLUMN in col_mapping.values()
-        annotations_column = next(k for k, v in col_mapping.items() if v == cls._ANNOTATIONS_COLUMN)
+        assert cls.ANNOTATIONS_COLUMN in col_mapping.values()
+        annotations_column = next(k for k, v in col_mapping.items() if v == cls.ANNOTATIONS_COLUMN)
         updates = [
-            {'_rowid': task['meta']['rowid'], annotations_column: task[cls._ANNOTATIONS_COLUMN]}
+            {'_rowid': task['meta']['rowid'], annotations_column: task[cls.ANNOTATIONS_COLUMN]}
             for task in tasks
         ]
         if len(updates) > 0:

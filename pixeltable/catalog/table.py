@@ -757,8 +757,27 @@ class Table(SchemaObject):
 
     def sync_remotes(
             self,
+            *,
             push: bool = True,
             pull: bool = True
     ) -> None:
-        for remote, col_mapping in self.get_remotes().items():
-            remote.sync(self, col_mapping, push=push, pull=pull)
+        for remote in self.get_remotes():
+            self.sync_remote(remote, push=push, pull=pull)
+
+    def sync_remote(
+            self,
+            remote: 'pixeltable.datatransfer.Remote',
+            *,
+            push: bool = True,
+            pull: bool = True
+    ):
+        if remote not in self.get_remotes():
+            raise excs.Error(f'Remote is not linked to table `{self.get_name()}`')
+        col_mapping = self.get_remotes()[remote]
+        r_cols = set(col_mapping.values())
+        # Validate push/pull
+        if push and not any(col in r_cols for col in remote.get_push_columns()):
+            raise excs.Error(f'Attempted to sync remote `{remote}` with push=True, but there are no columns to push.')
+        if pull and not any(col in r_cols for col in remote.get_pull_columns()):
+            raise excs.Error(f'Attempted to sync remote `{remote}` with pull=True, but there are no columns to pull.')
+        remote.sync(self, col_mapping, push=push, pull=pull)
