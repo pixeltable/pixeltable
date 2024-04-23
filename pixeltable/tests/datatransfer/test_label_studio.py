@@ -27,28 +27,25 @@ class TestLabelStudio:
         </Choices>
     </View>
     """
+    test_config_2 = """
+    <View>
+        <Image name="image_object" value="$image"/>
+        <Text name="text" value="$text"/>
+        <Choices name="image_class" toName="image_object">
+          <Choice value="Cat"/>
+          <Choice value="Dog"/>
+        </Choices>
+    </View>
+    """
 
     def test_label_studio_remote(self, init_ls) -> None:
-        project = env.Env.get().label_studio_client.start_project(
-            title='test_client_project',
-            label_config=self.test_config
-        )
-        project_id = project.get_params()['id']
-        remote = LabelStudioProject(project_id)
-        assert remote.project_id == project_id
+        remote = LabelStudioProject.create(title='test_client_project', label_config=self.test_config_2)
         assert remote.project_title == 'test_client_project'
-        assert remote.get_push_columns() == {'image': pxt.ImageType()}
+        assert remote.get_push_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
         assert remote.get_pull_columns() == {'annotations': pxt.JsonType(nullable=True)}
 
     def test_label_studio_sync(self, init_ls, test_client: pxt.Client) -> None:
         cl = test_client
-        ls_client = env.Env.get().label_studio_client
-        project = ls_client.start_project(
-            title="test_sync_project",
-            label_config=self.test_config
-        )
-        project_id = project.get_params()['id']
-        remote = LabelStudioProject(project_id)
         t = cl.create_table(
             'test_ls_sync',
             {'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
@@ -56,21 +53,23 @@ class TestLabelStudio:
         images = get_image_files()[:5]
         validate_update_status(t.insert({'image_col': image} for image in images), expected_rows=len(images))
 
+        remote = LabelStudioProject.create(title='test_sync_project', label_config=self.test_config)
         t.link_remote(remote, {'image_col': 'image', 'annotations_col': 'annotations'})
         t.sync_remotes()
         # Check that the tasks were properly created
-        tasks = project.get_tasks()
+        tasks = remote.project.get_tasks()
         assert len(tasks) == 5
         assert all(task['data']['image'] for task in tasks)
+        # Programmatically add annotations by calling the Label Studio API directly
         for task in tasks[:2]:
             task_id = task['id']
-            assert len(project.get_task(task_id)['annotations']) == 0
-            project.create_annotation(
+            assert len(remote.project.get_task(task_id)['annotations']) == 0
+            remote.project.create_annotation(
                 task_id=task_id,
                 unique_id=str(uuid.uuid4()),
                 result=[{'image_class': 'Cat'}]
             )
-            assert len(project.get_task(task_id)['annotations']) == 1
+            assert len(remote.project.get_task(task_id)['annotations']) == 1
         # Pull the annotations back to Pixeltable
         t.sync_remotes()
         annotations = t.collect()['annotations_col']
@@ -79,26 +78,36 @@ class TestLabelStudio:
 
     def test_label_studio_sync_errors(self, init_ls, test_client: pxt.Client) -> None:
         cl = test_client
-        ls_client = env.Env.get().label_studio_client
-        project = ls_client.start_project(
-            title="test_sync_errors_project",
-            label_config=self.test_config
-        )
-        project_id = project.get_params()['id']
-        remote = LabelStudioProject(project_id)
         t = cl.create_table(
             'test_ls_sync_errors',
-            {'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
+            {'image_col': pxt.ImageType(), 'text_col': pxt.StringType(), 'annotations_col': pxt.JsonType(nullable=True)}
         )
-        validate_update_status(t.insert(image_col=get_image_files()[0]), expected_rows=1)
+        validate_update_status(t.insert(image_col=get_image_files()[0], text_col='Testing'), expected_rows=1)
+
+        remote = LabelStudioProject.create('test_sync_errors_project', self.test_config)
+
+        # Validate that syncing a remote with pull=True must have an `annotations` column mapping
+        # t.link_remote(remote, {'rot_image_col': 'image'})
+        # with pytest.raises(excs.Error) as exc_info:
+        #     t.sync_remotes()
+        # assert 'has no columns to pull'
+
+        # Validate that non-stored columns cannot be pushed to a remote
         t['rot_image_col'] = t.image_col.rotate(90)
         t.link_remote(remote, {'rot_image_col': 'image', 'annotations_col': 'annotations'})
-
         with pytest.raises(excs.Error) as exc_info:
             t.sync_remotes()
         assert 'not a stored column' in str(exc_info.value)
-
         t.unlink_remote(remote)
+
+        # Validate that stored columns with local files cannot be pushed to a remote
+        # if other columns exist in the LS configuration
+        remote_2 = LabelStudioProject.create('test_sync_errors_project_2', self.test_config_2)
+        t.link_remote(remote_2, {'image_col': 'image', 'text_col': 'text', 'annotations_col': 'annotations'})
+        with pytest.raises(excs.Error) as exc_info:
+            t.sync_remotes()
+        assert 'Cannot use locally stored media files' in str(exc_info.value)
+
 
 @pytest.fixture(scope='session')
 def init_ls(init_env) -> None:

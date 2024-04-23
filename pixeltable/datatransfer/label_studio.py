@@ -18,6 +18,8 @@ _logger = logging.getLogger('pixeltable')
 
 class LabelStudioProject(Remote):
 
+    _ANNOTATIONS_COLUMN = 'annotations'
+
     def __init__(self, project_id: int):
         self.project_id = project_id
         self.ls_client = env.Env.get().label_studio_client
@@ -25,12 +27,19 @@ class LabelStudioProject(Remote):
         self.project_params = self.project.get_params()
         self.project_title = self.project_params['title']
 
+    @classmethod
+    def create(cls, title: str, label_config: str, **kwargs) -> LabelStudioProject:
+        ls_client = env.Env.get().label_studio_client
+        project = ls_client.start_project(title=title, label_config=label_config, **kwargs)
+        project_id = project.get_params()['id']
+        return LabelStudioProject(project_id)
+
     def get_push_columns(self) -> dict[str, ts.ColumnType]:
         config: str = self.project.get_params()['label_config']
         return self._parse_project_config(config)
 
     def get_pull_columns(self) -> dict[str, ts.ColumnType]:
-        return {'annotations': ts.JsonType(nullable=True)}
+        return {self._ANNOTATIONS_COLUMN: ts.JsonType(nullable=True)}
 
     def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
         _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
@@ -64,9 +73,10 @@ class LabelStudioProject(Remote):
     def _update_table_from_tasks(cls, t: Table, col_mapping: dict[str, str], tasks: list[dict]) -> None:
         # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
         # of `get_pull_columns`
-        annotations_column = next(k for k, v in col_mapping.items() if v == 'annotations')
+        assert cls._ANNOTATIONS_COLUMN in col_mapping.values()
+        annotations_column = next(k for k, v in col_mapping.items() if v == cls._ANNOTATIONS_COLUMN)
         updates = [
-            {'_rowid': task['meta']['rowid'], annotations_column: task['annotations']}
+            {'_rowid': task['meta']['rowid'], annotations_column: task[cls._ANNOTATIONS_COLUMN]}
             for task in tasks
         ]
         if len(updates) > 0:

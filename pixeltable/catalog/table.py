@@ -714,6 +714,7 @@ class Table(SchemaObject):
             else:
                 raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
         self.tbl_version_path.tbl_version.unlink_remote(remote)
+        # TODO: Do we want to auto-delete tasks/projects/etc?
         print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
 
     def _validate_remote(
