@@ -10,7 +10,7 @@ class TestYolox:
         cl = test_client
         t = cl.create_table('yolox_test', {'image': pxt.ImageType()})
         t['detect_yolox_tiny'] = yolox(t.image, model_id='yolox_tiny')
-        t['detect_yolox_nano'] = yolox(t.image, model_id='yolox_nano', threshold=0.2, device='cpu')
+        t['detect_yolox_nano'] = yolox(t.image, model_id='yolox_nano', threshold=0.2)
         t['yolox_nano_bboxes'] = t.detect_yolox_nano.bboxes
         images = get_image_files()[:10]
         validate_update_status(t.insert({'image': image} for image in images), expected_rows=10)

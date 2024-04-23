@@ -20,7 +20,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 @pxt.udf(batch_size=4)
-def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, device: str = 'auto') -> Batch[dict]:
+def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
     """
     Runs the specified YOLOX object detection model on an image.
 
@@ -30,17 +30,13 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
     Parameters:
     - `model_id` - one of: `yolox_nano, `yolox_tiny`, `yolox_s`, `yolox_m`, `yolox_l`, `yolox_x`
     - `threshold` - the threshold for object detection
-    - `device` - the torch device to run the model on (e.g., 'cuda' or 'mps'; 'auto' = prefer GPU)
     """
-    device = resolve_torch_device(device)
-    model, exp = __lookup_model(model_id, device)
+    model, exp = __lookup_model(model_id, 'cpu')
     image_tensors = list(__images_to_tensors(images, exp))
     batch_tensor = torch.stack(image_tensors)
 
-    batch_tensor.to(device)
     with torch.no_grad():
         output_tensor = model(batch_tensor)
-    output_tensor.to('cpu')
 
     outputs = postprocess(
         output_tensor, 80, threshold, exp.nmsthre, class_agnostic=False
@@ -78,7 +74,7 @@ def __lookup_model(model_id: str, device: str) -> (YOLOX, Exp):
         urlretrieve(weights_url, weights_file)
 
     exp = get_exp(exp_name=model_id)
-    model = exp.get_model()
+    model = exp.get_model().to(device)
 
     model.eval()
     model.head.training = False
