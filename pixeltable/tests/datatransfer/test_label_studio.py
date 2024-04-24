@@ -10,12 +10,12 @@ import requests.exceptions
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.datatransfer.label_studio import LabelStudioProject
 from pixeltable.tests.utils import skip_test_if_not_installed, get_image_files, validate_update_status
 
 _logger = logging.getLogger('pixeltable')
 
 
+@pytest.mark.skipif(platform.system() == 'Windows', reason='Label Studio tests do not currently run on Windows')
 class TestLabelStudio:
 
     test_config = """
@@ -40,6 +40,7 @@ class TestLabelStudio:
 
     def test_label_studio_remote(self, init_ls) -> None:
         skip_test_if_not_installed('label_studio_sdk')
+        from pixeltable.datatransfer.label_studio import LabelStudioProject
         remote = LabelStudioProject.create(title='test_client_project', label_config=self.test_config_2)
         assert remote.project_title == 'test_client_project'
         assert remote.get_push_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
@@ -47,6 +48,7 @@ class TestLabelStudio:
 
     def test_label_studio_sync(self, init_ls, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('label_studio_sdk')
+        from pixeltable.datatransfer.label_studio import LabelStudioProject
         cl = test_client
         t = cl.create_table(
             'test_ls_sync',
@@ -82,6 +84,7 @@ class TestLabelStudio:
 
     def test_label_studio_sync_errors(self, init_ls, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('label_studio_sdk')
+        from pixeltable.datatransfer.label_studio import LabelStudioProject
         cl = test_client
         t = cl.create_table(
             'test_ls_sync_errors',
