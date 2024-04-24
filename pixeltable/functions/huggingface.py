@@ -64,6 +64,7 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained)
     assert model.config.projection_dim == 512
+    model.eval()
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
     with torch.no_grad():
@@ -81,6 +82,7 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained)
     assert model.config.projection_dim == 512
+    model.eval()
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
     with torch.no_grad():
@@ -105,6 +107,7 @@ def detr_for_object_detection(
 
     model = _lookup_model(model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'))
     model = model.to(device)
+    model.eval()
     processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision='no_timm'))
 
     with torch.no_grad():
@@ -131,9 +134,7 @@ T = TypeVar('T')
 def _lookup_model(model_id: str, create: Callable[[str], T]) -> T:
     key = (model_id, create)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
-        model = create(model_id)
-        model.eval()
-        _model_cache[key] = model
+        _model_cache[key] = create(model_id)
     return _model_cache[key]
 
 
