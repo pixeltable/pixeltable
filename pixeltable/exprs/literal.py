@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import datetime
 from typing import Optional, List, Any, Dict, Tuple
 
 import sqlalchemy as sql
 
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from .data_row import DataRow
 from .expr import Expr
@@ -47,9 +49,18 @@ class Literal(Expr):
         data_row[self.slot_idx] = self.val
 
     def _as_dict(self) -> Dict:
-        return {'val': self.val, **super()._as_dict()}
+        # For some types, we need to explictly record their type, because JSON does not know
+        # how to interpret them unambiguously
+        if self.col_type.is_timestamp_type():
+            return {'val': self.val.isoformat(), 'val_t': self.col_type._type.name, **super()._as_dict()}
+        else:
+            return {'val': self.val, **super()._as_dict()}
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'val' in d
+        if 'val_t' in d:
+            val_t = d['val_t']
+            assert val_t == ts.ColumnType.Type.TIMESTAMP.name
+            return cls(datetime.datetime.fromisoformat(d['val']))
         return cls(d['val'])
