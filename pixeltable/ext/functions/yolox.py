@@ -31,8 +31,8 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
     - `model_id` - one of: `yolox_nano, `yolox_tiny`, `yolox_s`, `yolox_m`, `yolox_l`, `yolox_x`
     - `threshold` - the threshold for object detection
     """
-    model, exp = __lookup_model(model_id, 'cpu')
-    image_tensors = list(__images_to_tensors(images, exp))
+    model, exp = _lookup_model(model_id, 'cpu')
+    image_tensors = list(_images_to_tensors(images, exp))
     batch_tensor = torch.stack(image_tensors)
 
     with torch.no_grad():
@@ -56,16 +56,16 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
     return results
 
 
-def __images_to_tensors(images: Iterable[PIL.Image.Image], exp: Exp) -> Iterator[torch.Tensor]:
+def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: Exp) -> Iterator[torch.Tensor]:
     for image in images:
-        image_transform, _ = __val_transform(np.array(image), None, exp.test_size)
+        image_transform, _ = _val_transform(np.array(image), None, exp.test_size)
         yield torch.from_numpy(image_transform)
 
 
-def __lookup_model(model_id: str, device: str) -> (YOLOX, Exp):
+def _lookup_model(model_id: str, device: str) -> (YOLOX, Exp):
     key = (model_id, device)
-    if key in __model_cache:
-        return __model_cache[key]
+    if key in _model_cache:
+        return _model_cache[key]
 
     weights_url = f'https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/{model_id}.pth'
     weights_file = Path(f'{env.Env.get().tmp_dir}/{model_id}.pth')
@@ -84,9 +84,9 @@ def __lookup_model(model_id: str, device: str) -> (YOLOX, Exp):
     weights = torch.load(weights_file, map_location=torch.device(device))
     model.load_state_dict(weights['model'])
 
-    __model_cache[key] = (model, exp)
+    _model_cache[key] = (model, exp)
     return model, exp
 
 
-__model_cache = {}
-__val_transform = ValTransform(legacy=False)
+_model_cache = {}
+_val_transform = ValTransform(legacy=False)
