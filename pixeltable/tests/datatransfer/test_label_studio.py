@@ -1,5 +1,6 @@
 import logging
 import os
+import platform
 import subprocess
 import time
 import uuid
@@ -38,12 +39,14 @@ class TestLabelStudio:
     """
 
     def test_label_studio_remote(self, init_ls) -> None:
+        skip_test_if_not_installed('label_studio_sdk')
         remote = LabelStudioProject.create(title='test_client_project', label_config=self.test_config_2)
         assert remote.project_title == 'test_client_project'
         assert remote.get_push_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
         assert remote.get_pull_columns() == {'annotations': pxt.JsonType(nullable=True)}
 
     def test_label_studio_sync(self, init_ls, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('label_studio_sdk')
         cl = test_client
         t = cl.create_table(
             'test_ls_sync',
@@ -78,6 +81,7 @@ class TestLabelStudio:
         assert all(annotations[i] is None for i in range(2, 5)), annotations
 
     def test_label_studio_sync_errors(self, init_ls, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('label_studio_sdk')
         cl = test_client
         t = cl.create_table(
             'test_ls_sync_errors',
@@ -138,12 +142,18 @@ def init_ls(init_env) -> None:
     ls_url = f'http://localhost:{ls_port}/'
     _logger.info('Setting up a venv the Label Studio pytext fixture.')
     subprocess.run('python -m venv target/ls-env'.split(' '), check=True)
-    subprocess.run('target/ls-env/bin/python -m pip install --upgrade pip'.split(' '), check=True)
-    subprocess.run(f'target/ls-env/bin/python -m pip install label-studio=={ls_version}'.split(' '), check=True)
+    if platform.system() == 'Windows':
+        python_binary = 'target\\ls-env\\Scripts\\python.exe'
+        ls_binary = 'target\\ls-env\\Scripts\\label-studio.exe'
+    else:
+        python_binary = 'target/ls-env/bin/python'
+        ls_binary = 'target/ls-env/bin/label-studio'
+    subprocess.run(f'{python_binary} -m pip install --upgrade pip'.split(' '), check=True)
+    subprocess.run(f'{python_binary} -m pip install label-studio=={ls_version}'.split(' '), check=True)
     _logger.info('Spawning Label Studio pytest fixture.')
     import label_studio_sdk.client
     ls_process = subprocess.Popen([
-        'target/ls-env/bin/label-studio',
+        ls_binary,
         'start',
         '--no-browser',
         '--port', str(ls_port),
