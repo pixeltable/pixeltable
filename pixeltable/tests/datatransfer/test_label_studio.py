@@ -70,10 +70,12 @@ class TestLabelStudio:
             )
             assert len(remote.project.get_task(task_id)['annotations']) == 1
         # Pull the annotations back to Pixeltable
+        cl = pxt.Client(reload=True)  # Ensure we correctly reload from md
+        t = cl.get_table('test_ls_sync')
         t.sync_remotes()
         annotations = t.collect()['annotations_col']
         assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(2)), annotations
-        assert all(len(annotations[i]) == 0 for i in range(2, 5)), annotations
+        assert all(annotations[i] is None for i in range(2, 5)), annotations
 
     def test_label_studio_sync_errors(self, init_ls, test_client: pxt.Client) -> None:
         cl = test_client
@@ -116,6 +118,16 @@ class TestLabelStudio:
         with pytest.raises(excs.Error) as exc_info:
             t.sync_remotes()
         assert 'Cannot use locally stored media files' in str(exc_info.value)
+
+        # Check that we can create a LabelStudioProject on a non-existent project id
+        # (this will happen if, for example, a DB reload happens after a synced project has
+        # been deleted externally)
+        false_project = LabelStudioProject(4171780)
+
+        # But trying to do anything with it raises an exception.
+        with pytest.raises(excs.Error) as exc_info:
+            _ = false_project.project_title
+        assert 'Could not locate Label Studio project' in str(exc_info.value)
 
 
 @pytest.fixture(scope='session')

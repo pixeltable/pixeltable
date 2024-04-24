@@ -264,7 +264,8 @@ class StoreBase:
         return num_excs
 
     def insert_rows(
-            self, exec_plan: ExecNode, conn: sql.engine.Connection, v_min: Optional[int] = None
+            self, exec_plan: ExecNode, conn: sql.engine.Connection, v_min: Optional[int] = None,
+            show_progress: bool = True
     ) -> Tuple[int, int, Set[int]]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
@@ -293,15 +294,16 @@ class StoreBase:
                             self._create_table_row(row, row_builder, media_cols, cols_with_excs, v_min=v_min)
                         num_excs += num_row_exc
                         table_rows.append(table_row)
-                        if progress_bar is None:
-                            warnings.simplefilter("ignore", category=TqdmWarning)
-                            progress_bar = tqdm(
-                                desc=f'Inserting rows into `{self.tbl_version.name}`',
-                                unit=' rows',
-                                ncols=100,
-                                file=sys.stdout
-                            )
-                        progress_bar.update(1)
+                        if show_progress:
+                            if progress_bar is None:
+                                warnings.simplefilter("ignore", category=TqdmWarning)
+                                progress_bar = tqdm(
+                                    desc=f'Inserting rows into `{self.tbl_version.name}`',
+                                    unit=' rows',
+                                    ncols=100,
+                                    file=sys.stdout
+                                )
+                            progress_bar.update(1)
                     self._move_tmp_media_files(table_rows, media_cols, v_min)
                     conn.execute(sql.insert(self.sa_tbl), table_rows)
             if progress_bar is not None:

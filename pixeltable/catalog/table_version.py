@@ -680,7 +680,7 @@ class TableVersion:
                             where_clause = where_clause & clause
 
                 update_targets = {col: row[col] for col in row if col not in pk_cols}
-                status = self._update(conn, update_targets, where_clause, cascade)
+                status = self._update(conn, update_targets, where_clause, cascade, show_progress=False)
                 result_status.num_rows += status.num_rows
                 result_status.num_excs += status.num_excs
                 result_status.num_computed_values += status.num_computed_values
@@ -693,7 +693,8 @@ class TableVersion:
 
     def _update(
             self, conn: sql.engine.Connection, update_targets: dict[Column, 'pixeltable.exprs.Expr'],
-            where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
+            where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True,
+            show_progress: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
         Args:
@@ -709,21 +710,21 @@ class TableVersion:
         ts = time.time()
         result = self._propagate_update(
             plan, where_clause.sql_expr() if where_clause is not None else None, recomputed_cols,
-            base_versions=[], conn=conn, ts=ts, cascade=cascade)
+            base_versions=[], conn=conn, ts=ts, cascade=cascade, show_progress=show_progress)
         result.updated_cols = updated_cols
         return result
 
     def _propagate_update(
             self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ClauseElement],
             recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
-            ts: float, cascade: bool
+            ts: float, cascade: bool, show_progress: bool = True
     ) -> UpdateStatus:
         result = UpdateStatus()
         if plan is not None:
             # we're creating a new version
             self.version += 1
             result.num_rows, result.num_excs, cols_with_excs = \
-                self.store_tbl.insert_rows(plan, conn, v_min=self.version)
+                self.store_tbl.insert_rows(plan, conn, v_min=self.version, show_progress=show_progress)
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause, conn=conn)

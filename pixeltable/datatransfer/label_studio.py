@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import itertools
 import logging
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 from xml.etree import ElementTree
 
+import label_studio_sdk
 import more_itertools
+from requests.exceptions import HTTPError
 
 import pixeltable.env as env
 import pixeltable.exceptions as excs
@@ -23,9 +26,25 @@ class LabelStudioProject(Remote):
     def __init__(self, project_id: int):
         self.project_id = project_id
         self.ls_client = env.Env.get().label_studio_client
-        self.project = self.ls_client.get_project(self.project_id)
-        self.project_params = self.project.get_params()
-        self.project_title = self.project_params['title']
+        self._project: Optional[label_studio_sdk.project.Project] = None
+
+    @property
+    def project(self) -> label_studio_sdk.project.Project:
+        if self._project is None:
+            try:
+                self._project = self.ls_client.get_project(self.project_id)
+            except HTTPError as exc:
+                raise excs.Error(f'Could not locate Label Studio project: {self.project_id} '
+                                 '(cannot connect to server or project no longer exists)') from exc
+        return self._project
+
+    @property
+    def project_params(self) -> dict[str, Any]:
+        return self.project.get_params()
+
+    @property
+    def project_title(self) -> str:
+        return self.project_params['title']
 
     @classmethod
     def create(cls, title: str, label_config: str, **kwargs) -> LabelStudioProject:
@@ -69,14 +88,19 @@ class LabelStudioProject(Remote):
                 f'Skipped {unknown_task_count} unrecognized task(s) when syncing Label Studio project "{self.project_title}".'
             )
 
-    @classmethod
-    def _update_table_from_tasks(cls, t: Table, col_mapping: dict[str, str], tasks: list[dict]) -> None:
+    def _update_table_from_tasks(self, t: Table, col_mapping: dict[str, str], tasks: list[dict]) -> None:
         # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
         # of `get_pull_columns`
-        assert cls.ANNOTATIONS_COLUMN in col_mapping.values()
-        annotations_column = next(k for k, v in col_mapping.items() if v == cls.ANNOTATIONS_COLUMN)
+        assert self.ANNOTATIONS_COLUMN in col_mapping.values()
+        annotations_column = next(k for k, v in col_mapping.items() if v == self.ANNOTATIONS_COLUMN)
         updates = [
-            {'_rowid': task['meta']['rowid'], annotations_column: task[cls.ANNOTATIONS_COLUMN]}
+            {
+                '_rowid': task['meta']['rowid'],
+                # Replace [] by None to indicate no annotations. We do want to sync rows with no annotations,
+                # in order to properly handle the scenario where existing annotations have been deleted in
+                # Label Studio.
+                annotations_column: task[self.ANNOTATIONS_COLUMN] if len(task[self.ANNOTATIONS_COLUMN]) > 0 else None
+            }
             for task in tasks
         ]
         if len(updates) > 0:
@@ -84,6 +108,8 @@ class LabelStudioProject(Remote):
                 f'Updating table `{t.get_name()}`, column `{annotations_column}` with {len(updates)} total annotations.'
             )
             t.batch_update(updates)
+            annotations_count = sum(len(task[self.ANNOTATIONS_COLUMN]) for task in tasks)
+            print(f'Synced {annotations_count} annotation(s) from {len(updates)} existing task(s) in {self}.')
 
     def _create_tasks_from_table(self, t: Table, col_mapping: dict[str, str], existing_tasks: list[dict]) -> None:
         row_ids_in_ls = {tuple(task['meta']['rowid']) for task in existing_tasks}
@@ -114,7 +140,7 @@ class LabelStudioProject(Remote):
                     # Assemble the remaining columns into `data`
                     self.project.update_task(task_id, meta={'rowid': row.rowid})
                     tasks_created += 1
-            print(f'Created {tasks_created} task(s) in {self}.')
+            print(f'Created {tasks_created} new task(s) in {self}.')
         else:
             # Either a single non-media column or multiple columns. Either way, we can't
             # use the file upload API and need to rely on externally accessible URLs for

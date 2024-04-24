@@ -296,19 +296,17 @@ class Env:
         return client
 
     def _create_label_studio_client(self) -> None:
-        if 'label_studio' in self._config and 'api_key' in self._config['label_studio']:
+        api_key = os.environ.get('LABEL_STUDIO_API_KEY')
+        if api_key is None and 'label_studio' in self._config and 'api_key' in self._config['label_studio']:
             api_key = self._config['label_studio']['api_key']
-        else:
-            api_key = os.environ.get('LABEL_STUDIO_API_KEY')
-        if api_key is None or api_key == '':
-            self._logger.info('Label Studio client not initialized (no API key configured).')
+        url = os.environ.get('LABEL_STUDIO_URL')
+        if url is None and 'label_studio' in self._config and 'url' in self._config['label_studio']:
+            url = self._config['label_studio']['url']
+        if api_key is None or api_key == '' or url is None or url == '':
+            self._logger.info('Label Studio client not initialized (URL and/or access token not configured).')
             return
         import label_studio_sdk.client
         self._logger.info('Initializing Label Studio client.')
-        if 'label_studio' in self._config and 'url' in self._config['label_studio']:
-            url = self._config['label_studio']['url']
-        else:
-            url = os.environ.get('LABEL_STUDIO_URL')
         self._label_studio_client = label_studio_sdk.client.Client(url=url, api_key=api_key)
 
     def _start_web_server(self) -> None:
