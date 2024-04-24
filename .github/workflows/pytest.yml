@@ -64,7 +64,7 @@ jobs:
         if: ${{ matrix.poetry-options == '' }}
         run: pip install pytest coverage
       - name: Run the unit tests
-        run: coverage run -m --source=pixeltable pytest -v
+        run: coverage run -m --source=pixeltable pytest -v -m ''
         env:
           # In a PR, these secrets will be empty, and the relevant tests will be skipped
           FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
