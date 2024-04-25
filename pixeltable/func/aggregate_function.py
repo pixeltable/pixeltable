@@ -8,7 +8,7 @@ import itertools
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from .function import Function
+from .function import Function, FunctionReference
 from .signature import Signature, Parameter
 from .globals import validate_symbol_path
 
@@ -33,7 +33,7 @@ class AggregateFunction(Function):
     RESERVED_PARAMS = {ORDER_BY_PARAM, GROUP_BY_PARAM}
 
     def __init__(
-            self, aggregator_class: Type[Aggregator], self_path: str,
+            self, aggregator_class: Type[Aggregator], self_path: FunctionReference,
             init_types: List[ts.ColumnType], update_types: List[ts.ColumnType], value_type: ts.ColumnType,
             requires_order_by: bool, allows_std_agg: bool, allows_window: bool):
         self.agg_cls = aggregator_class
@@ -175,7 +175,7 @@ def uda(
         assert value_type is not None
 
         # the AggregateFunction instance resides in the same module as cls
-        class_path = f'{cls.__module__}.{cls.__qualname__}'
+        class_path = FunctionReference(cls.__module__, cls.__qualname__)
         # nonlocal name
         # name = name or cls.__name__
         # instance_path_elements = class_path.split('.')[:-1] + [name]
@@ -185,7 +185,7 @@ def uda(
         instance = AggregateFunction(
             cls, class_path, init_types, update_types, value_type, requires_order_by, allows_std_agg, allows_window)
         # do the path validation at the very end, in order to be able to write tests for the other failure cases
-        validate_symbol_path(class_path)
+        class_path.validate()
         #module = importlib.import_module(cls.__module__)
         #setattr(module, name, instance)
 

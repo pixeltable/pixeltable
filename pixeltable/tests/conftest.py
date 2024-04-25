@@ -48,6 +48,8 @@ def test_client(init_env) -> pxt.Client:
     cl = pxt.Client(reload=True)
     cl.logging(level=logging.DEBUG, to_stdout=True)
     yield cl
+    # Confirm that any md created during the test can be reloaded
+    _ = pxt.Client(reload=True)
 
 
 def clean_db(restore_tables: bool = True) -> None:

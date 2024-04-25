@@ -5,6 +5,7 @@ import sys
 
 import numpy as np
 
+from .function import FunctionReference
 from .signature import Signature, Parameter
 from .batched_function import BatchedFunction
 import pixeltable.env as env
@@ -15,7 +16,7 @@ import pixeltable.exceptions as excs
 _logger = logging.getLogger('pixeltable')
 
 class NOSFunction(BatchedFunction):
-    def __init__(self, model_spec: 'nos.common.ModelSpec', self_path: str):
+    def __init__(self, model_spec: 'nos.common.ModelSpec', self_path: FunctionReference):
         return_type, param_types = self._convert_nos_signature(model_spec.signature)
         param_names = list(model_spec.signature.get_inputs_spec().keys())
         params = [

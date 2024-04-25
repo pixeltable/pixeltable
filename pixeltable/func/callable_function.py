@@ -8,7 +8,7 @@ import cloudpickle
 
 import pixeltable.type_system as ts
 import pixeltable.exceptions as excs
-from .function import Function
+from .function import Function, FunctionReference
 from .function_registry import FunctionRegistry
 from .globals import get_caller_module_path
 from .signature import Signature
@@ -23,7 +23,7 @@ class CallableFunction(Function):
     """
 
     def __init__(
-            self, signature: Signature, py_fn: Callable, self_path: Optional[str] = None,
+            self, signature: Signature, py_fn: Callable, self_path: Optional[FunctionReference] = None,
             self_name: Optional[str] = None):
         assert py_fn is not None
         self.py_fn = py_fn

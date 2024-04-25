@@ -2,7 +2,7 @@ import inspect
 from typing import List, Dict, Any, Optional, Callable
 import abc
 
-from .function import Function
+from .function import Function, FunctionReference
 from .signature import Signature
 
 
@@ -27,7 +27,7 @@ class ExplicitBatchedFunction(BatchedFunction):
     A `BatchedFunction` that is defined by a signature and an explicit python
     `Callable`.
     """
-    def __init__(self, signature: Signature, batch_size: Optional[int], invoker_fn: Callable, self_path: str):
+    def __init__(self, signature: Signature, batch_size: Optional[int], invoker_fn: Callable, self_path: FunctionReference):
         super().__init__(signature=signature, py_signature=inspect.signature(invoker_fn), self_path=self_path)
         self.batch_size = batch_size
         self.invoker_fn = invoker_fn

@@ -9,7 +9,7 @@ import pixeltable.type_system as ts
 from .batched_function import ExplicitBatchedFunction
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
-from .function import Function
+from .function import Function, FunctionReference
 from .function_registry import FunctionRegistry
 from .globals import validate_symbol_path
 from .signature import Signature
@@ -88,7 +88,7 @@ def make_function(
         # force storing the function in the db
         function_path = None
     elif decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():
-        function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
+        function_path = FunctionReference(decorated_fn.__module__, decorated_fn.__qualname__)
     else:
         function_path = None
 
@@ -126,7 +126,7 @@ def make_function(
     # If this function is part of a module, register it
     if function_path is not None:
         # do the validation at the very end, so it's easier to write tests for other failure scenarios
-        validate_symbol_path(function_path)
+        function_path.validate()
         FunctionRegistry.get().register_function(function_path, result)
 
     return result
@@ -141,7 +141,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
     def decorator(py_fn: Callable, param_types: Optional[List[ts.ColumnType]]) -> ExprTemplateFunction:
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
             # this is a named function in a module
-            function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
+            function_path = FunctionReference(py_fn.__module__, py_fn.__qualname__)
         else:
             function_path = None
 
@@ -157,7 +157,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         assert isinstance(template, exprs.Expr)
         py_sig = inspect.signature(py_fn)
         if function_path is not None:
-            validate_symbol_path(function_path)
+            function_path.validate()
         return ExprTemplateFunction(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
 
     if len(args) == 1:

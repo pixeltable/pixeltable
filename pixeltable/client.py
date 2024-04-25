@@ -73,7 +73,7 @@ class Client:
             Pandas DataFrame with columns 'Path', 'Name', 'Parameters', 'Return Type', 'Is Agg', 'Library'
         """
         functions = func.FunctionRegistry.get().list_functions()
-        paths = ['.'.join(f.self_path.split('.')[:-1]) for f in functions]
+        paths = ['.'.join(f.self_path.full_path.split('.')[:-1]) for f in functions]
         names = [f.name for f in functions]
         params = [
             ', '.join(

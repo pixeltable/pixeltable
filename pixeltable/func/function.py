@@ -3,7 +3,10 @@ from __future__ import annotations
 import abc
 import importlib
 import inspect
+from dataclasses import dataclass
+
 import pixeltable
+import pixeltable.exceptions as excs
 from typing import Optional, Dict, Any, Tuple
 
 from .globals import resolve_symbol
@@ -18,7 +21,7 @@ class Function(abc.ABC):
     via the member self_path.
     """
 
-    def __init__(self, signature: Signature, py_signature: inspect.Signature, self_path: Optional[str] = None):
+    def __init__(self, signature: Signature, py_signature: inspect.Signature, self_path: Optional[FunctionReference] = None):
         self.signature = signature
         self.py_signature = py_signature
         self.self_path = self_path  # fully-qualified path to self
@@ -26,16 +29,17 @@ class Function(abc.ABC):
     @property
     def name(self) -> str:
         assert self.self_path is not None
-        return self.self_path.split('.')[-1]
+        return self.self_path.qualname.split('.')[-1]
 
     @property
     def display_name(self) -> str:
         if self.self_path is None:
             return '<anonymous>'
-        ptf_prefix = 'pixeltable.functions.'
-        if self.self_path.startswith(ptf_prefix):
-            return self.self_path[len(ptf_prefix):]
-        return self.self_path
+        if self.self_path.module.startswith('pixeltable.functions.'):
+            module_display_name = self.self_path.module.lstrip('pixeltable.functions.')
+        else:
+            module_display_name = self.self_path.module
+        return f'{module_display_name}.{self.self_path.qualname}'
 
     def help_str(self) -> str:
         return self.display_name + str(self.signature)
@@ -71,7 +75,7 @@ class Function(abc.ABC):
     def _as_dict(self) -> Dict:
         """Default serialization: store the path to self (which includes the module path)"""
         assert self.self_path is not None
-        return {'path': self.self_path}
+        return {'ref': self.self_path.as_dict()}
 
     @classmethod
     def from_dict(cls, d: Dict) -> Function:
@@ -87,8 +91,8 @@ class Function(abc.ABC):
     @classmethod
     def _from_dict(cls, d: Dict) -> Function:
         """Default deserialization: load the symbol indicated by the stored symbol_path"""
-        assert 'path' in d and d['path'] is not None
-        instance = resolve_symbol(d['path'])
+        assert 'ref' in d and d['ref'] is not None
+        instance = FunctionReference.from_dict(d['ref']).resolve()
         assert isinstance(instance, Function)
         return instance
 
@@ -108,3 +112,42 @@ class Function(abc.ABC):
         Create a Function instance from the serialized representation returned by to_store()
         """
         raise NotImplementedError()
+
+
+@dataclass
+class FunctionReference:
+    module: str
+    qualname: str
+
+    @property
+    def full_path(self) -> str:
+        return f'{self.module}.{self.qualname}'
+
+    def as_dict(self) -> dict:
+        return {'module': self.module, 'qualname': self.qualname}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> FunctionReference:
+        assert 'module' in d and 'qualname' in d
+        return FunctionReference(module=d['module'], qualname=d['qualname'])
+
+    def resolve(self) -> Optional[object]:
+        module = importlib.import_module(self.module)
+        path_elems = self.qualname.split('.')
+        obj = module
+        for el in path_elems:
+            obj = getattr(obj, el)
+        return obj
+
+    def validate(self) -> None:
+        path_elems = self.qualname.split('.')
+        if any(el == '<locals>' for el in path_elems):
+            raise excs.Error(
+                f'{self.qualname}(): nested functions are not supported. '
+                'Move the function to the module level or into a class.'
+            )
+        if any(not el.isidentifier() for el in path_elems):
+            raise excs.Error(
+                f'{self.qualname}(): cannot resolve symbol path {self.module}.{self.qualname}. '
+                'Move the function to the module level or into a class.'
+            )

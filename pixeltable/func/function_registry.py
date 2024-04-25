@@ -4,19 +4,16 @@ import dataclasses
 import importlib
 import logging
 import sys
-import types
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 from uuid import UUID
 
-import cloudpickle
 import sqlalchemy as sql
 
 import pixeltable.env as env
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.metadata import schema
-from .function import Function
-from .globals import get_caller_module_path
+from .function import Function, FunctionReference
 
 _logger = logging.getLogger('pixeltable')
 
@@ -65,8 +62,8 @@ class FunctionRegistry:
     #             fn_path = f'{caller_path}.{name}'  # fully-qualified name
     #             self.module_fns[fn_path] = obj
 
-    def register_function(self, fqn: str, fn: Function) -> None:
-        self.module_fns[fqn] = fn
+    def register_function(self, fqn: FunctionReference, fn: Function) -> None:
+        self.module_fns[str(fqn)] = fn
 
     def list_functions(self) -> List[Function]:
         # retrieve Function.Metadata data for all existing stored functions from store directly
@@ -130,7 +127,7 @@ class FunctionRegistry:
     def get_type_methods(self, name: str, base_type: ts.ColumnType.Type) -> List[Function]:
         return [
             fn for fn in self.module_fns.values()
-            if fn.self_path is not None and fn.self_path.endswith('.' + name) \
+            if fn.self_path is not None and fn.self_path.qualname == name
                and fn.signature.parameters_by_pos[0].col_type.type_enum == base_type
         ]
 
