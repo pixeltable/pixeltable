@@ -57,9 +57,9 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((512,), dtype=ts.FloatType(), nullable=False))
-def clip_text(text: Batch[str], *, model_id: str, device: str = 'auto') -> Batch[np.ndarray]:
+def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
-    device = resolve_torch_device(device)
+    device = resolve_torch_device('auto')
     import torch
     from transformers import CLIPModel, CLIPProcessor
 
@@ -75,9 +75,9 @@ def clip_text(text: Batch[str], *, model_id: str, device: str = 'auto') -> Batch
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((512,), dtype=ts.FloatType(), nullable=False))
-def clip_image(image: Batch[PIL.Image.Image], *, model_id: str, device: str = 'auto') -> Batch[np.ndarray]:
+def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
-    device = resolve_torch_device(device)
+    device = resolve_torch_device('auto')
     import torch
     from transformers import CLIPModel, CLIPProcessor
 
@@ -93,15 +93,9 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str, device: str = 'a
 
 
 @pxt.udf(batch_size=4)
-def detr_for_object_detection(
-        image: Batch[PIL.Image.Image],
-        *,
-        model_id: str,
-        threshold: float = 0.5,
-        device: str = 'auto'
-) -> Batch[dict]:
+def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
     env.Env.get().require_package('transformers')
-    device = resolve_torch_device(device)
+    device = resolve_torch_device('auto')
     import torch
     from transformers import DetrImageProcessor, DetrForObjectDetection
 
