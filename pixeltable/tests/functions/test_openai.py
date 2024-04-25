@@ -6,6 +6,7 @@ from pixeltable.tests.utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed,
 from pixeltable.type_system import StringType, ImageType
 
 
+@pytest.mark.remote_api
 class TestOpenai:
 
     def test_audio(self, test_client: pxt.Client) -> None:

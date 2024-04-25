@@ -5,6 +5,7 @@ import pixeltable.exceptions as excs
 from pixeltable.tests.utils import skip_test_if_not_installed, validate_update_status
 
 
+@pytest.mark.remote_api
 class TestFireworks:
 
     def test_fireworks(self, test_client: pxt.Client) -> None:
