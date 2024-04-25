@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Callable, TypeVar, Optional
 
 import PIL.Image
 import numpy as np
@@ -7,6 +7,7 @@ import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.type_system as ts
 from pixeltable.func import Batch
+from pixeltable.functions.util import resolve_torch_device
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
@@ -58,43 +59,57 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((512,), dtype=ts.FloatType(), nullable=False))
 def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from transformers import CLIPModel, CLIPProcessor
 
-    model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
     assert model.config.projection_dim == 512
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
-    inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
-    embeddings = model.get_text_features(**inputs).detach().numpy()
+    with torch.no_grad():
+        inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
+        embeddings = model.get_text_features(**inputs.to(device)).detach().to('cpu').numpy()
+
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((512,), dtype=ts.FloatType(), nullable=False))
 def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from transformers import CLIPModel, CLIPProcessor
 
-    model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
     assert model.config.projection_dim == 512
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
-    inputs = processor(images=image, return_tensors='pt', padding=True)
-    embeddings = model.get_image_features(**inputs).detach().numpy()
+    with torch.no_grad():
+        inputs = processor(images=image, return_tensors='pt', padding=True)
+        embeddings = model.get_image_features(**inputs.to(device)).detach().to('cpu').numpy()
+
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
-@pxt.udf(batch_size=32)
+@pxt.udf(batch_size=4)
 def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
     env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from transformers import DetrImageProcessor, DetrForObjectDetection
 
-    model = _lookup_model(model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'))
+    model = _lookup_model(
+        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'), device=device)
     processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision='no_timm'))
 
-    inputs = processor(images=image, return_tensors='pt')
-    outputs = model(**inputs)
+    with torch.no_grad():
+        inputs = processor(images=image, return_tensors='pt')
+        outputs = model(**inputs.to(device))
+        results = processor.post_process_object_detection(
+            outputs, threshold=threshold, target_sizes=[(img.height, img.width) for img in image]
+        )
 
-    results = processor.post_process_object_detection(outputs, threshold=threshold)
     return [
         {
             'scores': [score.item() for score in result['scores']],
@@ -106,14 +121,23 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
     ]
 
 
-def _lookup_model(model_id: str, create: Callable) -> Any:
-    key = (model_id, create)  # For safety, include the `create` callable in the cache key
+T = TypeVar('T')
+
+
+def _lookup_model(model_id: str, create: Callable[[str], T], device: Optional[str] = None) -> T:
+    from torch import nn
+    key = (model_id, create, device)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
-        _model_cache[key] = create(model_id)
+        model = create(model_id)
+        if device is not None:
+            model.to(device)
+        if isinstance(model, nn.Module):
+            model.eval()
+        _model_cache[key] = model
     return _model_cache[key]
 
 
-def _lookup_processor(model_id: str, create: Callable) -> Any:
+def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
     key = (model_id, create)  # For safety, include the `create` callable in the cache key
     if key not in _processor_cache:
         _processor_cache[key] = create(model_id)
