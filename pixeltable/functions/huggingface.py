@@ -63,7 +63,7 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     import torch
     from transformers import CLIPModel, CLIPProcessor
 
-    model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device, set_eval_mode=True)
+    model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
     assert model.config.projection_dim == 512
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
@@ -81,7 +81,7 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
     import torch
     from transformers import CLIPModel, CLIPProcessor
 
-    model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device, set_eval_mode=True)
+    model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
     assert model.config.projection_dim == 512
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
@@ -100,8 +100,7 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
     from transformers import DetrImageProcessor, DetrForObjectDetection
 
     model = _lookup_model(
-        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'),
-        device=device, set_eval_mode=True)
+        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'), device=device)
     processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision='no_timm'))
 
     with torch.no_grad():
@@ -125,18 +124,14 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
 T = TypeVar('T')
 
 
-def _lookup_model(
-        model_id: str,
-        create: Callable[[str], T],
-        device: Optional[str] = None,
-        set_eval_mode: bool = False
-) -> T:
+def _lookup_model(model_id: str, create: Callable[[str], T], device: Optional[str] = None) -> T:
+    from torch import nn
     key = (model_id, create, device)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
         model = create(model_id)
         if device is not None:
             model.to(device)
-        if set_eval_mode:
+        if isinstance(model, nn.Module):
             model.eval()
         _model_cache[key] = model
     return _model_cache[key]
