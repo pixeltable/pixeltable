@@ -112,7 +112,7 @@ class Function(abc.ABC):
         raise NotImplementedError()
 
 
-@dataclass
+@dataclass(frozen=True)
 class FunctionReference:
     module: str
     qualname: str

@@ -32,7 +32,7 @@ class FunctionRegistry:
 
     def __init__(self):
         self.stored_fns_by_id: Dict[UUID, Function] = {}
-        self.module_fns: Dict[str, Function] = {}  # fqn -> Function
+        self.module_fns: Dict[FunctionReference, Function] = {}
 
     def clear_cache(self) -> None:
         """
@@ -62,8 +62,8 @@ class FunctionRegistry:
     #             fn_path = f'{caller_path}.{name}'  # fully-qualified name
     #             self.module_fns[fn_path] = obj
 
-    def register_function(self, fqn: FunctionReference, fn: Function) -> None:
-        self.module_fns[str(fqn)] = fn
+    def register_function(self, func_ref: FunctionReference, fn: Function) -> None:
+        self.module_fns[func_ref] = fn
 
     def list_functions(self) -> List[Function]:
         # retrieve Function.Metadata data for all existing stored functions from store directly
