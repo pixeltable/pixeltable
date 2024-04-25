@@ -14,14 +14,20 @@ help:
 	@echo "  clean      Clean up re-generatable files, as well as temp files"
 
 poetry.lock: pyproject.toml
+	@echo "Updating poetry.lock ..."
 	@poetry lock --no-update
+	@touch poetry.lock
 
 # use a file to track whether the install has been run
 # avoid re-running the install if install has been done and deps 
 # haven't changed
 .make-install: poetry.lock
-	@echo "Installing development environment..."
-	@poetry install --with=dev
+	@echo "Installing dependencies ..."
+	@poetry run python -m pip install --upgrade pip
+	@poetry install --with dev
+	# YOLOX cannot be installed via poetry, sadly
+	@poetry run python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
+	@echo "Installing Jupyter kernel ..."
 	@poetry run python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@touch .make-install
 
@@ -50,6 +56,7 @@ clean:
 	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
 	@rm -f .make-install || true
 	@rm -rf site || true
+	@rm -rf target || true
 
 .PHONY: build-docs
 build-docs: install
@@ -60,4 +67,3 @@ build-docs: install
 deploy-docs: install
 	@echo "Builds and publishes docs to origin/gh-pages"
 	@poetry run mkdocs gh-deploy --force
-
