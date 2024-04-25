@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import abc
-import importlib
 import inspect
-from typing import Optional, Any, Type, List, Dict, Callable
 import itertools
+from typing import Optional, Any, Type, List, Dict, Callable
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from .function import Function, FunctionReference
 from .signature import Signature, Parameter
-from .globals import validate_symbol_path
 
 
 class Aggregator(abc.ABC):

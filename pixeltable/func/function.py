@@ -4,12 +4,10 @@ import abc
 import importlib
 import inspect
 from dataclasses import dataclass
+from typing import Optional, Dict, Any, Tuple
 
 import pixeltable
 import pixeltable.exceptions as excs
-from typing import Optional, Dict, Any, Tuple
-
-from .globals import resolve_symbol
 from .signature import Signature
 
 

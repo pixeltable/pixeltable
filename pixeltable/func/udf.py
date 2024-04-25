@@ -11,7 +11,6 @@ from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
 from .function import Function, FunctionReference
 from .function_registry import FunctionRegistry
-from .globals import validate_symbol_path
 from .signature import Signature
 
 
