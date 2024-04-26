@@ -169,14 +169,8 @@ class DocumentSplitter(ComponentIterator):
         assert 'separators' in kwargs
         separators = _parse_separators(kwargs['separators'])
 
-        # check dependencies
-        if Separator.SENTENCE in separators:
-            Env.get().require_package('spacy')
-        if Separator.TOKEN_LIMIT in separators:
-            Env.get().require_package('tiktoken')
-
-        limit = kwargs.get('limit', None)
-        overlap = kwargs.get('overlap', None)
+        limit = kwargs.get('limit')
+        overlap = kwargs.get('overlap')
 
         if limit is not None or overlap is not None:
             if Separator.TOKEN_LIMIT not in separators and Separator.CHAR_LIMIT not in separators:
@@ -190,6 +184,12 @@ class DocumentSplitter(ComponentIterator):
                 raise Error('Cannot specify both "token_limit" and "char_limit" separators')
             if kwargs.get('limit') is None:
                 raise Error('limit is required with "token_limit"/"char_limit" separators')
+
+        # check dependencies at the end
+        if Separator.SENTENCE in separators:
+            Env.get().require_package('spacy')
+        if Separator.TOKEN_LIMIT in separators:
+            Env.get().require_package('tiktoken')
 
         return schema, []
 
