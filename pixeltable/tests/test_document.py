@@ -4,7 +4,6 @@ import json
 import re
 from typing import List, Optional, Set
 
-import ftfy
 import pytest
 
 import pixeltable as pxt

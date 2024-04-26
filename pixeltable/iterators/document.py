@@ -184,10 +184,10 @@ class DocumentSplitter(ComponentIterator):
                 raise Error('"limit" must be an integer > 0')
             if overlap is not None and overlap < 0:
                 raise Error('"overlap" must be an integer >= 0')
-        if (Separator.TOKEN_LIMIT in separators) or (Separator.CHAR_LIMIT in separators):
-            if (Separator.TOKEN_LIMIT in separators) and (Separator.CHAR_LIMIT in separators):
+        if Separator.TOKEN_LIMIT in separators or Separator.CHAR_LIMIT in separators:
+            if Separator.TOKEN_LIMIT in separators and Separator.CHAR_LIMIT in separators:
                 raise Error('Cannot specify both "token_limit" and "char_limit" separators')
-            if 'limit' not in kwargs:
+            if 'limit' not in kwargs or kwargs['limit'] is None:
                 raise Error('limit is required with "token_limit"/"char_limit" separators')
 
         return schema, []
