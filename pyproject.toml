@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "pixeltable"
-version = "0.2.4"
+version = "0.2.5"
 description = "Pixeltable: The Multimodal AI Data Plane"
 authors = ["Marcel Kornacker <marcelk@gmail.com>"]
 readme = "README.md"
@@ -110,6 +110,12 @@ max-line-length = 120
 # R0914: Too many local variables
 # W0511: TODO
 disable = ["C0114","C0116","C0415","E1121","R0401","R0801","R0902","R0913","R0914","W0511"]
+
+[tool.pytest.ini_options]
+addopts = "-v -m \"not remote_api\""
+markers = [
+    "remote_api: marks tests as calling a remote API (such as OpenAI)"
+]
 
 [tool.ruff]
 line-length = 120
