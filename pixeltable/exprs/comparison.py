@@ -1,14 +1,14 @@
 from __future__ import annotations
+
 from typing import Optional, List, Any, Dict, Tuple
 
 import sqlalchemy as sql
 
-from .globals import ComparisonOperator
-from .expr import Expr
-from .predicate import Predicate
 from .data_row import DataRow
+from .expr import Expr
+from .globals import ComparisonOperator
+from .predicate import Predicate
 from .row_builder import RowBuilder
-import pixeltable.catalog as catalog
 
 
 class Comparison(Predicate):

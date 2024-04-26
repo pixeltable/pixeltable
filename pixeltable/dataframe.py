@@ -11,6 +11,8 @@ import traceback
 from pathlib import Path
 from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 
+import PIL.Image
+import cv2
 import pandas as pd
 import pandas.io.formats.style
 import sqlalchemy as sql
@@ -31,15 +33,6 @@ __all__ = [
 
 _logger = logging.getLogger('pixeltable')
 
-def _format_img(img: object) -> str:
-    """
-    Create <img> tag for Image object.
-    """
-    assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
-    with io.BytesIO() as buffer:
-        img.save(buffer, 'jpeg')
-        img_base64 = base64.b64encode(buffer.getvalue()).decode()
-        return f'<div style="width:200px;"><img src="data:image/jpeg;base64,{img_base64}" width="200" /></div>'
 
 def _create_source_tag(file_path: str) -> str:
     abs_path = Path(file_path)
@@ -50,21 +43,17 @@ def _create_source_tag(file_path: str) -> str:
     mime_attr = f'type="{mime}"' if mime is not None else ''
     return f'<source src="{src_url}" {mime_attr} />'
 
-def _format_video(file_path: str) -> str:
-    return f'<video controls>{_create_source_tag(file_path)}</video>'
-
-def _format_audio(file_path: str) -> str:
-    return f'<audio controls>{_create_source_tag(file_path)}</audio>'
 
 class DataFrameResultSet:
+
     def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
         self._rows = rows
         self._col_names = col_names
         self._col_types = col_types
         self._formatters = {
-            ts.ImageType: _format_img,
-            ts.VideoType: _format_video,
-            ts.AudioType: _format_audio,
+            ts.ImageType: self._format_img,
+            ts.VideoType: self._format_video,
+            ts.AudioType: self._format_audio,
         }
 
     def __len__(self) -> int:
@@ -85,9 +74,7 @@ class DataFrameResultSet:
             for col_name, col_type in zip(self._col_names, self._col_types)
             if col_type.__class__ in self._formatters
         }
-
-        # TODO: why does mypy complain about formatters having an incorrect type?
-        return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)  # type: ignore[arg-type]
+        return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)
 
     def __str__(self) -> str:
         return self.to_pandas().to_string()
@@ -101,6 +88,64 @@ class DataFrameResultSet:
 
     def _row_to_dict(self, row_idx: int) -> Dict[str, Any]:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
+
+    # Formatters
+
+    def _format_img(self, img: Image.Image) -> str:
+        """
+        Create <img> tag for Image object.
+        """
+        assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
+        # Try to make it look decent in a variety of display scenarios
+        if len(self._rows) > 1:
+            width = 240  # Multiple rows: display small images
+        elif len(self._col_names) > 1:
+            width = 480  # Multiple columns: display medium images
+        else:
+            width = 640  # A single image: larger display
+        with io.BytesIO() as buffer:
+            img.save(buffer, 'jpeg')
+            img_base64 = base64.b64encode(buffer.getvalue()).decode()
+            return f'''
+            <div style="width:{width}px;">
+                <img src="data:image/jpeg;base64,{img_base64}" width="{width}" />
+            </div>
+            '''
+
+    def _format_video(self, file_path: str) -> str:
+        thumb_tag = ""
+        # Attempt to extract the first frame of the video to use as a thumbnail,
+        # so that the notebook can be exported as HTML and viewed in contexts where
+        # the video itself is not accessible.
+        # TODO(aaron-siegel): If the video is backed by a concrete external URL,
+        # should we link to that instead?
+        video_reader = cv2.VideoCapture(str(file_path))
+        if video_reader.isOpened():
+            status, img_array = video_reader.read()
+            if status:
+                img_array = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
+                thumb = PIL.Image.fromarray(img_array)
+                with io.BytesIO() as buffer:
+                    thumb.save(buffer, 'jpeg')
+                    thumb_base64 = base64.b64encode(buffer.getvalue()).decode()
+                    thumb_tag = f'poster="data:image/jpeg;base64,{thumb_base64}"'
+            video_reader.release()
+        if len(self._rows) > 1:
+            width = 320
+        elif len(self._col_names) > 1:
+            width = 480
+        else:
+            width = 800
+        return f'''
+        <div style="width:{width}px;">
+            <video controls width="{width}" {thumb_tag}>
+                {_create_source_tag(file_path)}
+            </video>
+        </div>
+        '''
+
+    def _format_audio(self, file_path: str) -> str:
+        return f'<audio controls>{_create_source_tag(file_path)}</audio>'
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
@@ -171,7 +216,6 @@ class AnalysisInfo:
         exprs.Expr.release_list(self.agg_output_exprs)
         if self.filter is not None:
             self.filter.release()
-
 
 
 class DataFrame:

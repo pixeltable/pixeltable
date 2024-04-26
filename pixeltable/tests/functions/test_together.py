@@ -5,6 +5,7 @@ import pixeltable.exceptions as excs
 from pixeltable.tests.utils import skip_test_if_not_installed, validate_update_status
 
 
+@pytest.mark.remote_api
 class TestTogether:
 
     def test_completions(self, test_client: pxt.Client) -> None:

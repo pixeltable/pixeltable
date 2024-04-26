@@ -99,6 +99,10 @@ class TestSnapshot:
         assert 'cannot update a snapshot' in str(excinfo.value).lower()
 
         with pytest.raises(pxt.Error) as excinfo:
+            _ = snap.batch_update([{'c3': 1.0, 'c2': 1}])
+        assert 'cannot update a snapshot' in str(excinfo.value).lower()
+
+        with pytest.raises(pxt.Error) as excinfo:
             _ = snap.revert()
         assert 'cannot revert a snapshot' in str(excinfo.value).lower()
 

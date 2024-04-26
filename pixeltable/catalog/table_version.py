@@ -630,7 +630,67 @@ class TableVersion:
         return result
 
     def update(
-            self, update_targets: Optional[List[Tuple[Column, 'pixeltable.exprs.Expr']]] = None,
+            self, update_targets: dict[Column, 'pixeltable.exprs.Expr'],
+            where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
+    ) -> UpdateStatus:
+        with Env.get().engine.begin() as conn:
+            return self._update(conn, update_targets, where_clause, cascade)
+
+    def batch_update(
+            self, batch: list[dict[Column, 'pixeltable.exprs.Expr']], rowids: list[Tuple[int, ...]],
+            cascade: bool = True
+    ) -> UpdateStatus:
+        """Update rows in batch.
+        Args:
+            batch: one dict per row, each mapping Columns to LiteralExprs representing the new values
+            rowids: if not empty, one tuple per row, each containing the rowid values for the corresponding row in batch
+        """
+        # if we do lookups of rowids, we must have one for each row in the batch
+        assert len(rowids) == 0 or len(rowids) == len(batch)
+        import pixeltable.exprs as exprs
+        result_status = UpdateStatus()
+        cols_with_excs: set[str] = set()
+        updated_cols: set[str] = set()
+        pk_cols = self.primary_key_columns()
+        use_rowids = len(rowids) > 0
+
+        with Env.get().engine.begin() as conn:
+            for i, row in enumerate(batch):
+                where_clause: Optional[exprs.Expr] = None
+                if use_rowids:
+                    # construct Where clause to match rowid
+                    num_rowid_cols = len(self.store_tbl.rowid_columns())
+                    for col_idx in range(num_rowid_cols):
+                        assert len(rowids[i]) == num_rowid_cols
+                        clause = exprs.RowidRef(self, col_idx) == rowids[i][col_idx]
+                        if where_clause is None:
+                            where_clause = clause
+                        else:
+                            where_clause = where_clause & clause
+                else:
+                    # construct Where clause for primary key columns
+                    for col in pk_cols:
+                        assert col in row
+                        clause = exprs.ColumnRef(col) == row[col]
+                        if where_clause is None:
+                            where_clause = clause
+                        else:
+                            where_clause = where_clause & clause
+
+                update_targets = {col: row[col] for col in row if col not in pk_cols}
+                status = self._update(conn, update_targets, where_clause, cascade)
+                result_status.num_rows += status.num_rows
+                result_status.num_excs += status.num_excs
+                result_status.num_computed_values += status.num_computed_values
+                cols_with_excs.update(status.cols_with_excs)
+                updated_cols.update(status.updated_cols)
+
+            result_status.cols_with_excs = list(cols_with_excs)
+            result_status.updated_cols = list(updated_cols)
+            return result_status
+
+    def _update(
+            self, conn: sql.engine.Connection, update_targets: dict[Column, 'pixeltable.exprs.Expr'],
             where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
@@ -640,21 +700,18 @@ class TableVersion:
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
         """
-        if update_targets is None:
-            update_targets = []
         assert not self.is_snapshot
         from pixeltable.plan import Planner
         plan, updated_cols, recomputed_cols = \
             Planner.create_update_plan(self.path, update_targets, [], where_clause, cascade)
-        with Env.get().engine.begin() as conn:
-            ts = time.time()
-            result = self._update(
-                plan, where_clause.sql_expr() if where_clause is not None else None, recomputed_cols,
-                base_versions=[], conn=conn, ts=ts, cascade=cascade)
-            result.updated_cols = updated_cols
-            return result
+        ts = time.time()
+        result = self._propagate_update(
+            plan, where_clause.sql_expr() if where_clause is not None else None, recomputed_cols,
+            base_versions=[], conn=conn, ts=ts, cascade=cascade)
+        result.updated_cols = updated_cols
+        return result
 
-    def _update(
+    def _propagate_update(
             self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ClauseElement],
             recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
             ts: float, cascade: bool
@@ -679,7 +736,7 @@ class TableVersion:
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner
                     plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
-                status = view._update(
+                status = view._propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, conn=conn, ts=ts, cascade=True)
                 result.num_rows += status.num_rows
                 result.num_excs += status.num_excs
@@ -873,6 +930,10 @@ class TableVersion:
     def user_columns(self) -> List[Column]:
         """Return all non-system columns"""
         return [c for c in self.cols if not self.is_system_column(c)]
+
+    def primary_key_columns(self) -> List[Column]:
+        """Return all non-system columns"""
+        return [c for c in self.cols if c.is_pk]
 
     def get_required_col_names(self) -> List[str]:
         """Return the names of all columns for which values must be specified in insert()"""
