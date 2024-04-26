@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-12, windows-22]
+        os: [ubuntu-22.04, macos-12, windows-2022]
         python-version: ["3.9", "3.10", "3.11", "3.12"]
         poetry-version: ["1.7.1"]
         poetry-options: ["--with dev"]
