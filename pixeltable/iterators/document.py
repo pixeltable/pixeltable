@@ -82,7 +82,8 @@ _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 class DocumentSplitter(ComponentIterator):
     """Iterator over pieces of a document. The document is split into chunks based on the specified separators.
     The iterator output tuples are of schema {'text': StringType()}, but can include additional metadata fields if specified
-    in the `metadata` argument as explained below.
+    in the `metadata` argument as explained below, the chunk text is passed through `ftfy.fix_text` to fix up common problems
+    with unicode sequences.
 
     Args:
         `metadata`: which additional metadata fields to include in the output schema:
@@ -187,7 +188,7 @@ class DocumentSplitter(ComponentIterator):
         if Separator.TOKEN_LIMIT in separators or Separator.CHAR_LIMIT in separators:
             if Separator.TOKEN_LIMIT in separators and Separator.CHAR_LIMIT in separators:
                 raise Error('Cannot specify both "token_limit" and "char_limit" separators')
-            if 'limit' not in kwargs or kwargs['limit'] is None:
+            if kwargs.get('limit') is None:
                 raise Error('limit is required with "token_limit"/"char_limit" separators')
 
         return schema, []
