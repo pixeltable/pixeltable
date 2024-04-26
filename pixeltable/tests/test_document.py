@@ -101,6 +101,7 @@ class TestDocument:
 
     def test_doc_splitter(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('tiktoken')
+        skip_test_if_not_installed('fitz')
 
         file_paths = self.valid_doc_paths()
         cl = test_client
