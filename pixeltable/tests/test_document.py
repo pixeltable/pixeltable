@@ -19,23 +19,20 @@ from pixeltable.tests.utils import (
 from pixeltable.type_system import DocumentType
 
 
-def get_full_text_from_pdf(pdf_path: str) -> str:
-    import fitz
-    doc = fitz.open(pdf_path)
-    full_text_parts = []
-    for page in doc:
-        full_text_parts.append(page.get_text())
+def _check_pdf_metadata(rec, sep1):
+    if sep1 in ['page', 'paragraph', 'sentence']:
+        assert rec.get('page') is not None
+    if sep1 in ['paragraph', 'sentence']:
+        box = rec.get('bounding_box')
+        assert box is not None
+        assert box.get('x1') is not None
+        assert box.get('y1') is not None
 
-    full_text = '\n'.join(full_text_parts)
-    return ftfy.fix_text(full_text)
-
-
-def normalize(text: str):
-    """ for comparison """
+def normalize(text: str) -> str:
     res = re.sub(r'\s+', '', text)
     return res
 
-def diff_snippet(text1: str, text2: str, diff_line_limit: Optional[int] = 20):
+def diff_snippet(text1: str, text2: str, diff_line_limit: Optional[int] = 20) -> str:
     diff = difflib.unified_diff(text1.splitlines(), text2.splitlines(), lineterm='')
     if diff_line_limit is not None:
         snippet = [line for i, line in enumerate(diff) if i < diff_line_limit]
@@ -73,105 +70,114 @@ class TestDocument:
         example_file = [p for p in self.valid_doc_paths() if p.endswith('.pdf')][0]
 
         invalid_separators = ['page paragraph',  # no comma
-                              'pagagaph' # non existent separator
-                              ]
+                              'pagagaph',  # non existent separator
+                              'page, block',  # block does not exist
+                             ]
 
         for sep in invalid_separators:
             with pytest.raises(pxt.Error) as exc_info:
                 _ = DocumentSplitter(document=example_file, separators=sep)
             assert 'Invalid separator' in str(exc_info.value)
 
-        invalid_metadata = ['chapter']  # non existent metadata
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = DocumentSplitter(document=example_file, separators='char_limit, token_limit', limit=10)
+        assert 'both' in str(exc_info.value)
+
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = DocumentSplitter(document=example_file, separators='char_limit')
+        assert 'limit' in str(exc_info.value)
+
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = DocumentSplitter(document=example_file, separators='token_limit')
+        assert 'limit' in str(exc_info.value)
+
+
+        invalid_metadata = ['chapter',  # invalid
+                            'page, bounding_box, chapter',  # mix of valid and invalid
+                            'page bounding_box',  # separator
+                            ]
         for md in invalid_metadata:
             with pytest.raises(pxt.Error) as exc_info:
                 _ = DocumentSplitter(document=example_file, separators='', metadata=md)
             assert 'Invalid metadata' in str(exc_info.value)
 
-    def test_pdf_splitter(self, test_client: pxt.Client) -> None:
-        skip_test_if_not_installed('fitz')
-        skip_test_if_not_installed('tiktoken')
-
-        file_paths = [p for p in self.valid_doc_paths() if p.endswith('.pdf')]
-
-        assert len(file_paths) > 0
-        for path in file_paths:
-            full_text = normalize(get_full_text_from_pdf(path))
-
-            level1 = ['', 'page', 'paragraph', 'sentence']
-            level2 = ['', 'char_limit', 'token_limit']
-
-            for sep1 in level1:
-                for sep2 in level2:
-                    chunk_limits = [10, 20, 100] if sep2 else [None]
-                    for limit in chunk_limits:
-                        iterator_args = {
-                            'document': path,
-                            'separators': ','.join([sep1, sep2]),
-                            'metadata': 'page,bounding_box',
-                        }
-                        if sep2:
-                            iterator_args['limit'] = limit
-                            iterator_args['overlap'] = 0
-
-                        chunks = list(DocumentSplitter(**iterator_args))
-                        recovered_text = ' '.join([c['text'] for c in chunks])
-                        diff_str = diff_snippet(full_text, normalize(recovered_text))
-                        assert not diff_str, f'{iterator_args=}\n{diff_str}'
-                        assert 'page' in chunks[0]
-                        assert 'bounding_box' in chunks[0]
-
-                        if sep1 not in ['']:
-                            assert 'page' in chunks[0]
-                            assert chunks[0]['page'] is not None
-
-                        if sep1 not in ['', 'page']:
-                            assert 'bounding_box' in chunks[0]
-                            bounding_box = chunks[0]['bounding_box']
-                            assert bounding_box is not None
-                            assert 'x1' in bounding_box
-                            assert bounding_box['x1'] is not None
-
-
     def test_doc_splitter(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('tiktoken')
-        file_paths = [p for p in self.valid_doc_paths() if not p.endswith('.pdf')]
+
+        file_paths = self.valid_doc_paths()
         cl = test_client
         doc_t = cl.create_table('docs', {'doc': DocumentType()})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
+        import tiktoken
+        encoding = tiktoken.get_encoding('cl100k_base')
 
         # run all combinations of (heading, paragraph, sentence) x (token_limit, char_limit, None)
         # and make sure they extract the same text in aggregate
         all_text_reference: Optional[str] = None  # all text as a single string; normalized
         headings_reference: Set[str] = {}  # headings metadata as a json-serialized string
-        for sep1 in ['heading', 'paragraph', 'sentence']:
-            for sep2 in ['', 'token_limit', 'char_limit']:
-                chunk_limits = [10, 20, 100] if sep2 else [None]
-                for limit in chunk_limits:
-                    iterator_args = {
-                        'document': doc_t.doc,
-                        'separators': sep1 + (',' + sep2 if sep2 is not None else ''),
-                        'metadata': 'title,heading,sourceline'
-                    }
-                    if sep2:
-                        iterator_args['limit'] = limit
-                        iterator_args['overlap'] = 0
-                    chunks_t = cl.create_view(
-                        f'chunks', doc_t, iterator_class=DocumentSplitter, iterator_args=iterator_args)
-                    res = list(chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect())
+        import itertools
+        for (sep1, sep2) in itertools.product(['', 'heading', 'page', 'paragraph', 'sentence'],
+                                              ['', 'token_limit', 'char_limit']):
+            chunk_limits = [10, 20, 100] if sep2 else [None]
+            for limit in chunk_limits:
+                iterator_args = {
+                    'document': doc_t.doc,
+                    'separators': ','.join([sep1, sep2]),
+                    'metadata': 'title,heading,sourceline,page,bounding_box'
+                }
+                if sep2:
+                    iterator_args['limit'] = limit
+                    iterator_args['overlap'] = 0
+                chunks_t = cl.create_view(
+                    f'chunks', doc_t, iterator_class=DocumentSplitter, iterator_args=iterator_args)
+                res = list(chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect())
 
-                    if all_text_reference is None:
-                        all_text_reference = normalize(''.join([r['text'] for r in res]))
-                        headings_reference = set(json.dumps(r['heading']) for r in res)
-                    else:
-                        all_text = normalize(''.join([r['text'] for r in res]))
-                        headings = set(json.dumps(r['heading']) for r in res)
+                if all_text_reference is None:
+                    assert sep1 == '' and sep2 == ''
+                    # when sep1 and sep2 are both '', there should be a single result per input file.
+                    assert len(res) == len(file_paths)
+                    # check that all the expected metadata exists as a field
+                    for r in res:
+                        assert 'title' in r
+                        assert 'heading' in r
+                        assert 'sourceline' in r
+                        assert 'page' in r
+                        assert 'bounding_box' in r
 
-                        diff = diff_snippet(all_text, all_text_reference)
-                        assert not diff, f'{sep1}, {sep2}, {limit}\n{diff}'
-                        assert headings == headings_reference, f'{sep1}, {sep2}, {limit}'
-                        # TODO: verify chunk limit
-                    cl.drop_table('chunks')
+                    all_text_reference = normalize(''.join([r['text'] for r in res]))
+
+                    # exclude markdown from heading checks at the moment
+                    headings_reference = {json.dumps(r['heading']) for r in res if not r['doc'].endswith('md')}
+                else:
+                    all_text = normalize(''.join([r['text'] for r in res]))
+                    headings = {json.dumps(r['heading']) for r in res if not r['doc'].endswith('md')}
+
+                    diff = diff_snippet(all_text, all_text_reference)
+                    assert not diff, f'{sep1}, {sep2}, {limit}\n{diff}'
+                    assert headings == headings_reference, f'{sep1}, {sep2}, {limit}'
+
+                    # check splitter honors limits
+                    if sep2 == 'char_limit':
+                        for r in res:
+                            assert len(r['text']) <= limit
+                    if sep2 == 'token_limit':
+                        for r in res:
+                            tokens = encoding.encode(r['text'])
+                            assert len(tokens) <= limit
+
+                    # check expected metadata is present
+                    for r in res:
+                        assert 'title' in r
+                        assert 'heading' in r
+                        assert 'sourceline' in r
+                        assert 'page' in r
+                        assert 'bounding_box' in r
+
+                        if r['doc'].endswith('pdf'):
+                            _check_pdf_metadata(r, sep1)
+
+                cl.drop_table('chunks')
 
     def test_doc_splitter_headings(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('spacy')

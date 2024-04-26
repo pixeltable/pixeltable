@@ -86,23 +86,23 @@ class DocumentSplitter(ComponentIterator):
 
     Args:
         `metadata`: which additional metadata fields to include in the output schema:
-             'title', 'headings' (HTML and Markdown), 'sourceline' (HTML), 'page_number' (PDF), 'bounding_box' (PDF).
-             The input can be a comma-separated string of these values eg. 'title,headings,sourceline'.
+             'title', 'heading' (HTML and Markdown), 'sourceline' (HTML), 'page' (PDF), 'bounding_box' (PDF).
+             The input can be a comma-separated string of these values eg. 'title,heading,sourceline'.
         `separators`: which separators to use to split the document into rows. Options are:
              'heading', 'paragraph', 'sentence', 'token_limit', 'char_limit', 'page'. As with metadata, this is can be a
-                comma-separated string eg. 'heading,token_limit'.
+                comma-separated string eg. 'heading, token_limit'.
         `limit`: the maximum number of tokens or characters in each chunk if 'token_limit' or 'char_limit' is specified.
     """
     METADATA_COLUMN_TYPES = {
-        ChunkMetadata.TITLE: StringType(),
-        ChunkMetadata.HEADING: JsonType(),
-        ChunkMetadata.SOURCELINE: IntType(),
-        ChunkMetadata.PAGE: IntType(),
-        ChunkMetadata.BOUNDING_BOX: JsonType(),
+        ChunkMetadata.TITLE: StringType(nullable=True),
+        ChunkMetadata.HEADING: JsonType(nullable=True),
+        ChunkMetadata.SOURCELINE: IntType(nullable=True),
+        ChunkMetadata.PAGE: IntType(nullable=True),
+        ChunkMetadata.BOUNDING_BOX: JsonType(nullable=True),
     }
 
     def __init__(
-            self, document: str, *, separators: str, limit: int = 0, overlap: int = 0, metadata: str = '',
+            self, document: str, *, separators: str, limit: Optional[int] = None, overlap: Optional[int] = None, metadata: str = '',
             html_skip_tags: Optional[List[str]] = None, tiktoken_encoding: Optional[str] = 'cl100k_base',
             tiktoken_target_model: Optional[str] = None
     ):
@@ -110,13 +110,17 @@ class DocumentSplitter(ComponentIterator):
             html_skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)
         assert self._doc_handle is not None
+        # calling the output_schema method to validate the input arguments
+        self.output_schema(separators=separators, metadata=metadata, limit=limit, overlap=overlap)
         self._separators = _parse_separators(separators)
         self._metadata_fields = _parse_metadata(metadata)
-        self._doc_title = \
-            self._doc_handle.bs_doc.title.get_text().strip() if self._doc_handle.bs_doc is not None else ''
-        self._limit = limit
+        if self._doc_handle.bs_doc is not None:
+            self._doc_title = ftfy.fix_text(self._doc_handle.bs_doc.title.get_text().strip())
+        else:
+            self._doc_title = ''
+        self._limit = 0 if limit is None else limit
         self._skip_tags = html_skip_tags
-        self._overlap = overlap
+        self._overlap = 0 if overlap is None else overlap
         self._tiktoken_encoding = tiktoken_encoding
         self._tiktoken_target_model = tiktoken_target_model
 
@@ -170,15 +174,18 @@ class DocumentSplitter(ComponentIterator):
         if Separator.TOKEN_LIMIT in separators:
             Env.get().require_package('tiktoken')
 
-        if 'limit' in kwargs or 'overlap' in kwargs:
+        limit = kwargs.get('limit', None)
+        overlap = kwargs.get('overlap', None)
+
+        if limit is not None or overlap is not None:
             if Separator.TOKEN_LIMIT not in separators and Separator.CHAR_LIMIT not in separators:
                 raise Error('limit/overlap requires the "token_limit" or "char_limit" separator')
-            if 'limit' in kwargs and int(kwargs['limit']) <= 0:
+            if limit is not None and limit <= 0:
                 raise Error('"limit" must be an integer > 0')
-            if 'overlap' in kwargs and int(kwargs['overlap']) < 0:
+            if overlap is not None and overlap < 0:
                 raise Error('"overlap" must be an integer >= 0')
-        if Separator.TOKEN_LIMIT in separators or Separator.CHAR_LIMIT in separators:
-            if 'token_limit' in separators and 'char_limit' in separators:
+        if (Separator.TOKEN_LIMIT in separators) or (Separator.CHAR_LIMIT in separators):
+            if (Separator.TOKEN_LIMIT in separators) and (Separator.CHAR_LIMIT in separators):
                 raise Error('Cannot specify both "token_limit" and "char_limit" separators')
             if 'limit' not in kwargs:
                 raise Error('limit is required with "token_limit"/"char_limit" separators')
@@ -331,6 +338,7 @@ class DocumentSplitter(ComponentIterator):
         emit_on_page = Separator.PAGE in self._separators or emit_on_paragraph
 
         accumulated_text = []  # invariant: all elements are ftfy clean and non-empty
+
         def _add_cleaned_text(raw_text: str) -> None:
             fixed = ftfy.fix_text(raw_text)
             if fixed:
@@ -343,11 +351,14 @@ class DocumentSplitter(ComponentIterator):
 
         for page_number, page in enumerate(doc.pages()):
             for block in page.get_text('blocks'):
+                # there is no concept of paragraph in pdf, block is the closest thing
+                # we can get (eg a paragraph in text may cut across pages)
+                # see pymupdf docs https://pymupdf.readthedocs.io/en/latest/app1.html
+                # other libraries like pdfminer also lack an explicit paragraph concept
                 x1, y1, x2, y2, text, _, _ = block
                 _add_cleaned_text(text)
                 if accumulated_text and emit_on_paragraph:
-                    bbox = {'x1': x1, 'y1': y1,
-                            'x2': x2, 'y2': y2}
+                    bbox = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
                     metadata = DocumentSectionMetadata(page=page_number, bounding_box=bbox)
                     yield DocumentSection(text=_emit_text(), metadata=metadata)
 
@@ -357,8 +368,7 @@ class DocumentSplitter(ComponentIterator):
                 accumulated_text = []
 
         if accumulated_text and not emit_on_page:
-            yield DocumentSection(text=_emit_text(),
-                                metadata=DocumentSectionMetadata())
+            yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata())
 
     def _sentence_sections(self, input_sections: Iterable[DocumentSection]) -> Iterator[DocumentSection]:
         """Split the input sections into sentences"""
@@ -384,9 +394,10 @@ class DocumentSplitter(ComponentIterator):
             text = None
             while start_idx < len(tokens):
                 end_idx = min(start_idx + self._limit, len(tokens))
-                while end_idx > start_idx:  # find a cutoff point that doesnt break utf encoding of sequence
+                while end_idx > start_idx:
+                    # find a cutoff point that doesn't cut in the middle of utf8 multi-byte sequences
                     try:
-                        # Check if the truncated data can be properly decoded
+                        # check that the truncated data can be properly decoded
                         text = encoding.decode(tokens[start_idx:end_idx], errors='strict')
                         break
                     except UnicodeDecodeError:

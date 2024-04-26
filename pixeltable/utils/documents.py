@@ -12,22 +12,23 @@ class DocumentHandle:
     pdf_doc: Optional['fitz.Document'] = None
 
 def get_document_handle(path: str) -> Optional[DocumentHandle]:
-    # NB: try pdf first, because correct PDF must be opened in binary mode
+    # try pdf first, because a correct PDF is a binary format that
+    # would trigger encoding exceptions if oppened as utf8.
     pdf_doc = get_pdf_handle(path)
     if pdf_doc is not None:
         return DocumentHandle(format=ts.DocumentType.DocumentFormat.PDF, pdf_doc=pdf_doc)
-
-    # currently the rest of the types are text-based, so we can open them in utf8 mode
+    # currently the rest of the types are text-based, so we can open them in utf8 mode once
     try:
         with open(path, 'r', encoding='utf8') as file:
             contents = file.read()
     except UnicodeDecodeError:
+        # not pdf, and also not valid text file
         return None
     md_ast = get_markdown_handle(contents)
     if md_ast is not None:
         return DocumentHandle(format=ts.DocumentType.DocumentFormat.MD, md_ast=md_ast)
-    # NB: get_html_handle must be last, because the bs4 will return a handle for md files as well,
-    # and we want to prefer the md handle.
+    # get_html_handle must happen after markdown, because bs4 will appear to succeed
+    # for md files as well.
     bs_doc = get_html_handle(contents)
     if bs_doc is not None:
         return DocumentHandle(format=ts.DocumentType.DocumentFormat.HTML, bs_doc=bs_doc)
@@ -53,7 +54,7 @@ def get_markdown_handle(text: str) -> Optional[Dict]:
         return None
 
 def get_pdf_handle(path : str) -> Optional['fitz.Document']:
-    import fitz # aka pymupdf
+    import fitz  # aka pymupdf
     try:
         doc = fitz.open(path)
         # check pdf (bc it will work for images)

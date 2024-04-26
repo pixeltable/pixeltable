@@ -874,19 +874,3 @@ class DocumentType(ColumnType):
                 raise excs.Error(f'Not a recognized document format: {val}')
         except Exception as e:
             raise excs.Error(f'Not a recognized document format: {val}') from None
-
-# A dictionary mapping various Python types to their respective ColumnTypes.
-# This can be used to infer Pixeltable ColumnTypes from type hints on Python
-# functions. (Since Python functions do not necessarily have type hints, this
-# should always be an optional/convenience inference.)
-_python_type_to_column_type: dict[type, ColumnType] = {
-    str: StringType(),
-    int: IntType(),
-    float: FloatType(),
-    bool: BoolType(),
-    datetime.datetime: TimestampType(),
-    datetime.date: TimestampType(),
-    list: JsonType(),
-    dict: JsonType(),
-    PIL.Image.Image: ImageType()
-}
