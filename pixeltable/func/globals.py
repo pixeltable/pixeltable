@@ -9,13 +9,14 @@ import pixeltable.exceptions as excs
 def resolve_symbol(symbol_path: str) -> Optional[object]:
     path_elems = symbol_path.split('.')
     module: Optional[ModuleType] = None
-    i = len(path_elems)
-    while module is None:
-        i -= 1
+    i = len(path_elems) - 1
+    while i > 0 and module is None:
         try:
             module = importlib.import_module('.'.join(path_elems[:i]))
         except ModuleNotFoundError:
-            pass
+            i -= 1
+    if i == 0:
+        return None  # Not resolvable
     obj = module
     for el in path_elems[i:]:
         obj = getattr(obj, el)
