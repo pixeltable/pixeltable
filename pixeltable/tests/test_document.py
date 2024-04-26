@@ -62,26 +62,25 @@ class TestDocument:
         assert status.num_rows == len(file_paths)
         assert status.num_excs == len(file_paths)
 
-    def test_invalid_splitter(self, test_client: pxt.Client) -> None:
+    def test_invalid_arguments(self, test_client: pxt.Client) -> None:
         """ Test input parsing provides useful error messages
         """
-
         example_file = [p for p in self.valid_doc_paths() if p.endswith('.pdf')][0]
 
+        # test invalid separators, or combinations of separators
         invalid_separators = ['page paragraph',  # no comma
                               'pagagaph',  # non existent separator
                               'page, block',  # block does not exist
                              ]
-
         for sep in invalid_separators:
             with pytest.raises(pxt.Error) as exc_info:
                 _ = DocumentSplitter(document=example_file, separators=sep)
             assert 'Invalid separator' in str(exc_info.value)
-
         with pytest.raises(pxt.Error) as exc_info:
             _ = DocumentSplitter(document=example_file, separators='char_limit, token_limit', limit=10)
         assert 'both' in str(exc_info.value)
 
+        # test that limit is required for char_limit and token_limit
         with pytest.raises(pxt.Error) as exc_info:
             _ = DocumentSplitter(document=example_file, separators='char_limit')
         assert 'limit' in str(exc_info.value)
@@ -90,7 +89,7 @@ class TestDocument:
             _ = DocumentSplitter(document=example_file, separators='token_limit')
         assert 'limit' in str(exc_info.value)
 
-
+        # test invalid metadata
         invalid_metadata = ['chapter',  # invalid
                             'page, bounding_box, chapter',  # mix of valid and invalid
                             'page bounding_box',  # separator
