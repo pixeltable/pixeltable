@@ -23,7 +23,7 @@ from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
 from pixeltable import metadata
-
+from pixeltable.utils.http_server import FixedRootHandler, LoggingHTTPServer
 
 class Env:
     """
@@ -56,7 +56,7 @@ class Env:
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
         self._nos_client: Optional[Any] = None
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
-        self._httpd: Optional[socketserver.TCPServer] = None
+        self._httpd: Optional[http.server.ThreadingHTTPServer] = None
         self._http_address: Optional[str] = None
 
         self._registered_clients: dict[str, Any] = {}
@@ -204,6 +204,14 @@ class Env:
         av_logger.addHandler(av_fh)
         av_logger.propagate = False
 
+        # configure web-server logging
+        http_logfilename = self._logfilename.replace('.log', '_http.log')
+        http_fh = logging.FileHandler(self._log_dir / http_logfilename, mode='w')
+        http_fh.setFormatter(logging.Formatter(self._log_fmt_str))
+        http_logger = logging.getLogger('pixeltable.http.server')
+        http_logger.addHandler(http_fh)
+        http_logger.propagate = False
+
         # empty tmp dir
         for path in glob.glob(f'{self._tmp_dir}/*'):
             os.remove(path)
@@ -302,10 +310,7 @@ class Env:
         """
         # Port 0 means OS picks one for us.
         address = ("127.0.0.1", 0)
-        class FixedRootHandler(http.server.SimpleHTTPRequestHandler):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, directory='/', **kwargs)
-        self._httpd = socketserver.TCPServer(address, FixedRootHandler)
+        self._httpd = LoggingHTTPServer(address, FixedRootHandler)
         port = self._httpd.server_address[1]
         self._http_address = f'http://127.0.0.1:{port}'
 
