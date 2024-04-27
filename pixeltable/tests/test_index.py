@@ -43,6 +43,7 @@ class TestIndex:
             t.drop_index(column_name='img')
 
     def test_search_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
+        skip_test_if_not_installed('transformers')
         t = indexed_img_tbl
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.img.similarity(('red truck',))).limit(1).collect()
@@ -155,6 +156,7 @@ class TestIndex:
         assert 'does not exist' in str(exc_info.value).lower()
 
     def test_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
+        skip_test_if_not_installed('transformers')
         img_t = small_img_tbl
 
         with pytest.raises(pxt.Error) as exc_info:
