@@ -14,7 +14,7 @@
         <link rel="prev" href="../../getting-started/">
       
       
-        <link rel="next" href="../image-operations/">
+        <link rel="next" href="../object-detection-in-videos/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -239,7 +239,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../api_cheat_sheet/" class="md-nav__link">
+      <a href="../../api-cheat-sheet/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -433,49 +433,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../image-operations/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Image Operations in Pixeltable
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../comparing_object_detection_models_for_video/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Comparing Object Detection Models for Video
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../object_detection_in_videos.ipynb" class="md-nav__link">
+      <a href="../object-detection-in-videos/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -496,7 +454,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../openai_demo/" class="md-nav__link">
+      <a href="../openai-demo/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -582,7 +540,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../howto/working_with_external_files/" class="md-nav__link">
+      <a href="../../howto/working-with-external-files/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -668,7 +626,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../api/data_frame/" class="md-nav__link">
+      <a href="../../api/data-frame/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -689,7 +647,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../api/insertable_table/" class="md-nav__link">
+      <a href="../../api/insertable-table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1264,13 +1222,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><a href="https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/master/docs/tutorials/pixeltable-basics.ipynb"><img alt="Kaggle" src="https://kaggle.com/static/images/open-in-kaggle.svg"/></a>  
 <a href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/tutorials/pixeltable-basics.ipynb" target="_blank">
 <img alt="Open In Colab" src="https://colab.research.google.com/assets/colab-badge.svg"/>
-</a>
+</a></p>
 <h1 id="pixeltable-basics">Pixeltable Basics<a class="anchor-link" href="#pixeltable-basics">¶</a></h1><p>Welcome to Pixeltable! In this tutorial, we'll survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations.</p>
 <p>If you want to follow along with this tutorial interactively, there are two ways to go.</p>
 <ul>
-<li>Use a Google colab container (easiest): Click on the badge above, and you can just start running commands in the notebook.</li>
+<li>Use a Kaggle or Colab container (easiest): Click on one of the badges above.</li>
 <li>Locally in a self-managed Python environment: You'll probably want to create your own empty notebook, then copy-paste each command from the website. Be sure your Jupyter kernel is running in a Python virtual environment; you can check out the <a href="https://pixeltable.github.io/pixeltable/getting-started/">Getting Started with Pixeltable</a> guide for step-by-step instructions.</li>
 </ul>
 <h2 id="install-python-packages">Install Python Packages<a class="anchor-link" href="#install-python-packages">¶</a></h2><p>First run the following command to install Pixeltable and related libraries needed for this tutorial.</p>
@@ -1296,9 +1255,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">pip</span> <span class="n">install</span> <span class="n">pixeltable</span> <span class="n">torch</span> <span class="n">transformers</span> <span class="n">openai</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">pip</span> <span class="n">install</span> <span class="n">torch</span> <span class="n">transformers</span> <span class="n">openai</span> <span class="n">pixeltable</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">%pip install pixeltable torch transformers openai</div>
+<div class="clipboard-copy-txt" id="cell-1">%pip install torch transformers openai pixeltable</div>
 </div>
 </div>
 </div>
@@ -2684,9 +2643,9 @@ Added 6 column values with 0 errors.
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p>Congratulations! You've reached the end of the tutorial. Hopefully, this gives a good overview of the capabilities of Pixeltable, but there's much more to explore. As a next step, you might check out one of the other tutorials, depending on your interests:</p>
 <ul>
-<li><a href="https://pixeltable.github.io/pixeltable/tutorials/image-operations/">Image Operations in Pixeltable</a></li>
 <li><a href="https://pixeltable.github.io/pixeltable/tutorials/rag-demo/">RAG Operations in Pixeltable</a></li>
 <li><a href="https://pixeltable.github.io/pixeltable/tutorials/object-detection-in-videos/">Object Detection in Videos</a></li>
+<li><a href="https://pixeltable.github.io/pixeltable/tutorials/openai-demo/">Using the OpenAI API with Pixeltable</a></li>
 </ul>
 </div>
 </div>
@@ -2729,7 +2688,7 @@ Added 6 column values with 0 errors.
       <div class="md-copyright">
   
     <div class="md-copyright__highlight">
-      &copy; 20222 - 2024 <a href="https://github.com/mkornacker" target="_blank" rel="noopener">Marcel Kornacker</a> All rights reserved.
+      &copy; 2022 - 2024 <a href="https://github.com/pixeltable" target="_blank" rel="noopener">Pixeltable, Inc.</a> All rights reserved.
 
     </div>
   
