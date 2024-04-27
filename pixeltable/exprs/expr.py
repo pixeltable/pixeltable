@@ -110,6 +110,11 @@ class Expr(abc.ABC):
                 return False
         return self._equals(other)
 
+    def _equals(self, other: Expr) -> bool:
+        # we already compared the type and components in equals(); subclasses that require additional comparisons
+        # override this
+        return True
+
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         """Returns attribute name/value pairs that are used to construct the instance id.
 
@@ -312,9 +317,6 @@ class Expr(abc.ABC):
             from .inline_array import InlineArray
             return InlineArray(tuple(o))
         return None
-
-    def _equals(self, other: Expr) -> bool:
-        return True
 
     @abc.abstractmethod
     def sql_expr(self) -> Optional[sql.ClauseElement]:

@@ -185,8 +185,6 @@ class InsertableTable(Table):
             if not isinstance(where, Predicate):
                 raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
             analysis_info = Planner.analyze(self.tbl_version_path, where)
-            if analysis_info.similarity_clause is not None:
-                raise excs.Error('nearest() cannot be used with delete()')
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')

@@ -63,19 +63,12 @@ class ColumnRef(Expr):
 
         return super().__getattr__(name)
 
-    def __mod__(self, other: Any) -> Expr:
-        if len(self.col.get_idx_info()) == 0:
-            # this is a numerical % operation, not a similarity expr
-            return super().__mod__(other)
-        return self.similarity(other)
-
     def similarity(self, other: Any) -> Expr:
         if isinstance(other, Expr):
-            item = other
-        else:
-            item = Expr.from_object(other)
-            if item is None:
-                raise excs.Error(f'Not a recognized argument type for similarity: {type(other)}')
+            raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
+        item = Expr.from_object(other)
+        if item is None or not(item.col_type.is_string_type() or item.col_type.is_image_type()):
+            raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not a {type(other)}')
         from .similarity_expr import SimilarityExpr
         return SimilarityExpr(self, item)
 

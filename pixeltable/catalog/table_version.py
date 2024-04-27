@@ -43,6 +43,7 @@ class TableVersion:
     @dataclasses.dataclass
     class IndexInfo:
         id: int
+        name: str
         idx: index.IndexBase
         col: Column
         val_col: Column
@@ -272,7 +273,7 @@ class TableVersion:
             val_col.sa_col_type = idx.index_sa_type()
             undo_col = self.cols_by_id[md.index_val_undo_col_id]
             undo_col.sa_col_type = idx.index_sa_type()
-            idx_info = self.IndexInfo(id=md.id, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
+            idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
             self.idxs_by_name[md.name] = idx_info
 
     def _init_sa_schema(self) -> None:
@@ -353,7 +354,7 @@ class TableVersion:
                 indexed_col_id=col.id, index_val_col_id=val_col.id, index_val_undo_col_id=undo_col.id,
                 schema_version_add=self.schema_version, schema_version_drop=None,
                 class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__, init_args=idx.as_dict())
-            idx_info = self.IndexInfo(id=idx_id, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
+            idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
             self.idx_md[idx_id] = idx_md
             self.idxs_by_name[idx_name] = idx_info
 

@@ -13,8 +13,10 @@ class IndexBase(abc.ABC):
     Internal interface used by the catalog and runtime system to interact with indices:
     - types and expressions needed to create and populate the index value column
     - creating/dropping the index
-    - TODO: translating queries into sqlalchemy predicates
+    This doesn't cover querying the index, which is dependent on the index semantics and handled by
+    the specific subclass.
     """
+
     @abc.abstractmethod
     def __init__(self, c: catalog.Column, **kwargs: Any):
         pass
@@ -32,11 +34,6 @@ class IndexBase(abc.ABC):
     @abc.abstractmethod
     def create_index(self, index_name: str, index_value_col: catalog.Column, conn: sql.engine.Connection) -> None:
         """Create the index on the index value column"""
-        pass
-
-    @abc.abstractmethod
-    def search_clause(self, val_column: catalog.Column, item: Any) -> sql.ClauseElement:
-        """Return a sqlalchemy clause that corresponds to "<indexed col> % <item>" """
         pass
 
     @classmethod

@@ -4,6 +4,7 @@ from typing import Optional, Any
 import enum
 
 import PIL.Image
+import numpy as np
 import pgvector.sqlalchemy
 import sqlalchemy as sql
 
@@ -16,10 +17,12 @@ from .base import IndexBase
 
 class EmbeddingIndex(IndexBase):
     """
-    Internal interface used by the catalog and runtime system to interact with (embedding) indices:
-    - types and expressions needed to create and populate the index value column
-    - creating/dropping the index
-    - translating 'matches' queries into sqlalchemy predicates
+    Interface to the pgvector access method in Postgres.
+    - pgvector converts the cosine metric to '1 - metric' and the inner product metric to '-metric', in order to
+      satisfy the Postgres requirement that an index scan requires an ORDER BY ... ASC clause
+    - similarity_clause() converts those metrics back to their original form; it is used in expressions outside
+      the Order By clause
+    - order_by_clause() is used exclusively in the ORDER BY clause
     """
 
     class Metric(enum.Enum):
@@ -80,26 +83,46 @@ class EmbeddingIndex(IndexBase):
         )
         idx.create(bind=conn)
 
-    def search_clause(self, val_column: catalog.Column, item: Any) -> sql.ClauseElement:
-        if not isinstance(item, (str, PIL.Image.Image)):
-            raise excs.Error(f'Embedding index query requires a string or a PIL.Image.Image object, not a {type(item)}')
+    def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ClauseElement:
+        """Create a ClauseElement to that represents '<val_column> <op> <item>'"""
+        assert isinstance(item, (str, PIL.Image.Image))
         if isinstance(item, str):
-            if self.txt_embed is None:
-                raise excs.Error(
-                    f'Embedding index was created without the text_embed parameter and does not support text queries')
+            assert self.txt_embed is not None
             embedding = self.txt_embed.exec(item)
         if isinstance(item, PIL.Image.Image):
-            if self.img_embed is None:
-                raise excs.Error(
-                    f'Embedding index was created without the img_embed parameter and does not support image queries')
+            assert self.img_embed is not None
             embedding = self.img_embed.exec(item)
+
         if self.metric == self.Metric.COSINE:
-            return val_column.sa_col.cosine_distance(embedding)
+            return val_column.sa_col.cosine_distance(embedding) * -1 + 1
         elif self.metric == self.Metric.IP:
-            return val_column.sa_col.max_inner_product(embedding)
+            return val_column.sa_col.max_inner_product(embedding) * -1
         else:
             assert self.metric == self.Metric.L2
             return val_column.sa_col.l2_distance(embedding)
+
+    def order_by_clause(self, val_column: catalog.Column, item: Any, is_asc: bool) -> sql.ClauseElement:
+        """Create a ClauseElement that is used in an ORDER BY clause"""
+        assert isinstance(item, (str, PIL.Image.Image))
+        embedding: Optional[np.ndarray] = None
+        if isinstance(item, str):
+            assert self.txt_embed is not None
+            embedding = self.txt_embed.exec(item)
+        if isinstance(item, PIL.Image.Image):
+            assert self.img_embed is not None
+            embedding = self.img_embed.exec(item)
+        assert embedding is not None
+
+        if self.metric == self.Metric.COSINE:
+            result = val_column.sa_col.cosine_distance(embedding)
+            result = result.desc() if is_asc else result
+        elif self.metric == self.Metric.IP:
+            result = val_column.sa_col.max_inner_product(embedding)
+            result = result.desc() if is_asc else result
+        else:
+            assert self.metric == self.Metric.L2
+            result = val_column.sa_col.l2_distance(embedding)
+        return result
 
     @classmethod
     def display_name(cls) -> str:

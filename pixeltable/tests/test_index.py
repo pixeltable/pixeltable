@@ -1,40 +1,83 @@
+import PIL
 import PIL.Image
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
-from pixeltable.tests.utils import text_embed, img_embed, skip_test_if_not_installed
+from pixeltable.tests.utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq
 
 
 class TestIndex:
 
-    # wrong signature
+    # returns string
     @pxt.udf
     def bad_embed(x: str) -> str:
         return x
 
-    def test_search(self, img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
-        skip_test_if_not_installed('transformers')
-        img_t = img_tbl
-        rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
-        # create table with fewer rows to speed up testing
-        cl = pxt.Client()
-        schema = {
-            'img': pxt.ImageType(nullable=False),
-            'category': pxt.StringType(nullable=False),
-            'split': pxt.StringType(nullable=False),
-        }
-        tbl_name = 'index_test'
-        img_t = cl.create_table(tbl_name, schema=schema)
-        img_t.insert(rows[:30])
-        img_t.add_embedding_index('img', img_embed=img_embed, text_embed=text_embed)
+    # returns array w/o size
+    @pxt.udf(return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()))
+    def bad_embed2(x: str) -> np.ndarray:
+        return np.zeros(10)
 
-        img = img_tbl.select(img_tbl.img).head(1)[0, 'img']
-        _ = img_t.select(img_t.img % img).collect()
-        _ = img_t.select(img_t.img.similarity(img)).collect()
-        _ = img_t.select(img_t.img, img_t.img % img).order_by(img_t.img % img).collect()
-        pass
+    def test_search(self, small_img_tbl: pxt.Table) -> None:
+        skip_test_if_not_installed('transformers')
+        t = small_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+        _ = t.select(t.img.localpath).collect()
+
+        for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
+            t.add_embedding_index('img', metric=metric, img_embed=clip_img_embed, text_embed=clip_text_embed)
+
+            res = t.select(img=t.img, sim=t.img.similarity(sample_img))\
+                .order_by(t.img.similarity(sample_img), asc=is_asc)\
+                .limit(1).collect()
+            out_img = res[0, 'img']
+            assert_img_eq(sample_img, out_img), f'{metric} failed'
+
+            # TODO:  how to verify the output?
+            _ = t.select(path=t.img.localpath, sim=t.img.similarity('parachute')) \
+                .order_by(t.img.similarity('parachute'), asc=is_asc) \
+                .limit(1).collect()
+
+            t.drop_index(column_name='img')
+
+    def test_search_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
+        t = indexed_img_tbl
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.order_by(t.img.similarity(('red truck',))).limit(1).collect()
+        assert 'requires a string or' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.order_by(t.img.similarity(['red truck'])).limit(1).collect()
+        assert 'requires a string or a ' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.order_by(t.img.similarity(t.split)).limit(1).collect()
+        assert 'not an expression' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.order_by(t.split.similarity('red truck')).limit(1).collect()
+        assert 'no index found' in str(exc_info.value).lower()
+
+        t = small_img_tbl
+        t.add_embedding_index('img', img_embed=clip_img_embed)
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
+        assert 'was created without the text_embed parameter' in str(exc_info.value).lower()
+
+        t.add_embedding_index('img', text_embed=clip_text_embed, img_embed=clip_img_embed)
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
+        assert 'column img has multiple indices' in str(exc_info.value).lower()
+
+        t.drop_index(idx_name='idx0')
+        t.drop_index(idx_name='idx1')
+        t.add_embedding_index('split', text_embed=clip_text_embed)
+        sample_img = t.select(t.img).head(1)[0, 'img']
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
+        assert 'was created without the img_embed parameter' in str(exc_info.value).lower()
 
     def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
@@ -51,14 +94,14 @@ class TestIndex:
         img_t = cl.create_table(tbl_name, schema=schema)
         img_t.insert(rows[:30])
 
-        img_t.add_embedding_index('img', img_embed=img_embed, text_embed=text_embed)
+        img_t.add_embedding_index('img', img_embed=clip_img_embed, text_embed=clip_text_embed)
 
         with pytest.raises(pxt.Error) as exc_info:
             # duplicate name
-            img_t.add_embedding_index('img', idx_name='idx0', img_embed=img_embed)
+            img_t.add_embedding_index('img', idx_name='idx0', img_embed=clip_img_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
-        img_t.add_embedding_index('category', text_embed=text_embed)
+        img_t.add_embedding_index('category', text_embed=clip_text_embed)
         # revert() removes the index
         img_t.revert()
         with pytest.raises(pxt.Error) as exc_info:
@@ -102,7 +145,7 @@ class TestIndex:
         # revert() makes the index reappear
         img_t.revert()
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.add_embedding_index('img', idx_name='idx0', img_embed=img_embed)
+            img_t.add_embedding_index('img', idx_name='idx0', img_embed=clip_img_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
         # dropping the indexed column also drops indices
@@ -111,50 +154,70 @@ class TestIndex:
             img_t.drop_index(idx_name='idx0')
         assert 'does not exist' in str(exc_info.value).lower()
 
-    def test_errors(self, img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
-        img_t = img_tbl
-        rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
-        # create table with fewer rows to speed up testing
-        cl = pxt.Client()
-        schema = {
-            'img': pxt.ImageType(nullable=False),
-            'category': pxt.StringType(nullable=False),
-            'split': pxt.StringType(nullable=False),
-        }
-        tbl_name = 'index_test'
-        img_t = cl.create_table(tbl_name, schema=schema)
-        img_t.insert(rows[:30])
+    def test_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
+        img_t = small_img_tbl
+
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.add_embedding_index('img', metric='badmetric', img_embed=clip_img_embed)
+        assert 'invalid metric badmetric' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # unknown column
-            img_t.add_embedding_index('does_not_exist', idx_name='idx0', img_embed=img_embed)
+            img_t.add_embedding_index('does_not_exist', idx_name='idx0', img_embed=clip_img_embed)
         assert 'column does_not_exist unknown' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong column type
-            test_tbl.add_embedding_index('c2', img_embed=img_embed)
+            test_tbl.add_embedding_index('c2', img_embed=clip_img_embed)
         assert 'requires string or image column' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # missing embedding function
-            img_tbl.add_embedding_index('img', text_embed=text_embed)
+            img_t.add_embedding_index('img', text_embed=clip_text_embed)
         assert 'image embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
-            img_tbl.add_embedding_index('img', img_embed=clip_image)
+            img_t.add_embedding_index('img', img_embed=clip_image)
         assert 'but has signature' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # missing embedding function
-            img_tbl.add_embedding_index('category', img_embed=img_embed)
+            img_t.add_embedding_index('category', img_embed=clip_img_embed)
         assert 'text embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
-            img_tbl.add_embedding_index('category', text_embed=clip_text)
+            img_t.add_embedding_index('category', text_embed=clip_text)
         assert 'but has signature' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_tbl.add_embedding_index('category', text_embed=self.bad_embed)
+            img_t.add_embedding_index('category', text_embed=self.bad_embed)
         assert 'must return an array' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.add_embedding_index('category', text_embed=self.bad_embed2)
+        assert 'must return a 1d array of a specific length' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_index()
+        assert 'exactly one of column_name or idx_name must be provided' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_index(idx_name='doesnotexist')
+        assert 'index doesnotexist does not exist' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_index(column_name='doesnotexist')
+        assert 'column doesnotexist unknown' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_index(column_name='img')
+        assert 'column img does not have an index' in str(exc_info.value).lower()
+
+        img_t.add_embedding_index('img', img_embed=clip_img_embed)
+        img_t.add_embedding_index('img', img_embed=clip_img_embed)
+
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_index(column_name='img')
+        assert 'column img has multiple indices' in str(exc_info.value).lower()
