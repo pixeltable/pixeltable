@@ -37,6 +37,15 @@ class TestLabelStudio:
         </Choices>
     </View>
     """
+    test_config_3 = """
+    <View>
+      <Image name="frame_obj" value="$frame"/>
+      <RectangleLabels name="obj_label" toName="frame_obj">
+        <Label value="car" background="green"/>
+        <Label value="person" background="blue"/>
+      </RectangleLabels>
+    </View>
+    """
 
     def test_label_studio_remote(self, init_ls) -> None:
         skip_test_if_not_installed('label_studio_sdk')
@@ -46,16 +55,10 @@ class TestLabelStudio:
         assert remote.get_push_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
         assert remote.get_pull_columns() == {'annotations': pxt.JsonType(nullable=True)}
 
-    def test_label_studio_sync(self, init_ls, test_client: pxt.Client) -> None:
+    def test_label_studio_sync(self, init_ls, ls_image_table: pxt.Table) -> None:
         skip_test_if_not_installed('label_studio_sdk')
+        t = ls_image_table
         from pixeltable.datatransfer.label_studio import LabelStudioProject
-        cl = test_client
-        t = cl.create_table(
-            'test_ls_sync',
-            {'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
-        )
-        images = get_image_files()[:5]
-        validate_update_status(t.insert({'image_col': image} for image in images), expected_rows=len(images))
 
         remote = LabelStudioProject.create(title='test_sync_project', label_config=self.test_config)
         t.link_remote(remote, {'image_col': 'image', 'annotations_col': 'annotations'})
@@ -82,15 +85,29 @@ class TestLabelStudio:
         assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(2)), annotations
         assert all(annotations[i] is None for i in range(2, 5)), annotations
 
-    def test_label_studio_sync_errors(self, init_ls, test_client: pxt.Client) -> None:
+    def test_label_studio_sync_preannotations(self, init_ls, ls_image_table: pxt.Table) -> None:
         skip_test_if_not_installed('label_studio_sdk')
+        skip_test_if_not_installed('transformers')
+        t = ls_image_table
+        from pixeltable.datatransfer.label_studio import LabelStudioProject, detr_to_rectangle_labels
+        from pixeltable.functions.huggingface import detr_for_object_detection
+
+        remote = LabelStudioProject.create(title='test_client_project', label_config=self.test_config_3)
+        t['detect'] = detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50')
+        t['preannotations'] = detr_to_rectangle_labels(t.detect)
+        t.link_remote(remote, {
+            'image_col': 'frame',
+            'preannotations': 'obj_label',
+            'annotations_col': 'annotations'
+        })
+        t.sync_remotes()
+        print(remote._parse_project_config())
+        print(remote.project.get_tasks()[0])
+
+    def test_label_studio_sync_errors(self, init_ls, ls_image_table: pxt.Table) -> None:
+        skip_test_if_not_installed('label_studio_sdk')
+        t = ls_image_table
         from pixeltable.datatransfer.label_studio import LabelStudioProject
-        cl = test_client
-        t = cl.create_table(
-            'test_ls_sync_errors',
-            {'image_col': pxt.ImageType(), 'text_col': pxt.StringType(), 'annotations_col': pxt.JsonType(nullable=True)}
-        )
-        validate_update_status(t.insert(image_col=get_image_files()[0], text_col='Testing'), expected_rows=1)
 
         remote = LabelStudioProject.create('test_sync_errors_project', self.test_config)
 
@@ -120,6 +137,7 @@ class TestLabelStudio:
 
         # Validate that stored columns with local files cannot be pushed to a remote
         # if other columns exist in the LS configuration
+        t['text_col'] = pxt.StringType(nullable=True)
         remote_2 = LabelStudioProject.create('test_sync_errors_project_2', self.test_config_2)
         t.link_remote(remote_2, {'image_col': 'image', 'text_col': 'text', 'annotations_col': 'annotations'})
         with pytest.raises(excs.Error) as exc_info:
@@ -135,6 +153,19 @@ class TestLabelStudio:
         with pytest.raises(excs.Error) as exc_info:
             _ = false_project.project_title
         assert 'Could not locate Label Studio project' in str(exc_info.value)
+
+
+@pytest.fixture(scope='function')
+def ls_image_table(test_client: pxt.Client) -> pxt.Table:
+    skip_test_if_not_installed('label_studio_sdk')
+    cl = test_client
+    t = cl.create_table(
+        'test_ls_sync',
+        {'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
+    )
+    images = get_image_files()[:5]
+    validate_update_status(t.insert({'image_col': image} for image in images), expected_rows=len(images))
+    return t
 
 
 @pytest.fixture(scope='session')
