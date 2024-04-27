@@ -21,8 +21,8 @@ class InlineDict(Expr):
         super().__init__(ts.JsonType())  # we need to call this in order to populate self.components
         # dict_items contains
         # - for Expr fields: (key, index into components, None)
-        # - for non-Expr fields: (key, -1, value)
-        self.dict_items: List[Tuple[str, int, Any]] = []
+        # - for non-Expr fields: (key, None, value)
+        self.dict_items: List[Tuple[str, Optional[int], Any]] = []
         for key, val in d.items():
             if not isinstance(key, str):
                 raise excs.Error(f'Dictionary requires string keys, {key} has type {type(key)}')
@@ -35,11 +35,11 @@ class InlineDict(Expr):
                 self.dict_items.append((key, len(self.components), None))
                 self.components.append(val)
             else:
-                self.dict_items.append((key, -1, val))
+                self.dict_items.append((key, None, val))
 
         self.type_spec: Optional[Dict[str, ts.ColumnType]] = {}
         for key, idx, _ in self.dict_items:
-            if idx == -1:
+            if idx is None:
                 # TODO: implement type inference for values
                 self.type_spec = None
                 break
@@ -56,7 +56,7 @@ class InlineDict(Expr):
                 return f"'{val}'"
             return str(val)
         for key, idx, val in self.dict_items:
-            if idx != -1:
+            if idx is not None:
                 item_strs.append(f"'{key}': {str(self.components[i])}")
                 i += 1
             else:
@@ -71,7 +71,7 @@ class InlineDict(Expr):
 
     def to_dict(self) -> Dict[str, Any]:
         """Return the original dict used to construct this"""
-        return {key: val if idx == -1 else self.components[idx] for key, idx, val in self.dict_items}
+        return {key: val if idx is None else self.components[idx] for key, idx, val in self.dict_items}
 
     def sql_expr(self) -> Optional[sql.ClauseElement]:
         return None
@@ -80,7 +80,7 @@ class InlineDict(Expr):
         result = {}
         for key, idx, val in self.dict_items:
             assert isinstance(key, str)
-            if idx >= 0:
+            if idx is not None:
                 result[key] = data_row[self.components[idx].slot_idx]
             else:
                 result[key] = copy.deepcopy(val)
@@ -94,7 +94,7 @@ class InlineDict(Expr):
         assert 'dict_items' in d
         arg: Dict[str, Any] = {}
         for key, idx, val in d['dict_items']:
-            if idx >= 0:
+            if idx is not None:
                 arg[key] = components[idx]
             else:
                 arg[key] = val

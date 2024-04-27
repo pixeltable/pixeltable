@@ -60,9 +60,9 @@ class Expr(abc.ABC):
 
         # index of the expr's value in the data row:
         # - set for all materialized exprs
-        # - -1: not executable
+        # - None: not executable
         # - not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
-        self.slot_idx = -1
+        self.slot_idx: Optional[int] = None
         self.components: List[Expr] = []  # the subexprs that are needed to construct this expr
 
     def dependencies(self) -> List[Expr]:
@@ -148,7 +148,7 @@ class Expr(abc.ABC):
         cls = self.__class__
         result = cls.__new__(cls)
         result.__dict__.update(self.__dict__)
-        result.slot_idx = -1
+        result.slot_idx = None
         result.components = [c.copy() for c in self.components]
         return result
 

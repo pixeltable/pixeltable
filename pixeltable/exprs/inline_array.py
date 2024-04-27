@@ -27,8 +27,8 @@ class InlineArray(Expr):
 
         # elements contains
         # - for Expr elements: (index into components, None)
-        # - for non-Expr elements: (-1, value)
-        self.elements: List[Tuple[int, Any]] = []
+        # - for non-Expr elements: (None, value)
+        self.elements: List[Tuple[Optional[int], Any]] = []
         for el in elements:
             el = copy.deepcopy(el)
             if isinstance(el, list):
@@ -41,11 +41,11 @@ class InlineArray(Expr):
                 self.elements.append((len(self.components), None))
                 self.components.append(el)
             else:
-                self.elements.append((-1, el))
+                self.elements.append((None, el))
 
         inferred_element_type = ts.InvalidType()
         for idx, val in self.elements:
-            if idx >= 0:
+            if idx is not None:
                 inferred_element_type = ts.ColumnType.supertype(inferred_element_type, self.components[idx].col_type)
             else:
                 inferred_element_type = ts.ColumnType.supertype(inferred_element_type, ts.ColumnType.infer_literal_type(val))
@@ -83,7 +83,7 @@ class InlineArray(Expr):
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         result = [None] * len(self.elements)
         for i, (child_idx, val) in enumerate(self.elements):
-            if child_idx >= 0:
+            if child_idx is not None:
                 result[i] = data_row[self.components[child_idx].slot_idx]
             else:
                 result[i] = copy.deepcopy(val)
@@ -100,7 +100,7 @@ class InlineArray(Expr):
         assert 'elements' in d
         arg: List[Any] = []
         for idx, val in d['elements']:
-            if idx >= 0:
+            if idx is not None:
                 arg.append(components[idx])
             else:
                 arg.append(val)
