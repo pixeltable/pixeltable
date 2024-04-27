@@ -290,8 +290,7 @@ def get_audio_files(include_bad_audio: bool = False) -> List[str]:
 
 def get_documents() -> List[str]:
     tests_dir = os.path.dirname(__file__)
-    # for now, we can only handle .html and .md
-    return [p for p in glob.glob(f'{tests_dir}/**/documents/*', recursive=True) if not p.endswith('.pdf')]
+    return [p for p in glob.glob(f'{tests_dir}/**/documents/*', recursive=True)]
 
 
 def get_sentences(n: int = 100) -> List[str]:

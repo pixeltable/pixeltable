@@ -282,7 +282,7 @@ class TestDataFrame:
             assert isinstance(arr_plain, np.ndarray)
             assert arr_plain.flags["WRITEABLE"], 'required by pytorch collate function'
 
-            # NB: compare numpy array bc PIL.Image object itself is not using same file.
+            # compare numpy array bc PIL.Image object itself is not using same file.
             assert (arr_plain == np.array(im_plain)).all(), 'numpy image should be the same as the original'
             arr_xformed = elt['c_image_xformed']
             assert isinstance(arr_xformed, np.ndarray)
