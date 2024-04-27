@@ -82,8 +82,8 @@ _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 class DocumentSplitter(ComponentIterator):
     """Iterator over pieces of a document. The document is split into chunks based on the specified separators.
     The iterator output tuples are of schema {'text': StringType()}, but can include additional metadata fields if specified
-    in the `metadata` argument as explained below, the chunk text is passed through `ftfy.fix_text` to fix up common problems
-    with unicode sequences.
+    in the `metadata` argument as explained below.
+    All chunk text is passed through `ftfy.fix_text` to fix up common problems with unicode sequences.
 
     Args:
         `metadata`: which additional metadata fields to include in the output schema:
