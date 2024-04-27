@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import platform
 import subprocess
 
 import pgserver
@@ -15,7 +16,7 @@ _logger = logging.getLogger('pixeltable')
 
 class TestMigration:
 
-    @pytest.mark.skip(reason='Suspended')
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     def test_db_migration(self, init_env) -> None:
         env = Env.get()
         pg_package_dir = os.path.dirname(pgserver.__file__)
