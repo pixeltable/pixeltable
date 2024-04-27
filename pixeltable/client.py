@@ -1,21 +1,20 @@
-from typing import List, Optional, Dict, Type, Any, Union
-import pandas as pd
-import logging
 import dataclasses
+import logging
+from typing import List, Optional, Dict, Type, Any, Union, TYPE_CHECKING
 
+import pandas as pd
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-import pixeltable
-from pixeltable.metadata import schema
-from pixeltable.env import Env
-import pixeltable.func as func
 import pixeltable.catalog as catalog
+import pixeltable.func as func
+import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
+from pixeltable.env import Env
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
+from pixeltable.metadata import schema
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import datasets
 
@@ -153,6 +152,27 @@ class Client:
         self.catalog.paths[path] = tbl
         _logger.info(f'Created table `{path_str}`.')
         return tbl
+
+    def import_csv(
+            self,
+            tbl_name: str,
+            csv_url: str,
+            *args,
+            schema: Optional[dict[str, ts.ColumnType]] = None,
+            **kwargs
+    ) -> catalog.InsertableTable:
+        df = pd.read_csv(csv_url, *args, **kwargs)
+        return self.import_pandas(tbl_name, df, schema=schema)
+
+    def import_pandas(
+            self,
+            tbl_name: str,
+            df: pd.DataFrame,
+            *,
+            schema: Optional[dict[str, ts.ColumnType]] = None
+    ) -> catalog.InsertableTable:
+        import pixeltable.datatransfer.pandas
+        return pixeltable.datatransfer.pandas.import_pandas(self, tbl_name, df, schema=schema)
 
     def import_parquet(
         self,
