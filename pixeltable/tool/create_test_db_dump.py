@@ -136,6 +136,22 @@ class Dumper:
             for i in range(num_rows)
         ]
         t.insert(rows)
+        self.cl.create_dir('views')
+        v = self.cl.create_view('views.sample_view', t, filter=(t.c2 < 50))
+        _ = self.cl.create_view('views.sample_snapshot', t, filter=(t.c2 >= 75), is_snapshot=True)
+        # Computed column using a library function
+        v['str_format'] = pxt.functions.string.str_format('{0} {key}', t.c1, key=t.c1)
+        # Computed column using a bespoke udf
+        v['test_udf'] = test_udf(t.c2)
+        # astype
+        v['astype'] = t.c1.astype(pxt.FloatType())
+        # computed column using a stored function
+        v['stored'] = t.c1.apply(lambda x: f'Hello, {x}', col_type=pxt.StringType())
+
+
+@pxt.udf
+def test_udf(n: int) -> int:
+    return n + 1
 
 
 def main() -> None:

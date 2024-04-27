@@ -1,7 +1,6 @@
-from typing import Optional
-from types import ModuleType
 import importlib
 import inspect
+from types import ModuleType
 from typing import Optional
 
 import pixeltable.exceptions as excs
@@ -10,22 +9,19 @@ import pixeltable.exceptions as excs
 def resolve_symbol(symbol_path: str) -> Optional[object]:
     path_elems = symbol_path.split('.')
     module: Optional[ModuleType] = None
-    if path_elems[0:2] == ['pixeltable', 'functions'] and len(path_elems) > 2:
-        # if this is a pixeltable.functions submodule, it cannot be resolved via pixeltable.functions;
-        # try to import the submodule directly
-        submodule_path = '.'.join(path_elems[0:3])
+    i = len(path_elems) - 1
+    while i > 0 and module is None:
         try:
-            module = importlib.import_module(submodule_path)
-            path_elems = path_elems[3:]
+            module = importlib.import_module('.'.join(path_elems[:i]))
         except ModuleNotFoundError:
-            pass
-    if module is None:
-        module = importlib.import_module(path_elems[0])
-        path_elems = path_elems[1:]
+            i -= 1
+    if i == 0:
+        return None  # Not resolvable
     obj = module
-    for el in path_elems:
+    for el in path_elems[i:]:
         obj = getattr(obj, el)
     return obj
+
 
 def validate_symbol_path(fn_path: str) -> None:
     path_elems = fn_path.split('.')
@@ -36,6 +32,7 @@ def validate_symbol_path(fn_path: str) -> None:
     if any(not el.isidentifier() for el in path_elems):
         raise excs.Error(
             f'{fn_name}(): cannot resolve symbol path {fn_path}. Move the function to the module level or into a class.')
+
 
 def get_caller_module_path() -> str:
     """Return the module path of our caller's caller"""
