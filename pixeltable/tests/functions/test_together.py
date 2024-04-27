@@ -27,7 +27,9 @@ class TestTogether:
             logprobs=1,
             echo=True,
             n=3,
-            safety_model='Meta-Llama/Llama-Guard-7b'
+            # The safety model sometimes triggers even on an innocuous prompt, causing an
+            # exception to be thrown. Unclear if there's a reliable way to test this param.
+            # safety_model='Meta-Llama/Llama-Guard-7b'
         ))
         validate_update_status(t.insert(input='I am going to the '), 1)
         result = t.collect()
