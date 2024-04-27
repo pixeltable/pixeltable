@@ -341,6 +341,7 @@ class Env:
         check('sentence_transformers')
         check('yolox')
         check('boto3')
+        check('fitz') # pymupdf
         check('pyarrow')
         check('spacy')  # TODO: deal with en-core-web-sm
         if self.is_installed_package('spacy'):
