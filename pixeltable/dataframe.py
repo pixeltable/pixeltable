@@ -186,36 +186,36 @@ class DataFrameResultSetIterator:
         return row
 
 
-# TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
-class AnalysisInfo:
-    def __init__(self, tbl: catalog.TableVersion):
-        self.tbl = tbl
-        # output of the SQL scan stage
-        self.sql_scan_output_exprs: List[exprs.Expr] = []
-        # output of the agg stage
-        self.agg_output_exprs: List[exprs.Expr] = []
-        # Where clause of the Select stmt of the SQL scan stage
-        self.sql_where_clause: Optional[sql.ClauseElement] = None
-        # filter predicate applied to input rows of the SQL scan stage
-        self.filter: Optional[exprs.Predicate] = None
-        self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
-        self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
-        self.has_frame_col: bool = False  # True if we're referencing the frame col
-
-        self.evaluator: Optional[exprs.Evaluator] = None
-        self.sql_scan_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of SQL scan stage
-        self.agg_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of agg stage
-        self.filter_eval_ctx: List[exprs.Expr] = []
-        self.group_by_eval_ctx: List[exprs.Expr] = []
-
-    def finalize_exec(self) -> None:
-        """
-        Call release() on all collected Exprs.
-        """
-        exprs.Expr.release_list(self.sql_scan_output_exprs)
-        exprs.Expr.release_list(self.agg_output_exprs)
-        if self.filter is not None:
-            self.filter.release()
+# # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
+# class AnalysisInfo:
+#     def __init__(self, tbl: catalog.TableVersion):
+#         self.tbl = tbl
+#         # output of the SQL scan stage
+#         self.sql_scan_output_exprs: List[exprs.Expr] = []
+#         # output of the agg stage
+#         self.agg_output_exprs: List[exprs.Expr] = []
+#         # Where clause of the Select stmt of the SQL scan stage
+#         self.sql_where_clause: Optional[sql.ClauseElement] = None
+#         # filter predicate applied to input rows of the SQL scan stage
+#         self.filter: Optional[exprs.Predicate] = None
+#         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
+#         self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
+#         self.has_frame_col: bool = False  # True if we're referencing the frame col
+#
+#         self.evaluator: Optional[exprs.Evaluator] = None
+#         self.sql_scan_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of SQL scan stage
+#         self.agg_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of agg stage
+#         self.filter_eval_ctx: List[exprs.Expr] = []
+#         self.group_by_eval_ctx: List[exprs.Expr] = []
+#
+#     def finalize_exec(self) -> None:
+#         """
+#         Call release() on all collected Exprs.
+#         """
+#         exprs.Expr.release_list(self.sql_scan_output_exprs)
+#         exprs.Expr.release_list(self.agg_output_exprs)
+#         if self.filter is not None:
+#             self.filter.release()
 
 
 class DataFrame:
