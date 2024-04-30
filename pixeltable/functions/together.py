@@ -84,8 +84,29 @@ def chat_completions(
         tool_choice=tool_choice
     ).dict()
 
+_embedding_dimensions_cache = {
+    'togethercomputer/m2-bert-80M-2k-retrieval': 768,
+    'togethercomputer/m2-bert-80M-8k-retrieval': 768,
+    'togethercomputer/m2-bert-80M-32k-retrieval': 768,
+    'WhereIsAI/UAE-Large-V1': 1024,
+    'BAAI/bge-large-en-v1.5': 1024,
+    'BAAI/bge-base-en-v1.5': 768,
+    'sentence-transformers/msmarco-bert-base-dot-v5': 768,
+    'bert-base-uncased': 768,
+}
 
-@pxt.udf(batch_size=32, return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()))
+def _embeddings_call_return_type(model: str) -> pxt.ArrayType:
+    global _embedding_dimensions_cache
+    if model not in _embedding_dimensions_cache:
+        result = together_client().embeddings.create(input='This is a test', model=model)
+        dimensions = len(result.data[0].embedding)
+        _embedding_dimensions_cache[model] = dimensions
+    dimensions = _embedding_dimensions_cache[model]
+    return pxt.ArrayType((dimensions,), dtype=pxt.FloatType())
+
+@pxt.udf(
+    batch_size=32, return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()),
+    call_return_type=_embeddings_call_return_type)
 def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
     result = together_client().embeddings.create(input=input, model=model)
     return [

@@ -29,21 +29,12 @@ class Signature:
     """
     Represents the signature of a Pixeltable function.
 
-    Regarding return type:
-    - most functions will have a fixed return type, which is specified directly
-    - some functions will have a return type that depends on the argument values;
-      ex.: PIL.Image.Image.resize() returns an image with dimensions specified as a parameter
-    - in the latter case, the 'return_type' field is a function that takes the bound arguments and returns the
-      return type; if no bound arguments are specified, a generic return type is returned (eg, ImageType() without a
-      size)
     - self.is_batched: return type is a Batch[...] type
     """
     SPECIAL_PARAM_NAMES = ['group_by', 'order_by']
 
-    def __init__(
-            self,
-            return_type: Union[ts.ColumnType, Callable[[Dict[str, Any]], ts.ColumnType]],
-            parameters: List[Parameter], is_batched: bool = False):
+    def __init__(self, return_type: ts.ColumnType, parameters: List[Parameter], is_batched: bool = False):
+        assert isinstance(return_type, ts.ColumnType)
         self.return_type = return_type
         self.is_batched = is_batched
         # we rely on the ordering guarantee of dicts in Python >=3.7
@@ -52,10 +43,9 @@ class Signature:
         self.constant_parameters = [p for p in parameters if not p.is_batched]
         self.batched_parameters = [p for p in parameters if p.is_batched]
 
-    def get_return_type(self, bound_args: Optional[Dict[str, Any]] = None) -> ts.ColumnType:
-        if isinstance(self.return_type, ts.ColumnType):
-            return self.return_type
-        return self.return_type(bound_args)
+    def get_return_type(self) -> ts.ColumnType:
+        assert isinstance(self.return_type, ts.ColumnType)
+        return self.return_type
 
     def as_dict(self) -> Dict[str, Any]:
         result = {

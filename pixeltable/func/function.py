@@ -4,10 +4,11 @@ import abc
 import importlib
 import inspect
 import pixeltable
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, Callable
 
 from .globals import resolve_symbol
 from .signature import Signature
+import pixeltable.type_system as ts
 
 
 class Function(abc.ABC):
@@ -18,10 +19,21 @@ class Function(abc.ABC):
     via the member self_path.
     """
 
-    def __init__(self, signature: Signature, py_signature: inspect.Signature, self_path: Optional[str] = None):
+    def __init__(
+            self, signature: Signature, py_signature: inspect.Signature, self_path: Optional[str] = None,
+            call_return_type: Optional[Callable] = None
+    ):
         self.signature = signature
         self.py_signature = py_signature
         self.self_path = self_path  # fully-qualified path to self
+
+        if call_return_type is not None:
+            # verify that call_return_type only has parameters that are also present in the signature
+            sig = inspect.signature(call_return_type)
+            for param in sig.parameters.values():
+                if param.name not in signature.parameters:
+                    raise ValueError(f'call_return_type has parameter {param.name} that is not in the signature')
+        self._call_return_type = call_return_type
 
     @property
     def name(self) -> str:
@@ -40,7 +52,7 @@ class Function(abc.ABC):
     def help_str(self) -> str:
         return self.display_name + str(self.signature)
 
-    def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.Expr':
+    def __call__(self, *args: Any, **kwargs: Any) -> 'pixeltable.exprs.Expr':
         from pixeltable import exprs
         bound_args = self.py_signature.bind(*args, **kwargs)
         self.validate_call(bound_args.arguments)
@@ -49,6 +61,18 @@ class Function(abc.ABC):
     def validate_call(self, bound_args: Dict[str, Any]) -> None:
         """Override this to do custom validation of the arguments"""
         pass
+
+    def call_return_type(self, kwargs: dict[str, Any]) -> ts.ColumnType:
+        """Return the type of the value returned by calling this function with the given arguments"""
+        if self._call_return_type is None:
+            return self.signature.return_type
+        bound_args = self.py_signature.bind(**kwargs)
+        kw_args: dict[str, Any] = {}
+        sig = inspect.signature(self._call_return_type)
+        for param in sig.parameters.values():
+            if param.name in bound_args.arguments:
+                kw_args[param.name] = bound_args.arguments[param.name]
+        return self._call_return_type(**kw_args)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):

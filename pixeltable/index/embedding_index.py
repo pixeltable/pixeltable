@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 import pgvector.sqlalchemy
+import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
@@ -72,15 +73,25 @@ class EmbeddingIndex(IndexBase):
         """Validate the signature"""
         assert isinstance(embed_fn, func.Function)
         sig = embed_fn.signature
-        if not sig.return_type.is_array_type():
-            raise excs.Error(f'{name} must return an array, but returns {sig.return_type}')
-        else:
-            shape = sig.return_type.shape
-            if len(shape) != 1 or shape[0] == None:
-                raise excs.Error(f'{name} must return a 1D array of a specific length, but returns {sig.return_type}')
         if len(sig.parameters) != 1 or sig.parameters_by_pos[0].col_type.type_enum != expected_type:
             raise excs.Error(
                 f'{name} must take a single {expected_type.name.lower()} parameter, but has signature {sig}')
+
+        # validate return type
+        param_name = sig.parameters_by_pos[0].name
+        if expected_type == ts.ColumnType.Type.STRING:
+            return_type = embed_fn.call_return_type({param_name: 'dummy'})
+        else:
+            assert expected_type == ts.ColumnType.Type.IMAGE
+            img = PIL.Image.new('RGB', (512, 512))
+            return_type = embed_fn.call_return_type({param_name: img})
+        assert return_type is not None
+        if not return_type.is_array_type():
+            raise excs.Error(f'{name} must return an array, but returns {return_type}')
+        else:
+            shape = return_type.shape
+            if len(shape) != 1 or shape[0] == None:
+                raise excs.Error(f'{name} must return a 1D array of a specific length, but returns {return_type}')
 
     def as_dict(self) -> dict:
         return {
