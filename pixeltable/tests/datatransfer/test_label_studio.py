@@ -89,12 +89,13 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         skip_test_if_not_installed('transformers')
         t = ls_image_table
-        from pixeltable.datatransfer.label_studio import LabelStudioProject, detr_to_rectangle_labels
-        from pixeltable.functions.huggingface import detr_for_object_detection
+        t['rot_image_col'] = t.image_col.rotate(90)
+        from pixeltable.datatransfer.label_studio import LabelStudioProject
+        from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
 
         remote = LabelStudioProject.create(title='test_client_project', label_config=self.test_config_3)
         t['detect'] = detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50')
-        t['preannotations'] = detr_to_rectangle_labels(t.detect)
+        t['preannotations'] = detr_to_coco(t.image_col, t.detect)
         t.link_remote(remote, {
             'image_col': 'frame',
             'preannotations': 'obj_label',
@@ -126,14 +127,6 @@ class TestLabelStudio:
         assert 'but there are no columns to push' in str(exc_info.value)
         # But it's ok if push=False
         t.sync_remotes(push=False)
-
-        # Validate that non-stored columns cannot be pushed to a remote
-        t['rot_image_col'] = t.image_col.rotate(90)
-        t.link_remote(remote, {'rot_image_col': 'image', 'annotations_col': 'annotations'})
-        with pytest.raises(excs.Error) as exc_info:
-            t.sync_remotes()
-        assert 'not a stored column' in str(exc_info.value)
-        t.unlink_remote(remote)
 
         # Validate that stored columns with local files cannot be pushed to a remote
         # if other columns exist in the LS configuration

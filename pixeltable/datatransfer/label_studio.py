@@ -1,11 +1,11 @@
-import itertools
 import logging
-from collections import namedtuple
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Optional
 from xml.etree import ElementTree
 
+import PIL.Image
 import label_studio_sdk
 import more_itertools
 from requests.exceptions import HTTPError
@@ -15,6 +15,7 @@ import pixeltable.env as env
 import pixeltable.exceptions as excs
 from pixeltable import Table
 from pixeltable.datatransfer.remote import Remote
+from pixeltable.utils import coco
 
 _logger = logging.getLogger('pixeltable')
 
@@ -115,42 +116,64 @@ class LabelStudioProject(Remote):
         row_ids_in_ls = {tuple(task['meta']['rowid']) for task in existing_tasks}
         t_col_types = t.column_types()
         config = self._parse_project_config()
-        t_push_cols = [
+        # Columns in `t` that map to Label Studio data keys
+        t_data_cols = [
             t_col_name for t_col_name, r_col_name in col_mapping.items()
             if r_col_name in config.data_keys
         ]
-        r_push_cols = [col_mapping[col_name] for col_name in t_push_cols]
-        t_preann_cols = [
+        # Columns in `t` that map to `rectanglelabels` preannotations
+        t_rl_cols = [
             t_col_name for t_col_name, r_col_name in col_mapping.items()
             if r_col_name in config.rectangle_labels
         ]
-        r_preann_cols = [col_mapping[col_name] for col_name in t_preann_cols]
-        preann_to_names = [rl.to_name for rl in config.rectangle_labels.values()]
-        print('HELLO THERE!')
-        print(t_preann_cols)
-        for col_name in t_push_cols:
-            if t_col_types[col_name].is_media_type() and not t[col_name].col.is_stored:
-                raise excs.Error(
-                    f'Media column linked to a `LabelStudioProject` is not a stored column: `{col_name}`'
-                )
-        if len(t_push_cols) == 1 and t_col_types[t_push_cols[0]].is_media_type():
+        # Destinations for `rectanglelabels` annotations
+        rl_to_names = [rl.to_name for rl in config.rectangle_labels.values()]
+
+        _logger.debug('`t_data_cols`: {0}', t_data_cols)
+        _logger.debug('`t_rl_cols`: {0}', t_rl_cols)
+        _logger.debug('`rl_to_names`: {0}', rl_to_names)
+
+        # TODO Validate that `rl_to_names` are in the config!
+
+        if len(t_data_cols) == 1 and t_col_types[t_data_cols[0]].is_media_type():
             # With a single media column, we can push local files to Label Studio using
             # the file transfer API.
-            media_col_name = t_push_cols[0]
-            # Select `t[media_col_name]` as well as `t[media_col_name].localpath` to ensure that
-            # the media file is properly cached and `localpath` is defined
-            rows = t.select(t[media_col_name], *[t[col] for col in t_preann_cols], t[media_col_name].localpath)
+            media_col_name = t_data_cols[0]
+            is_stored = t[media_col_name].col.is_stored
+            # If it's a stored column, we can use `localpath`
+            localpath_col_opt = [t[media_col_name].localpath] if is_stored else []
+            # Select the media column, rectanglelabels columns, and localpath (if appropriate)
+            rows = t.select(t[media_col_name], *[t[col] for col in t_rl_cols], *localpath_col_opt)
             tasks_created = 0
             for row in rows._exec():
+                media_col_idx = rows._select_list_exprs[0].slot_idx
+                rl_col_idxs = [expr.slot_idx for expr in rows._select_list_exprs[1: 1 + len(t_rl_cols)]]
                 if row.rowid not in row_ids_in_ls:
-                    print(row.vals)
-                    file = Path(row.vals[-1])
                     # Upload the media file to Label Studio
-                    task_id: int = self.project.import_tasks(file)[0]
+                    if is_stored:
+                        # There is an existing localpath; use it!
+                        localpath_col_idx = rows._select_list_exprs[-1].slot_idx
+                        file = Path(row.vals[localpath_col_idx])
+                        task_id: int = self.project.import_tasks(file)[0]
+                    else:
+                        # No localpath; create a temp file and upload it
+                        assert isinstance(row.vals[media_col_idx], PIL.Image.Image)
+                        file = env.Env.get().create_tmp_path(extension='.png')
+                        row.vals[media_col_idx].save(file, format='png')
+                        task_id: int = self.project.import_tasks(file)[0]
+                        os.remove(file)
+                    # Update the task with `rowid` metadata
                     self.project.update_task(task_id, meta={'rowid': row.rowid})
-                    predictions = row.vals[1:-1]
-                    self._prepare_predictions(predictions, r_preann_cols, preann_to_names, task_id=task_id)
-                    print(predictions)
+                    # Convert coco annotations to predictions
+                    coco_annotations = [row.vals[i] for i in rl_col_idxs]
+                    _logger.debug('`coco_annotations`: {0}', coco_annotations)
+                    predictions = [
+                        self._coco_to_predictions(
+                            coco_annotations[i], col_mapping[t_rl_cols[i]], rl_to_names[i], task_id=task_id
+                        )
+                        for i in range(len(coco_annotations))
+                    ]
+                    _logger.debug(f'`predictions`: {0}', predictions)
                     self.project.create_predictions(predictions)
                     tasks_created += 1
             print(f'Created {tasks_created} new task(s) in {self}.')
@@ -160,28 +183,28 @@ class LabelStudioProject(Remote):
             # media columns.
             selection = [
                 t[col_name].fileurl if t_col_types[col_name].is_media_type() else t[col_name]
-                for col_name in t_push_cols
+                for col_name in t_data_cols
             ]
-            rows = t.select(*selection, *[t[col] for col in t_preann_cols])
+            rows = t.select(*selection, *[t[col] for col in t_rl_cols])
             new_rows = filter(lambda row: row.rowid not in row_ids_in_ls, rows._exec())
             for page in more_itertools.batched(new_rows, n=_PAGE_SIZE):
                 tasks = []
                 for row in page:
                     data_vals = row.vals[:len(selection)]
-                    predictions = row.vals[len(selection):]
-                    self._prepare_predictions(predictions, r_preann_cols, preann_to_names)
+                    coco_annotations = row.vals[len(selection):]
+                    # self._coco_to_predictions(predictions, r_preann_cols, preann_to_names)
                     # Validate media columns
                     for i in range(len(data_vals)):
-                        if t[t_push_cols[i]].col_type.is_media_type() and data_vals[i].startswith("file://"):
+                        if t[t_data_cols[i]].col_type.is_media_type() and data_vals[i].startswith("file://"):
                             raise excs.Error(
                                 'Cannot use locally stored media files in a `LabelStudioProject` with more than one '
                                 'data key. (This is a limitation of Label Studio; see warning here: '
                                 'https://labelstud.io/guide/tasks.html)'
                             )
                     tasks.append({
-                        'data': zip(r_push_cols, data_vals),
+                        #'data': zip(r_data_cols, data_vals),
                         'meta': {'rowid': row.rowid},
-                        'predictions': predictions
+                        'predictions': []
                     })
                 self.project.import_tasks(tasks)
 
@@ -232,44 +255,83 @@ class LabelStudioProject(Remote):
                 yield name, _RectangleLabel(to_name=to_name, labels=labels)
 
     @classmethod
-    def _prepare_predictions(
+    def _coco_to_predictions(
             cls,
-            predictions: list[dict[str, Any]],
-            from_names: list[str],
-            to_names: list[str],
+            coco_annotations: dict[str, Any],
+            from_name: str,
+            to_name: str,
             task_id: Optional[int]
-    ) -> None:
-        for i in range(len(predictions)):
-            if task_id is not None:
-                predictions[i]['task'] = task_id
-            for result in predictions[i]['result']:
-                result['from_name'] = from_names[i]
-                result['to_name'] = to_names[i]
+    ) -> dict[str, Any]:
+        width = coco_annotations['image']['width']
+        height = coco_annotations['image']['height']
+        result = [
+            {
+                'id': f'result_{i}',
+                'type': 'rectanglelabels',
+                'from_name': from_name,
+                'to_name': to_name,
+                'image_rotation': 0,
+                'original_width': width,
+                'original_height': height,
+                'value': {
+                    'rotation': 0,
+                    # Label Studio expects image coordinates as % of image dimensions
+                    'x': entry['bbox'][0] * 100.0 / width,
+                    'y': entry['bbox'][1] * 100.0 / height,
+                    'width': entry['bbox'][2] * 100.0 / width,
+                    'height': entry['bbox'][3] * 100.0 / height,
+                    'rectanglelabels': [coco.COCO_2017_CATEGORIES[entry['category']]]
+                }
+            }
+            for i, entry in enumerate(coco_annotations['annotations'])
+        ]
+        if task_id is not None:
+            return {'task': task_id, 'result': result}
+        else:
+            return {'result': result}
+
+    # @classmethod
+    # def _prepare_predictions(
+    #         cls,
+    #         coco_annotations: list[dict[str, Any]],
+    #         from_names: list[str],
+    #         to_names: list[str],
+    #         task_id: Optional[int]
+    # ) -> None:
+    #     for i in range(len(coco_annotations)):
+    #         if task_id is not None:
+    #             coco_annotations[i]['task'] = task_id
+    #         for result in coco_annotations[i]['result']:
+    #             result['from_name'] = from_names[i]
+    #             result['to_name'] = to_names[i]
 
 
 @pxt.udf
-def detr_to_rectangle_labels(detr_info: dict[str, Any]) -> dict[str, Any]:
+def detr_to_rectangle_labels(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str, Any]:
     bboxes = detr_info['boxes']
     scores = detr_info['scores']
-    label_text = detr_info['label_text']
+    labels = detr_info['labels']
     result = [
         {
             'id': f'result{i}',
             'type': 'rectanglelabels',
             'image_rotation': 0,
+            'original_width': image.width,
+            'original_height': image.height,
             'value': {
                 'rotation': 0,
-                'x': bboxes[i][0],
-                'y': bboxes[i][1],
-                'width': bboxes[i][2],
-                'height': bboxes[i][3],
-                'rectanglelabels': [label_text[i]]
+                # Label Studio expects image coordinates as % of image dimensions
+                'x': bboxes[i][0] * 100.0 / image.width,
+                'y': bboxes[i][1] * 100.0 / image.height,
+                'width': (bboxes[i][2] - bboxes[i][0]) * 100.0 / image.width,
+                'height': (bboxes[i][3] - bboxes[i][1]) * 100.0 / image.height,
+                'rectanglelabels': [coco.COCO_2017_CATEGORIES[labels[i]]]
             }
         }
         for i in range(len(bboxes))
     ]
     return {
-        'score': min(scores),
+        'score': min(scores) if len(scores) > 0 else 0.0,
         'result': result
     }
 
