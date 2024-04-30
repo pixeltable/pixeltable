@@ -50,10 +50,29 @@ class TestLabelStudio:
     def test_label_studio_remote(self, init_ls) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         from pixeltable.datatransfer.label_studio import LabelStudioProject
-        remote = LabelStudioProject.create(title='test_client_project', label_config=self.test_config_2)
-        assert remote.project_title == 'test_client_project'
+        remote = LabelStudioProject.create(title='test_remote_project', label_config=self.test_config_2)
+        assert remote.project_title == 'test_remote_project'
         assert remote.get_push_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
         assert remote.get_pull_columns() == {'annotations': pxt.JsonType(nullable=True)}
+
+    def test_label_studio_remote_errors(self, init_ls) -> None:
+        skip_test_if_not_installed('label_studio_sdk')
+        from pixeltable.datatransfer.label_studio import LabelStudioProject
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = LabelStudioProject.create(
+                title='test_remote_errors_project',
+                label_config="""
+                <View>
+                  <Image name="frame_obj" value="$frame"/>
+                  <RectangleLabels name="obj_label" toName="frame_obj">
+                    <Label value="car" background="green"/>
+                    <Label value="green gorilla" background="blue"/>
+                  </RectangleLabels>
+                </View>
+                """
+            )
+        assert 'not a valid COCO object name' in str(exc_info.value)
 
     def test_label_studio_sync(self, init_ls, ls_image_table: pxt.Table) -> None:
         skip_test_if_not_installed('label_studio_sdk')
@@ -102,8 +121,6 @@ class TestLabelStudio:
             'annotations_col': 'annotations'
         })
         t.sync_remotes()
-        print(remote._parse_project_config())
-        print(remote.project.get_tasks()[0])
 
     def test_label_studio_sync_errors(self, init_ls, ls_image_table: pxt.Table) -> None:
         skip_test_if_not_installed('label_studio_sdk')
@@ -111,7 +128,6 @@ class TestLabelStudio:
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
         remote = LabelStudioProject.create('test_sync_errors_project', self.test_config)
-
         # Validate that syncing a remote with pull=True must have an `annotations` column mapping
         t.link_remote(remote, {'image_col': 'image'})
         with pytest.raises(excs.Error) as exc_info:
@@ -119,6 +135,7 @@ class TestLabelStudio:
         assert 'but there are no columns to pull' in str(exc_info.value)
         # But it's ok if pull=False
         t.sync_remotes(pull=False)
+        t.unlink_remote(remote)
 
         # Validate that syncing a remote with push=True must have at least one column to push
         t.link_remote(remote, {'annotations_col': 'annotations'})
@@ -127,6 +144,7 @@ class TestLabelStudio:
         assert 'but there are no columns to push' in str(exc_info.value)
         # But it's ok if push=False
         t.sync_remotes(push=False)
+        t.unlink_remote(remote)
 
         # Validate that stored columns with local files cannot be pushed to a remote
         # if other columns exist in the LS configuration
@@ -136,6 +154,7 @@ class TestLabelStudio:
         with pytest.raises(excs.Error) as exc_info:
             t.sync_remotes()
         assert 'Cannot use locally stored media files' in str(exc_info.value)
+        t.unlink_remote(remote_2)
 
         # Check that we can create a LabelStudioProject on a non-existent project id
         # (this will happen if, for example, a DB reload happens after a synced project has
