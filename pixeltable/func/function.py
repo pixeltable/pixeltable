@@ -74,6 +74,11 @@ class Function(abc.ABC):
                 kw_args[param.name] = bound_args.arguments[param.name]
         return self._call_return_type(**kw_args)
 
+    @abc.abstractmethod
+    def exec(self, *args: Any, **kwargs: Any) -> Any:
+        """Execute the function with the given arguments and return the result."""
+        pass
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False

@@ -60,25 +60,10 @@ class Analyzer:
         # filter predicate applied to output rows of the SQL scan
         self.filter: Optional[exprs.Predicate] = None
         # not executable
-        self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
+        #self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
         if where_clause is not None:
             where_clause_conjuncts, self.filter = where_clause.split_conjuncts(lambda e: e.sql_expr() is not None)
             self.sql_where_clause = exprs.CompoundPredicate.make_conjunction(where_clause_conjuncts)
-            if self.filter is not None:
-                similarity_clauses, self.filter = self.filter.split_conjuncts(
-                    lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
-                if len(similarity_clauses) > 1:
-                    raise excs.Error(f'More than one nearest() not supported')
-                if len(similarity_clauses) == 1:
-                    if len(self.order_by_clause) > 0:
-                        raise excs.Error((
-                            f'nearest() returns results in order of proximity and cannot be used in conjunction with '
-                            f'order_by()'))
-                    self.similarity_clause = similarity_clauses[0]
-                    img_col = self.similarity_clause.img_col_ref.col
-                    indexed_col_ids = {info.col.id for info in tbl.tbl_version.idxs_by_name.values()}
-                    if img_col.id not in indexed_col_ids:
-                        raise excs.Error(f'nearest() not available for unindexed column {img_col.name}')
 
         # all exprs that are evaluated in Python; not executable
         self.all_exprs = self.select_list.copy()
@@ -204,8 +189,6 @@ class Planner:
         refd_tbl_ids: Set[UUID] = set()
         if where_clause is not None:
             analyzer = cls.analyze(tbl, where_clause)
-            if analyzer.similarity_clause is not None:
-                raise excs.Error('nearest() cannot be used with count()')
             if analyzer.filter is not None:
                 raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
             clause_element = analyzer.sql_where_clause.sql_expr()
@@ -570,7 +553,7 @@ class Planner:
         sql_select_list = analyzer.sql_exprs.copy()
         plan = exec.SqlScanNode(
             tbl, row_builder, select_list=sql_select_list, where_clause=analyzer.sql_where_clause,
-            filter=analyzer.filter, similarity_clause=analyzer.similarity_clause, order_by_items=order_by_items,
+            filter=analyzer.filter, order_by_items=order_by_items,
             limit=sql_limit, set_pk=with_pk, exact_version_only=exact_version_only)
         plan = cls._insert_prefetch_node(tbl.tbl_version.id, analyzer.select_list, row_builder, plan)
 

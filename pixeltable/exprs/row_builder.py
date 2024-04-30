@@ -60,6 +60,8 @@ class RowBuilder:
         Args:
             output_exprs: list of Exprs to be evaluated
             columns: list of columns to be materialized
+            input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
+        TODO: enforce that output_exprs doesn't overlap with input_exprs?
         """
         self.unique_exprs = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
@@ -179,12 +181,16 @@ class RowBuilder:
             for i, c in enumerate(expr.components):
                 # make sure we only refer to components that have themselves been recorded
                 expr.components[i] = self._record_unique_expr(c, True)
-        assert expr.slot_idx < 0
+        assert expr.slot_idx is None
         expr.slot_idx = self._next_slot_idx()
         self.unique_exprs.append(expr)
         return expr
 
     def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
+        assert e.slot_idx is not None
+        assert output_expr_id is not None
+        if e.slot_idx in self.input_expr_slot_idxs:
+            return
         self.output_expr_ids[e.slot_idx].add(output_expr_id)
         for d in e.dependencies():
             self._record_output_expr_id(d, output_expr_id)
