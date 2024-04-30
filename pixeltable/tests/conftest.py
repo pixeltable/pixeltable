@@ -4,20 +4,18 @@ import os
 import pathlib
 from typing import List
 
-import numpy as np
 import pytest
-import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.catalog as catalog
-from pixeltable import exprs
 import pixeltable.functions as pxtf
+from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
-from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatypes_tbl, clip_img_embed,\
-    clip_text_embed, create_img_tbl
-from pixeltable.type_system import StringType, ImageType, FloatType
+from pixeltable.tests.utils import create_test_tbl, create_all_datatypes_tbl, clip_img_embed, \
+    clip_text_embed, create_img_tbl, skip_test_if_not_installed
+from pixeltable.type_system import FloatType
 
 
 @pytest.fixture(scope='session')
@@ -152,6 +150,7 @@ def small_img_tbl(test_client: pxt.Client) -> catalog.Table:
 
 @pytest.fixture(scope='function')
 def indexed_img_tbl(test_client: pxt.Client) -> pxt.Table:
+    skip_test_if_not_installed('transformers')
     t = create_img_tbl(test_client, 'indexed_img_tbl', num_rows=40)
     t.add_embedding_index('img', metric='cosine', img_embed=clip_img_embed, text_embed=clip_text_embed)
     return t
