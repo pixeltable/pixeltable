@@ -50,6 +50,11 @@ class Function(abc.ABC):
         """Override this to do custom validation of the arguments"""
         pass
 
+    @abc.abstractmethod
+    def exec(self, *args: Any, **kwargs: Any) -> Any:
+        """Execute the function with the given arguments and return the result."""
+        pass
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False

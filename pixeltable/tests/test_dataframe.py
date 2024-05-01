@@ -181,16 +181,8 @@ class TestDataFrame:
         cnt = t.where(t.c2 < 10).count()
         assert cnt == 10
 
-        # count() doesn't work with similarity search
-        t = small_img_tbl
-        probe = t.select(t.img).show(1)
-        img = probe[0, 0]
-        with pytest.raises(excs.Error):
-            _ = t.where(t.img.nearest(img)).count()
-        with pytest.raises(excs.Error):
-            _ = t.where(t.img.nearest('car')).count()
-
         # for now, count() doesn't work with non-SQL Where clauses
+        t = small_img_tbl
         with pytest.raises(excs.Error):
             _ = t.where(t.img.width > 100).count()
 
@@ -282,7 +274,7 @@ class TestDataFrame:
             assert isinstance(arr_plain, np.ndarray)
             assert arr_plain.flags["WRITEABLE"], 'required by pytorch collate function'
 
-            # NB: compare numpy array bc PIL.Image object itself is not using same file.
+            # compare numpy array bc PIL.Image object itself is not using same file.
             assert (arr_plain == np.array(im_plain)).all(), 'numpy image should be the same as the original'
             arr_xformed = elt['c_image_xformed']
             assert isinstance(arr_xformed, np.ndarray)

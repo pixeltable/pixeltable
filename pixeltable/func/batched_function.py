@@ -21,6 +21,12 @@ class BatchedFunction(Function):
         """Invoke the function for the given batch and return a batch of results"""
         raise NotImplementedError
 
+    def exec(self, *args: Any, **kwargs: Any) -> Any:
+        arg_batches = [[arg] for arg in args]
+        kwarg_batches = {k: [v] for k, v in kwargs.items()}
+        batch_result = self.invoke(arg_batches, kwarg_batches)
+        assert len(batch_result) == 1
+        return batch_result[0]
 
 class ExplicitBatchedFunction(BatchedFunction):
     """

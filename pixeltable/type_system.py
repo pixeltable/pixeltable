@@ -225,6 +225,8 @@ class ColumnType:
             return BoolType()
         if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
             return TimestampType()
+        if isinstance(val, PIL.Image.Image):
+            return ImageType(width=val.width, height=val.height)
         if isinstance(val, np.ndarray):
             col_type = ArrayType.from_literal(val)
             if col_type is not None:
@@ -877,11 +879,9 @@ class DocumentType(ColumnType):
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         from pixeltable.utils.documents import get_document_handle
-        with open(val, 'r', encoding='utf8') as fh:
-            try:
-                s = fh.read()
-                dh = get_document_handle(s)
-                if dh is None:
-                    raise excs.Error(f'Not a recognized document format: {val}')
-            except Exception as e:
-                raise excs.Error(f'Not a recognized document format: {val}') from None
+        try:
+            dh = get_document_handle(val)
+            if dh is None:
+                raise excs.Error(f'Not a recognized document format: {val}')
+        except Exception as e:
+            raise excs.Error(f'Not a recognized document format: {val}') from None

@@ -7,3 +7,4 @@ from .expr_eval_node import ExprEvalNode
 from .in_memory_data_node import InMemoryDataNode
 from .sql_scan_node import SqlScanNode
 from .media_validation_node import MediaValidationNode
+from .data_row_batch import DataRowBatch

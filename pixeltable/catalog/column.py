@@ -5,8 +5,8 @@ from typing import Optional, Union, Callable, Set
 
 import sqlalchemy as sql
 
-from pixeltable import exceptions as excs
-from pixeltable.type_system import ColumnType, StringType
+import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from .globals import is_valid_identifier
 
 _logger = logging.getLogger('pixeltable')
@@ -18,7 +18,7 @@ class Column:
     table/view.
     """
     def __init__(
-            self, name: Optional[str], col_type: Optional[ColumnType] = None,
+            self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
             computed_with: Optional[Union['Expr', Callable]] = None,
             is_pk: bool = False, stored: Optional[bool] = None,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
@@ -114,6 +114,10 @@ class Column:
         l = list(self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call))
         return len(l) > 0
 
+    def get_idx_info(self) -> dict[str, 'pixeltable.catalog.TableVersion.IndexInfo']:
+        assert self.tbl is not None
+        return {name: info for name, info in self.tbl.idxs_by_name.items() if info.col == self}
+
     @property
     def is_computed(self) -> bool:
         return self.compute_func is not None or self.value_expr is not None
@@ -148,8 +152,8 @@ class Column:
             self.store_name(), self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type,
             nullable=True)
         if self.is_computed or self.col_type.is_media_type():
-            self.sa_errormsg_col = sql.Column(self.errormsg_store_name(), StringType().to_sa_type(), nullable=True)
-            self.sa_errortype_col = sql.Column(self.errortype_store_name(), StringType().to_sa_type(), nullable=True)
+            self.sa_errormsg_col = sql.Column(self.errormsg_store_name(), ts.StringType().to_sa_type(), nullable=True)
+            self.sa_errortype_col = sql.Column(self.errortype_store_name(), ts.StringType().to_sa_type(), nullable=True)
 
     def get_sa_col_type(self) -> sql.sqltypes.TypeEngine:
         return self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type

@@ -1,9 +1,8 @@
 import inspect
-from typing import Dict, Optional, Callable, List
+from typing import Dict, Optional, Any
 
 import pixeltable
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 from .function import Function
 from .signature import Signature, Parameter
 
@@ -64,6 +63,16 @@ class ExprTemplateFunction(Function):
         import pixeltable.exprs as exprs
         assert not result.contains(exprs.Variable)
         return result
+
+    def exec(self, *args: Any, **kwargs: Any) -> Any:
+        expr = self.instantiate(*args, **kwargs)
+        import pixeltable.exprs as exprs
+        row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
+        import pixeltable.exec as exec
+        row_batch = exec.DataRowBatch(tbl=None, row_builder=row_builder, len=1)
+        row = row_batch[0]
+        row_builder.eval(row, ctx=row_builder.default_eval_ctx)
+        return row[row_builder.get_output_exprs()[0].slot_idx]
 
     @property
     def display_name(self) -> str:
