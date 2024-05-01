@@ -12,7 +12,7 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files, get_audio_files, skip_test_if_not_installed
+from pixeltable.tests.utils import get_video_files, get_audio_files, get_documents, skip_test_if_not_installed
 
 
 class TestDataFrame:
@@ -199,19 +199,21 @@ class TestDataFrame:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[res.column_names()[0]] == [1.0] * 10
 
-    # TODO This test doesn't work on Windows due to reliance on the structure of file URLs
-    @pytest.mark.skip('Test is not portable')
     def test_html_media_url(self, test_client: pxt.Client) -> None:
-        tab = test_client.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType()})
-        status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0])
+        tab = test_client.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType(),
+                                                          'doc': pxt.DocumentType()})
+
+        pdf_docs = [ f for f in get_documents() if f.endswith('.pdf') ]
+        status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0], doc=pdf_docs[0])
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-        res = tab.select(tab.video, tab.audio).collect()
+        res = tab.select(tab.video, tab.audio, tab.doc).collect()
         doc = bs4.BeautifulSoup(res._repr_html_(), features='html.parser')
         video_tags = doc.find_all('video')
         assert len(video_tags) == 1
         audio_tags = doc.find_all('audio')
+        assert len(audio_tags) == 1
         assert len(audio_tags) == 1
 
         # get the source elements and test their src attributes
