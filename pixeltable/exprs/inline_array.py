@@ -100,7 +100,7 @@ class InlineArray(Expr):
         assert 'elements' in d
         arg: List[Any] = []
         for idx, val in d['elements']:
-            if idx is not None:
+            if idx is not None and idx >= 0:  # Older schemas might have -1 instead of None
                 arg.append(components[idx])
             else:
                 arg.append(val)

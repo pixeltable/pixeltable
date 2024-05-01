@@ -41,4 +41,4 @@ class TestMigration:
                 )
             # TODO(aaron-siegel) This will test that the migration succeeds without raising any exceptions.
             # We should also add some assertions to sanity-check the outcome.
-            _ = pxt.Client()
+            _ = pxt.Client(reload=True)
