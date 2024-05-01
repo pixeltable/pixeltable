@@ -132,23 +132,23 @@ class LabelStudioProject(Remote):
             if r_col_name in config.rectangle_labels
         ]
         # Destinations for `rectanglelabels` annotations
-        rl_to_names = [rl.to_name for rl in config.rectangle_labels.values()]
+        rl_info = list(config.rectangle_labels.values())
 
         _logger.debug('`t_data_cols`: %s', t_data_cols)
         _logger.debug('`t_rl_cols`: %s', t_rl_cols)
-        _logger.debug('`rl_to_names`: %s', rl_to_names)
+        _logger.debug('`rl_info`: %s', rl_info)
 
-        # TODO Validate that `rl_to_names` are in the config!
+        # TODO Validate that `rl_info.to_name`s are in the config!
 
         if len(t_data_cols) == 1 and t_col_types[t_data_cols[0]].is_media_type():
             # With a single media column, we can post local files to Label Studio using
             # the file transfer API.
-            self._create_tasks_by_post(t, col_mapping, row_ids_in_ls, t_rl_cols, rl_to_names, t_data_cols[0])
+            self._create_tasks_by_post(t, col_mapping, row_ids_in_ls, t_rl_cols, rl_info, t_data_cols[0])
         else:
             # Either a single non-media column or multiple columns. Either way, we can't
             # use the file upload API and need to rely on externally accessible URLs for
             # media columns.
-            self._create_tasks_by_urls(t, col_mapping, row_ids_in_ls, t_data_cols, t_col_types, t_rl_cols, rl_to_names)
+            self._create_tasks_by_urls(t, col_mapping, row_ids_in_ls, t_data_cols, t_col_types, t_rl_cols, rl_info)
 
     def _create_tasks_by_post(
             self,
@@ -156,7 +156,7 @@ class LabelStudioProject(Remote):
             col_mapping: dict[str, str],
             row_ids_in_ls: set[tuple],
             t_rl_cols: list[str],
-            rl_to_names: list[str],
+            rl_info: list['_RectangleLabel'],
             media_col_name: str
     ):
         is_stored = t[media_col_name].col.is_stored
@@ -192,7 +192,7 @@ class LabelStudioProject(Remote):
                 _logger.debug('`coco_annotations`: %s', coco_annotations)
                 predictions = [
                     self._coco_to_predictions(
-                        coco_annotations[i], col_mapping[t_rl_cols[i]], rl_to_names[i], task_id=task_id
+                        coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i], task_id=task_id
                     )
                     for i in range(len(coco_annotations))
                 ]
@@ -210,7 +210,7 @@ class LabelStudioProject(Remote):
             t_data_cols: list[str],
             t_col_types: dict[str, pxt.ColumnType],
             t_rl_cols: list[str],
-            rl_to_names: list[str]
+            rl_info: list['_RectangleLabel']
     ):
         selection = [
             t[col_name].fileurl if t_col_types[col_name].is_media_type() else t[col_name]
@@ -230,7 +230,7 @@ class LabelStudioProject(Remote):
                 data_vals = [row.vals[i] for i in data_col_idxs]
                 coco_annotations = [row.vals[i] for i in rl_col_idxs]
                 predictions = [
-                    self._coco_to_predictions(coco_annotations[i], col_mapping[t_rl_cols[i]], rl_to_names[i])
+                    self._coco_to_predictions(coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i])
                     for i in range(len(coco_annotations))
                 ]
 
@@ -310,7 +310,7 @@ class LabelStudioProject(Remote):
             cls,
             coco_annotations: dict[str, Any],
             from_name: str,
-            to_name: str,
+            rl_info: '_RectangleLabel',
             task_id: Optional[int] = None
     ) -> dict[str, Any]:
         width = coco_annotations['image']['width']
@@ -320,7 +320,7 @@ class LabelStudioProject(Remote):
                 'id': f'result_{i}',
                 'type': 'rectanglelabels',
                 'from_name': from_name,
-                'to_name': to_name,
+                'to_name': rl_info.to_name,
                 'image_rotation': 0,
                 'original_width': width,
                 'original_height': height,
@@ -335,6 +335,8 @@ class LabelStudioProject(Remote):
                 }
             }
             for i, entry in enumerate(coco_annotations['annotations'])
+            # include only the COCO labels that match a rectanglelabel name
+            if coco.COCO_2017_CATEGORIES[entry['category']] in rl_info.labels
         ]
         if task_id is not None:
             return {'task': task_id, 'result': result}

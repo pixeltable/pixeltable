@@ -4,6 +4,7 @@ import platform
 import subprocess
 import time
 import uuid
+from typing import Iterator
 
 import pytest
 import requests.exceptions
@@ -41,7 +42,7 @@ class TestLabelStudio:
     <View>
       <Image name="frame_obj" value="$frame"/>
       <RectangleLabels name="obj_label" toName="frame_obj">
-        <Label value="car" background="green"/>
+        <Label value="knife" background="green"/>
         <Label value="person" background="blue"/>
       </RectangleLabels>
     </View>
@@ -121,6 +122,21 @@ class TestLabelStudio:
             'annotations_col': 'annotations'
         })
         t.sync_remotes()
+
+        # Check that the preannotations sent to Label Studio are what we expect
+        tasks = remote.project.get_tasks()
+
+        def extract_labels() -> Iterator[str]:
+            for task in tasks:
+                for prediction in task['predictions']:
+                    for result in prediction['result']:
+                        assert len(result['value']['rectanglelabels']) == 1
+                        yield result['value']['rectanglelabels'][0]
+        found_labels = set(extract_labels())
+        # There should be at least one knife and one person in the sample images;
+        # nothing else should be present, since these are the only labels defined
+        # in the XML config
+        assert found_labels == {'knife', 'person'}
 
     def test_label_studio_sync_errors(self, init_ls, ls_image_table: pxt.Table) -> None:
         skip_test_if_not_installed('label_studio_sdk')
