@@ -4,19 +4,18 @@ import os
 import pathlib
 from typing import List
 
-import numpy as np
 import pytest
-import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.catalog as catalog
-from pixeltable import exprs
 import pixeltable.functions as pxtf
+from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
-from pixeltable.tests.utils import read_data_file, create_test_tbl, create_all_datatypes_tbl, skip_test_if_not_installed
-from pixeltable.type_system import StringType, ImageType, FloatType
+from pixeltable.tests.utils import create_test_tbl, create_all_datatypes_tbl, clip_img_embed, \
+    clip_text_embed, create_img_tbl, skip_test_if_not_installed
+from pixeltable.type_system import FloatType
 
 
 @pytest.fixture(scope='session')
@@ -130,42 +129,28 @@ def all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
 
 @pytest.fixture(scope='function')
 def img_tbl(test_client: pxt.Client) -> catalog.Table:
-    schema = {
-        'img': ImageType(nullable=False),
-        'category': StringType(nullable=False),
-        'split': StringType(nullable=False),
-    }
-    # this table is not indexed in order to avoid the cost of computing embeddings
-    tbl = test_client.create_table('test_img_tbl', schema)
-    rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-    tbl.insert(rows)
-    return tbl
+    return create_img_tbl(test_client, 'test_img_tbl')
 
 @pytest.fixture(scope='function')
-def img_tbl_exprs(img_tbl: catalog.Table) -> List[exprs.Expr]:
-    img_t = img_tbl
+def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> List[exprs.Expr]:
+    t = indexed_img_tbl
     return [
-        img_t.img.width,
-        img_t.img.rotate(90),
+        t.img.width,
+        t.img.rotate(90),
         # we're using a list here, not a tuple; the latter turns into a list during the back/forth conversion
-        img_t.img.rotate(90).resize([224, 224]),
-        img_t.img.fileurl,
-        img_t.img.localpath,
+        t.img.rotate(90).resize([224, 224]),
+        t.img.fileurl,
+        t.img.localpath,
+        t.img.similarity('red truck'),
     ]
 
 @pytest.fixture(scope='function')
 def small_img_tbl(test_client: pxt.Client) -> catalog.Table:
-    cl = test_client
-    schema = {
-        'img': ImageType(nullable=False),
-        'category': StringType(nullable=False),
-        'split': StringType(nullable=False),
-    }
-    tbl = cl.create_table('test_indexed_img_tbl', schema)
-    rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
-    # select output_rows randomly in the hope of getting a good sample of the available categories
-    rng = np.random.default_rng(17)
-    idxs = rng.choice(np.arange(len(rows)), size=40, replace=False)
-    rows = [rows[i] for i in idxs]
-    tbl.insert(rows)
-    return tbl
+    return create_img_tbl(test_client, 'small_img_tbl', num_rows=40)
+
+@pytest.fixture(scope='function')
+def indexed_img_tbl(test_client: pxt.Client) -> pxt.Table:
+    skip_test_if_not_installed('transformers')
+    t = create_img_tbl(test_client, 'indexed_img_tbl', num_rows=40)
+    t.add_embedding_index('img', metric='cosine', img_embed=clip_img_embed, text_embed=clip_text_embed)
+    return t

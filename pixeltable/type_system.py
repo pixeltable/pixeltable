@@ -225,6 +225,8 @@ class ColumnType:
             return BoolType()
         if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
             return TimestampType()
+        if isinstance(val, PIL.Image.Image):
+            return ImageType(width=val.width, height=val.height)
         if isinstance(val, np.ndarray):
             col_type = ArrayType.from_literal(val)
             if col_type is not None:

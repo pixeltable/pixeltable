@@ -21,7 +21,6 @@ class SqlScanNode(ExecNode):
             select_list: Iterable[exprs.Expr],
             where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Predicate] = None,
             order_by_items: Optional[List[Tuple[exprs.Expr, bool]]] = None,
-            similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None,
             limit: int = 0, set_pk: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
     ):
         """
@@ -77,15 +76,17 @@ class SqlScanNode(ExecNode):
         # the number of tables that need to be joined to the target table
         for rowid_ref in [e for e, _ in order_by_items if isinstance(e, exprs.RowidRef)]:
             rowid_ref.set_tbl(tbl)
-        order_by_clause = [e.sql_expr().desc() if not asc else e.sql_expr() for e, asc in order_by_items]
+        order_by_clause: List[sql.ClauseElement] = []
+        for e, asc in order_by_items:
+            if isinstance(e, exprs.SimilarityExpr):
+                order_by_clause.append(e.as_order_by_clause(asc))
+            else:
+                order_by_clause.append(e.sql_expr().desc() if not asc else e.sql_expr())
 
         if where_clause is not None:
             sql_where_clause = where_clause.sql_expr()
             assert sql_where_clause is not None
             self.stmt = self.stmt.where(sql_where_clause)
-        if similarity_clause is not None:
-            self.stmt = self.stmt.order_by(
-                similarity_clause.img_col_ref.col.sa_idx_col.l2_distance(similarity_clause.embedding()))
         if len(order_by_clause) > 0:
             self.stmt = self.stmt.order_by(*order_by_clause)
         elif target.id in row_builder.unstored_iter_args:
