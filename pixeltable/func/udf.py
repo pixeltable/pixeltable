@@ -156,8 +156,9 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         template = py_fn(*var_exprs)
         assert isinstance(template, exprs.Expr)
         py_sig = inspect.signature(py_fn)
-        if function_path is not None:
-            validate_symbol_path(function_path)
+        # `function_path` does not need to be resolvable for an `expr_udf`
+        # if function_path is not None:
+        #   validate_symbol_path(function_path)
         return ExprTemplateFunction(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
 
     if len(args) == 1:

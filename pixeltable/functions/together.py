@@ -7,7 +7,7 @@ import numpy as np
 import together
 
 import pixeltable as pxt
-from pixeltable import env
+from pixeltable import env, Function
 from pixeltable.func import Batch
 
 
@@ -89,9 +89,37 @@ def chat_completions(
 def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
     result = together_client().embeddings.create(input=input, model=model)
     return [
-        np.array(data.embedding, dtype=np.float64)
+        np.array(data.embedding, dtype=np.float32)
         for data in result.data
     ]
+
+
+_embedding_dimensions_cache = {
+    'togethercomputer/m2-bert-80M-2k-retrieval': 768,
+    'togethercomputer/m2-bert-80M-8k-retrieval': 768,
+    'togethercomputer/m2-bert-80M-32k-retrieval': 768,
+    'WhereIsAI/UAE-Large-V1': 1024,
+    'BAAI/bge-large-en-v1.5': 1024,
+    'BAAI/bge-base-en-v1.5': 768,
+    'sentence-transformers/msmarco-bert-base-dot-v5': 768,
+    'bert-base-uncased': 768,
+}
+
+
+def embedding_fn(*, model: str) -> Function:
+    global _embedding_dimensions_cache
+    if model not in _embedding_dimensions_cache:
+        try:
+            result = together_client().embeddings.create(input='This is a test', model=model)
+            dim = len(result.data[0].embedding)
+            _embedding_dimensions_cache[model] = dim
+        except:
+            pass
+    dim = _embedding_dimensions_cache.get(model)
+    @pxt.expr_udf
+    def fn(input: str) -> np.ndarray:
+        return embeddings(input, model=model).astype(pxt.ArrayType((dim,), dtype=pxt.FloatType()))
+    return fn
 
 
 @pxt.udf
