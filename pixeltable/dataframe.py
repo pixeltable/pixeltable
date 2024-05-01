@@ -485,8 +485,6 @@ class DataFrame:
             else:
                 select_list.append((exprs.Literal(raw_expr), name))
             expr = select_list[-1][0]
-            if not isinstance(expr.col_type, ts.ColumnType):
-                pass
             if expr.col_type.is_invalid_type():
                 raise excs.Error(f'Invalid type: {raw_expr}')
             # TODO: check that ColumnRefs in expr refer to self.tbl

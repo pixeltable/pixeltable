@@ -11,10 +11,12 @@ from pixeltable.functions.util import resolve_torch_device
 
 
 def _sentence_transformer_call_return_type(model_id: str) -> ts.ColumnType:
-    #env.Env.get().require_package('sentence_transformers')
-    from sentence_transformers import SentenceTransformer
-    model = _lookup_model(model_id, SentenceTransformer)
-    return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
+    try:
+        from sentence_transformers import SentenceTransformer
+        model = _lookup_model(model_id, SentenceTransformer)
+        return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
+    except ImportError:
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
 
 @pxt.udf(
     batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()),
@@ -64,10 +66,12 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
     return array.tolist()
 
 def _clip_call_return_type(model_id: str) -> ts.ColumnType:
-    #env.Env.get().require_package('transformers')
-    from transformers import CLIPModel
-    model = _lookup_model(model_id, CLIPModel.from_pretrained)
-    return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
+    try:
+        from transformers import CLIPModel
+        model = _lookup_model(model_id, CLIPModel.from_pretrained)
+        return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
+    except ImportError:
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
 
 @pxt.udf(
     batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
