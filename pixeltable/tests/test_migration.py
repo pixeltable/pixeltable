@@ -24,6 +24,7 @@ class TestMigration:
         _logger.info(f'Using pg_restore binary at: {pg_restore_binary}')
         dump_files = glob.glob('pixeltable/tests/data/dbdumps/*.dump.gz')
         dump_files.sort()
+        assert len(dump_files) > 0
         for dump_file in dump_files:
             _logger.info(f'Testing migration from DB dump {dump_file}.')
             _logger.info(f'DB URL: {env.db_url}')
