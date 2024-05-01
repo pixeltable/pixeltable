@@ -132,11 +132,13 @@ class TestLabelStudio:
                     for result in prediction['result']:
                         assert len(result['value']['rectanglelabels']) == 1
                         yield result['value']['rectanglelabels'][0]
+
         found_labels = set(extract_labels())
-        # There should be at least one knife and one person in the sample images;
-        # nothing else should be present, since these are the only labels defined
-        # in the XML config
-        assert found_labels == {'knife', 'person'}
+        # No labels should be present other than 'knife' and 'person', since these are
+        # the only labels defined in the XML config
+        assert found_labels.issubset({'knife', 'person'})
+        # 'person' should be present ('knife' sometimes is too, but it's nondeterministic)
+        assert 'person' in found_labels
 
     def test_label_studio_sync_errors(self, init_ls, ls_image_table: pxt.Table) -> None:
         skip_test_if_not_installed('label_studio_sdk')
