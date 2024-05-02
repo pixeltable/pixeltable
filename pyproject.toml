@@ -83,6 +83,8 @@ sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 datasets = ">=2.15.0"
 openpyxl = ">=3.1"  # Excel (.xlsx) support
+# setuptools >= 69.2 has known issues with Github Actions
+setuptools = "~69.1"
 
 [tool.mypy]
 plugins = "sqlalchemy.ext.mypy.plugin"
