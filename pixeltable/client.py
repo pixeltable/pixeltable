@@ -164,6 +164,17 @@ class Client:
         df = pd.read_csv(csv_url, *args, **kwargs)
         return self.import_pandas(tbl_name, df, schema=schema)
 
+    def import_xlsx(
+            self,
+            tbl_name: str,
+            xlsx_url: str,
+            *args,
+            schema: Optional[dict[str, ts.ColumnType]] = None,
+            **kwargs
+    ) -> catalog.InsertableTable:
+        df = pd.read_excel(xlsx_url, *args, **kwargs)
+        return self.import_pandas(tbl_name, df, schema=schema)
+
     def import_pandas(
             self,
             tbl_name: str,

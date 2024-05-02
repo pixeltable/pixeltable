@@ -66,6 +66,8 @@ def _np_dtype_to_pxt_type(np_dtype: np.dtype) -> pxt.ColumnType:
         return pxt.BoolType()
     if np_dtype == np.object_ or np.issubdtype(np_dtype, np.character):
         return pxt.StringType()
+    if np.issubdtype(np_dtype, np.datetime64):
+        return pxt.TimestampType(nullable=True)
     raise excs.Error(f'Unsupported dtype: {np_dtype}')
 
 
@@ -79,4 +81,12 @@ def _df_row_to_pxt_row(row: tuple[Any, ...], schema: dict[str, pxt.ColumnType]) 
             val = bool(val)
         if pxt_type.is_string_type():
             val = str(val)
+        if pxt_type.is_timestamp_type():
+            if pd.isnull(val):
+                # pandas has the bespoke 'NaT' type for a missing timestamp; postgres is very
+                # much not-ok with it. (But if we convert it to None and then load out the
+                # table contents as a pandas DataFrame, it will correctly restore the 'NaT'!)
+                val = None
+            else:
+                val = pd.Timestamp(val).to_pydatetime()
         yield col_name, val
