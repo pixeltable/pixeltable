@@ -354,6 +354,7 @@ class Env:
         check('nos')
         if self.is_installed_package('nos'):
             self._create_nos_client()
+        check('openpyxl')
 
     def require_package(self, package: str, min_version: Optional[List[int]] = None) -> None:
         assert package in self._installed_packages

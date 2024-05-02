@@ -3,11 +3,12 @@ import datetime
 import numpy as np
 
 import pixeltable as pxt
+from pixeltable.tests.utils import skip_test_if_not_installed
 
 
 class TestPandas:
 
-    def test_pandas(self, test_client: pxt.Client) -> None:
+    def test_pandas_csv(self, test_client: pxt.Client) -> None:
         cl = test_client
 
         t1 = cl.import_csv('online_foods', 'pixeltable/tests/data/datasets/onlinefoods.csv')
@@ -54,6 +55,10 @@ class TestPandas:
         assert result_set['col2'] == ['fish', '7', 'nan', '3']
         _assert_equals_with_nans(result_set['col3'], [3.0, float('nan'), float('nan'), 5.0])
         _assert_equals_with_nans(result_set['col4'], [float('nan'), float('nan'), float('nan'), 7.0])
+
+    def test_pandas_excel(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('openpyxl')
+        cl = test_client
 
         t4 = cl.import_excel('fin_sample', 'pixeltable/tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
