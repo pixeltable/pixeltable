@@ -4,12 +4,11 @@ import logging
 import urllib
 import posixpath
 import pathlib
-import re
 import os
+import string
 
 _logger = logging.getLogger('pixeltable.http.server')
 
-_regex = re.compile(r'^([A-Za-z]:)?(/.*)?$')
 
 def get_file_uri(http_address: str, file_path: str) -> str:
     """Get the URI for a file path, with the given prefix.
@@ -21,6 +20,22 @@ def get_file_uri(http_address: str, file_path: str) -> str:
     path_normalized = str(abs_path).replace(os.sep, '/')
     quoted = urllib.parse.quote(path_normalized, safe=':/')
     return f'{http_address}/{quoted}'
+
+
+def path_to_parts(uri_path: str) -> tuple[str, str]:
+    """Split a URI path into an anchor and a path"""
+    uri_path = posixpath.normpath(uri_path).lstrip('/')
+    parts = uri_path.split('/', 1)
+    first_part = parts[0]
+    if len(first_part) == 2 and first_part[-1] == ':' and first_part[0].lower() in string.ascii_lowercase:
+        # eg. c:
+        anchor = first_part + '/'
+        path = parts[1] if len(parts) == 2 else ''
+    else:
+        anchor = '/'
+        path = uri_path
+
+    return (anchor, path)
 
 
 class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
@@ -42,6 +57,7 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
             Code initially taken from there:
             https://github.com/python/cpython/blob/f5406ef454662b98df107775d18ff71ae6849618/Lib/http/server.py#L834
         """
+        _logger.info(f'{path=}')
         # abandon query parameters
         path = path.split('?', 1)[0]
         path = path.split('#', 1)[0]
@@ -51,15 +67,9 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
         except UnicodeDecodeError:
             path = urllib.parse.unquote(path)
 
-        path = posixpath.normpath(path).lstrip('/')  # will remove double slashes
-        matches = _regex.match(path)
-        if not matches:
-            raise Exception(f'non-conforming path {path=}')
-
-        (volume, remainder) = list(matches.groups())
-        volume = self.default_root if not volume else pathlib.Path(volume + '/')
-        remainder = remainder if remainder is not None else ''
-        path = volume / remainder
+        (volume_str, path_str) = path_to_parts(path)
+        volume = self.default_root if volume_str == '/' else pathlib.Path(volume_str)
+        path = volume / path_str
         # print(f'{path=}, {path.exists()=} {path.is_dir()=} {path.is_absolute()=}')
         if not path.is_absolute():
             raise Exception(f'need absolute path. got {path=}')
