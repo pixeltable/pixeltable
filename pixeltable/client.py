@@ -164,7 +164,7 @@ class Client:
         df = pd.read_csv(csv_url, *args, **kwargs)
         return self.import_pandas(tbl_name, df, schema=schema)
 
-    def import_xlsx(
+    def import_excel(
             self,
             tbl_name: str,
             xlsx_url: str,

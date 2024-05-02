@@ -1,3 +1,5 @@
+import datetime
+
 import numpy as np
 
 import pixeltable as pxt
@@ -53,7 +55,17 @@ class TestPandas:
         _assert_equals_with_nans(result_set['col3'], [3.0, float('nan'), float('nan'), 5.0])
         _assert_equals_with_nans(result_set['col4'], [float('nan'), float('nan'), float('nan'), 7.0])
 
-        t4 = cl.import_xlsx('')
+        t4 = cl.import_excel('fin_sample', 'pixeltable/tests/data/datasets/Financial Sample.xlsx')
+        assert t4.count() == 700
+        assert t4.column_types()['Date'] == pxt.TimestampType(nullable=True)
+        entry = t4.df().limit(1).collect()[0]
+        assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0)
+
+        t5 = cl.import_excel('sale_data', 'pixeltable/tests/data/datasets/SaleData.xlsx')
+        assert t5.count() == 45
+        assert t5.column_types()['OrderDate'] == pxt.TimestampType(nullable=True)
+        # Ensure valid mapping of 'NaT' -> None
+        assert t5.df().collect()[43]['OrderDate'] is None
 
 
 def _assert_equals_with_nans(a: list[float], b: list[float]) -> bool:
