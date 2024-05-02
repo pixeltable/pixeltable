@@ -18,7 +18,7 @@ def get_file_uri(http_address: str, file_path: str) -> str:
     abs_path = pathlib.Path(file_path)
     assert abs_path.is_absolute()
     # for windows, replace '\\' with '/', keep the drive letter
-    path_normalized = str(abs_path).replace(os.pathsep, '/')
+    path_normalized = str(abs_path).replace(os.sep, '/')
     quoted = urllib.parse.quote(path_normalized, safe=':/')
     return f'{http_address}/{quoted}'
 
@@ -85,8 +85,8 @@ class LoggingHTTPServer(http.server.ThreadingHTTPServer):
         )
 
 
-def make_server(address: str, port: int = 0) -> http.server.HTTPServer:
-    """Create a server with the given address, port and handler class"""
+def make_server(address: str, port: int) -> http.server.HTTPServer:
+    """Create a file server with pixeltable specific config """
     return LoggingHTTPServer((address, port), AbsolutePathHandler)
 
 

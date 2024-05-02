@@ -6,7 +6,8 @@ from typing import Any, Dict
 import bs4
 import numpy as np
 import pytest
-import requests
+import urllib.request
+import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import catalog
@@ -216,13 +217,25 @@ class TestDataFrame:
         assert len(audio_tags) == 1
         assert len(audio_tags) == 1
 
-        # get the source elements and test their src attributes
+        # get the source elements and test their src link are valid and can be retrieved 
+        # from running web-server
         for tag in video_tags + audio_tags:
             sources = tag.find_all('source')
             assert len(sources) == 1
             for src in sources:
-                response = requests.get(src['src'])
-                assert response.status_code == 200
+                urllib.request.urlopen(src['src'])
+
+        document_tags = doc.find_all('div', attrs={'class':'pxt_document'})
+        assert len(document_tags) == 1
+        res0 = document_tags[0]
+        href = res0.find('a')['href']
+        thumb = res0.find('img')['src']
+        # check link is valid and server is running
+        _ = urllib.request.urlopen(url=href)
+        # check thumbnail is well formed image
+        opurl_img = urllib.request.urlopen(url=thumb)
+        PIL.Image.open(opurl_img)
+
 
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table):
         """ tests all types are handled correctly in this conversion

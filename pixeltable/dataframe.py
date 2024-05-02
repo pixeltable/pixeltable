@@ -104,7 +104,7 @@ class DataFrameResultSet:
             img.save(buffer, 'jpeg')
             img_base64 = base64.b64encode(buffer.getvalue()).decode()
             return f'''
-            <div style="width:{width}px;">
+            <div class="pxt_image" style="width:{width}px;">
                 <img src="data:image/jpeg;base64,{img_base64}" width="{width}" />
             </div>
             '''
@@ -134,7 +134,7 @@ class DataFrameResultSet:
         else:
             width = 800
         return f'''
-        <div style="width:{width}px;">
+        <div class="pxt_video" style="width:{width}px;">
             <video controls width="{width}" {thumb_tag}>
                 {_create_source_tag(file_path)}
             </video>
@@ -143,7 +143,7 @@ class DataFrameResultSet:
 
     def _format_document(self, file_path: str) -> str:
         max_width = max_height = 320
-        if file_path.endswith('.pdf'):
+        if file_path.lower().endswith('.pdf'):
             try:
                 import fitz
                 doc = fitz.open(file_path)
@@ -157,11 +157,11 @@ class DataFrameResultSet:
                     <img style="object-fit: contain; border: 1px solid black;" src="{img_src}" />
                 '''
             except:
-                logging.warning(f'Failed to render PDF: {file_path}. Make sure you have PyMuPDF installed.')
+                logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
                 inner_element = file_path
 
         return f'''
-        <div style="width:{max_width}px;">
+        <div class="pxt_document" style="width:{max_width}px;">
             <a href="{get_file_uri(Env.get().http_address, file_path)}">
                 {inner_element}
             </a>
@@ -169,7 +169,13 @@ class DataFrameResultSet:
         '''
 
     def _format_audio(self, file_path: str) -> str:
-        return f'<audio controls>{_create_source_tag(file_path)}</audio>'
+        return f'''
+        <div class="pxt_audio">
+            <audio controls>
+                {_create_source_tag(file_path)}
+            </audio>
+        </div>
+        '''
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
