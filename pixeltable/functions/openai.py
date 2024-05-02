@@ -189,12 +189,9 @@ _embedding_dimensions_cache: dict[str, int] = {
 
 def _embeddings_call_return_type(model: str, dimensions: Optional[int] = None) -> ts.ColumnType:
     if dimensions is None:
-        global _embedding_dimensions_cache
         if model not in _embedding_dimensions_cache:
-            # TODO: this will fail because Env hasn't been initialized
-            result = openai_client().embeddings.create(input='This is a test', model=model, encoding_format='float')
-            dimensions = len(result.data[0].embedding)
-            _embedding_dimensions_cache[model] = dimensions
+            # TODO: find some other way to retrieve a sample
+            return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
         dimensions = _embedding_dimensions_cache.get(model, None)
     return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 

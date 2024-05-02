@@ -96,12 +96,9 @@ _embedding_dimensions_cache = {
 }
 
 def _embeddings_call_return_type(model: str) -> pxt.ArrayType:
-    global _embedding_dimensions_cache
     if model not in _embedding_dimensions_cache:
-        # TODO: this will fail because Env hasn't been initialized
-        result = together_client().embeddings.create(input='This is a test', model=model)
-        dimensions = len(result.data[0].embedding)
-        _embedding_dimensions_cache[model] = dimensions
+        # TODO: find some other way to retrieve a sample
+        return pxt.ArrayType((None,), dtype=pxt.FloatType())
     dimensions = _embedding_dimensions_cache[model]
     return pxt.ArrayType((dimensions,), dtype=pxt.FloatType())
 
