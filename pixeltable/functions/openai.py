@@ -223,19 +223,7 @@ def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
 #####################################
 # Images Endpoints
 
-def _image_generations_call_return_type(size: Optional[str] = None) -> ts.ImageType:
-    if size is None:
-        return ts.ImageType(size=(1024, 1024))
-    x_pos = size.find('x')
-    if x_pos == -1:
-        return ts.ImageType()
-    try:
-        width, height = int(size[:x_pos]), int(size[x_pos + 1:])
-    except ValueError:
-        return ts.ImageType()
-    return ts.ImageType(size=(width, height))
-
-@pxt.udf(call_return_type=_image_generations_call_return_type)
+@pxt.udf
 @_retry
 def image_generations(
         prompt: str,
@@ -261,6 +249,20 @@ def image_generations(
     img = PIL.Image.open(io.BytesIO(b64_bytes))
     img.load()
     return img
+
+
+@image_generations.dynamic_return_type
+def _(size: Optional[str] = None) -> ts.ImageType:
+    if size is None:
+        return ts.ImageType(size=(1024, 1024))
+    x_pos = size.find('x')
+    if x_pos == -1:
+        return ts.ImageType()
+    try:
+        width, height = int(size[:x_pos]), int(size[x_pos + 1:])
+    except ValueError:
+        return ts.ImageType()
+    return ts.ImageType(size=(width, height))
 
 
 #####################################
