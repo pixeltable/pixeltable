@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
-from pixeltable.tests.utils import text_embed, img_embed, skip_test_if_not_installed
+from .utils import text_embed, img_embed, skip_test_if_not_installed
 
 
 class TestIndex:

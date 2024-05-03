@@ -2,7 +2,7 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed
+from .utils import get_video_files, skip_test_if_not_installed
 from pixeltable.type_system import VideoType, StringType
 
 
@@ -41,7 +41,7 @@ class TestFunctions:
         ap_b = v.select(mean_ap(v.eval_b)).show()[0, 0]
         common_classes = set(ap_a.keys()) & set(ap_b.keys())
 
-        ## TODO: following assertion is failing on CI, 
+        ## TODO: following assertion is failing on CI,
         # It is not necessarily a bug, as assert codition is not expected to be always true
         # for k in common_classes:
         # assert ap_a[k] <= ap_b[k]

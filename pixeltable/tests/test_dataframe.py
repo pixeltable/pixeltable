@@ -13,7 +13,7 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files, get_audio_files, get_documents, skip_test_if_not_installed
+from .utils import get_video_files, get_audio_files, get_documents, skip_test_if_not_installed
 
 
 class TestDataFrame:
@@ -217,13 +217,14 @@ class TestDataFrame:
         assert len(audio_tags) == 1
         assert len(audio_tags) == 1
 
-        # get the source elements and test their src link are valid and can be retrieved 
+        # get the source elements and test their src link are valid and can be retrieved
         # from running web-server
         for tag in video_tags + audio_tags:
             sources = tag.find_all('source')
             assert len(sources) == 1
             for src in sources:
-                urllib.request.urlopen(src['src'])
+                op = urllib.request.urlopen(src['src'])
+                assert op.getcode() == 200
 
         document_tags = doc.find_all('div', attrs={'class':'pxt_document'})
         assert len(document_tags) == 1
@@ -231,9 +232,11 @@ class TestDataFrame:
         href = res0.find('a')['href']
         thumb = res0.find('img')['src']
         # check link is valid and server is running
-        _ = urllib.request.urlopen(url=href)
+        href_op = urllib.request.urlopen(url=href)
+        assert href_op.getcode() == 200
         # check thumbnail is well formed image
         opurl_img = urllib.request.urlopen(url=thumb)
+        assert opurl_img.getcode() == 200
         PIL.Image.open(opurl_img)
 
 

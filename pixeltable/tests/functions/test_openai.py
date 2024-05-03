@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.tests.utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, validate_update_status
+from .utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, validate_update_status
 from pixeltable.type_system import StringType, ImageType
 
 
