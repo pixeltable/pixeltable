@@ -17,7 +17,7 @@ from pixeltable import catalog
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
-from pixeltable.functions.huggingface import clip_image, clip_text
+from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
 from pixeltable.type_system import (
     ArrayType,
     BoolType,
@@ -441,6 +441,10 @@ def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, s
 @pxt.expr_udf
 def clip_img_embed(img: PIL.Image.Image) -> np.ndarray:
     return clip_image(img, model_id='openai/clip-vit-base-patch32')
+
+@pxt.expr_udf
+def e5_embed(text: str) -> np.ndarray:
+    return sentence_transformer(text, model_id='intfloat/e5-large-v2')
 
 @pxt.expr_udf
 def clip_text_embed(txt: str) -> np.ndarray:

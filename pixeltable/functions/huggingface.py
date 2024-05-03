@@ -10,7 +10,17 @@ from pixeltable.func import Batch
 from pixeltable.functions.util import resolve_torch_device
 
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
+def _sentence_transformer_call_return_type(model_id: str) -> ts.ColumnType:
+    try:
+        from sentence_transformers import SentenceTransformer
+        model = _lookup_model(model_id, SentenceTransformer)
+        return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
+    except ImportError:
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+
+@pxt.udf(
+    batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()),
+    call_return_type=_sentence_transformer_call_return_type)
 def sentence_transformer(
         sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False
 ) -> Batch[np.ndarray]:
@@ -55,8 +65,17 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
     array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
     return array.tolist()
 
+def _clip_call_return_type(model_id: str) -> ts.ColumnType:
+    try:
+        from transformers import CLIPModel
+        model = _lookup_model(model_id, CLIPModel.from_pretrained)
+        return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
+    except ImportError:
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((512,), dtype=ts.FloatType(), nullable=False))
+@pxt.udf(
+    batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
+    call_return_type=_clip_call_return_type)
 def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -64,7 +83,6 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
-    assert model.config.projection_dim == 512
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
     with torch.no_grad():
@@ -74,7 +92,9 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((512,), dtype=ts.FloatType(), nullable=False))
+@pxt.udf(
+    batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
+    call_return_type=_clip_call_return_type)
 def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -82,7 +102,6 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
-    assert model.config.projection_dim == 512
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
 
     with torch.no_grad():

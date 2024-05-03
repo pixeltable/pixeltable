@@ -50,7 +50,7 @@ class TestHuggingface:
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
             t[col_name] = sentence_transformer(t.input, model_id=model_id, normalize_embeddings=True)
-            assert t.column_types()[col_name] == ArrayType((None,), dtype=FloatType(), nullable=False)
+            assert t.column_types()[col_name].is_array_type()
             list_col_name = f'embed_list{idx}'
             t[list_col_name] = sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)
             assert t.column_types()[list_col_name] == JsonType()

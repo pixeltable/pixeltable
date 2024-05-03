@@ -28,7 +28,7 @@ class FunctionCall(Expr):
         if group_by_clause is None:
             group_by_clause = []
         signature = fn.signature
-        super().__init__(signature.get_return_type(bound_args))
+        super().__init__(fn.call_return_type(bound_args))
         self.fn = fn
         self.is_method_call = is_method_call
         self.check_args(signature, bound_args)
