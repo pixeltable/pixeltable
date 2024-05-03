@@ -31,9 +31,14 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
       - name: Delete unnecessary files
+        if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
+          df -h
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+          sudo rm -rf /opt/hostedtoolcache
+          df -h
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -77,5 +82,7 @@ jobs:
       - name: Generate code coverage report
         run: coverage report -m
       - name: Print utilization info
-        run: sudo du -h -d2 /
+        run: |
+          sudo du -h -d2 /
+          sudo du -h -d3 /home/runner
         continue-on-error: true
