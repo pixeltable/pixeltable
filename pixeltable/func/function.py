@@ -68,12 +68,11 @@ class Function(abc.ABC):
 
     def dynamic_return_type(self, call_return_type: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a dynamic return type for this function."""
-        if call_return_type is not None:
-            # verify that call_return_type only has parameters that are also present in the signature
-            sig = inspect.signature(call_return_type)
-            for param in sig.parameters.values():
-                if param.name not in self.signature.parameters:
-                    raise ValueError(f'call_return_type has parameter {param.name} that is not in the signature')
+        # verify that call_return_type only has parameters that are also present in the signature
+        sig = inspect.signature(call_return_type)
+        for param in sig.parameters.values():
+            if param.name not in self.signature.parameters:
+                raise ValueError(f'call_return_type has parameter {param.name} that is not in the signature')
         self._call_return_type = call_return_type
         return call_return_type
 
