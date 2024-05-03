@@ -1,15 +1,15 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
+
 import copy
+from typing import Optional, List, Any, Dict, Tuple
 
 import sqlalchemy as sql
 
-from .expr import Expr
-from .data_row import DataRow
-from .row_builder import RowBuilder
 import pixeltable.exceptions as excs
-import pixeltable.catalog as catalog
 import pixeltable.type_system as ts
+from .data_row import DataRow
+from .expr import Expr
+from .row_builder import RowBuilder
 
 
 class InlineDict(Expr):
@@ -94,7 +94,9 @@ class InlineDict(Expr):
         assert 'dict_items' in d
         arg: Dict[str, Any] = {}
         for key, idx, val in d['dict_items']:
-            if idx is not None:
+            # TODO Normalize idx -1 to None via schema migrations.
+            # Long-term we should not be allowing idx == -1.
+            if idx is not None and idx >= 0:  # Older schemas might have -1 instead of None
                 arg[key] = components[idx]
             else:
                 arg[key] = val

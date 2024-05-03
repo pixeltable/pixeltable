@@ -1,16 +1,16 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
+
 import copy
+from typing import Optional, List, Any, Dict, Tuple
 
-import sqlalchemy as sql
 import numpy as np
+import sqlalchemy as sql
 
-from .expr import Expr
+import pixeltable.type_system as ts
 from .data_row import DataRow
+from .expr import Expr
 from .inline_dict import InlineDict
 from .row_builder import RowBuilder
-import pixeltable.catalog as catalog
-import pixeltable.type_system as ts
 
 
 class InlineArray(Expr):
@@ -100,7 +100,9 @@ class InlineArray(Expr):
         assert 'elements' in d
         arg: List[Any] = []
         for idx, val in d['elements']:
-            if idx is not None:
+            # TODO Normalize idx -1 to None via schema migrations.
+            # Long-term we should not be allowing idx == -1.
+            if idx is not None and idx >= 0:  # Older schemas might have -1 instead of None
                 arg.append(components[idx])
             else:
                 arg.append(val)
