@@ -7,9 +7,11 @@ import sys
 
 import pgserver
 import pytest
+import sqlalchemy.orm as orm
 
 import pixeltable as pxt
 from pixeltable.env import Env
+from pixeltable.metadata import SystemInfo
 from pixeltable.tests.conftest import clean_db
 
 _logger = logging.getLogger('pixeltable')
@@ -27,6 +29,8 @@ class TestMigration:
         dump_files = glob.glob('pixeltable/tests/data/dbdumps/*.dump.gz')
         dump_files.sort()
         assert len(dump_files) > 0
+
+        versions_tested = set()
         for dump_file in dump_files:
             _logger.info(f'Testing migration from DB dump {dump_file}.')
             _logger.info(f'DB URL: {env.db_url}')
@@ -42,6 +46,14 @@ class TestMigration:
                     stdin=gunzip_process.stdout,
                     check=True
                 )
+            with orm.Session(env.engine, future=True) as session:
+                system_info = session.query(SystemInfo).one().md
+                md_version = system_info['schema_version']
+                versions_tested.add(md_version)
             # TODO(aaron-siegel) This will test that the migration succeeds without raising any exceptions.
             # We should also add some assertions to sanity-check the outcome.
             _ = pxt.Client(reload=True)
+
+        assert pxt.metadata.VERSION in versions_tested, \
+            f'No migration test artifact for current DB version {pxt.metadata.VERSION}. Please add one! ' \
+            'This can be done by running `python pixeltable/tool/create_test_db_dump.py`.'
