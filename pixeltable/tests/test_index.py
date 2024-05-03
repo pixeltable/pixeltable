@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
-from pixeltable.tests.utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq
+from pixeltable.tests.utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed
 
 
 class TestIndex:
@@ -102,7 +102,8 @@ class TestIndex:
             img_t.add_embedding_index('img', idx_name='idx0', img_embed=clip_img_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
-        img_t.add_embedding_index('category', text_embed=clip_text_embed)
+        img_t.add_embedding_index('category', text_embed=e5_embed)
+
         # revert() removes the index
         img_t.revert()
         with pytest.raises(pxt.Error) as exc_info:

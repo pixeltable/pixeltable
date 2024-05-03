@@ -5,6 +5,7 @@ import pixeltable.exceptions as excs
 
 
 class TestClient:
+
     def test_list_functions(self, init_env) -> None:
         cl = pxt.Client()
         _ = cl.list_functions()
