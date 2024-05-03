@@ -470,13 +470,16 @@ class Table(SchemaObject):
 
     def add_embedding_index(
             self, col_name: str, *, idx_name: Optional[str] = None,
-            text_embed: Optional[pixeltable.Function] = None, img_embed: Optional[pixeltable.Function] = None
+            text_embed: Optional[pixeltable.Function] = None, img_embed: Optional[pixeltable.Function] = None,
+            metric: str = 'cosine'
     ) -> None:
         """Add an index to the table.
         Args:
             col_name: name of column to index
             idx_name: name of index, which needs to be unique for the table; if not provided, a name will be generated
-            idx_type: type of index (one of 'embedding')
+            text_embed: function to embed text; required if the column is a text column
+            img_embed: function to embed images; required if the column is an image column
+            metric: distance metric to use for the index; one of 'cosine', 'ip', 'l2'; default is 'cosine'
 
         Raises:
             Error: If an index with that name already exists for the table or if the column does not exist.
@@ -484,11 +487,13 @@ class Table(SchemaObject):
         Examples:
             Add an index to the ``img`` column:
 
-            >>> tbl.add_embedding_index('img', text_embed=...)
+            >>> tbl.add_embedding_index('img', img_embed=...)
 
-            Add another index to the ``img`` column, with a specific name:
+            Add another index to the ``img`` column, using the inner product as the distance metric,
+            and with a specific name; ``text_embed`` is also specified in order to search with text:
 
-            >>> tbl.add_embedding_index('img', idx_name='clip_idx', text_embed=...)
+            >>> tbl.add_embedding_index(
+                'img', idx_name='clip_idx', img_embed=..., text_embed=...text_embed..., metric='ip')
         """
         if self.tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
@@ -500,7 +505,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Duplicate index name: {idx_name}')
         from pixeltable.index import EmbeddingIndex
         # create the EmbeddingIndex instance to verify args
-        idx = EmbeddingIndex(col, text_embed=text_embed, img_embed=img_embed)
+        idx = EmbeddingIndex(col, metric=metric, text_embed=text_embed, img_embed=img_embed)
         status = self.tbl_version_path.tbl_version.add_index(col, idx_name=idx_name, idx=idx)
         # TODO: how to deal with exceptions here? drop the index and raise?
 
@@ -582,8 +587,6 @@ class Table(SchemaObject):
             if not isinstance(where, exprs.Predicate):
                 raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
             analysis_info = Planner.analyze(self.tbl_version_path, where)
-            if analysis_info.similarity_clause is not None:
-                raise excs.Error('nearest() cannot be used with update()')
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')

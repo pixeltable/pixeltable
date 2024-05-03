@@ -182,16 +182,8 @@ class TestDataFrame:
         cnt = t.where(t.c2 < 10).count()
         assert cnt == 10
 
-        # count() doesn't work with similarity search
-        t = small_img_tbl
-        probe = t.select(t.img).show(1)
-        img = probe[0, 0]
-        with pytest.raises(excs.Error):
-            _ = t.where(t.img.nearest(img)).count()
-        with pytest.raises(excs.Error):
-            _ = t.where(t.img.nearest('car')).count()
-
         # for now, count() doesn't work with non-SQL Where clauses
+        t = small_img_tbl
         with pytest.raises(excs.Error):
             _ = t.where(t.img.width > 100).count()
 

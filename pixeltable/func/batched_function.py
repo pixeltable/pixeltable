@@ -21,14 +21,24 @@ class BatchedFunction(Function):
         """Invoke the function for the given batch and return a batch of results"""
         raise NotImplementedError
 
+    def exec(self, *args: Any, **kwargs: Any) -> Any:
+        arg_batches = [[arg] for arg in args]
+        kwarg_batches = {k: [v] for k, v in kwargs.items()}
+        batch_result = self.invoke(arg_batches, kwarg_batches)
+        assert len(batch_result) == 1
+        return batch_result[0]
 
 class ExplicitBatchedFunction(BatchedFunction):
     """
     A `BatchedFunction` that is defined by a signature and an explicit python
     `Callable`.
     """
-    def __init__(self, signature: Signature, batch_size: Optional[int], invoker_fn: Callable, self_path: str):
-        super().__init__(signature=signature, py_signature=inspect.signature(invoker_fn), self_path=self_path)
+    def __init__(
+            self, signature: Signature, batch_size: Optional[int], invoker_fn: Callable, self_path: str,
+            call_return_type: Optional[Callable] = None):
+        super().__init__(
+            signature=signature, py_signature=inspect.signature(invoker_fn), self_path=self_path,
+            call_return_type=call_return_type)
         self.batch_size = batch_size
         self.invoker_fn = invoker_fn
 

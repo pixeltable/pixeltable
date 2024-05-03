@@ -567,6 +567,7 @@ class TestExprs:
             self, test_tbl: catalog.Table, test_tbl_exprs: List[exprs.Expr],
             img_tbl: catalog.Table, img_tbl_exprs: List[exprs.Expr]
     ) -> None:
+        skip_test_if_not_installed('transformers')
         d: Dict[int, exprs.Expr] = {}
         for e in test_tbl_exprs:
             assert e.id is not None
@@ -580,6 +581,7 @@ class TestExprs:
             self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]
     ) -> None:
         """Test as_dict()/from_dict() (via serialize()/deserialize()) for all exprs."""
+        skip_test_if_not_installed('transformers')
         for e in test_tbl_exprs:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized)
@@ -591,6 +593,7 @@ class TestExprs:
             assert e.equals(e_deserialized)
 
     def test_print(self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]) -> None:
+        skip_test_if_not_installed('transformers')
         _ = func.FunctionRegistry.get().module_fns
         for e in test_tbl_exprs:
             _ = str(e)

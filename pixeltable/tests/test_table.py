@@ -831,16 +831,6 @@ class TestTable:
 
         img_t = small_img_tbl
 
-        # can't update image col
-        with pytest.raises(excs.Error) as excinfo:
-            img_t.update({'img': 17}, where=img_t.img.nearest('car'))
-        assert 'has type image' in str(excinfo.value)
-
-        # similarity search is not supported
-        with pytest.raises(excs.Error) as excinfo:
-            img_t.update({'split': 'train'}, where=img_t.img.nearest('car'))
-        assert 'nearest()' in str(excinfo.value)
-
         # filter not expressible in SQL
         with pytest.raises(excs.Error) as excinfo:
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
@@ -888,10 +878,6 @@ class TestTable:
         assert 'Predicate' in str(excinfo.value)
 
         img_t = small_img_tbl
-        # similarity search is not supported
-        with pytest.raises(excs.Error) as excinfo:
-            img_t.delete(where=img_t.img.nearest('car'))
-        assert 'nearest()' in str(excinfo.value)
 
         # filter not expressible in SQL
         with pytest.raises(excs.Error) as excinfo:

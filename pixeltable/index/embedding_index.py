@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Any
+import enum
 
+import PIL.Image
+import numpy as np
 import pgvector.sqlalchemy
+import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
@@ -14,15 +18,31 @@ from .base import IndexBase
 
 class EmbeddingIndex(IndexBase):
     """
-    Internal interface used by the catalog and runtime system to interact with (embedding) indices:
-    - types and expressions needed to create and populate the index value column
-    - creating/dropping the index
-    - translating 'matches' queries into sqlalchemy predicates
+    Interface to the pgvector access method in Postgres.
+    - pgvector converts the cosine metric to '1 - metric' and the inner product metric to '-metric', in order to
+      satisfy the Postgres requirement that an index scan requires an ORDER BY ... ASC clause
+    - similarity_clause() converts those metrics back to their original form; it is used in expressions outside
+      the Order By clause
+    - order_by_clause() is used exclusively in the ORDER BY clause
     """
 
+    class Metric(enum.Enum):
+        COSINE = 1
+        IP = 2
+        L2 = 3
+
+    PGVECTOR_OPS = {
+        Metric.COSINE: 'vector_cosine_ops',
+        Metric.IP: 'vector_ip_ops',
+        Metric.L2: 'vector_l2_ops'
+    }
+
     def __init__(
-            self, c: catalog.Column, text_embed: Optional[func.Function] = None,
+            self, c: catalog.Column, metric: str, text_embed: Optional[func.Function] = None,
             img_embed: Optional[func.Function] = None):
+        metric_names = [m.name.lower() for m in self.Metric]
+        if metric.lower() not in metric_names:
+            raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
         if not c.col_type.is_string_type() and not c.col_type.is_image_type():
             raise excs.Error(f'Embedding index requires string or image column')
         if c.col_type.is_string_type() and text_embed is None:
@@ -36,6 +56,7 @@ class EmbeddingIndex(IndexBase):
             # verify signature
             self._validate_embedding_fn(img_embed, 'img_embed', ts.ColumnType.Type.IMAGE)
 
+        self.metric = self.Metric[metric.upper()]
         from pixeltable.exprs import ColumnRef
         self.value_expr = text_embed(ColumnRef(c)) if c.col_type.is_string_type() else img_embed(ColumnRef(c))
         assert self.value_expr.col_type.is_array_type()
@@ -59,9 +80,50 @@ class EmbeddingIndex(IndexBase):
             index_name, index_value_col.sa_col,
             postgresql_using='hnsw',
             postgresql_with={'m': 16, 'ef_construction': 64},
-            postgresql_ops={index_value_col.sa_col.name: 'vector_cosine_ops'}
+            postgresql_ops={index_value_col.sa_col.name: self.PGVECTOR_OPS[self.metric]}
         )
         idx.create(bind=conn)
+
+    def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ClauseElement:
+        """Create a ClauseElement to that represents '<val_column> <op> <item>'"""
+        assert isinstance(item, (str, PIL.Image.Image))
+        if isinstance(item, str):
+            assert self.txt_embed is not None
+            embedding = self.txt_embed.exec(item)
+        if isinstance(item, PIL.Image.Image):
+            assert self.img_embed is not None
+            embedding = self.img_embed.exec(item)
+
+        if self.metric == self.Metric.COSINE:
+            return val_column.sa_col.cosine_distance(embedding) * -1 + 1
+        elif self.metric == self.Metric.IP:
+            return val_column.sa_col.max_inner_product(embedding) * -1
+        else:
+            assert self.metric == self.Metric.L2
+            return val_column.sa_col.l2_distance(embedding)
+
+    def order_by_clause(self, val_column: catalog.Column, item: Any, is_asc: bool) -> sql.ClauseElement:
+        """Create a ClauseElement that is used in an ORDER BY clause"""
+        assert isinstance(item, (str, PIL.Image.Image))
+        embedding: Optional[np.ndarray] = None
+        if isinstance(item, str):
+            assert self.txt_embed is not None
+            embedding = self.txt_embed.exec(item)
+        if isinstance(item, PIL.Image.Image):
+            assert self.img_embed is not None
+            embedding = self.img_embed.exec(item)
+        assert embedding is not None
+
+        if self.metric == self.Metric.COSINE:
+            result = val_column.sa_col.cosine_distance(embedding)
+            result = result.desc() if is_asc else result
+        elif self.metric == self.Metric.IP:
+            result = val_column.sa_col.max_inner_product(embedding)
+            result = result.desc() if is_asc else result
+        else:
+            assert self.metric == self.Metric.L2
+            result = val_column.sa_col.l2_distance(embedding)
+        return result
 
     @classmethod
     def display_name(cls) -> str:
@@ -72,18 +134,29 @@ class EmbeddingIndex(IndexBase):
         """Validate the signature"""
         assert isinstance(embed_fn, func.Function)
         sig = embed_fn.signature
-        if not sig.return_type.is_array_type():
-            raise excs.Error(f'{name} must return an array, but returns {sig.return_type}')
-        else:
-            shape = sig.return_type.shape
-            if len(shape) != 1 or shape[0] == None:
-                raise excs.Error(f'{name} must return a 1D array of a specific length, but returns {sig.return_type}')
         if len(sig.parameters) != 1 or sig.parameters_by_pos[0].col_type.type_enum != expected_type:
             raise excs.Error(
                 f'{name} must take a single {expected_type.name.lower()} parameter, but has signature {sig}')
 
+        # validate return type
+        param_name = sig.parameters_by_pos[0].name
+        if expected_type == ts.ColumnType.Type.STRING:
+            return_type = embed_fn.call_return_type({param_name: 'dummy'})
+        else:
+            assert expected_type == ts.ColumnType.Type.IMAGE
+            img = PIL.Image.new('RGB', (512, 512))
+            return_type = embed_fn.call_return_type({param_name: img})
+        assert return_type is not None
+        if not return_type.is_array_type():
+            raise excs.Error(f'{name} must return an array, but returns {return_type}')
+        else:
+            shape = return_type.shape
+            if len(shape) != 1 or shape[0] == None:
+                raise excs.Error(f'{name} must return a 1D array of a specific length, but returns {return_type}')
+
     def as_dict(self) -> dict:
         return {
+            'metric': self.metric.name.lower(),
             'txt_embed': None if self.txt_embed is None else self.txt_embed.as_dict(),
             'img_embed': None if self.img_embed is None else self.img_embed.as_dict()
         }
@@ -92,4 +165,4 @@ class EmbeddingIndex(IndexBase):
     def from_dict(cls, c: catalog.Column, d: dict) -> EmbeddingIndex:
         txt_embed = func.Function.from_dict(d['txt_embed']) if d['txt_embed'] is not None else None
         img_embed = func.Function.from_dict(d['img_embed']) if d['img_embed'] is not None else None
-        return cls(c, text_embed=txt_embed, img_embed=img_embed)
+        return cls(c, metric=d['metric'], text_embed=txt_embed, img_embed=img_embed)

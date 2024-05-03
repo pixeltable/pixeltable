@@ -72,6 +72,9 @@ class AggregateFunction(Function):
             if param.lower() in self.RESERVED_PARAMS:
                 raise excs.Error(f'{self.name}(): parameter name {param} is reserved')
 
+    def exec(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError
+
     def help_str(self) -> str:
         res = super().help_str()
         res += '\n\n' + inspect.getdoc(self.agg_cls.update)

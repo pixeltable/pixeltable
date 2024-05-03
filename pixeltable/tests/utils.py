@@ -17,7 +17,7 @@ from pixeltable import catalog
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
-from pixeltable.functions.huggingface import clip_image, clip_text
+from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
 from pixeltable.type_system import (
     ArrayType,
     BoolType,
@@ -196,7 +196,7 @@ def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table
     return t
 
 
-def create_img_tbl(cl: pxt.Client, name: str = 'test_img_tbl') -> catalog.Table:
+def create_img_tbl(cl: pxt.Client, name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Table:
     schema = {
         'img': ImageType(nullable=False),
         'category': StringType(nullable=False),
@@ -204,6 +204,11 @@ def create_img_tbl(cl: pxt.Client, name: str = 'test_img_tbl') -> catalog.Table:
     }
     tbl = cl.create_table(name, schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+    if num_rows > 0:
+        # select output_rows randomly in the hope of getting a good sample of the available categories
+        rng = np.random.default_rng(17)
+        idxs = rng.choice(np.arange(len(rows)), size=num_rows, replace=False)
+        rows = [rows[i] for i in idxs]
     tbl.insert(rows)
     return tbl
 
@@ -387,6 +392,11 @@ def make_test_arrow_table(output_path: Path) -> None:
     test_table = pa.Table.from_pydict(value_dict, schema=schema)
     pa.parquet.write_table(test_table, str(output_path / 'test.parquet'))
 
+def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:
+    assert img1.mode == img2.mode
+    assert img1.size == img2.size
+    diff = PIL.ImageChops.difference(img1, img2)
+    assert diff.getbbox() is None
 
 def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, split_column_name: str) -> None:
     import datasets
@@ -429,11 +439,15 @@ def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, s
         assert check_tup in acc_dataset
 
 @pxt.expr_udf
-def img_embed(img: PIL.Image.Image) -> np.ndarray:
+def clip_img_embed(img: PIL.Image.Image) -> np.ndarray:
     return clip_image(img, model_id='openai/clip-vit-base-patch32')
 
 @pxt.expr_udf
-def text_embed(txt: str) -> np.ndarray:
+def e5_embed(text: str) -> np.ndarray:
+    return sentence_transformer(text, model_id='intfloat/e5-large-v2')
+
+@pxt.expr_udf
+def clip_text_embed(txt: str) -> np.ndarray:
     return clip_text(txt, model_id='openai/clip-vit-base-patch32')
 
 SAMPLE_IMAGE_URL = \

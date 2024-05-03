@@ -71,7 +71,7 @@ nbmake = "^1.4.6"
 torch = "^2.2"
 torchvision = "^0.17"
 pyarrow = ">=13.0.0"
-openai = "^1.0.0"
+openai = "^1.10.0"
 together = "^1.0.1"
 fireworks-ai = "^0.13.0"
 boto3 = "^1.17"
@@ -81,6 +81,8 @@ tiktoken = ">=0.3"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 datasets = ">=2.15.0"
+# setuptools >= 69.2 has known issues with Github Actions
+setuptools = "~69.1"
 
 [tool.mypy]
 plugins = "sqlalchemy.ext.mypy.plugin"

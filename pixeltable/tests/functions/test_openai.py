@@ -95,7 +95,9 @@ class TestOpenai:
                  }}
              ]}
         ]
-        t.add_column(response_2=chat_completions(model='gpt-4-vision-preview', messages=msgs, max_tokens=300).choices[0].message.content)
+        t.add_column(
+            response_2=chat_completions(model='gpt-4-vision-preview', messages=msgs, max_tokens=300)\
+                .choices[0].message.content)
         validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()['response_2'][0]
         assert len(result) > 0
@@ -107,7 +109,11 @@ class TestOpenai:
         from pixeltable.functions.openai import embeddings
         t = cl.create_table('test_tbl', {'input': StringType()})
         t.add_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
-        t.add_column(text_3=embeddings(model='text-embedding-3-small', input=t.input, user='pixeltable'))
+        t.add_column(
+            text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable'))
+        type_info = t.column_types()
+        assert type_info['ada_embed'].shape == (1536,)
+        assert type_info['text_3'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
 
@@ -130,9 +136,11 @@ class TestOpenai:
         from pixeltable.functions.openai import image_generations
         t.add_column(img=image_generations(t.input))
         # Test dall-e-2 options
-        t.add_column(img_2=image_generations(
-            t.input, model='dall-e-2', size='512x512', user='pixeltable'
-        ))
+        t.add_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
+        # image size information was captured correctly
+        type_info = t.column_types()
+        assert type_info['img_2'].size == (512, 512)
+
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
         assert t.collect()['img'][0].size == (1024, 1024)
         assert t.collect()['img_2'][0].size == (512, 512)

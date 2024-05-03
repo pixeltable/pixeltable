@@ -59,6 +59,7 @@ class ConstantImgIterator(ComponentIterator):
         self.next_frame_idx = pos
 
 class TestComponentView:
+
     def test_basic(self, test_client: pxt.Client) -> None:
         cl = test_client
         # create video table
