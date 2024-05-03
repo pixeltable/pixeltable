@@ -30,6 +30,10 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+      - name: Delete unnecessary files
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -73,4 +77,5 @@ jobs:
       - name: Generate code coverage report
         run: coverage report -m
       - name: Print utilization info
-        run: du -h -d3 /
+        run: sudo du -h -d2 /
+        continue-on-error: true
