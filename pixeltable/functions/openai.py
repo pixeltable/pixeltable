@@ -181,17 +181,35 @@ def vision(
 #####################################
 # Embeddings Endpoints
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
+_embedding_dimensions_cache: dict[str, int] = {
+    'text-embedding-ada-002': 1536,
+    'text-embedding-3-small': 1536,
+    'text-embedding-3-large': 3072,
+}
+
+def _embeddings_call_return_type(model: str, dimensions: Optional[int] = None) -> ts.ColumnType:
+    if dimensions is None:
+        if model not in _embedding_dimensions_cache:
+            # TODO: find some other way to retrieve a sample
+            return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+        dimensions = _embedding_dimensions_cache.get(model, None)
+    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
+
+@pxt.udf(
+    batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()),
+    call_return_type=_embeddings_call_return_type)
 @_retry
 def embeddings(
         input: Batch[str],
         *,
         model: str,
+        dimensions: Optional[int] = None,
         user: Optional[str] = None
 ) -> Batch[np.ndarray]:
     result = openai_client().embeddings.create(
         input=input,
         model=model,
+        dimensions=_opt(dimensions),
         user=_opt(user),
         encoding_format='float'
     )
@@ -204,7 +222,19 @@ def embeddings(
 #####################################
 # Images Endpoints
 
-@pxt.udf
+def _image_generations_call_return_type(size: Optional[str] = None) -> ts.ImageType:
+    if size is None:
+        return ts.ImageType(size=(1024, 1024))
+    x_pos = size.find('x')
+    if x_pos == -1:
+        return ts.ImageType()
+    try:
+        width, height = int(size[:x_pos]), int(size[x_pos + 1:])
+    except ValueError:
+        return ts.ImageType()
+    return ts.ImageType(size=(width, height))
+
+@pxt.udf(call_return_type=_image_generations_call_return_type)
 @_retry
 def image_generations(
         prompt: str,
