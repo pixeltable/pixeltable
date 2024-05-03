@@ -83,6 +83,7 @@ jobs:
         run: coverage report -m
       - name: Print utilization info
         run: |
-          sudo du -h -d2 /
-          sudo du -h -d3 /home/runner
+          du -h -d3 /home/runner
+          df -h
+        shell: bash  # We don't want `set -e` here
         continue-on-error: true
