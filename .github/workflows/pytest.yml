@@ -30,6 +30,14 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+      - name: Delete unnecessary files
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /opt/hostedtoolcache
+          df -h
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -72,3 +80,10 @@ jobs:
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       - name: Generate code coverage report
         run: coverage report -m
+      - name: Print utilization info
+        run: |
+          du -h -d3 /home/runner
+          du -h -d3 /home/runner/.cache
+          df -h
+        shell: bash -l {0}  # We don't want `set -e` here
+        continue-on-error: true
