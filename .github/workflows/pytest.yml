@@ -72,3 +72,5 @@ jobs:
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       - name: Generate code coverage report
         run: coverage report -m
+      - name: Print utilization info
+        run: du -h -d3 /
