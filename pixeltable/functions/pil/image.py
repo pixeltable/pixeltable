@@ -51,8 +51,7 @@ def _(self: PIL.Image.Image, box: Tuple[int, int, int, int]) -> ColumnType:
     return ImageType(mode=input_type.mode, nullable=input_type.nullable)  # we can't compute the size statically
 
 # Image.getchannel()
-@func.udf(
-    py_fn=PIL.Image.Image.getchannel, param_types=[ImageType(), IntType()])
+@func.udf(py_fn=PIL.Image.Image.getchannel, param_types=[ImageType(), IntType()])
 def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     pass
 
@@ -84,13 +83,11 @@ def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
 def transform(self: PIL.Image.Image, size: Tuple[int, int], method: int) -> PIL.Image.Image:
     return self.transform(size, method)
 
-@func.udf(
-    py_fn=PIL.Image.Image.effect_spread, param_types=[ImageType(), FloatType()])
+@func.udf(py_fn=PIL.Image.Image.effect_spread, param_types=[ImageType(), FloatType()])
 def effect_spread(self: PIL.Image.Image, distance: float) -> PIL.Image.Image:
     pass
 
-@func.udf(
-    py_fn=PIL.Image.Image.transpose, param_types=[ImageType(), IntType()])
+@func.udf(py_fn=PIL.Image.Image.transpose, param_types=[ImageType(), IntType()])
 def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
     pass
 
@@ -114,8 +111,7 @@ def getbands(self: PIL.Image.Image) -> Tuple[str]:
 def getbbox(self: PIL.Image.Image) -> Tuple[int, int, int, int]:
     pass
 
-@func.udf(
-    py_fn=PIL.Image.Image.getcolors, return_type=JsonType(), param_types=[ImageType(), IntType()])
+@func.udf(py_fn=PIL.Image.Image.getcolors, return_type=JsonType(), param_types=[ImageType(), IntType()])
 def getcolors(self: PIL.Image.Image, maxcolors: int) -> Tuple[Tuple[int, int, int], int]:
     pass
 
@@ -133,13 +129,11 @@ def getpalette(self: PIL.Image.Image, mode: str) -> Tuple[int]:
 def getpixel(self: PIL.Image.Image, xy: Tuple[int, int]) -> Tuple[int]:
     pass
 
-@func.udf(
-    py_fn=PIL.Image.Image.getprojection, return_type=JsonType(), param_types=[ImageType()])
+@func.udf(py_fn=PIL.Image.Image.getprojection, return_type=JsonType(), param_types=[ImageType()])
 def getprojection(self: PIL.Image.Image) -> Tuple[int]:
     pass
 
-@func.udf(
-    py_fn=PIL.Image.Image.histogram, return_type=JsonType(), param_types=[ImageType(), ImageType(), JsonType()])
+@func.udf(py_fn=PIL.Image.Image.histogram, return_type=JsonType(), param_types=[ImageType(), ImageType(), JsonType()])
 def histogram(self: PIL.Image.Image, mask: PIL.Image.Image, histogram: Dict) -> Tuple[int]:
     pass
 
@@ -150,7 +144,6 @@ def quantize(
         self: PIL.Image.Image, colors: int, method: int, kmeans: int, palette: int, dither: int) -> PIL.Image.Image:
     pass
 
-@func.udf(
-    py_fn=PIL.Image.Image.reduce, return_type=ImageType(), param_types=[ImageType(), IntType(), JsonType()])
+@func.udf(py_fn=PIL.Image.Image.reduce, return_type=ImageType(), param_types=[ImageType(), IntType(), JsonType()])
 def reduce(self: PIL.Image.Image, factor: int, filter: Tuple[int]) -> PIL.Image.Image:
     pass
