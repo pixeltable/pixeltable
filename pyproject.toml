@@ -119,6 +119,9 @@ addopts = "-v -m \"not remote_api\""
 markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)"
 ]
+filterwarnings = [
+    "ignore:.*Deprecated in Pydantic V2.0.*:DeprecationWarning"
+]
 
 [tool.ruff]
 line-length = 120
