@@ -36,7 +36,6 @@ jobs:
           df -h
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          df -h
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Install conda
@@ -84,6 +83,7 @@ jobs:
       - name: Print utilization info
         run: |
           du -h -d3 /home/runner
+          du -h -d3 /home/runner/.cache
           df -h
         shell: bash  # We don't want `set -e` here
         continue-on-error: true
