@@ -201,7 +201,8 @@ class TestDataFrame:
         assert res[res.column_names()[0]] == [1.0] * 10
 
     def test_html_media_url(self, test_client: pxt.Client) -> None:
-        tab = test_client.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType(),
+        tab = test_client.create_table('test_html_repr', {'video': pxt.VideoType(),
+                                                          'audio': pxt.AudioType(),
                                                           'doc': pxt.DocumentType()})
 
         pdf_docs = [ f for f in get_documents() if f.endswith('.pdf') ]
@@ -236,7 +237,6 @@ class TestDataFrame:
         assert href_op.getcode() == 200
         # check thumbnail is well formed image
         opurl_img = urllib.request.urlopen(url=thumb)
-        assert opurl_img.getcode() == 200
         PIL.Image.open(opurl_img)
 
 

@@ -143,6 +143,9 @@ class DataFrameResultSet:
 
     def _format_document(self, file_path: str) -> str:
         max_width = max_height = 320
+        # by default, file path will be shown as a link
+        inner_element = file_path
+        # try generating a thumbnail for different types and use that if successful
         if file_path.lower().endswith('.pdf'):
             try:
                 import fitz
@@ -158,7 +161,6 @@ class DataFrameResultSet:
                 '''
             except:
                 logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
-                inner_element = file_path
 
         return f'''
         <div class="pxt_document" style="width:{max_width}px;">

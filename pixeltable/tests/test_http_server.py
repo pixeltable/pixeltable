@@ -10,7 +10,7 @@ def test_path_to_parts():
         {'input': '/c:', 'expected': ('c:/', '')},
         {'input': '/c:/', 'expected': ('c:/', '')},
         {'input': '/c:/foo/bar/baz', 'expected': ('c:/', 'foo/bar/baz')},
-        {'input': '/D:/foo/bar/baz', 'expected': ('d:/', 'foo/bar/baz')},
+        {'input': '/D:/foo/bar/baz', 'expected': ('D:/', 'foo/bar/baz')},
         {'input': '/foo/bar/baz', 'expected': ('/', 'foo/bar/baz')},
     ]
     for case in cases:

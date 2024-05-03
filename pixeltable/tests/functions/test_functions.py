@@ -2,9 +2,9 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
-from .utils import get_video_files, skip_test_if_not_installed
 from pixeltable.type_system import VideoType, StringType
 
+from ..utils import get_video_files, skip_test_if_not_installed
 
 class TestFunctions:
     def test_pil(self, img_tbl: catalog.Table) -> None:

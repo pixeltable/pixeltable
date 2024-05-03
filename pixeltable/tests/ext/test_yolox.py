@@ -1,5 +1,5 @@
 import pixeltable as pxt
-from .utils import skip_test_if_not_installed, get_image_files, validate_update_status
+from ..utils import skip_test_if_not_installed, get_image_files, validate_update_status
 
 
 class TestYolox:
