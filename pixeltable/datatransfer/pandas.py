@@ -17,6 +17,13 @@ def import_pandas(
     if schema is None:
         # Infer schema
         schema = _df_to_pxt_schema(df)
+    else:
+        # Validate the specified schema
+        if len(schema) != len(df.columns):
+            raise excs.Error(
+                f'Specified schema does not match number of columns in the given DataFrame: '
+                f'{len(schema)} != {len(df.columns)}'
+            )
     tbl_rows = (
         dict(_df_row_to_pxt_row(row, schema))
         for row in df.itertuples()
@@ -45,6 +52,11 @@ def _df_to_pxt_schema(df: pd.DataFrame) -> dict[str, pxt.ColumnType]:
 
 
 def _normalize_pxt_col_name(pd_name: str) -> str:
+    """
+    Normalizes an arbitrary DataFrame column name into a valid Pixeltable identifier by:
+    - replacing any non-ascii or non-alphanumeric characters with an underscore _
+    - prefixing the result with the letter 'c' if it starts with an underscore or a number
+    """
     id = ''.join(
         ch if ch.isascii() and ch.isalnum() else '_'
         for ch in pd_name
@@ -58,6 +70,9 @@ def _normalize_pxt_col_name(pd_name: str) -> str:
 
 
 def _np_dtype_to_pxt_type(np_dtype: np.dtype) -> pxt.ColumnType:
+    """
+    Infers a Pixeltable type based on a Numpy dtype.
+    """
     if np.issubdtype(np_dtype, np.integer):
         return pxt.IntType()
     if np.issubdtype(np_dtype, np.floating):

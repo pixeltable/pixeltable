@@ -155,35 +155,54 @@ class Client:
 
     def import_csv(
             self,
-            tbl_name: str,
-            csv_url: str,
-            *args,
+            table_path: str,
+            filepath_or_buffer,
             schema: Optional[dict[str, ts.ColumnType]] = None,
             **kwargs
     ) -> catalog.InsertableTable:
-        df = pd.read_csv(csv_url, *args, **kwargs)
-        return self.import_pandas(tbl_name, df, schema=schema)
+        """
+        Creates a new `InsertableTable` from a csv file. This is a convenience method and is equivalent
+        to calling `import_pandas(table_path, pd.read_csv(filepath_or_buffer, **kwargs), schema=schema)`.
+        See the Pandas documentation for `read_csv` for more details.
+        """
+        df = pd.read_csv(filepath_or_buffer, **kwargs)
+        return self.import_pandas(table_path, df, schema=schema)
 
     def import_excel(
             self,
-            tbl_name: str,
-            xlsx_url: str,
+            table_path: str,
+            io,
             *args,
             schema: Optional[dict[str, ts.ColumnType]] = None,
             **kwargs
     ) -> catalog.InsertableTable:
-        df = pd.read_excel(xlsx_url, *args, **kwargs)
-        return self.import_pandas(tbl_name, df, schema=schema)
+        """
+        Creates a new `InsertableTable` from an excel (.xlsx) file. This is a convenience method and is equivalent
+        to calling `import_pandas(table_path, pd.read_excel(io, *args, **kwargs), schema=schema)`.
+        See the Pandas documentation for `read_excel` for more details.
+        """
+        df = pd.read_excel(io, *args, **kwargs)
+        return self.import_pandas(table_path, df, schema=schema)
 
     def import_pandas(
             self,
-            tbl_name: str,
+            table_path: str,
             df: pd.DataFrame,
             *,
             schema: Optional[dict[str, ts.ColumnType]] = None
     ) -> catalog.InsertableTable:
+        """
+        Creates a new `InsertableTable` from a Pandas DataFrame. The column names and Pixeltable types will be inferred
+        based on their corresponding Numpy types.
+
+        Args:
+            table_path: The name of the new table.
+            df: The Pandas DataFrame to import.
+            schema: An optional schema. If specified, the new table will use the specified schema instead of inferring
+                the schema type from the Pandas DataFrame.
+        """
         import pixeltable.datatransfer.pandas
-        return pixeltable.datatransfer.pandas.import_pandas(self, tbl_name, df, schema=schema)
+        return pixeltable.datatransfer.pandas.import_pandas(self, table_path, df, schema=schema)
 
     def import_parquet(
         self,
