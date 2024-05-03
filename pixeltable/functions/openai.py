@@ -187,17 +187,8 @@ _embedding_dimensions_cache: dict[str, int] = {
     'text-embedding-3-large': 3072,
 }
 
-def _embeddings_call_return_type(model: str, dimensions: Optional[int] = None) -> ts.ColumnType:
-    if dimensions is None:
-        if model not in _embedding_dimensions_cache:
-            # TODO: find some other way to retrieve a sample
-            return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
-        dimensions = _embedding_dimensions_cache.get(model, None)
-    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 
-@pxt.udf(
-    batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()),
-    call_return_type=_embeddings_call_return_type)
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
 @_retry
 def embeddings(
         input: Batch[str],
@@ -217,6 +208,16 @@ def embeddings(
         np.array(data.embedding, dtype=np.float64)
         for data in result.data
     ]
+
+
+@embeddings.dynamic_return_type
+def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
+    if dimensions is None:
+        if model not in _embedding_dimensions_cache:
+            # TODO: find some other way to retrieve a sample
+            return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+        dimensions = _embedding_dimensions_cache.get(model, None)
+    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 
 
 #####################################

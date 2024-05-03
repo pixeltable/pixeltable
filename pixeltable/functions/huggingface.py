@@ -10,17 +10,7 @@ from pixeltable.func import Batch
 from pixeltable.functions.util import resolve_torch_device
 
 
-def _sentence_transformer_call_return_type(model_id: str) -> ts.ColumnType:
-    try:
-        from sentence_transformers import SentenceTransformer
-        model = _lookup_model(model_id, SentenceTransformer)
-        return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
-    except ImportError:
-        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
-
-@pxt.udf(
-    batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()),
-    call_return_type=_sentence_transformer_call_return_type)
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
 def sentence_transformer(
         sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False
 ) -> Batch[np.ndarray]:
@@ -31,6 +21,16 @@ def sentence_transformer(
 
     array = model.encode(sentences, normalize_embeddings=normalize_embeddings)
     return [array[i] for i in range(array.shape[0])]
+
+
+@sentence_transformer.dynamic_return_type
+def _(model_id: str) -> ts.ArrayType:
+    try:
+        from sentence_transformers import SentenceTransformer
+        model = _lookup_model(model_id, SentenceTransformer)
+        return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
+    except ImportError:
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
 
 
 @pxt.udf
@@ -65,17 +65,8 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
     array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
     return array.tolist()
 
-def _clip_call_return_type(model_id: str) -> ts.ColumnType:
-    try:
-        from transformers import CLIPModel
-        model = _lookup_model(model_id, CLIPModel.from_pretrained)
-        return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
-    except ImportError:
-        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
 
-@pxt.udf(
-    batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
-    call_return_type=_clip_call_return_type)
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -92,9 +83,7 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
-@pxt.udf(
-    batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False),
-    call_return_type=_clip_call_return_type)
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -109,6 +98,17 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
         embeddings = model.get_image_features(**inputs.to(device)).detach().to('cpu').numpy()
 
     return [embeddings[i] for i in range(embeddings.shape[0])]
+
+
+@clip_text.dynamic_return_type
+@clip_image.dynamic_return_type
+def _(model_id: str) -> ts.ArrayType:
+    try:
+        from transformers import CLIPModel
+        model = _lookup_model(model_id, CLIPModel.from_pretrained)
+        return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
+    except ImportError:
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
 
 
 @pxt.udf(batch_size=4)

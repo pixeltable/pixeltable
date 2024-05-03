@@ -74,6 +74,11 @@ class Function(abc.ABC):
                 kw_args[param.name] = bound_args.arguments[param.name]
         return self._call_return_type(**kw_args)
 
+    def dynamic_return_type(self, call_return_type: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
+        """Instance decorator for specifying a dynamic return type for this function."""
+        self._call_return_type = call_return_type
+        return call_return_type
+
     @abc.abstractmethod
     def exec(self, *args: Any, **kwargs: Any) -> Any:
         """Execute the function with the given arguments and return the result."""

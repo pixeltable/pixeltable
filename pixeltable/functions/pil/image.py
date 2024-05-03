@@ -6,9 +6,6 @@ from pixeltable.type_system import FloatType, ImageType, IntType, ArrayType, Col
 import pixeltable.func as func
 
 
-def _caller_return_type(self: PIL.Image.Image) -> ColumnType:
-    return self.col_type
-
 @func.udf(
     py_fn=PIL.Image.alpha_composite, return_type=ImageType(), param_types=[ImageType(), ImageType()])
 def alpha_composite(im1: PIL.Image.Image, im2: PIL.Image.Image) -> PIL.Image.Image:
@@ -26,60 +23,83 @@ def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.
 # PIL.Image.Image methods
 
 # Image.convert()
-def _convert_return_type(self: PIL.Image.Image, mode: str) -> ColumnType:
-    input_type = self.col_type
-    assert input_type.is_image_type()
-    return ImageType(size=input_type.size, mode=mode, nullable=input_type.nullable)
-@func.udf(call_return_type=_convert_return_type, param_types=[ImageType(), StringType()])
+@func.udf(param_types=[ImageType(), StringType()])
 def convert(self: PIL.Image.Image, mode: str) -> PIL.Image.Image:
     return self.convert(mode)
 
+
+@convert.dynamic_return_type
+def _(self: PIL.Image.Image, mode: str) -> ColumnType:
+    input_type = self.col_type
+    assert input_type.is_image_type()
+    return ImageType(size=input_type.size, mode=mode, nullable=input_type.nullable)
+
+
 # Image.crop()
-def _crop_return_type(self: PIL.Image.Image, box: Tuple[int, int, int, int]) -> ColumnType:
+@func.udf(
+    py_fn=PIL.Image.Image.crop,
+    param_types=[ImageType(), ArrayType((4,), dtype=IntType())])
+def crop(self: PIL.Image.Image, box: Tuple[int, int, int, int]) -> PIL.Image.Image:
+    pass
+
+@crop.dynamic_return_type
+def _(self: PIL.Image.Image, box: Tuple[int, int, int, int]) -> ColumnType:
     input_type = self.col_type
     assert input_type.is_image_type()
     if isinstance(box, list) and all(isinstance(x, int) for x in box):
         return ImageType(size=(box[2] - box[0], box[3] - box[1]), mode=input_type.mode, nullable=input_type.nullable)
     return ImageType(mode=input_type.mode, nullable=input_type.nullable)  # we can't compute the size statically
-@func.udf(
-    py_fn=PIL.Image.Image.crop, call_return_type=_crop_return_type,
-    param_types=[ImageType(), ArrayType((4,), dtype=IntType())])
-def crop(self: PIL.Image.Image, box: Tuple[int, int, int, int]) -> PIL.Image.Image:
-    pass
 
 # Image.getchannel()
-def _getchannel_return_type(self: PIL.Image.Image) -> ColumnType:
-    input_type = self.col_type
-    assert input_type.is_image_type()
-    return ImageType(size=input_type.size, mode='L', nullable=input_type.nullable)
 @func.udf(
-    py_fn=PIL.Image.Image.getchannel, call_return_type=_getchannel_return_type, param_types=[ImageType(), IntType()])
+    py_fn=PIL.Image.Image.getchannel, param_types=[ImageType(), IntType()])
 def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     pass
 
-# Image.resize()
-def _resize_return_type(self: PIL.Image.Image, size: Tuple[int, int]) -> ColumnType:
+@getchannel.dynamic_return_type
+def _(self: PIL.Image.Image) -> ColumnType:
     input_type = self.col_type
     assert input_type.is_image_type()
-    return ImageType(size=size, mode=input_type.mode, nullable=input_type.nullable)
-@func.udf(call_return_type=_resize_return_type, param_types=[ImageType(), ArrayType((2, ), dtype=IntType())])
+    return ImageType(size=input_type.size, mode='L', nullable=input_type.nullable)
+
+
+# Image.resize()
+@func.udf(param_types=[ImageType(), ArrayType((2, ), dtype=IntType())])
 def resize(self: PIL.Image.Image, size: Tuple[int, int]) -> PIL.Image.Image:
     return self.resize(size)
 
+@resize.dynamic_return_type
+def _(self: PIL.Image.Image, size: Tuple[int, int]) -> ColumnType:
+    input_type = self.col_type
+    assert input_type.is_image_type()
+    return ImageType(size=size, mode=input_type.mode, nullable=input_type.nullable)
+
 # Image.rotate()
-@func.udf(call_return_type=_caller_return_type, param_types=[ImageType(), IntType()])
+@func.udf(param_types=[ImageType(), IntType()])
 def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
     return self.rotate(angle)
 
 # Image.transform()
-@func.udf(call_return_type= _caller_return_type, param_types=[ImageType(), ArrayType((2,), dtype=IntType()), IntType()])
+@func.udf(param_types=[ImageType(), ArrayType((2,), dtype=IntType()), IntType()])
 def transform(self: PIL.Image.Image, size: Tuple[int, int], method: int) -> PIL.Image.Image:
     return self.transform(size, method)
 
 @func.udf(
-    py_fn=PIL.Image.Image.effect_spread, call_return_type=_caller_return_type, param_types=[ImageType(), FloatType()])
+    py_fn=PIL.Image.Image.effect_spread, param_types=[ImageType(), FloatType()])
 def effect_spread(self: PIL.Image.Image, distance: float) -> PIL.Image.Image:
     pass
+
+@func.udf(
+    py_fn=PIL.Image.Image.transpose, param_types=[ImageType(), IntType()])
+def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
+    pass
+
+@rotate.dynamic_return_type
+@transform.dynamic_return_type
+@effect_spread.dynamic_return_type
+@transpose.dynamic_return_type
+def _(self: PIL.Image.Image) -> ColumnType:
+    return self.col_type
 
 @func.udf(
     py_fn=PIL.Image.Image.entropy, return_type=FloatType(), param_types=[ImageType(), ImageType(), JsonType()])
@@ -133,9 +153,4 @@ def quantize(
 @func.udf(
     py_fn=PIL.Image.Image.reduce, return_type=ImageType(), param_types=[ImageType(), IntType(), JsonType()])
 def reduce(self: PIL.Image.Image, factor: int, filter: Tuple[int]) -> PIL.Image.Image:
-    pass
-
-@func.udf(
-    py_fn=PIL.Image.Image.transpose, call_return_type=_caller_return_type, param_types=[ImageType(), IntType()])
-def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
     pass
