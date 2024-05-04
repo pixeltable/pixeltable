@@ -120,7 +120,8 @@ markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)"
 ]
 filterwarnings = [
-    "ignore:.*Deprecated in Pydantic V2.0.*:DeprecationWarning"
+    "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
+    "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning"
 ]
 
 [tool.ruff]
