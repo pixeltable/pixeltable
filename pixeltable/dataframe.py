@@ -152,6 +152,10 @@ class DataFrameResultSet:
                 doc = fitz.open(file_path)
                 p = doc.get_page_pixmap(0)
                 while p.width > max_width or p.height > max_height:
+                    # shrink(1) will half each dimension
+                    # shrink(2) will divide by 8
+                    # shrink(1).shrink(1) is actually less shrink than shrink(2)
+                    # so prefer to loop to avoid shrinking too much
                     p.shrink(1)
                 data = p.tobytes(output='jpeg')
                 thumb_base64 = base64.b64encode(data).decode()

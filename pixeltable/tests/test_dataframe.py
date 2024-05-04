@@ -197,8 +197,8 @@ class TestDataFrame:
                                                           'audio': pxt.AudioType(),
                                                           'doc': pxt.DocumentType()})
 
-        pdf_docs = [ f for f in get_documents() if f.endswith('.pdf') ]
-        status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0], doc=pdf_docs[0])
+        pdf_doc = next(f for f in get_documents() if f.endswith('.pdf'))
+        status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0], doc=pdf_doc)
         assert status.num_rows == 1
         assert status.num_excs == 0
 
@@ -208,8 +208,6 @@ class TestDataFrame:
         assert len(video_tags) == 1
         audio_tags = doc.find_all('audio')
         assert len(audio_tags) == 1
-        assert len(audio_tags) == 1
-
         # get the source elements and test their src link are valid and can be retrieved
         # from running web-server
         for tag in video_tags + audio_tags:

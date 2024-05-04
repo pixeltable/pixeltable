@@ -16,64 +16,28 @@ def get_file_uri(http_address: str, file_path: str) -> str:
     """
     abs_path = pathlib.Path(file_path)
     assert abs_path.is_absolute()
-    # for windows, replace '\\' with '/', keep the drive letter
-    path_normalized = str(abs_path).replace(os.sep, '/')
-    quoted = urllib.parse.quote(path_normalized, safe=':/')
-    return f'{http_address}/{quoted}'
-
-
-def path_to_parts(uri_path: str) -> tuple[str, str]:
-    """Split a URI path into an anchor and a path"""
-    uri_path = posixpath.normpath(uri_path).lstrip('/')
-    parts = uri_path.split('/', 1)
-    first_part = parts[0]
-    if len(first_part) == 2 and first_part[-1] == ':' and first_part[0].lower() in string.ascii_lowercase:
-        # eg. c:
-        anchor = first_part + '/'
-        path = parts[1] if len(parts) == 2 else ''
-    else:
-        anchor = '/'
-        path = uri_path
-
-    return (anchor, path)
+    url = urllib.request.pathname2url(str(abs_path))
+    return f'{http_address}{url}'
 
 
 class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
     """Serves all absolute paths, not just the current directory"""
-
-    def __init__(self, *args, **kwargs):
-        self.default_root = pathlib.Path(pathlib.Path('.').absolute().anchor)
-        # in windows will be something like 'C:/', in posix '/', but dont want to assume C
-        super().__init__(*args, directory=self.default_root, **kwargs)
-
-    def translate_path(self, path):
+    def translate_path(self, path: str) -> str:
         """
             Translate a /-separated PATH to the local filename syntax.
             overrides http.server.SimpleHTTPRequestHandler.translate_path
-            it will translate http://localhost/c:/foo/bar to c:/foo/bar
 
             This is only useful for file serving.
 
             Code initially taken from there:
             https://github.com/python/cpython/blob/f5406ef454662b98df107775d18ff71ae6849618/Lib/http/server.py#L834
         """
-        _logger.info(f'{path=}')
-        # abandon query parameters
+        _logger.info(f'translate path {path=}')
+        # abandon query parameters, taken from http.server.SimpleHTTPRequestHandler
         path = path.split('?', 1)[0]
         path = path.split('#', 1)[0]
 
-        try:
-            path = urllib.parse.unquote(path, errors='surrogatepass')
-        except UnicodeDecodeError:
-            path = urllib.parse.unquote(path)
-
-        (volume_str, path_str) = path_to_parts(path)
-        volume = self.default_root if volume_str == '/' else pathlib.Path(volume_str)
-        path = volume / path_str
-        # print(f'{path=}, {path.exists()=} {path.is_dir()=} {path.is_absolute()=}')
-        if not path.is_absolute():
-            raise Exception(f'need absolute path. got {path=}')
-
+        path = pathlib.Path(urllib.request.url2pathname(path))
         return str(path)
 
     def log_message(self, format, *args) -> None:

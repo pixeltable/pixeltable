@@ -1,20 +1,7 @@
-from pixeltable.utils.http_server import path_to_parts, get_file_uri, make_server
+from pixeltable.utils.http_server import get_file_uri, make_server
 from .utils import get_documents, get_video_files, get_audio_files, get_image_files
 import urllib
 import threading
-
-
-def test_path_to_parts():
-    cases = [
-        {'input': '/', 'expected': ('/', '')},
-        {'input': '/c:', 'expected': ('c:/', '')},
-        {'input': '/c:/', 'expected': ('c:/', '')},
-        {'input': '/c:/foo/bar/baz', 'expected': ('c:/', 'foo/bar/baz')},
-        {'input': '/D:/foo/bar/baz', 'expected': ('D:/', 'foo/bar/baz')},
-        {'input': '/foo/bar/baz', 'expected': ('/', 'foo/bar/baz')},
-    ]
-    for case in cases:
-        assert path_to_parts(case['input']) == case['expected']
 
 
 def test_http_server():
