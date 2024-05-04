@@ -119,6 +119,10 @@ addopts = "-v -m \"not remote_api\""
 markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)"
 ]
+filterwarnings = [
+    "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
+    "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning"
+]
 
 [tool.ruff]
 line-length = 120
