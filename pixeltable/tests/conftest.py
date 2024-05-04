@@ -109,6 +109,7 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
         (t.c2 > 5) | (t.c1 == 'test'),
         t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
         t.c8[0, 1:],
+        t.c2.isin([1, 2, 3]),
         t.c2.astype(FloatType()),
         (t.c2 + 1).astype(FloatType()),
         t.c2.apply(str),

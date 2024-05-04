@@ -16,7 +16,7 @@ from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import cast, sum, count
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_image_files, skip_test_if_not_installed
+from pixeltable.tests.utils import get_image_files, skip_test_if_not_installed, validate_update_status
 from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
     VideoType
 
@@ -355,6 +355,35 @@ class TestExprs:
         print(_)
         _ = t[t.array_col[:, 0]].show()
         print(_)
+
+    def test_in(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        rows = list(t.where(t.c2.isin([1, 2, 3])).select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).collect())
+        assert len(rows) == 3
+
+        with pytest.raises(excs.Error) as excinfo:
+            # incompatible values
+            _ = t.where(t.c2.isin([1, 'a'])).collect()
+        assert "list item 'a' is not compatible with the type of c2" in str(excinfo.value)
+
+        with pytest.raises(excs.Error) as excinfo:
+            # not a scalar
+            _ = t.where(t.c6.isin([{'a': 1}, {'b': 2}])).collect()
+        assert 'only supported for scalar types' in str(excinfo.value)
+
+        status = t.add_column(in_test=t.c2.isin([1, 2, 3]))
+        assert status.num_excs == 0
+        def inc_pk(rows: list[dict], offset: int) -> None:
+            for r in rows:
+                r['c2'] += offset
+        inc_pk(rows, 1000)
+        validate_update_status(t.insert(rows), len(rows))
+
+        # still works after catalog reload
+        cl = pxt.Client(reload=True)
+        t = cl.get_table('test_tbl')
+        inc_pk(rows, 1000)
+        validate_update_status(t.insert(rows), len(rows))
 
     def test_astype(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
