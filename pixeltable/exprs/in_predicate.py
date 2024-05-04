@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Optional, List, Any, Dict, Tuple, Iterable
 
 import sqlalchemy as sql
@@ -23,7 +24,7 @@ class InPredicate(Predicate):
             except TypeError:
                 raise excs.Error(
                     f'isin(): list item {val!r} is not compatible with the type of {lhs}, which is {lhs.col_type}')
-        self.value_list = value_list
+        self.value_list = copy.deepcopy(value_list)
 
         self.id = self._create_id()
 
