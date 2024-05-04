@@ -1,19 +1,18 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple, Callable
-import operator
+
+from typing import Optional, List, Any, Dict, Tuple, Iterable
 
 import sqlalchemy as sql
 
-from .expr import Expr
-from .globals import LogicalOperator
-from .predicate import Predicate
-from .data_row import DataRow
-from .row_builder import RowBuilder
 import pixeltable.exceptions as excs
+from .data_row import DataRow
+from .expr import Expr
+from .predicate import Predicate
+from .row_builder import RowBuilder
 
 
 class InPredicate(Predicate):
-    def __init__(self, lhs: Expr, value_list: list[Any]):
+    def __init__(self, lhs: Expr, value_list: Iterable[Any]):
         if not lhs.col_type.is_scalar_type():
             raise excs.Error(f'isin(): only supported for scalar types, not {lhs.col_type}')
         super().__init__()
