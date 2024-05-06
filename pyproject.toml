@@ -8,7 +8,6 @@ version = "0.2.5"
 description = "Pixeltable: The Multimodal AI Data Plane"
 authors = ["Marcel Kornacker <marcelk@gmail.com>"]
 readme = "README.md"
-
 exclude = [
     ".pytype",
     ".pytest_cache",
