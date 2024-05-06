@@ -77,7 +77,12 @@ class Dumper:
             'c7': JsonType(nullable=False),
         }
         t = self.cl.create_table('sample_table', schema, primary_key='c2')
+
+        # Add columns for InlineArray and InlineDict
         t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
+        t.add_column(c9=[['a', 'b', 'c'], ['d', 'e', 'f']])
+        t.add_column(c10=[t.c1, [t.c1n, t.c2]])
+        t.add_column(c11={'int': 22, 'dict': {'key': 'val'}, 'expr': t.c1})
 
         # Add columns for .astype converters to ensure they're persisted properly
         t.add_column(c2_as_float=t.c2.astype(FloatType()))
