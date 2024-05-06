@@ -42,19 +42,45 @@ class TestPandas:
             'Adj_Close': pxt.FloatType()
         }
 
-        t3 = cl.import_csv('edge_cases', 'pixeltable/tests/data/datasets/edge-cases.csv')
+        t3 = cl.import_csv(
+            'edge_cases',
+            'pixeltable/tests/data/datasets/edge-cases.csv',
+            parse_dates=['ts', 'ts_n']
+        )
         assert t3.count() == 4
         assert t3.column_types() == {
-            'col1': pxt.FloatType(),
-            'col2': pxt.StringType(),
-            'col3': pxt.FloatType(),
-            'col4': pxt.FloatType()
+            'int': pxt.IntType(),
+            'float': pxt.FloatType(),
+            'float_n': pxt.FloatType(),
+            'bool': pxt.BoolType(),
+            'string': pxt.StringType(),
+            'string_n': pxt.StringType(nullable=True),
+            'ts': pxt.TimestampType(),
+            'ts_n': pxt.TimestampType(nullable=True),
         }
         result_set = t3.collect()
-        _assert_equals_with_nans(result_set['col1'], [1.0, 5.0, float('nan'), 1.0])
-        assert result_set['col2'] == ['fish', '7', 'nan', '3']
-        _assert_equals_with_nans(result_set['col3'], [3.0, float('nan'), float('nan'), 5.0])
-        _assert_equals_with_nans(result_set['col4'], [float('nan'), float('nan'), float('nan'), 7.0])
+        assert result_set['int'] == [2, 3, 5, 22]
+        assert result_set['float'] == [1.7, 3.0, 6.2, -1.0]
+        _assert_equals_with_nans(result_set['float_n'], [1.0, 5.0, float('nan'), 1.0])
+        assert result_set['bool'] == [True, False, True, True]
+        assert result_set['string'] == ['fish', 'cake', 'salad', 'egg']
+        assert result_set['string_n'] == ['fish', 'cake', None, 'egg']
+        assert result_set['ts'] == [datetime.datetime(2024, 5, n) for n in range(3, 7)]
+        assert result_set['ts_n'] == [datetime.datetime(2024, 5, 3), None, None, datetime.datetime(2024, 5, 6)]
+
+        # Test overriding string type to images
+        t4 = cl.import_csv(
+            'images',
+            'pixeltable/tests/data/datasets/images.csv',
+            schema={'name': pxt.StringType(), 'image': pxt.ImageType(nullable=True)}
+        )
+        assert t4.count() == 4
+        assert t4.column_types() == {
+            'name': pxt.StringType(),
+            'image': pxt.ImageType(nullable=True)
+        }
+        result_set = t4.select(t4.image.width).collect()
+        assert result_set['width'] == [1024, 962, 1024, None]
 
     def test_pandas_excel(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openpyxl')
@@ -62,7 +88,7 @@ class TestPandas:
 
         t4 = cl.import_excel('fin_sample', 'pixeltable/tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
-        assert t4.column_types()['Date'] == pxt.TimestampType(nullable=True)
+        assert t4.column_types()['Date'] == pxt.TimestampType()
         entry = t4.df().limit(1).collect()[0]
         assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0)
 

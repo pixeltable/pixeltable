@@ -35,7 +35,7 @@ def import_pandas(
 
 def _df_to_pxt_schema(df: pd.DataFrame) -> dict[str, pxt.ColumnType]:
     cols = [
-        (_normalize_pxt_col_name(pd_name), _np_dtype_to_pxt_type(pd_dtype))
+        (_normalize_pxt_col_name(pd_name), _np_dtype_to_pxt_type(pd_dtype, df[pd_name]))
         for pd_name, pd_dtype in zip(df.columns, df.dtypes)
     ]
     schema = {}
@@ -69,7 +69,7 @@ def _normalize_pxt_col_name(pd_name: str) -> str:
     return id
 
 
-def _np_dtype_to_pxt_type(np_dtype: np.dtype) -> pxt.ColumnType:
+def _np_dtype_to_pxt_type(np_dtype: np.dtype, data_col: pd.Series) -> pxt.ColumnType:
     """
     Infers a Pixeltable type based on a Numpy dtype.
     """
@@ -80,23 +80,29 @@ def _np_dtype_to_pxt_type(np_dtype: np.dtype) -> pxt.ColumnType:
     if np.issubdtype(np_dtype, np.bool_):
         return pxt.BoolType()
     if np_dtype == np.object_ or np.issubdtype(np_dtype, np.character):
-        return pxt.StringType()
+        has_nan = any(isinstance(val, float) and np.isnan(val) for val in data_col)
+        return pxt.StringType(nullable=has_nan)
     if np.issubdtype(np_dtype, np.datetime64):
-        return pxt.TimestampType(nullable=True)
+        has_nat = any(pd.isnull(val) for val in data_col)
+        return pxt.TimestampType(nullable=has_nat)
     raise excs.Error(f'Unsupported dtype: {np_dtype}')
 
 
 def _df_row_to_pxt_row(row: tuple[Any, ...], schema: dict[str, pxt.ColumnType]) -> Iterable[tuple[str, Any]]:
     for val, (col_name, pxt_type) in zip(row[1:], schema.items()):
-        if pxt_type.is_int_type():
-            val = int(val)
         if pxt_type.is_float_type():
             val = float(val)
-        if pxt_type.is_bool_type():
+        elif isinstance(val, float) and np.isnan(val):
+            # pandas uses NaN for empty cells, even for types other than float;
+            # for any type but a float, convert these to None
+            val = None
+        elif pxt_type.is_int_type():
+            val = int(val)
+        elif pxt_type.is_bool_type():
             val = bool(val)
-        if pxt_type.is_string_type():
+        elif pxt_type.is_string_type():
             val = str(val)
-        if pxt_type.is_timestamp_type():
+        elif pxt_type.is_timestamp_type():
             if pd.isnull(val):
                 # pandas has the bespoke 'NaT' type for a missing timestamp; postgres is very
                 # much not-ok with it. (But if we convert it to None and then load out the
