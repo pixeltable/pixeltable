@@ -76,11 +76,11 @@ def clean_db(restore_tables: bool = True) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(test_client: pxt.Client) -> catalog.Table:
+def test_tbl(test_client) -> catalog.Table:
     return create_test_tbl(test_client)
 
 # @pytest.fixture(scope='function')
-# def test_stored_fn(test_client: pxt.Client) -> pxt.Function:
+# def test_stored_fn(test_client) -> pxt.Function:
 #     @pxt.udf(return_type=pxt.IntType(), param_types=[pxt.IntType()])
 #     def test_fn(x):
 #         return x + 1
@@ -124,11 +124,11 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
     ]
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
+def all_datatypes_tbl(test_client) -> catalog.Table:
     return create_all_datatypes_tbl(test_client)
 
 @pytest.fixture(scope='function')
-def img_tbl(test_client: pxt.Client) -> catalog.Table:
+def img_tbl(test_client) -> catalog.Table:
     return create_img_tbl(test_client, 'test_img_tbl')
 
 @pytest.fixture(scope='function')
@@ -145,11 +145,11 @@ def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> List[exprs.Expr]:
     ]
 
 @pytest.fixture(scope='function')
-def small_img_tbl(test_client: pxt.Client) -> catalog.Table:
+def small_img_tbl(test_client) -> catalog.Table:
     return create_img_tbl(test_client, 'small_img_tbl', num_rows=40)
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(test_client: pxt.Client) -> pxt.Table:
+def indexed_img_tbl(test_client) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl(test_client, 'indexed_img_tbl', num_rows=40)
     t.add_embedding_index('img', metric='cosine', img_embed=clip_img_embed, text_embed=clip_text_embed)

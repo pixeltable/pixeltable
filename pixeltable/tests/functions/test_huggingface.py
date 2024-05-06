@@ -10,10 +10,9 @@ from pixeltable.type_system import StringType, JsonType, ImageType, BoolType, Fl
 
 class TestHuggingface:
 
-    def test_hf_function(self, test_client: pxt.Client) -> None:
+    def test_hf_function(self, test_client) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': StringType(), 'bool_col': BoolType()})
+        t = pxt.create_table('test_tbl', {'input': StringType(), 'bool_col': BoolType()})
         from pixeltable.functions.huggingface import sentence_transformer
         model_id = 'intfloat/e5-large-v2'
         t.add_column(e5=sentence_transformer(t.input, model_id=model_id))
@@ -34,10 +33,9 @@ class TestHuggingface:
         # TODO: is there some way to capture the output?
         t.describe()
 
-    def test_sentence_transformer(self, test_client: pxt.Client) -> None:
+    def test_sentence_transformer(self, test_client) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
+        t = pxt.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
         sents = get_sentences(10)
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
@@ -65,16 +63,15 @@ class TestHuggingface:
 
         # execution still works after reload
         cl = pxt.Client(reload=True)
-        t = cl.get_table('test_tbl')
+        t = pxt.get_table('test_tbl')
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_cross_encoder(self, test_client: pxt.Client) -> None:
+    def test_cross_encoder(self, test_client) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
+        t = pxt.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
         sents = get_sentences(10)
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
@@ -100,16 +97,15 @@ class TestHuggingface:
 
         # execution still works after reload
         cl = pxt.Client(reload=True)
-        t = cl.get_table('test_tbl')
+        t = pxt.get_table('test_tbl')
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_clip(self, test_client: pxt.Client) -> None:
+    def test_clip(self, test_client) -> None:
         skip_test_if_not_installed('transformers')
-        cl = test_client
-        t = cl.create_table('test_tbl', {'text': StringType(), 'img': ImageType()})
+        t = pxt.create_table('test_tbl', {'text': StringType(), 'img': ImageType()})
         num_rows = 10
         sents = get_sentences(num_rows)
         imgs = get_image_files()[:num_rows]
@@ -137,16 +133,15 @@ class TestHuggingface:
 
         # execution still works after reload
         cl = pxt.Client(reload=True)
-        t = cl.get_table('test_tbl')
+        t = pxt.get_table('test_tbl')
         status = t.insert({'text': text, 'img': img} for text, img in zip(sents, imgs))
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_detr_for_object_detection(self, test_client: pxt.Client) -> None:
+    def test_detr_for_object_detection(self, test_client) -> None:
         skip_test_if_not_installed('transformers')
-        cl = test_client
-        t = cl.create_table('test_tbl', {'img': ImageType()})
+        t = pxt.create_table('test_tbl', {'img': ImageType()})
         from pixeltable.functions.huggingface import detr_for_object_detection
         t['detect'] = detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
         status = t.insert(img=SAMPLE_IMAGE_URL)

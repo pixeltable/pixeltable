@@ -52,7 +52,7 @@ def make_tbl(cl: pxt.Client, name: str = 'test', col_names: Optional[List[str]] 
     schema: Dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
         schema[f'{col_name}'] = make_default_type(ColumnType.Type(i % 5))
-    return cl.create_table(name, schema)
+    return pxt.create_table(name, schema)
 
 
 def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, num_rows: int = 10) -> List[
@@ -202,7 +202,7 @@ def create_img_tbl(cl: pxt.Client, name: str = 'test_img_tbl', num_rows: int = 0
         'category': StringType(nullable=False),
         'split': StringType(nullable=False),
     }
-    tbl = cl.create_table(name, schema)
+    tbl = pxt.create_table(name, schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     if num_rows > 0:
         # select output_rows randomly in the hope of getting a good sample of the available categories
@@ -213,7 +213,7 @@ def create_img_tbl(cl: pxt.Client, name: str = 'test_img_tbl', num_rows: int = 0
     return tbl
 
 
-def create_all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
+def create_all_datatypes_tbl(test_client) -> catalog.Table:
     """ Creates a table with all supported datatypes.
     """
     schema = {

@@ -38,111 +38,106 @@ class TestFunction:
         assert deserialized.py_fn(1) == 2
 
     @pytest.mark.skip(reason='deprecated')
-    def test_create(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        cl.create_function('test_fn', self.func)
+    def test_create(self, test_client) -> None:
+        pxt.create_function('test_fn', self.func)
         assert self.func.md.fqn == 'test_fn'
         FunctionRegistry.get().clear_cache()
         cl = pxt.Client(reload=True)
-        _ = cl.list_functions()
-        fn2 = cl.get_function('test_fn')
+        _ = pxt.list_functions()
+        fn2 = pxt.get_function('test_fn')
         assert fn2.md.fqn == 'test_fn'
         assert fn2.py_fn(1) == 2
 
         with pytest.raises(excs.Error):
-            cl.create_function('test_fn', self.func)
+            pxt.create_function('test_fn', self.func)
         with pytest.raises(excs.Error):
-            cl.create_function('dir1.test_fn', self.func)
+            pxt.create_function('dir1.test_fn', self.func)
         with pytest.raises(excs.Error):
             library_fn = make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
-            cl.create_function('library_fn', library_fn)
+            pxt.create_function('library_fn', library_fn)
 
     @pytest.mark.skip(reason='deprecated')
-    def test_update(self, test_client: pxt.Client, test_tbl: catalog.Table) -> None:
-        cl = test_client
+    def test_update(self, test_client, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        cl.create_function('test_fn', self.func)
+        pxt.create_function('test_fn', self.func)
         res1 = t[self.func(t.c2)].show(0).to_pandas()
 
         # load function from db and make sure it computes the same thing as before
         FunctionRegistry.get().clear_cache()
         cl = pxt.Client(reload=True)
-        fn = cl.get_function('test_fn')
+        fn = pxt.get_function('test_fn')
         res2 = t[fn(t.c2)].show(0).to_pandas()
         assert res1.col_0.equals(res2.col_0)
         fn.py_fn = lambda x: x + 2
-        cl.update_function('test_fn', fn)
+        pxt.update_function('test_fn', fn)
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
 
         FunctionRegistry.get().clear_cache()
         cl = pxt.Client(reload=True)
-        fn = cl.get_function('test_fn')
+        fn = pxt.get_function('test_fn')
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
         res3 = t[fn(t.c2)].show(0).to_pandas()
         assert (res2.col_0 + 1).equals(res3.col_0)
 
         # signature changes
         with pytest.raises(excs.Error):
-            cl.update_function('test_fn', make_function(FloatType(), [IntType()], fn.py_fn))
+            pxt.update_function('test_fn', make_function(FloatType(), [IntType()], fn.py_fn))
         with pytest.raises(excs.Error):
-            cl.update_function('test_fn', make_function(IntType(), [FloatType()], fn.py_fn))
+            pxt.update_function('test_fn', make_function(IntType(), [FloatType()], fn.py_fn))
         with pytest.raises(excs.Error):
-            cl.update_function('test_fn', self.agg)
+            pxt.update_function('test_fn', self.agg)
 
     @pytest.mark.skip(reason='deprecated')
-    def test_move(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        cl.create_function('test_fn', self.func)
+    def test_move(self, test_client) -> None:
+        pxt.create_function('test_fn', self.func)
 
         FunctionRegistry.get().clear_cache()
         cl = pxt.Client(reload=True)
         with pytest.raises(excs.Error):
-            cl.move('test_fn2', 'test_fn')
-        cl.move('test_fn', 'test_fn2')
-        func = cl.get_function('test_fn2')
+            pxt.move('test_fn2', 'test_fn')
+        pxt.move('test_fn', 'test_fn2')
+        func = pxt.get_function('test_fn2')
         assert func.py_fn(1) == 2
         assert func.md.fqn == 'test_fn2'
 
         with pytest.raises(excs.Error):
-            _ = cl.get_function('test_fn')
+            _ = pxt.get_function('test_fn')
 
         # move function between directories
-        cl.create_dir('functions')
-        cl.create_dir('functions2')
-        cl.create_function('functions.func1', self.func)
+        pxt.create_dir('functions')
+        pxt.create_dir('functions2')
+        pxt.create_function('functions.func1', self.func)
         with pytest.raises(excs.Error):
-            cl.move('functions2.func1', 'functions.func1')
-        cl.move('functions.func1', 'functions2.func1')
-        func = cl.get_function('functions2.func1')
+            pxt.move('functions2.func1', 'functions.func1')
+        pxt.move('functions.func1', 'functions2.func1')
+        func = pxt.get_function('functions2.func1')
         assert func.md.fqn == 'functions2.func1'
 
 
         FunctionRegistry.get().clear_cache()
         cl = pxt.Client(reload=True)
-        func = cl.get_function('functions2.func1')
+        func = pxt.get_function('functions2.func1')
         assert func.py_fn(1) == 2
         assert func.md.fqn == 'functions2.func1'
         with pytest.raises(excs.Error):
-            _ = cl.get_function('functions.func1')
+            _ = pxt.get_function('functions.func1')
 
     @pytest.mark.skip(reason='deprecated')
-    def test_drop(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        cl.create_function('test_fn', self.func)
+    def test_drop(self, test_client) -> None:
+        pxt.create_function('test_fn', self.func)
         FunctionRegistry.get().clear_cache()
         cl = pxt.Client(reload=True)
-        cl.drop_function('test_fn')
+        pxt.drop_function('test_fn')
 
         with pytest.raises(excs.Error):
-            _ = cl.get_function('test_fn')
+            _ = pxt.get_function('test_fn')
 
-    def test_list(self, test_client: pxt.Client) -> None:
+    def test_list(self, test_client) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
 
-    def test_stored_udf(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        t = cl.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
+    def test_stored_udf(self, test_client) -> None:
+        t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -155,7 +150,7 @@ class TestFunction:
 
         func.FunctionRegistry.get().clear_cache()
         cl = pxt.Client(reload=True)
-        t = cl.get_table('test')
+        t = pxt.get_table('test')
         status = t.insert(rows)
         assert status.num_rows == len(rows)
         assert status.num_excs == 0

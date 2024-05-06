@@ -8,11 +8,10 @@ from pixeltable.tests.utils import skip_test_if_not_installed, validate_update_s
 @pytest.mark.remote_api
 class TestFireworks:
 
-    def test_fireworks(self, test_client: pxt.Client) -> None:
+    def test_fireworks(self, test_client) -> None:
         skip_test_if_not_installed('fireworks')
         TestFireworks.skip_test_if_no_fireworks_client()
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
         from pixeltable.functions.fireworks import chat_completions
         messages = [{'role': 'user', 'content': t.input}]
         t['output'] = chat_completions(

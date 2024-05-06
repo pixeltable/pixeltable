@@ -193,7 +193,7 @@ class TestDataFrame:
 
     # TODO This test doesn't work on Windows due to reliance on the structure of file URLs
     @pytest.mark.skip('Test is not portable')
-    def test_html_media_url(self, test_client: pxt.Client) -> None:
+    def test_html_media_url(self, test_client) -> None:
         tab = test_client.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType()})
         status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0])
         assert status.num_rows == 1
@@ -394,13 +394,12 @@ class TestDataFrame:
         ds4 = t.select(t.row_id).to_pytorch_dataset(image_format='pt')
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    def test_to_coco(self, test_client: pxt.Client) -> None:
+    def test_to_coco(self, test_client) -> None:
         skip_test_if_not_installed('nos')
         from pycocotools.coco import COCO
-        cl = test_client
-        base_t = cl.create_table('videos', {'video': pxt.VideoType()})
+        base_t = pxt.create_table('videos', {'video': pxt.VideoType()})
         args = {'video': base_t.video, 'fps': 1}
-        view_t = cl.create_view('frames', base_t, iterator_class=FrameIterator, iterator_args=args)
+        view_t = pxt.create_view('frames', base_t, iterator_class=FrameIterator, iterator_args=args)
         from pixeltable.functions.nos.object_detection_2d import yolox_medium
         view_t.add_column(detections=yolox_medium(view_t.frame))
         base_t.insert(video=get_video_files()[0])

@@ -92,7 +92,7 @@ class TestIndex:
             'split': pxt.StringType(nullable=False),
         }
         tbl_name = 'index_test'
-        img_t = cl.create_table(tbl_name, schema=schema)
+        img_t = pxt.create_table(tbl_name, schema=schema)
         img_t.insert(rows[:30])
 
         img_t.add_embedding_index('img', img_embed=clip_img_embed, text_embed=clip_text_embed)
@@ -124,7 +124,7 @@ class TestIndex:
 
         # make sure we can still do DML after reloading the metadata
         cl = pxt.Client(reload=True)
-        img_t = cl.get_table(tbl_name)
+        img_t = pxt.get_table(tbl_name)
         status = img_t.insert(rows)
         assert status.num_excs == 0
 

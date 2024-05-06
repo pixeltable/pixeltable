@@ -18,20 +18,18 @@ class TestAudio:
             if codec is not None:
                 assert codec == audio_stream.codec_context.codec.name
 
-    def test_basic(self, test_client: pxt.Client) -> None:
+    def test_basic(self, test_client) -> None:
         audio_filepaths = get_audio_files()
-        cl = test_client
-        audio_t = cl.create_table('audio', {'audio_file': AudioType()})
+        audio_t = pxt.create_table('audio', {'audio_file': AudioType()})
         status = audio_t.insert({'audio_file': p} for p in audio_filepaths)
         assert status.num_rows == len(audio_filepaths)
         assert status.num_excs == 0
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
         assert set(paths) == set(audio_filepaths)
 
-    def test_extract(self, test_client: pxt.Client) -> None:
+    def test_extract(self, test_client) -> None:
         video_filepaths = get_video_files()
-        cl = test_client
-        video_t = cl.create_table('videos', {'video': VideoType()})
+        video_t = pxt.create_table('videos', {'video': VideoType()})
         from pixeltable.functions.video import extract_audio
         video_t.add_column(audio=extract_audio(video_t.video))
 
@@ -45,7 +43,7 @@ class TestAudio:
 
         # make sure everything works with a fresh client
         cl = pxt.Client()
-        video_t = cl.get_table('videos')
+        video_t = pxt.get_table('videos')
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
 
         # test generating different formats and codecs
