@@ -3,7 +3,7 @@ from typing import Dict, Any
 import pytest
 
 import pixeltable as pxt
-from pixeltable.tests.utils import skip_test_if_not_installed, get_sentences, get_image_files, \
+from ..utils import skip_test_if_not_installed, get_sentences, get_image_files, \
     SAMPLE_IMAGE_URL
 from pixeltable.type_system import StringType, JsonType, ImageType, BoolType, FloatType, ArrayType
 

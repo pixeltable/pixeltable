@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.tests.utils import make_tbl
+from .utils import make_tbl
 
 
 class TestDirs:

@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq, create_img_tbl, clip_img_embed
+from .utils import create_test_tbl, assert_resultset_eq, create_img_tbl, clip_img_embed
 from pixeltable.type_system import IntType
 
 
