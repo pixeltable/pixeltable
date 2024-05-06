@@ -1,21 +1,20 @@
-from typing import List, Optional, Dict, Type, Any, Union
-import pandas as pd
-import logging
 import dataclasses
+import logging
+from typing import List, Optional, Dict, Type, Any, Union
+from typing import TYPE_CHECKING
 
+import pandas as pd
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-import pixeltable
-from pixeltable.metadata import schema
-from pixeltable.env import Env
-import pixeltable.func as func
 import pixeltable.catalog as catalog
+import pixeltable.func as func
 from pixeltable import exceptions as excs
+from pixeltable.env import Env
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
+from pixeltable.metadata import schema
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import datasets
 
