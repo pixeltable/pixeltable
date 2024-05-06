@@ -23,7 +23,7 @@ def sentence_transformer(
     return [array[i] for i in range(array.shape[0])]
 
 
-@sentence_transformer.dynamic_return_type
+@sentence_transformer.conditional_return_type
 def _(model_id: str) -> ts.ArrayType:
     try:
         from sentence_transformers import SentenceTransformer
@@ -100,8 +100,8 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
-@clip_text.dynamic_return_type
-@clip_image.dynamic_return_type
+@clip_text.conditional_return_type
+@clip_image.conditional_return_type
 def _(model_id: str) -> ts.ArrayType:
     try:
         from transformers import CLIPModel

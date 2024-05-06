@@ -106,7 +106,7 @@ def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
     ]
 
 
-@embeddings.dynamic_return_type
+@embeddings.conditional_return_type
 def _(model: str) -> pxt.ArrayType:
     if model not in _embedding_dimensions_cache:
         # TODO: find some other way to retrieve a sample

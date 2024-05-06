@@ -210,7 +210,7 @@ def embeddings(
     ]
 
 
-@embeddings.dynamic_return_type
+@embeddings.conditional_return_type
 def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
     if dimensions is None:
         if model not in _embedding_dimensions_cache:
@@ -251,7 +251,7 @@ def image_generations(
     return img
 
 
-@image_generations.dynamic_return_type
+@image_generations.conditional_return_type
 def _(size: Optional[str] = None) -> ts.ImageType:
     if size is None:
         return ts.ImageType(size=(1024, 1024))

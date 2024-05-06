@@ -28,7 +28,7 @@ def convert(self: PIL.Image.Image, mode: str) -> PIL.Image.Image:
     return self.convert(mode)
 
 
-@convert.dynamic_return_type
+@convert.conditional_return_type
 def _(self: PIL.Image.Image, mode: str) -> ColumnType:
     input_type = self.col_type
     assert input_type.is_image_type()
@@ -42,7 +42,7 @@ def _(self: PIL.Image.Image, mode: str) -> ColumnType:
 def crop(self: PIL.Image.Image, box: Tuple[int, int, int, int]) -> PIL.Image.Image:
     pass
 
-@crop.dynamic_return_type
+@crop.conditional_return_type
 def _(self: PIL.Image.Image, box: Tuple[int, int, int, int]) -> ColumnType:
     input_type = self.col_type
     assert input_type.is_image_type()
@@ -55,7 +55,7 @@ def _(self: PIL.Image.Image, box: Tuple[int, int, int, int]) -> ColumnType:
 def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     pass
 
-@getchannel.dynamic_return_type
+@getchannel.conditional_return_type
 def _(self: PIL.Image.Image) -> ColumnType:
     input_type = self.col_type
     assert input_type.is_image_type()
@@ -67,7 +67,7 @@ def _(self: PIL.Image.Image) -> ColumnType:
 def resize(self: PIL.Image.Image, size: Tuple[int, int]) -> PIL.Image.Image:
     return self.resize(size)
 
-@resize.dynamic_return_type
+@resize.conditional_return_type
 def _(self: PIL.Image.Image, size: Tuple[int, int]) -> ColumnType:
     input_type = self.col_type
     assert input_type.is_image_type()
@@ -91,10 +91,10 @@ def effect_spread(self: PIL.Image.Image, distance: float) -> PIL.Image.Image:
 def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
     pass
 
-@rotate.dynamic_return_type
-@transform.dynamic_return_type
-@effect_spread.dynamic_return_type
-@transpose.dynamic_return_type
+@rotate.conditional_return_type
+@transform.conditional_return_type
+@effect_spread.conditional_return_type
+@transpose.conditional_return_type
 def _(self: PIL.Image.Image) -> ColumnType:
     return self.col_type
 
