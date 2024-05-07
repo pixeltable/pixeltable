@@ -77,7 +77,7 @@ class TestVideo:
         res = view_t.where(view_t.video == url).collect()
         assert len(res) == len(all_rows[all_rows.url == url])
 
-    def test_fps(self, test_client: pxt.client) -> None:
+    def test_fps(self, test_client) -> None:
         path = get_video_files()[0]
         videos = pxt.create_table('videos', {'video': VideoType()})
         frames_1_0 = pxt.create_view(
@@ -90,7 +90,7 @@ class TestVideo:
         assert frames_0_5.count() == frames_1_0.count() // 2 or frames_0_5.count() == frames_1_0.count() // 2 + 1
         assert frames_0_33.count() == frames_1_0.count() // 3 or frames_0_33.count() == frames_1_0.count() // 3 + 1
 
-    def test_computed_cols(self, test_client: pxt.client) -> None:
+    def test_computed_cols(self, test_client) -> None:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
         # c2 and c4 depend directly on c1, c3 depends on it indirectly

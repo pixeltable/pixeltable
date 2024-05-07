@@ -9,7 +9,6 @@ from sqlalchemy.util.preloaded import orm
 import pixeltable.exceptions as excs
 from pixeltable import catalog, func
 from pixeltable.catalog import Catalog
-from pixeltable.client import Client
 from pixeltable.env import Env
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
