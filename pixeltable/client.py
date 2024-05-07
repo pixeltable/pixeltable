@@ -1,20 +1,21 @@
-import dataclasses
-import logging
-from typing import List, Optional, Dict, Type, Any, Union, TYPE_CHECKING
-
+from typing import List, Optional, Dict, Type, Any, Union
 import pandas as pd
+import logging
+import dataclasses
+
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-import pixeltable.catalog as catalog
-import pixeltable.func as func
-import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
+import pixeltable
+from pixeltable.metadata import schema
 from pixeltable.env import Env
+import pixeltable.func as func
+import pixeltable.catalog as catalog
+from pixeltable import exceptions as excs
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
-from pixeltable.metadata import schema
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import datasets
 
@@ -152,26 +153,6 @@ class Client:
         self.catalog.paths[path] = tbl
         _logger.info(f'Created table `{path_str}`.')
         return tbl
-
-    def import_pandas(
-            self,
-            table_path: str,
-            df: pd.DataFrame,
-            *,
-            schema: Optional[dict[str, ts.ColumnType]] = None
-    ) -> catalog.InsertableTable:
-        """
-        Creates a new `InsertableTable` from a Pandas DataFrame. The column names and Pixeltable types will be inferred
-        based on their corresponding Numpy types.
-
-        Args:
-            table_path: The name of the new table.
-            df: The Pandas DataFrame to import.
-            schema: An optional schema. If specified, the new table will use the specified schema instead of inferring
-                the schema type from the Pandas DataFrame.
-        """
-        import pixeltable.datatransfer.pandas
-        return pixeltable.datatransfer.pandas.import_pandas(self, table_path, df, schema=schema)
 
     def import_parquet(
         self,
