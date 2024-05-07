@@ -1,5 +1,4 @@
 from .catalog import Column, Table, InsertableTable, View
-from .client import Client
 from .dataframe import DataFrame
 from .exceptions import Error, Error
 from .exprs import RELATIVE_PATH_ROOT
@@ -13,7 +12,6 @@ from .utils.help import help
 from . import functions
 
 __all__ = [
-    'Client',
     'DataFrame',
     'Column',
     'Table',
@@ -40,6 +38,3 @@ __all__ = [
     'uda',
     'expr_udf',
 ]
-
-
-

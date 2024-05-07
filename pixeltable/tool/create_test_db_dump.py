@@ -30,8 +30,7 @@ class Dumper:
         os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 
         Env.get().set_up(reinit_db=True)
-        self.cl = pxt.Client()
-        self.cl.logging(level=logging.DEBUG, to_stdout=True)
+        Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
 
     def dump_db(self) -> None:
         md_version = metadata.VERSION

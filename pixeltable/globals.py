@@ -2,7 +2,8 @@ from typing import Any, Optional, Union, Type
 
 import pandas as pd
 
-from pixeltable import catalog, Client
+from pixeltable import catalog
+from pixeltable.client import Client
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
 

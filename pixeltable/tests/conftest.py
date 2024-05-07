@@ -21,8 +21,8 @@ from pixeltable.type_system import FloatType
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory) -> None:
     from pixeltable.env import Env
-    # set the relevant env vars for Client() to connect to the test db
 
+    # set the relevant env vars for the test db
     shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
@@ -35,22 +35,21 @@ def init_env(tmp_path_factory) -> None:
     shared_home.mkdir(parents=True, exist_ok=True)
     # this also runs create_all()
     Env.get().set_up(echo=True)
+    Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
     yield
     # leave db in place for debugging purposes
 
 @pytest.fixture(scope='function')
 def test_client(init_env) -> None:
-    # Clean the DB *before* instantiating a client object. This is because some tests
-    # (such as test_migration.py) may leave the DB in a broken state, from which the
-    # client is uninstantiable.
+    # Clean the DB *before* reloading. This is because some tests
+    # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
-    pxt.globals.reload()
+    pxt.reload()
 
 
 def clean_db(restore_tables: bool = True) -> None:
     from pixeltable.env import Env
-    # The logic from Client.reset_catalog() has been moved here, so that it
-    # does not rely on instantiating a Client object. As before, UUID-named data tables will
+    # UUID-named data tables will
     # not be cleaned. If in the future it is desirable to clean out data tables as well,
     # the commented lines may be used to drop ALL tables from the test db.
     # sql_md = declarative_base().metadata

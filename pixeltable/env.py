@@ -94,6 +94,31 @@ class Env:
         assert self._http_address is not None
         return self._http_address
 
+    def configure_logging(
+            self, *, to_stdout: Optional[bool] = None, level: Optional[int] = None,
+            add: Optional[str] = None, remove: Optional[str] = None
+    ) -> None:
+        """Configure logging.
+
+        Args:
+            to_stdout: if True, also log to stdout
+            level: default log level
+            add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
+            remove: comma-separated list of module names
+        """
+        if to_stdout is not None:
+            self.log_to_stdout(to_stdout)
+        if level is not None:
+            self.set_log_level(level)
+        if add is not None:
+            for module, level in [t.split(':') for t in add.split(',')]:
+                self.set_module_log_level(module, int(level))
+        if remove is not None:
+            for module in remove.split(','):
+                self.set_module_log_level(module, None)
+        if to_stdout is None and level is None and add is None and remove is None:
+            self.print_log_config()
+
     def print_log_config(self) -> None:
         print(f'logging to {self._logfilename}')
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
