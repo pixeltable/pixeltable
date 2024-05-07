@@ -454,7 +454,3 @@ def import_parquet(
         schema_override=schema_override,
         **kwargs,
     )
-
-
-def reload() -> None:
-    catalog.Catalog.clear()

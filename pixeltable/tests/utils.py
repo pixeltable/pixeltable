@@ -438,6 +438,11 @@ def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, s
         check_tup = DatasetTuple(**encoded_tup)
         assert check_tup in acc_dataset
 
+
+def reload_db() -> None:
+    catalog.Catalog.clear()
+    catalog.Catalog.get()
+
 @pxt.expr_udf
 def clip_img_embed(img: PIL.Image.Image) -> np.ndarray:
     return clip_image(img, model_id='openai/clip-vit-base-patch32')

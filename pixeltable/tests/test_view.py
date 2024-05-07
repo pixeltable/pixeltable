@@ -7,7 +7,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
-from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq
+from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq, reload_db
 from pixeltable.type_system import IntType, FloatType, ImageType
 
 logger = logging.getLogger('pixeltable')
@@ -66,7 +66,7 @@ class TestView:
         check_view(t, v)
 
         # check view md after reload
-        pxt.reload()
+        reload_db()
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
         check_view(t, v)
@@ -98,7 +98,7 @@ class TestView:
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test_view')
         assert 'No such path:' in str(exc_info.value)
-        pxt.reload()
+        reload_db()
         # still true after reload
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test_view')
@@ -347,7 +347,7 @@ class TestView:
         v.add_column(v4=v.v2[0])
 
         # use view md after reload
-        pxt.reload()
+        reload_db()
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
@@ -383,7 +383,7 @@ class TestView:
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
         # use view md after reload
-        pxt.reload()
+        reload_db()
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
@@ -441,7 +441,7 @@ class TestView:
         assert v.count() == t.where(t.c2 < 10).count()
 
         # use view md after reload
-        pxt.reload()
+        reload_db()
         t = pxt.get_table('test_tbl')
         snap = pxt.get_table('test_snap')
         v = pxt.get_table('test_view')
@@ -504,7 +504,7 @@ class TestView:
         assert set(view_s.column_names()) == set(orig_view_cols)
 
         # check md after reload
-        pxt.reload()
+        reload_db()
         t = pxt.get_table('test_tbl')
         view_s = pxt.get_table('test_view_snap')
         check(s, v, view_s)

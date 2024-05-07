@@ -9,7 +9,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.iterators import ComponentIterator
 from pixeltable.iterators.video import FrameIterator
-from pixeltable.tests.utils import assert_resultset_eq, get_test_video_files, validate_update_status
+from pixeltable.tests.utils import assert_resultset_eq, get_test_video_files, validate_update_status, reload_db
 from pixeltable.type_system import IntType, VideoType, JsonType
 
 class ConstantImgIterator(ComponentIterator):
@@ -180,28 +180,28 @@ class TestComponentView:
         has_column = False
         has_filter  = False
         for reload_md in [False, True]:
-            pxt.reload()
+            reload_db()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def test_snapshot2(self, reset_db) -> None:
         has_column = True
         has_filter  = False
         for reload_md in [False, True]:
-            pxt.reload()
+            reload_db()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def test_snapshot3(self, reset_db) -> None:
         has_column = False
         has_filter  = True
         for reload_md in [False, True]:
-            pxt.reload()
+            reload_db()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def test_snapshot4(self, reset_db) -> None:
         has_column = True
         has_filter  = True
         for reload_md in [False, True]:
-            pxt.reload()
+            reload_db()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def run_snapshot_test(self, has_column: bool, has_filter: bool, reload_md: bool) -> None:
@@ -247,7 +247,7 @@ class TestComponentView:
         assert_resultset_eq(snap_query.collect(), orig_resultset)
 
         if reload_md:
-            pxt.reload()
+            reload_db()
             video_t = pxt.get_table(base_path)
             snap_t = pxt.get_table(snap_path)
             snap_cols = [snap_t.c1] if has_column else []
