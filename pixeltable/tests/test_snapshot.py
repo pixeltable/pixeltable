@@ -11,7 +11,7 @@ from pixeltable.type_system import IntType
 
 class TestSnapshot:
     def run_basic_test(
-            self, cl: pxt.Client, tbl: pxt.Table, snap: pxt.Table, extra_items: Dict[str, Any], filter: Any,
+            self, tbl: pxt.Table, snap: pxt.Table, extra_items: Dict[str, Any], filter: Any,
             reload_md: bool
     ) -> None:
         tbl_path, snap_path = pxt.get_path(tbl), pxt.get_path(snap)
@@ -22,7 +22,7 @@ class TestSnapshot:
 
         if reload_md:
             # reload md
-            cl = pxt.Client(reload=True)
+            pxt.reload()
             tbl = pxt.get_table(tbl_path)
             snap = pxt.get_table(snap_path)
 
@@ -76,8 +76,8 @@ class TestSnapshot:
         for reload_md in [False, True]:
             for has_filter in [False, True]:
                 for has_cols in [False, True]:
-                    cl = pxt.Client(reload=True)
-                    tbl = create_test_tbl(name=tbl_path, client=cl)
+                    pxt.reload()
+                    tbl = create_test_tbl(name=tbl_path)
                     schema = {
                         'v1': tbl.c3 * 2.0,
                         # include a lambda to make sure that is handled correctly
@@ -86,10 +86,10 @@ class TestSnapshot:
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
                     filter = tbl.c2 < 10 if has_filter else None
                     snap = pxt.create_view(snap_path, tbl, schema=schema, filter=filter, is_snapshot=True)
-                    self.run_basic_test(cl, tbl, snap, extra_items=extra_items, filter=filter, reload_md=reload_md)
+                    self.run_basic_test(tbl, snap, extra_items=extra_items, filter=filter, reload_md=reload_md)
 
     def test_errors(self, test_client) -> None:
-        tbl = create_test_tbl(client=cl)
+        tbl = create_test_tbl()
         snap = pxt.create_view('snap', tbl, is_snapshot=True)
 
         with pytest.raises(pxt.Error) as excinfo:
@@ -105,7 +105,7 @@ class TestSnapshot:
         assert 'cannot revert a snapshot' in str(excinfo.value).lower()
 
         with pytest.raises(pxt.Error) as excinfo:
-            img_tbl = create_img_tbl(cl)
+            img_tbl = create_img_tbl()
             snap = pxt.create_view('img_snap', img_tbl, is_snapshot=True)
             snap.add_embedding_index('img', img_embed=clip_img_embed)
         assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
@@ -134,7 +134,7 @@ class TestSnapshot:
         assert status.num_excs == 0
         verify(s1, s2, v1, v2)
 
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         s1 = pxt.get_table('s1')
         s2 = pxt.get_table('s2')
         v1 = pxt.get_table('v1')
@@ -163,14 +163,14 @@ class TestSnapshot:
         assert status.num_excs == 0
         verify(v1, v2, s)
 
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         v1 = pxt.get_table('v1')
         v2 = pxt.get_table('v2')
         s = pxt.get_table('s')
         verify(v1, v2, s)
 
     def test_multiple_snapshot_paths(self, test_client) -> None:
-        t = create_test_tbl(cl)
+        t = create_test_tbl()
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
         orig_c3 = t.select(t.c3).collect().to_pandas()['c3']
         v = pxt.create_view('v', base=t, schema={'v1': t.c3 + 1})
@@ -220,7 +220,7 @@ class TestSnapshot:
         validate(t, v, s1, s2, s3, s4)
 
         # make sure it works after metadata reload
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t, v = pxt.get_table('test_tbl'), pxt.get_table('v')
         s1, s2, s3, s4 = pxt.get_table('s1'), pxt.get_table('s2'), pxt.get_table('s3'), pxt.get_table('s4')
         validate(t, v, s1, s2, s3, s4)

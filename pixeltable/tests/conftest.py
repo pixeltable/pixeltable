@@ -39,14 +39,12 @@ def init_env(tmp_path_factory) -> None:
     # leave db in place for debugging purposes
 
 @pytest.fixture(scope='function')
-def test_client(init_env) -> pxt.Client:
+def test_client(init_env) -> None:
     # Clean the DB *before* instantiating a client object. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state, from which the
     # client is uninstantiable.
     clean_db()
-    cl = pxt.Client(reload=True)
-    cl.logging(level=logging.DEBUG, to_stdout=True)
-    yield cl
+    pxt.globals.reload()
 
 
 def clean_db(restore_tables: bool = True) -> None:
@@ -77,7 +75,7 @@ def clean_db(restore_tables: bool = True) -> None:
 
 @pytest.fixture(scope='function')
 def test_tbl(test_client) -> catalog.Table:
-    return create_test_tbl(test_client)
+    return create_test_tbl()
 
 # @pytest.fixture(scope='function')
 # def test_stored_fn(test_client) -> pxt.Function:
@@ -89,8 +87,6 @@ def test_tbl(test_client) -> catalog.Table:
 
 @pytest.fixture(scope='function')
 def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
-#def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pxt.Function) -> List[exprs.Expr]:
-
     t = test_tbl
     return [
         t.c1,
@@ -129,7 +125,7 @@ def all_datatypes_tbl(test_client) -> catalog.Table:
 
 @pytest.fixture(scope='function')
 def img_tbl(test_client) -> catalog.Table:
-    return create_img_tbl(test_client, 'test_img_tbl')
+    return create_img_tbl('test_img_tbl')
 
 @pytest.fixture(scope='function')
 def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> List[exprs.Expr]:
@@ -146,11 +142,11 @@ def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> List[exprs.Expr]:
 
 @pytest.fixture(scope='function')
 def small_img_tbl(test_client) -> catalog.Table:
-    return create_img_tbl(test_client, 'small_img_tbl', num_rows=40)
+    return create_img_tbl('small_img_tbl', num_rows=40)
 
 @pytest.fixture(scope='function')
 def indexed_img_tbl(test_client) -> pxt.Table:
     skip_test_if_not_installed('transformers')
-    t = create_img_tbl(test_client, 'indexed_img_tbl', num_rows=40)
+    t = create_img_tbl('indexed_img_tbl', num_rows=40)
     t.add_embedding_index('img', metric='cosine', img_embed=clip_img_embed, text_embed=clip_text_embed)
     return t

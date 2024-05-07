@@ -233,7 +233,7 @@ class TestExprs:
     def test_null_args(self, test_client) -> None:
         # create table with two int columns
         schema = {'c1': FloatType(nullable=True), 'c2': FloatType(nullable=True)}
-        t = test_client.create_table('test', schema)
+        t = pxt.create_table('test', schema)
 
         # computed column that doesn't allow nulls
         t.add_column(c3=lambda c1, c2: c1 + c2, type=FloatType(nullable=False))

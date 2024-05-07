@@ -1,4 +1,7 @@
-from typing import Any, Optional, Union, TYPE_CHECKING, Type
+from typing import Any, Optional, Union, Type
+
+import pandas as pd
+
 from pixeltable import catalog, Client
 from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
@@ -65,6 +68,14 @@ def list_dirs(path_str: str = '', recursive: bool = True) -> list[str]:
     return _client().list_dirs(path_str, recursive)
 
 
+def list_functions() -> pd.DataFrame:
+    return _client().list_functions()
+
+
+def get_path(schema_obj: catalog.SchemaObject) -> str:
+    return _client().get_path(schema_obj)
+
+
 def import_huggingface_dataset(
     table_path: str,
     dataset: Union['datasets.Dataset', 'datasets.DatasetDict'],
@@ -95,6 +106,11 @@ def import_parquet(
         schema_override=schema_override,
         **kwargs
     )
+
+
+def reload() -> None:
+    global _default_client
+    _default_client = Client(reload=True)
 
 
 def _client() -> Client:

@@ -46,7 +46,7 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
     assert False
 
 
-def make_tbl(cl: pxt.Client, name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
+def make_tbl(name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
     if col_names is None:
         col_names = ['c1']
     schema: Dict[str, ts.ColumnType] = {}
@@ -130,7 +130,7 @@ def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, n
     return rows
 
 
-def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table:
+def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
     schema = {
         'c1': StringType(nullable=False),
         'c1n': StringType(nullable=True),
@@ -141,7 +141,7 @@ def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table
         'c6': JsonType(nullable=False),
         'c7': JsonType(nullable=False),
     }
-    t = client.create_table(name, schema, primary_key='c2')
+    t = pxt.create_table(name, schema, primary_key='c2')
     t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
 
     num_rows = 100
@@ -196,7 +196,7 @@ def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table
     return t
 
 
-def create_img_tbl(cl: pxt.Client, name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Table:
+def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Table:
     schema = {
         'img': ImageType(nullable=False),
         'category': StringType(nullable=False),
@@ -228,7 +228,7 @@ def create_all_datatypes_tbl(test_client) -> catalog.Table:
         'c_timestamp': TimestampType(nullable=True),
         'c_video': VideoType(nullable=True),
     }
-    tbl = test_client.create_table('all_datatype_tbl', schema)
+    tbl = pxt.create_table('all_datatype_tbl', schema)
     example_rows = create_table_data(tbl, num_rows=11)
 
     for i, r in enumerate(example_rows):

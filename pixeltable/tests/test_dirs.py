@@ -35,38 +35,38 @@ class TestDirs:
             pxt.create_dir('dir1.sub1.subsub1')
 
         # existing table
-        make_tbl(cl, 'dir1.t1')
+        make_tbl('dir1.t1')
         with pytest.raises(excs.Error):
             pxt.create_dir('dir1.t1')
 
         with pytest.raises(excs.Error):
             pxt.create_dir('dir2.sub2')
-        make_tbl(cl, 't2')
+        make_tbl('t2')
         with pytest.raises(excs.Error):
             pxt.create_dir('t2.sub2')
 
         # new client: force loading from store
-        cl2 = pxt.Client(reload=True)
+        pxt.reload()
 
-        listing = cl2.list_dirs(recursive=True)
+        listing = pxt.list_dirs(recursive=True)
         assert listing == dirs
-        listing = cl2.list_dirs(recursive=False)
+        listing = pxt.list_dirs(recursive=False)
         assert listing == ['dir1']
-        listing = cl2.list_dirs('dir1', recursive=True)
+        listing = pxt.list_dirs('dir1', recursive=True)
         assert listing == ['dir1.sub1', 'dir1.sub1.subsub1']
-        listing = cl2.list_dirs('dir1', recursive=False)
+        listing = pxt.list_dirs('dir1', recursive=False)
         assert listing == ['dir1.sub1']
-        listing = cl2.list_dirs('dir1.sub1', recursive=True)
+        listing = pxt.list_dirs('dir1.sub1', recursive=True)
         assert listing == ['dir1.sub1.subsub1']
-        listing = cl2.list_dirs('dir1.sub1', recursive=False)
+        listing = pxt.list_dirs('dir1.sub1', recursive=False)
         assert listing == ['dir1.sub1.subsub1']
 
     def test_rm(self, test_client) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             pxt.create_dir(name)
-        make_tbl(cl, 't1')
-        make_tbl(cl, 'dir1.t1')
+        make_tbl('t1')
+        make_tbl('dir1.t1')
 
         # bad name
         with pytest.raises(excs.Error):
@@ -85,13 +85,13 @@ class TestDirs:
         assert pxt.list_dirs('dir1.sub1') == []
 
         # check after reloading
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         assert pxt.list_dirs('dir1.sub1') == []
 
     def test_move(self, test_client) -> None:
         pxt.create_dir('dir1')
         pxt.create_dir('dir1.sub1')
-        make_tbl(cl, 'dir1.sub1.t1')
+        make_tbl('dir1.sub1.t1')
         assert pxt.list_tables('dir1') == ['dir1.sub1.t1']
         pxt.move('dir1.sub1.t1', 'dir1.sub1.t2')
         assert pxt.list_tables('dir1') == ['dir1.sub1.t2']
@@ -100,5 +100,5 @@ class TestDirs:
         assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']
 
         # new client: force loading from store
-        cl2 = pxt.Client(reload=True)
-        assert cl2.list_tables('dir2') == ['dir2.dir1.sub1.t2']
+        pxt.reload()
+        assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']

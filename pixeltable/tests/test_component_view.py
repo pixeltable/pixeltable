@@ -180,31 +180,31 @@ class TestComponentView:
         has_column = False
         has_filter  = False
         for reload_md in [False, True]:
-            cl = pxt.Client(reload=True)
-            self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+            pxt.reload()
+            self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def test_snapshot2(self, test_client) -> None:
         has_column = True
         has_filter  = False
         for reload_md in [False, True]:
-            cl = pxt.Client(reload=True)
-            self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+            pxt.reload()
+            self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def test_snapshot3(self, test_client) -> None:
         has_column = False
         has_filter  = True
         for reload_md in [False, True]:
-            cl = pxt.Client(reload=True)
-            self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+            pxt.reload()
+            self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def test_snapshot4(self, test_client) -> None:
         has_column = True
         has_filter  = True
         for reload_md in [False, True]:
-            cl = pxt.Client(reload=True)
-            self.run_snapshot_test(cl, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+            pxt.reload()
+            self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
-    def run_snapshot_test(self, cl: pxt.Client, has_column: bool, has_filter: bool, reload_md: bool) -> None:
+    def run_snapshot_test(self, has_column: bool, has_filter: bool, reload_md: bool) -> None:
         base_path = 'video_tbl'
         view_path = 'test_view'
         snap_path = 'test_snap'
@@ -247,7 +247,7 @@ class TestComponentView:
         assert_resultset_eq(snap_query.collect(), orig_resultset)
 
         if reload_md:
-            cl = pxt.Client(reload=True)
+            pxt.reload()
             video_t = pxt.get_table(base_path)
             snap_t = pxt.get_table(snap_path)
             snap_cols = [snap_t.c1] if has_column else []

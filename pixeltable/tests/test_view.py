@@ -19,9 +19,9 @@ class TestView:
     - test consecutive component views
 
     """
-    def create_tbl(self, cl: pxt.Client) -> catalog.InsertableTable:
+    def create_tbl(self) -> catalog.InsertableTable:
         """Create table with computed columns"""
-        t = create_test_tbl(cl)
+        t = create_test_tbl()
         t.add_column(d1=t.c3 - 1)
         # add column that can be updated
         t.add_column(c10=FloatType(nullable=True))
@@ -31,7 +31,7 @@ class TestView:
         return t
 
     def test_basic(self, test_client) -> None:
-        t = self.create_tbl(cl)
+        t = self.create_tbl()
 
         # create view with filter and computed columns
         schema = {
@@ -66,7 +66,7 @@ class TestView:
         check_view(t, v)
 
         # check view md after reload
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
         check_view(t, v)
@@ -98,7 +98,7 @@ class TestView:
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test_view')
         assert 'No such path:' in str(exc_info.value)
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         # still true after reload
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test_view')
@@ -111,7 +111,7 @@ class TestView:
 
     def test_parallel_views(self, test_client) -> None:
         """Two views over the same base table, with non-overlapping filters"""
-        t = self.create_tbl(cl)
+        t = self.create_tbl()
 
         # create view with filter and computed columns
         v1 = pxt.create_view('v1', t, schema={'v1': t.c3 * 2}, filter=t.c2 < 10)
@@ -158,7 +158,7 @@ class TestView:
 
     def test_chained_views(self, test_client) -> None:
         """Two views, the second one is a view over the first one"""
-        t = self.create_tbl(cl)
+        t = self.create_tbl()
 
         # create view with filter and computed columns
         v1 = pxt.create_view('v1', t, schema={'col1': t.c3 * 2}, filter=t.c2 < 10)
@@ -331,7 +331,7 @@ class TestView:
         check_views()
 
     def test_computed_cols(self, test_client) -> None:
-        t = self.create_tbl(cl)
+        t = self.create_tbl()
 
         # create view with computed columns
         schema = {
@@ -347,7 +347,7 @@ class TestView:
         v.add_column(v4=v.v2[0])
 
         # use view md after reload
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
@@ -374,7 +374,7 @@ class TestView:
             t.select(t.c3 * 2.0).order_by(t.c2).show(0))
 
     def test_filter(self, test_client) -> None:
-        t = create_test_tbl(cl)
+        t = create_test_tbl()
 
         # create view with filter
         v = pxt.create_view('test_view', t, filter=t.c2 < 10)
@@ -383,7 +383,7 @@ class TestView:
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
         # use view md after reload
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
@@ -415,7 +415,7 @@ class TestView:
 
     def test_view_of_snapshot(self, test_client) -> None:
         """Test view over a snapshot"""
-        t = self.create_tbl(cl)
+        t = self.create_tbl()
         snap = pxt.create_view('test_snap', t, is_snapshot=True)
 
         # create view with filter and computed columns
@@ -441,7 +441,7 @@ class TestView:
         assert v.count() == t.where(t.c2 < 10).count()
 
         # use view md after reload
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test_tbl')
         snap = pxt.get_table('test_snap')
         v = pxt.get_table('test_view')
@@ -464,7 +464,7 @@ class TestView:
 
     def test_snapshots(self, test_client) -> None:
         """Test snapshot of a view of a snapshot"""
-        t = self.create_tbl(cl)
+        t = self.create_tbl()
         s = pxt.create_view('test_snap', t, is_snapshot=True)
         assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
 
@@ -504,7 +504,7 @@ class TestView:
         assert set(view_s.column_names()) == set(orig_view_cols)
 
         # check md after reload
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test_tbl')
         view_s = pxt.get_table('test_view_snap')
         check(s, v, view_s)

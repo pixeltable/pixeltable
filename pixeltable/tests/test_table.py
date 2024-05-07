@@ -137,8 +137,8 @@ class TestTable:
         parquet_dir.mkdir()
         make_test_arrow_table(parquet_dir)
 
-        tab = test_client.import_parquet('test_parquet', parquet_path=str(parquet_dir))
-        assert 'test_parquet' in test_client.list_tables()
+        tab = pxt.import_parquet('test_parquet', parquet_path=str(parquet_dir))
+        assert 'test_parquet' in pxt.list_tables()
         assert tab is not None
         num_elts = tab.count()
         arrow_tab: pa.Table = pa.parquet.read_table(str(parquet_dir))
@@ -200,7 +200,7 @@ class TestTable:
             dataset_name = rec['dataset_name']
             hf_dataset = rec['dataset']
 
-            tab = test_client.import_huggingface_dataset(
+            tab = pxt.import_huggingface_dataset(
                 dataset_name,
                 hf_dataset,
                 column_name_for_split=split_column_name,
@@ -219,7 +219,7 @@ class TestTable:
                 assert False
 
         with pytest.raises(excs.Error) as exc_info:
-            test_client.import_huggingface_dataset('test', {})
+            pxt.import_huggingface_dataset('test', {})
         assert 'type(dataset)' in str(exc_info.value)
 
     def test_image_table(self, test_client) -> None:
@@ -330,14 +330,14 @@ class TestTable:
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
     def check_bad_media(
-            self, test_client, rows: List[Tuple[str, bool]], col_type: pxt.ColumnType,
+            self, rows: List[Tuple[str, bool]], col_type: pxt.ColumnType,
             validate_local_path: bool = True
     ) -> None:
         schema = {
             'media': col_type,
             'is_bad_media': BoolType(nullable=False),
         }
-        tbl = test_client.create_table('test', schema)
+        tbl = pxt.create_table('test', schema)
 
         assert len(rows) > 0
         total_bad_rows = sum([int(row['is_bad_media']) for row in rows])
@@ -376,17 +376,17 @@ class TestTable:
     def test_validate_image(self, test_client) -> None:
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
-        self.check_bad_media(test_client, rows, ImageType(nullable=True), validate_local_path=False)
+        self.check_bad_media(rows, ImageType(nullable=True), validate_local_path=False)
 
     def test_validate_video(self, test_client) -> None:
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
-        self.check_bad_media(test_client, rows, VideoType(nullable=True))
+        self.check_bad_media(rows, VideoType(nullable=True))
 
     def test_validate_audio(self, test_client) -> None:
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
-        self.check_bad_media(test_client, rows, AudioType(nullable=True))
+        self.check_bad_media(rows, AudioType(nullable=True))
 
     def test_validate_docs(self, test_client) -> None:
         valid_doc_paths = get_documents()
@@ -394,7 +394,7 @@ class TestTable:
         doc_paths = valid_doc_paths + invalid_doc_paths
         is_valid = [True] * len(valid_doc_paths) + [False] * len(invalid_doc_paths)
         rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
-        self.check_bad_media(test_client, rows, DocumentType(nullable=True))
+        self.check_bad_media(rows, DocumentType(nullable=True))
 
     def test_validate_external_url(self, test_client) -> None:
         skip_test_if_not_installed('boto3')
@@ -414,7 +414,7 @@ class TestTable:
             },
 
         ]
-        self.check_bad_media(test_client, rows, VideoType(nullable=True))
+        self.check_bad_media(rows, VideoType(nullable=True))
 
     def test_create_s3_image_table(self, test_client) -> None:
         skip_test_if_not_installed('boto3')
@@ -508,7 +508,7 @@ class TestTable:
         view.add_column(c5=self.window_fn(view.frame_idx, 1, group_by=view.video))
 
         # reload to make sure that metadata gets restored correctly
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         tbl = pxt.get_table('test_tbl')
         view = pxt.get_table('test_view')
         # we're inserting only a single row and the video column is not in position 0
@@ -646,13 +646,13 @@ class TestTable:
     def test_query(self, test_client) -> None:
         skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
-        t = make_tbl(cl, 'test', col_names)
+        t = make_tbl('test', col_names)
         rows = create_table_data(t)
         t.insert(rows)
         _ = t.show(n=0)
 
         # test querying existing table
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t2 = pxt.get_table('test')
         _  = t2.show(n=0)
 
@@ -669,7 +669,6 @@ class TestTable:
         assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
 
-        cl = pxt.Client()
         # test composite primary key
         schema = {'c1': StringType(), 'c2': IntType(), 'c3': FloatType()}
         t = pxt.create_table('composite', schema=schema, primary_key=['c1', 'c2'])
@@ -1068,7 +1067,7 @@ class TestTable:
         _ = new_t.show(0)
 
     def test_revert(self, test_client) -> None:
-        t1 = make_tbl(cl, 'test1', ['c1', 'c2'])
+        t1 = make_tbl('test1', ['c1', 'c2'])
         assert t1.version() == 0
         rows1 = create_table_data(t1)
         t1.insert(rows1)
@@ -1136,7 +1135,7 @@ class TestTable:
             _ = t.add_column(c5=(t.c2 + t.c3), stored=False)
 
         # make sure this is still true after reloading the metadata
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols + 1
 

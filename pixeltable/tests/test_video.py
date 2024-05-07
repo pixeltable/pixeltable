@@ -15,7 +15,7 @@ from pixeltable.utils.media_store import MediaStore
 
 class TestVideo:
     def create_tbls(
-            self, cl: pxt.Client, base_name: str = 'video_tbl', view_name: str = 'frame_view'
+            self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         pxt.drop_table(view_name, ignore_errors=True)
         pxt.drop_table(base_name, ignore_errors=True)
@@ -25,9 +25,9 @@ class TestVideo:
         return base_t, view_t
 
     def create_and_insert(
-            self, cl: pxt.Client, stored: Optional[bool], paths: List[str]
+            self, stored: Optional[bool], paths: List[str]
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
-        base_t, view_t = self.create_tbls(cl)
+        base_t, view_t = self.create_tbls()
 
         view_t.add_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
@@ -44,15 +44,15 @@ class TestVideo:
         video_filepaths = get_video_files()
 
         # default case: computed images are not stored
-        _, view = self.create_and_insert(cl, None, video_filepaths)
+        _, view = self.create_and_insert(None, video_filepaths)
         assert MediaStore.count(view.get_id()) == 0
 
         # computed images are explicitly not stored
-        _, view = self.create_and_insert(cl, False, video_filepaths)
+        _, view = self.create_and_insert(False, video_filepaths)
         assert MediaStore.count(view.get_id()) == 0
 
         # computed images are stored
-        tbl, view = self.create_and_insert(cl, True, video_filepaths)
+        tbl, view = self.create_and_insert(True, video_filepaths)
         assert MediaStore.count(view.get_id()) == view.count()
 
         # revert() also removes computed images
@@ -63,7 +63,7 @@ class TestVideo:
     def test_query(self, test_client: pxt.client) -> None:
         skip_test_if_not_installed('boto3')
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls(cl)
+        base_t, view_t = self.create_tbls()
         # also include an external file, to make sure that prefetching works
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         video_filepaths.append(url)
@@ -92,7 +92,7 @@ class TestVideo:
 
     def test_computed_cols(self, test_client: pxt.client) -> None:
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls(cl)
+        base_t, view_t = self.create_tbls()
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
         view_t.add_column(c1=view_t.frame.resize([224, 224]))
         view_t.add_column(c2=view_t.c1.rotate(10))
@@ -117,7 +117,7 @@ class TestVideo:
 
     def test_make_video(self, test_client) -> None:
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls(cl)
+        base_t, view_t = self.create_tbls()
         base_t.insert({'video': p} for p in video_filepaths)
         # reference to the frame col requires ordering by base, pos
         from pixeltable.functions import make_video
@@ -149,6 +149,6 @@ class TestVideo:
             view_t.add_column(agg2=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         base_t, view_t = pxt.get_table(base_t.get_name()), pxt.get_table(view_t.get_name())
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
