@@ -10,7 +10,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.env import Env
-from pixeltable.tests.conftest import clean_db
+from .conftest import clean_db
 
 _logger = logging.getLogger('pixeltable')
 

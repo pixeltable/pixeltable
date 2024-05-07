@@ -7,7 +7,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
-from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq
+from .utils import create_test_tbl, assert_resultset_eq
 from pixeltable.type_system import IntType, FloatType, ImageType
 
 logger = logging.getLogger('pixeltable')

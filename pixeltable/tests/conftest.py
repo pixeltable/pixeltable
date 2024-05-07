@@ -13,7 +13,7 @@ from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
-from pixeltable.tests.utils import create_test_tbl, create_all_datatypes_tbl, clip_img_embed, \
+from .utils import create_test_tbl, create_all_datatypes_tbl, clip_img_embed, \
     clip_text_embed, create_img_tbl, skip_test_if_not_installed
 from pixeltable.type_system import FloatType
 

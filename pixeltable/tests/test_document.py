@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators.document import DocumentSplitter
-from pixeltable.tests.utils import (
+from .utils import (
     get_audio_files,
     get_documents,
     get_image_files,

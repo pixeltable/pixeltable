@@ -23,7 +23,7 @@ from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
 from pixeltable import metadata
-from pixeltable.utils.http_server import FixedRootHandler, LoggingHTTPServer
+from pixeltable.utils.http_server import make_server
 
 class Env:
     """
@@ -304,13 +304,13 @@ class Env:
         """
         The http server root is the file system root.
         eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
+        in windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
         This arrangement enables serving media hosted within _home,
         as well as external media inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.
         """
         # Port 0 means OS picks one for us.
-        address = ("127.0.0.1", 0)
-        self._httpd = LoggingHTTPServer(address, FixedRootHandler)
+        self._httpd = make_server("127.0.0.1", 0)
         port = self._httpd.server_address[1]
         self._http_address = f'http://127.0.0.1:{port}'
 

@@ -8,7 +8,7 @@ import pixeltable.exceptions as excs
 from pixeltable import catalog
 from pixeltable.func import Function, FunctionRegistry, Batch
 from pixeltable.type_system import IntType, FloatType
-from pixeltable.tests.utils import assert_resultset_eq
+from .utils import assert_resultset_eq
 import pixeltable.func as func
 
 

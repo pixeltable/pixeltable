@@ -16,10 +16,10 @@ import pixeltable.functions as ptf
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import \
+from .utils import \
     make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
     assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table, validate_update_status
-from pixeltable.tests.utils import skip_test_if_not_installed
+from .utils import skip_test_if_not_installed
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
     DocumentType
