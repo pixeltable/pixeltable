@@ -85,7 +85,6 @@ class TestIndex:
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
-        cl = pxt.Client()
         schema = {
             'img': pxt.ImageType(nullable=False),
             'category': pxt.StringType(nullable=False),
@@ -123,7 +122,7 @@ class TestIndex:
         img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         img_t = pxt.get_table(tbl_name)
         status = img_t.insert(rows)
         assert status.num_excs == 0

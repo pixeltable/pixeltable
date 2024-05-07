@@ -129,13 +129,13 @@ def parquet_schema_to_pixeltable_schema(parquet_path: str) -> Dict[str, Optional
 
 
 def import_parquet(
-    cl: 'pixeltable.Client',
     table_path: str,
     *,
     parquet_path: str,
     schema_override: Optional[Dict[str, ts.ColumnType]],
     **kwargs,
 ) -> 'catalog.InsertableTable':
+    import pixeltable as pxt
     """See `pixeltable.Client.import_parquet` for documentation"""
     input_path = Path(parquet_path).expanduser()
     parquet_dataset = pa.parquet.ParquetDataset(input_path)
@@ -149,12 +149,12 @@ def import_parquet(
         if v is None:
             raise exc.Error(f'Could not infer pixeltable type for column {k} from parquet file')
 
-    if table_path in cl.list_tables():
+    if table_path in pxt.list_tables():
         raise exc.Error(f'Table {table_path} already exists')
 
     try:
         tmp_name = f'{table_path}_tmp_{random.randint(0, 100000000)}'
-        tab = cl.create_table(tmp_name, schema, **kwargs)
+        tab = pxt.create_table(tmp_name, schema, **kwargs)
         for fragment in parquet_dataset.fragments:
             for batch in fragment.to_batches():
                 dict_batch = list(iter_tuples(batch))
@@ -163,5 +163,5 @@ def import_parquet(
         _logger.error(f'Error while inserting Parquet file into table: {e}')
         raise e
 
-    cl.move(tmp_name, table_path)
-    return cl.get_table(table_path)
+    pxt.move(tmp_name, table_path)
+    return pxt.get_table(table_path)

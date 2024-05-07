@@ -76,7 +76,7 @@ class Dumper:
             'c6': JsonType(nullable=False),
             'c7': JsonType(nullable=False),
         }
-        t = self.cl.create_table('sample_table', schema, primary_key='c2')
+        t = pxt.create_table('sample_table', schema, primary_key='c2')
 
         # Add columns for InlineArray and InlineDict
         t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
@@ -141,9 +141,9 @@ class Dumper:
             for i in range(num_rows)
         ]
         t.insert(rows)
-        self.cl.create_dir('views')
-        v = self.cl.create_view('views.sample_view', t, filter=(t.c2 < 50))
-        _ = self.cl.create_view('views.sample_snapshot', t, filter=(t.c2 >= 75), is_snapshot=True)
+        pxt.create_dir('views')
+        v = pxt.create_view('views.sample_view', t, filter=(t.c2 < 50))
+        _ = pxt.create_view('views.sample_snapshot', t, filter=(t.c2 >= 75), is_snapshot=True)
         # Computed column using a library function
         v['str_format'] = pxt.functions.string.str_format('{0} {key}', t.c1, key=t.c1)
         # Computed column using a bespoke udf

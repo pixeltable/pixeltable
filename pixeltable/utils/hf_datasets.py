@@ -63,7 +63,6 @@ def huggingface_schema_to_pixeltable_schema(
     return pixeltable_schema
 
 def import_huggingface_dataset(
-    cl: 'pixeltable.Client',
     table_path: str,
     dataset: Union[datasets.Dataset, datasets.DatasetDict],
     *,
@@ -71,8 +70,9 @@ def import_huggingface_dataset(
     schema_override: Optional[Dict[str, Any]],
     **kwargs,
 ) -> 'pixeltable.InsertableTable':
+    import pixeltable as pxt
     """See `pixeltable.Client.import_huggingface_dataset` for documentation"""
-    if table_path in cl.list_tables():
+    if table_path in pxt.list_tables():
         raise excs.Error(f'table {table_path} already exists')
 
     if not isinstance(dataset, (datasets.Dataset, datasets.DatasetDict)):
@@ -122,7 +122,7 @@ def import_huggingface_dataset(
     try:
         # random tmp name
         tmp_name = f'{table_path}_tmp_{random.randint(0, 100000000)}'
-        tab = cl.create_table(tmp_name, pixeltable_schema, **kwargs)
+        tab = pxt.create_table(tmp_name, pixeltable_schema, **kwargs)
 
         def _translate_row(row: Dict[str, Any], split_name: str) -> Dict[str, Any]:
             output_row = row.copy()
@@ -153,5 +153,5 @@ def import_huggingface_dataset(
         _logger.error(f'Error while inserting dataset into table: {tmp_name}')
         raise e
 
-    cl.move(tmp_name, table_path)
-    return cl.get_table(table_path)
+    pxt.move(tmp_name, table_path)
+    return pxt.get_table(table_path)

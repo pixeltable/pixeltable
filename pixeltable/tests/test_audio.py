@@ -41,8 +41,6 @@ class TestAudio:
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
         assert env.Env.get().num_tmp_files() == 0
 
-        # make sure everything works with a fresh client
-        cl = pxt.Client()
         video_t = pxt.get_table('videos')
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
 

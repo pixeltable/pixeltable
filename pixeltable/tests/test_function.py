@@ -42,7 +42,7 @@ class TestFunction:
         pxt.create_function('test_fn', self.func)
         assert self.func.md.fqn == 'test_fn'
         FunctionRegistry.get().clear_cache()
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         _ = pxt.list_functions()
         fn2 = pxt.get_function('test_fn')
         assert fn2.md.fqn == 'test_fn'
@@ -64,7 +64,7 @@ class TestFunction:
 
         # load function from db and make sure it computes the same thing as before
         FunctionRegistry.get().clear_cache()
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         fn = pxt.get_function('test_fn')
         res2 = t[fn(t.c2)].show(0).to_pandas()
         assert res1.col_0.equals(res2.col_0)
@@ -73,7 +73,7 @@ class TestFunction:
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
 
         FunctionRegistry.get().clear_cache()
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         fn = pxt.get_function('test_fn')
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
         res3 = t[fn(t.c2)].show(0).to_pandas()
@@ -92,7 +92,7 @@ class TestFunction:
         pxt.create_function('test_fn', self.func)
 
         FunctionRegistry.get().clear_cache()
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         with pytest.raises(excs.Error):
             pxt.move('test_fn2', 'test_fn')
         pxt.move('test_fn', 'test_fn2')
@@ -115,7 +115,7 @@ class TestFunction:
 
 
         FunctionRegistry.get().clear_cache()
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         func = pxt.get_function('functions2.func1')
         assert func.py_fn(1) == 2
         assert func.md.fqn == 'functions2.func1'
@@ -126,7 +126,7 @@ class TestFunction:
     def test_drop(self, test_client) -> None:
         pxt.create_function('test_fn', self.func)
         FunctionRegistry.get().clear_cache()
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         pxt.drop_function('test_fn')
 
         with pytest.raises(excs.Error):
@@ -149,7 +149,7 @@ class TestFunction:
         t['f1'] = f1(t.c1, t.c2)
 
         func.FunctionRegistry.get().clear_cache()
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test')
         status = t.insert(rows)
         assert status.num_rows == len(rows)

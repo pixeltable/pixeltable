@@ -85,7 +85,7 @@ class TestTable:
             _ = pxt.list_tables('dir2')
 
         # test loading with new client
-        cl = pxt.Client(reload=True)
+        pxt.reload()
 
         tbl = pxt.get_table('test')
         assert isinstance(tbl, catalog.InsertableTable)
@@ -458,7 +458,7 @@ class TestTable:
         assert cache_stats.num_hits == 0
 
         # start with fresh client and FileCache instance to test FileCache initialization with pre-existing files
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         # is there a better way to do this?
         FileCache._instance = None
         t = pxt.get_table('test')
@@ -764,7 +764,7 @@ class TestTable:
         assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'] == computed3)
 
         # revert, then verify that we're back to where we started
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
@@ -851,7 +851,7 @@ class TestTable:
         assert cnt == 1
 
         # revert, then verify that we're back where we started
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
@@ -915,7 +915,7 @@ class TestTable:
             t.insert(rows2)
 
         # test loading from store
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test')
         assert len(t.columns()) == len(t.columns())
         for i in range(len(t.columns())):
@@ -964,7 +964,7 @@ class TestTable:
 
         check(t)
         # test loading from store
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test')
         check(t)
 
@@ -1006,7 +1006,7 @@ class TestTable:
         assert MediaStore.count(t.get_id()) == t.count() * stores_img_col
 
         # test loading from store
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t2 = pxt.get_table(t.get_name())
         assert len(t.columns()) == len(t2.columns())
         for i in range(len(t.columns())):
@@ -1144,7 +1144,7 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols
 
@@ -1186,7 +1186,7 @@ class TestTable:
         assert 'duplicate column name' in str(exc_info.value).lower()
 
         # make sure this is still true after reloading the metadata
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols + 2
 
@@ -1196,7 +1196,7 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols
 
@@ -1210,7 +1210,7 @@ class TestTable:
             t.drop_column('unknown')
 
         # make sure this is still true after reloading the metadata
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols - 1
 
@@ -1219,7 +1219,7 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols
 
@@ -1248,7 +1248,7 @@ class TestTable:
             t.rename_column('c2', 'c3')
 
         # make sure this is still true after reloading the metadata
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         check_rename(t, 'c1_renamed', 'c1')
 
@@ -1259,7 +1259,7 @@ class TestTable:
         #check_rename(t, 'c1', 'c1_renamed')
 
         # make sure this is still true after reloading the metadata once more
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table(t.get_name())
         check_rename(t, 'c1', 'c1_renamed')
 

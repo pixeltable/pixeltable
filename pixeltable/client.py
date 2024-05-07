@@ -177,7 +177,6 @@ class Client:
         from pixeltable.utils import parquet
 
         return parquet.import_parquet(
-            self,
             table_path=table_path,
             parquet_path=parquet_path,
             schema_override=schema_override,
@@ -212,7 +211,6 @@ class Client:
         from pixeltable.utils import hf_datasets
 
         return hf_datasets.import_huggingface_dataset(
-            self,
             table_path,
             dataset,
             column_name_for_split=column_name_for_split,

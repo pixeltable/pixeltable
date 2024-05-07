@@ -62,7 +62,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test_tbl')
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
@@ -96,7 +96,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test_tbl')
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
@@ -132,7 +132,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        cl = pxt.Client(reload=True)
+        pxt.reload()
         t = pxt.get_table('test_tbl')
         status = t.insert({'text': text, 'img': img} for text, img in zip(sents, imgs))
         assert status.num_rows == len(sents)
