@@ -70,6 +70,11 @@ class TestPandas:
         assert result_set['ts'] == [datetime.datetime(2024, 5, n) for n in range(3, 7)]
         assert result_set['ts_n'] == [datetime.datetime(2024, 5, 3), None, None, datetime.datetime(2024, 5, 6)]
 
+    def test_pandas_images(self, test_client: pxt.Client) -> None:
+        skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
+        cl = test_client
+        from pixeltable.datatransfer.pandas import import_csv
+
         # Test overriding string type to images
         t4 = import_csv(
             cl,
