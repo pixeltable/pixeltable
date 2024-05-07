@@ -71,7 +71,7 @@ def import_huggingface_dataset(
     **kwargs,
 ) -> 'pixeltable.InsertableTable':
     import pixeltable as pxt
-    """See `pixeltable.Client.import_huggingface_dataset` for documentation"""
+    """See `pixeltable.import_huggingface_dataset` for documentation"""
     if table_path in pxt.list_tables():
         raise excs.Error(f'table {table_path} already exists')
 

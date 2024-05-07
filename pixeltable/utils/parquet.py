@@ -136,7 +136,7 @@ def import_parquet(
     **kwargs,
 ) -> 'catalog.InsertableTable':
     import pixeltable as pxt
-    """See `pixeltable.Client.import_parquet` for documentation"""
+    """See `pixeltable.import_parquet` for documentation"""
     input_path = Path(parquet_path).expanduser()
     parquet_dataset = pa.parquet.ParquetDataset(input_path)
 

@@ -419,7 +419,7 @@ class TestTable:
     def test_create_s3_image_table(self, test_client) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'img': ImageType(nullable=False)})
-        # this is needed because Client.reset_catalog() doesn't call TableVersion.drop(), which would
+        # this is needed because pxt.reload() doesn't call TableVersion.drop(), which would
         # clear the file cache
         # TODO: change reset_catalog() to drop tables
         FileCache.get().clear()
