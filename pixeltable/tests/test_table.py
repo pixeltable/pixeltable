@@ -871,7 +871,7 @@ class TestTable:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
-    def test_computed_cols(self, test_client: pxt.client) -> None:
+    def test_computed_cols(self, test_client) -> None:
         schema = {
             'c1': IntType(nullable=False),
             'c2': FloatType(nullable=False),

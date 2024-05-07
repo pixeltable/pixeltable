@@ -60,7 +60,7 @@ class TestVideo:
         tbl.revert()
         assert MediaStore.count(view.get_id()) == view.count()
 
-    def test_query(self, test_client: pxt.client) -> None:
+    def test_query(self, test_client) -> None:
         skip_test_if_not_installed('boto3')
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
