@@ -5,8 +5,8 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq, create_img_tbl, clip_img_embed, reload_db
 from pixeltable.type_system import IntType
+from .utils import create_test_tbl, assert_resultset_eq, create_img_tbl, clip_img_embed, reload_db
 
 
 class TestSnapshot:

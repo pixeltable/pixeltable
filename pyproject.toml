@@ -23,7 +23,6 @@ pillow = ">=10.0"
 opencv-python-headless = "^4.7.0.68"
 tqdm = "^4.64.1"
 jmespath = "^1.0.1"
-regex = "^2022.10.31"
 cloudpickle = "^2.2.1"
 psycopg2-binary = "^2.9.5"
 psutil = "^5.9.5"
@@ -118,6 +117,10 @@ disable = ["C0114","C0116","C0415","E1121","R0401","R0801","R0902","R0913","R091
 addopts = "-v -m \"not remote_api\""
 markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)"
+]
+filterwarnings = [
+    "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
+    "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning"
 ]
 
 [tool.ruff]

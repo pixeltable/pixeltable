@@ -5,11 +5,11 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable.func import Function, FunctionRegistry, Batch
 from pixeltable.type_system import IntType, FloatType
-from pixeltable.tests.utils import assert_resultset_eq, reload_db
-import pixeltable.func as func
+from .utils import assert_resultset_eq, reload_db
 
 
 def dummy_fn(i: int) -> int:

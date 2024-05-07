@@ -9,8 +9,9 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.iterators import ComponentIterator
 from pixeltable.iterators.video import FrameIterator
-from pixeltable.tests.utils import assert_resultset_eq, get_test_video_files, validate_update_status, reload_db
 from pixeltable.type_system import IntType, VideoType, JsonType
+from .utils import assert_resultset_eq, get_test_video_files, validate_update_status, reload_db
+
 
 class ConstantImgIterator(ComponentIterator):
     """Component iterator that generates a fixed number of all-black 1280x720 images."""

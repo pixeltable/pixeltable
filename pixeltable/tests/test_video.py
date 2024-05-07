@@ -7,10 +7,9 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files, reload_db
-from pixeltable.tests.utils import skip_test_if_not_installed
 from pixeltable.type_system import VideoType, ImageType
 from pixeltable.utils.media_store import MediaStore
+from .utils import get_video_files, skip_test_if_not_installed, reload_db
 
 
 class TestVideo:

@@ -16,7 +16,7 @@ from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import cast, sum, count
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_image_files, skip_test_if_not_installed
+from .utils import get_image_files, skip_test_if_not_installed
 from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
     VideoType
 

@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files, skip_test_if_not_installed
+from .utils import get_video_files, skip_test_if_not_installed
 from pixeltable.type_system import ImageType, VideoType
 
 

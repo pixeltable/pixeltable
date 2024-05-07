@@ -8,10 +8,9 @@ import sys
 import pgserver
 import pytest
 
-import pixeltable as pxt
 from pixeltable.env import Env
-from pixeltable.tests.conftest import clean_db
-from pixeltable.tests.utils import reload_db
+from .conftest import clean_db
+from .utils import reload_db
 
 _logger = logging.getLogger('pixeltable')
 

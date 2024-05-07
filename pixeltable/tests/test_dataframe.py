@@ -1,18 +1,19 @@
 import datetime
 import pickle
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict
 
+import PIL.Image
 import bs4
 import numpy as np
 import pytest
-import requests
 
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_video_files, get_audio_files, skip_test_if_not_installed
+from .utils import get_video_files, get_audio_files, get_documents, skip_test_if_not_installed
 
 
 class TestDataFrame:
@@ -191,28 +192,43 @@ class TestDataFrame:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[res.column_names()[0]] == [1.0] * 10
 
-    # TODO This test doesn't work on Windows due to reliance on the structure of file URLs
-    @pytest.mark.skip('Test is not portable')
     def test_html_media_url(self, reset_db) -> None:
-        tab = pxt.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType()})
-        status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0])
+        tab = pxt.create_table('test_html_repr', {'video': pxt.VideoType(),
+                                                  'audio': pxt.AudioType(),
+                                                  'doc': pxt.DocumentType()})
+
+        pdf_doc = next(f for f in get_documents() if f.endswith('.pdf'))
+        status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0], doc=pdf_doc)
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-        res = tab.select(tab.video, tab.audio).collect()
+        res = tab.select(tab.video, tab.audio, tab.doc).collect()
         doc = bs4.BeautifulSoup(res._repr_html_(), features='html.parser')
         video_tags = doc.find_all('video')
         assert len(video_tags) == 1
         audio_tags = doc.find_all('audio')
         assert len(audio_tags) == 1
-
-        # get the source elements and test their src attributes
+        # get the source elements and test their src link are valid and can be retrieved
+        # from running web-server
         for tag in video_tags + audio_tags:
             sources = tag.find_all('source')
             assert len(sources) == 1
             for src in sources:
-                response = requests.get(src['src'])
-                assert response.status_code == 200
+                op = urllib.request.urlopen(src['src'])
+                assert op.getcode() == 200
+
+        document_tags = doc.find_all('div', attrs={'class':'pxt_document'})
+        assert len(document_tags) == 1
+        res0 = document_tags[0]
+        href = res0.find('a')['href']
+        thumb = res0.find('img')['src']
+        # check link is valid and server is running
+        href_op = urllib.request.urlopen(url=href)
+        assert href_op.getcode() == 200
+        # check thumbnail is well formed image
+        opurl_img = urllib.request.urlopen(url=thumb)
+        PIL.Image.open(opurl_img)
+
 
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table):
         """ tests all types are handled correctly in this conversion

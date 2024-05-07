@@ -1,12 +1,9 @@
-import PIL
-import PIL.Image
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
-from pixeltable.tests.utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed, \
-    reload_db
+from .utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed, reload_db
 
 
 class TestIndex:

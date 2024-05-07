@@ -1,6 +1,7 @@
 import datetime
 import math
 import os
+import pathlib
 import random
 from typing import List, Tuple
 
@@ -8,7 +9,6 @@ import PIL
 import cv2
 import numpy as np
 import pandas as pd
-import pathlib
 import pytest
 
 import pixeltable as pxt
@@ -16,15 +16,16 @@ import pixeltable.functions as ptf
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import \
-    make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
-    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table, validate_update_status
-from pixeltable.tests.utils import skip_test_if_not_installed, reload_db
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
     DocumentType
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
+from .utils import \
+    make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
+    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table, validate_update_status
+from .utils import skip_test_if_not_installed, reload_db
+
 
 class TestTable:
     # exc for a % 10 == 0

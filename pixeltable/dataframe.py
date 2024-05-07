@@ -26,6 +26,7 @@ from pixeltable.catalog import is_valid_identifier
 from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
+from pixeltable.utils.http_server import get_file_uri
 
 __all__ = [
     'DataFrame'
@@ -33,16 +34,12 @@ __all__ = [
 
 _logger = logging.getLogger('pixeltable')
 
-
 def _create_source_tag(file_path: str) -> str:
-    abs_path = Path(file_path)
-    assert abs_path.is_absolute()
-    src_url = f'{Env.get().http_address}/{abs_path}'
+    src_url = get_file_uri(Env.get().http_address, file_path)
     mime = mimetypes.guess_type(src_url)[0]
     # if mime is None, the attribute string would not be valid html.
     mime_attr = f'type="{mime}"' if mime is not None else ''
     return f'<source src="{src_url}" {mime_attr} />'
-
 
 class DataFrameResultSet:
 
@@ -54,6 +51,7 @@ class DataFrameResultSet:
             ts.ImageType: self._format_img,
             ts.VideoType: self._format_video,
             ts.AudioType: self._format_audio,
+            ts.DocumentType: self._format_document,
         }
 
     def __len__(self) -> int:
@@ -90,7 +88,6 @@ class DataFrameResultSet:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
 
     # Formatters
-
     def _format_img(self, img: Image.Image) -> str:
         """
         Create <img> tag for Image object.
@@ -107,7 +104,7 @@ class DataFrameResultSet:
             img.save(buffer, 'jpeg')
             img_base64 = base64.b64encode(buffer.getvalue()).decode()
             return f'''
-            <div style="width:{width}px;">
+            <div class="pxt_image" style="width:{width}px;">
                 <img src="data:image/jpeg;base64,{img_base64}" width="{width}" />
             </div>
             '''
@@ -137,15 +134,51 @@ class DataFrameResultSet:
         else:
             width = 800
         return f'''
-        <div style="width:{width}px;">
+        <div class="pxt_video" style="width:{width}px;">
             <video controls width="{width}" {thumb_tag}>
                 {_create_source_tag(file_path)}
             </video>
         </div>
         '''
 
+    def _format_document(self, file_path: str) -> str:
+        max_width = max_height = 320
+        # by default, file path will be shown as a link
+        inner_element = file_path
+        # try generating a thumbnail for different types and use that if successful
+        if file_path.lower().endswith('.pdf'):
+            try:
+                import fitz
+                doc = fitz.open(file_path)
+                p = doc.get_page_pixmap(0)
+                while p.width > max_width or p.height > max_height:
+                    # shrink(1) will halve each dimension
+                    p.shrink(1)
+                data = p.tobytes(output='jpeg')
+                thumb_base64 = base64.b64encode(data).decode()
+                img_src = f"data:image/jpeg;base64,{thumb_base64}"
+                inner_element = f'''
+                    <img style="object-fit: contain; border: 1px solid black;" src="{img_src}" />
+                '''
+            except:
+                logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
+
+        return f'''
+        <div class="pxt_document" style="width:{max_width}px;">
+            <a href="{get_file_uri(Env.get().http_address, file_path)}">
+                {inner_element}
+            </a>
+        </div>
+        '''
+
     def _format_audio(self, file_path: str) -> str:
-        return f'<audio controls>{_create_source_tag(file_path)}</audio>'
+        return f'''
+        <div class="pxt_audio">
+            <audio controls>
+                {_create_source_tag(file_path)}
+            </audio>
+        </div>
+        '''
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
@@ -252,7 +285,7 @@ class DataFrame:
     def _select_list_check_rep(cls,
         select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]],
     ) -> None:
-        """Validate basic select list types. 
+        """Validate basic select list types.
         """
         if select_list is None: # basic check for valid select list
             return
@@ -273,7 +306,7 @@ class DataFrame:
     ) -> Tuple[List[exprs.Expr], List[str]]:
         """
         Expand select list information with all columns and their names
-        Returns: 
+        Returns:
             a pair composed of the list of expressions and the list of corresponding names
         """
         if select_list is None:
@@ -472,7 +505,7 @@ class DataFrame:
         base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
         if len(base_list) == 0:
             raise excs.Error(f'Empty select list')
-        
+
         # analyze select list; wrap literals with the corresponding expressions
         select_list = []
         for raw_expr, name in base_list:
@@ -571,9 +604,9 @@ class DataFrame:
         if isinstance(index, list):
             return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
-    
+
     def _as_dict(self) -> Dict[str, Any]:
-        """ 
+        """
             Returns:
                 Dictionary representing this dataframe.
         """
@@ -663,9 +696,9 @@ class DataFrame:
         from pixeltable.utils.parquet import save_parquet # pylint: disable=import-outside-toplevel
         from pixeltable.utils.pytorch import PixeltablePytorchDataset # pylint: disable=import-outside-toplevel
 
-        summary_string = json.dumps(self._as_dict()) 
+        summary_string = json.dumps(self._as_dict())
         cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
-    
+
         dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet') # pylint: disable = protected-access
         if dest_path.exists(): # fast path: use cache
             assert dest_path.is_dir()
