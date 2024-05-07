@@ -29,7 +29,6 @@ class Dumper:
         os.environ['PIXELTABLE_DB'] = db_name
         os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 
-        Env.get().set_up(reinit_db=True)
         Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
 
     def dump_db(self) -> None:

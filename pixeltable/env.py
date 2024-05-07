@@ -35,7 +35,10 @@ class Env:
     @classmethod
     def get(cls) -> Env:
         if cls._instance is None:
-            cls._instance = Env()
+            env = Env()
+            env._set_up()
+            env._upgrade_metadata()
+            cls._instance = env
         return cls._instance
 
     def __init__(self):
@@ -160,7 +163,7 @@ class Env:
         else:
             return False
 
-    def set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
+    def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
             return
 
@@ -276,7 +279,7 @@ class Env:
         # Disable spurious warnings
         warnings.simplefilter("ignore", category=TqdmWarning)
 
-    def upgrade_metadata(self) -> None:
+    def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
 
     def _create_nos_client(self) -> None:

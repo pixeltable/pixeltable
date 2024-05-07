@@ -34,7 +34,6 @@ def init_env(tmp_path_factory) -> None:
     # ensure this home dir exits
     shared_home.mkdir(parents=True, exist_ok=True)
     # this also runs create_all()
-    Env.get().set_up(echo=True)
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
     yield
     # leave db in place for debugging purposes

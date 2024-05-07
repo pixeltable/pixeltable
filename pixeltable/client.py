@@ -33,9 +33,7 @@ class Client:
     def __init__(self, reload: bool = False) -> None:
         """Constructs a client.
         """
-        env = Env.get()
-        env.set_up()
-        env.upgrade_metadata()
+        Env.get()
         if reload:
             catalog.Catalog.clear()
         self.catalog = catalog.Catalog.get()
