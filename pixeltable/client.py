@@ -153,37 +153,6 @@ class Client:
         _logger.info(f'Created table `{path_str}`.')
         return tbl
 
-    def import_csv(
-            self,
-            table_path: str,
-            filepath_or_buffer,
-            schema: Optional[dict[str, ts.ColumnType]] = None,
-            **kwargs
-    ) -> catalog.InsertableTable:
-        """
-        Creates a new `InsertableTable` from a csv file. This is a convenience method and is equivalent
-        to calling `import_pandas(table_path, pd.read_csv(filepath_or_buffer, **kwargs), schema=schema)`.
-        See the Pandas documentation for `read_csv` for more details.
-        """
-        df = pd.read_csv(filepath_or_buffer, **kwargs)
-        return self.import_pandas(table_path, df, schema=schema)
-
-    def import_excel(
-            self,
-            table_path: str,
-            io,
-            *args,
-            schema: Optional[dict[str, ts.ColumnType]] = None,
-            **kwargs
-    ) -> catalog.InsertableTable:
-        """
-        Creates a new `InsertableTable` from an excel (.xlsx) file. This is a convenience method and is equivalent
-        to calling `import_pandas(table_path, pd.read_excel(io, *args, **kwargs), schema=schema)`.
-        See the Pandas documentation for `read_excel` for more details.
-        """
-        df = pd.read_excel(io, *args, **kwargs)
-        return self.import_pandas(table_path, df, schema=schema)
-
     def import_pandas(
             self,
             table_path: str,

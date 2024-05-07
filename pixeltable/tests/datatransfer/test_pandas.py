@@ -10,8 +10,9 @@ class TestPandas:
 
     def test_pandas_csv(self, test_client: pxt.Client) -> None:
         cl = test_client
+        from pixeltable.datatransfer.pandas import import_csv
 
-        t1 = cl.import_csv('online_foods', 'pixeltable/tests/data/datasets/onlinefoods.csv')
+        t1 = import_csv(cl, 'online_foods', 'pixeltable/tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
         assert t1.column_types() == {
             'Age': pxt.IntType(),
@@ -30,7 +31,7 @@ class TestPandas:
         }
         assert t1.select(t1.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
 
-        t2 = cl.import_csv('ibm', 'pixeltable/tests/data/datasets/classeurIBM.csv')
+        t2 = import_csv(cl, 'ibm', 'pixeltable/tests/data/datasets/classeurIBM.csv')
         assert t2.count() == 4263
         assert t2.column_types() == {
             'Date': pxt.StringType(),
@@ -42,7 +43,8 @@ class TestPandas:
             'Adj_Close': pxt.FloatType()
         }
 
-        t3 = cl.import_csv(
+        t3 = import_csv(
+            cl,
             'edge_cases',
             'pixeltable/tests/data/datasets/edge-cases.csv',
             parse_dates=['ts', 'ts_n']
@@ -69,7 +71,8 @@ class TestPandas:
         assert result_set['ts_n'] == [datetime.datetime(2024, 5, 3), None, None, datetime.datetime(2024, 5, 6)]
 
         # Test overriding string type to images
-        t4 = cl.import_csv(
+        t4 = import_csv(
+            cl,
             'images',
             'pixeltable/tests/data/datasets/images.csv',
             schema={'name': pxt.StringType(), 'image': pxt.ImageType(nullable=True)}
@@ -84,15 +87,16 @@ class TestPandas:
 
     def test_pandas_excel(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openpyxl')
+        from pixeltable.datatransfer.pandas import import_excel
         cl = test_client
 
-        t4 = cl.import_excel('fin_sample', 'pixeltable/tests/data/datasets/Financial Sample.xlsx')
+        t4 = import_excel(cl, 'fin_sample', 'pixeltable/tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
         assert t4.column_types()['Date'] == pxt.TimestampType()
         entry = t4.df().limit(1).collect()[0]
         assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0)
 
-        t5 = cl.import_excel('sale_data', 'pixeltable/tests/data/datasets/SaleData.xlsx')
+        t5 = import_excel(cl, 'sale_data', 'pixeltable/tests/data/datasets/SaleData.xlsx')
         assert t5.count() == 45
         assert t5.column_types()['OrderDate'] == pxt.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None

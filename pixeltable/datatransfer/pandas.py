@@ -1,10 +1,11 @@
 from typing import Optional, Any, Iterable
 
 import numpy as np
-import pandas as pd
 
+import pandas as pd
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 
 
 def import_pandas(
@@ -31,6 +32,39 @@ def import_pandas(
     table = cl.create_table(tbl_name, schema)
     table.insert(tbl_rows)
     return table
+
+
+def import_csv(
+        cl: pxt.Client,
+        table_path: str,
+        filepath_or_buffer,
+        schema: Optional[dict[str, ts.ColumnType]] = None,
+        **kwargs
+) -> pxt.catalog.InsertableTable:
+    """
+    Creates a new `InsertableTable` from a csv file. This is a convenience method and is equivalent
+    to calling `import_pandas(table_path, pd.read_csv(filepath_or_buffer, **kwargs), schema=schema)`.
+    See the Pandas documentation for `read_csv` for more details.
+    """
+    df = pd.read_csv(filepath_or_buffer, **kwargs)
+    return cl.import_pandas(table_path, df, schema=schema)
+
+
+def import_excel(
+        cl: pxt.Client,
+        table_path: str,
+        io,
+        *args,
+        schema: Optional[dict[str, ts.ColumnType]] = None,
+        **kwargs
+) -> pxt.catalog.InsertableTable:
+    """
+    Creates a new `InsertableTable` from an excel (.xlsx) file. This is a convenience method and is equivalent
+    to calling `import_pandas(table_path, pd.read_excel(io, *args, **kwargs), schema=schema)`.
+    See the Pandas documentation for `read_excel` for more details.
+    """
+    df = pd.read_excel(io, *args, **kwargs)
+    return cl.import_pandas(table_path, df, schema=schema)
 
 
 def _df_to_pxt_schema(df: pd.DataFrame) -> dict[str, pxt.ColumnType]:
