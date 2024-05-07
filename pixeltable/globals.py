@@ -17,6 +17,11 @@ from pixeltable.metadata import schema
 _logger = logging.getLogger('pixeltable')
 
 
+def init() -> None:
+    """Initializes the Pixeltable environment."""
+    _ = Catalog.get()
+
+
 def create_table(
         path_str: str, schema: dict[str, Any], *, primary_key: Optional[Union[str, list[str]]] = None,
         num_retained_versions: int = 10, comment: str = ''

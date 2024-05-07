@@ -441,7 +441,8 @@ def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, s
 
 def reload_db() -> None:
     catalog.Catalog.clear()
-    catalog.Catalog.get()
+    pxt.init()
+
 
 @pxt.expr_udf
 def clip_img_embed(img: PIL.Image.Image) -> np.ndarray:
