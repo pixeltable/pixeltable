@@ -4,8 +4,8 @@ Instances of class `InsertableTable` are handles to Pixeltable tables.
 
 Use this handle to query and update the table and to add and drop columns.
 
-`InsertableTable` instances are created by calling [`Client.create_table`][pixeltable.Client.create_table]
-or [`Client.get_table`][pixeltable.Client.get_table].
+`InsertableTable` instances are created by calling [`pxt.create_table`][pixeltable.create_table]
+or [`pxt.get_table`][pixeltable.get_table].
 
 ## Overview
 | Column Operations | |

@@ -35,12 +35,13 @@ or 3.11 running on Linux or MacOS.
 6. Test that everything is working by entering these commands into the notebook:
 
     - `import pixeltable as pxt`
-    - `cl = pxt.Client()`
+    - `pxt.list_tables()`
 
 7. Wait a minute for Pixeltable to load; then you should see a message indicating that
-    Pixeltable has successfully connected to the database.
+    Pixeltable has successfully connected to the database. (The call to `pxt.list_tables()`
+    will return an empty list, because you haven't created any tables yet.)
 
-At this point, you're set up to start using pixeltable! For a tour of what it can
+At this point, you're set up to start using Pixeltable! For a tour of what it can
 do, a good place to start is the
 [Pixeltable Basics](https://pixeltable.github.io/pixeltable/tutorials/pixeltable-basics/)
 tutorial.
