@@ -3,7 +3,7 @@ import datetime
 import numpy as np
 
 import pixeltable as pxt
-from pixeltable.tests.utils import skip_test_if_not_installed
+from ..utils import skip_test_if_not_installed
 
 
 class TestPandas:

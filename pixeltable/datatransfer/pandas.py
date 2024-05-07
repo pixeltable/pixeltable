@@ -47,7 +47,7 @@ def import_csv(
     See the Pandas documentation for `read_csv` for more details.
     """
     df = pd.read_csv(filepath_or_buffer, **kwargs)
-    return cl.import_pandas(table_path, df, schema=schema)
+    return import_pandas(cl, table_path, df, schema=schema)
 
 
 def import_excel(
@@ -64,7 +64,7 @@ def import_excel(
     See the Pandas documentation for `read_excel` for more details.
     """
     df = pd.read_excel(io, *args, **kwargs)
-    return cl.import_pandas(table_path, df, schema=schema)
+    return import_pandas(cl, table_path, df, schema=schema)
 
 
 def _df_to_pxt_schema(df: pd.DataFrame) -> dict[str, pxt.ColumnType]:
