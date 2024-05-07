@@ -38,7 +38,7 @@ class TestFunction:
         assert deserialized.py_fn(1) == 2
 
     @pytest.mark.skip(reason='deprecated')
-    def test_create(self, test_client) -> None:
+    def test_create(self, reset_db) -> None:
         pxt.create_function('test_fn', self.func)
         assert self.func.md.fqn == 'test_fn'
         FunctionRegistry.get().clear_cache()
@@ -57,7 +57,7 @@ class TestFunction:
             pxt.create_function('library_fn', library_fn)
 
     @pytest.mark.skip(reason='deprecated')
-    def test_update(self, test_client, test_tbl: catalog.Table) -> None:
+    def test_update(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
         pxt.create_function('test_fn', self.func)
         res1 = t[self.func(t.c2)].show(0).to_pandas()
@@ -88,7 +88,7 @@ class TestFunction:
             pxt.update_function('test_fn', self.agg)
 
     @pytest.mark.skip(reason='deprecated')
-    def test_move(self, test_client) -> None:
+    def test_move(self, reset_db) -> None:
         pxt.create_function('test_fn', self.func)
 
         FunctionRegistry.get().clear_cache()
@@ -123,7 +123,7 @@ class TestFunction:
             _ = pxt.get_function('functions.func1')
 
     @pytest.mark.skip(reason='deprecated')
-    def test_drop(self, test_client) -> None:
+    def test_drop(self, reset_db) -> None:
         pxt.create_function('test_fn', self.func)
         FunctionRegistry.get().clear_cache()
         pxt.reload()
@@ -132,11 +132,11 @@ class TestFunction:
         with pytest.raises(excs.Error):
             _ = pxt.get_function('test_fn')
 
-    def test_list(self, test_client) -> None:
+    def test_list(self, reset_db) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
 
-    def test_stored_udf(self, test_client) -> None:
+    def test_stored_udf(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)

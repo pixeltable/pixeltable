@@ -8,7 +8,7 @@ from pixeltable.tests.utils import skip_test_if_not_installed, validate_update_s
 @pytest.mark.remote_api
 class TestFireworks:
 
-    def test_fireworks(self, test_client) -> None:
+    def test_fireworks(self, reset_db) -> None:
         skip_test_if_not_installed('fireworks')
         TestFireworks.skip_test_if_no_fireworks_client()
         t = pxt.create_table('test_tbl', {'input': pxt.StringType()})

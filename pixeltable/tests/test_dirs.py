@@ -6,7 +6,7 @@ from pixeltable.tests.utils import make_tbl
 
 
 class TestDirs:
-    def test_create(self, test_client) -> None:
+    def test_create(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             pxt.create_dir(name)
@@ -61,7 +61,7 @@ class TestDirs:
         listing = pxt.list_dirs('dir1.sub1', recursive=False)
         assert listing == ['dir1.sub1.subsub1']
 
-    def test_rm(self, test_client) -> None:
+    def test_rm(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             pxt.create_dir(name)
@@ -88,7 +88,7 @@ class TestDirs:
         pxt.reload()
         assert pxt.list_dirs('dir1.sub1') == []
 
-    def test_move(self, test_client) -> None:
+    def test_move(self, reset_db) -> None:
         pxt.create_dir('dir1')
         pxt.create_dir('dir1.sub1')
         make_tbl('dir1.sub1.t1')

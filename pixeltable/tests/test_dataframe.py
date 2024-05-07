@@ -193,8 +193,8 @@ class TestDataFrame:
 
     # TODO This test doesn't work on Windows due to reliance on the structure of file URLs
     @pytest.mark.skip('Test is not portable')
-    def test_html_media_url(self, test_client) -> None:
-        tab = test_client.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType()})
+    def test_html_media_url(self, reset_db) -> None:
+        tab = pxt.create_table('test_html_repr', {'video': pxt.VideoType(), 'audio': pxt.AudioType()})
         status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0])
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -394,7 +394,7 @@ class TestDataFrame:
         ds4 = t.select(t.row_id).to_pytorch_dataset(image_format='pt')
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    def test_to_coco(self, test_client) -> None:
+    def test_to_coco(self, reset_db) -> None:
         skip_test_if_not_installed('nos')
         from pycocotools.coco import COCO
         base_t = pxt.create_table('videos', {'video': pxt.VideoType()})

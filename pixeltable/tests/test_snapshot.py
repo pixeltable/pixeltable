@@ -67,7 +67,7 @@ class TestSnapshot:
         pxt.drop_table(snap_path)
         pxt.drop_table(tbl_path)
 
-    def test_basic(self, test_client) -> None:
+    def test_basic(self, reset_db) -> None:
         pxt.create_dir('main')
         pxt.create_dir('snap')
         tbl_path = 'main.tbl1'
@@ -88,7 +88,7 @@ class TestSnapshot:
                     snap = pxt.create_view(snap_path, tbl, schema=schema, filter=filter, is_snapshot=True)
                     self.run_basic_test(tbl, snap, extra_items=extra_items, filter=filter, reload_md=reload_md)
 
-    def test_errors(self, test_client) -> None:
+    def test_errors(self, reset_db) -> None:
         tbl = create_test_tbl()
         snap = pxt.create_view('snap', tbl, is_snapshot=True)
 
@@ -110,7 +110,7 @@ class TestSnapshot:
             snap.add_embedding_index('img', img_embed=clip_img_embed)
         assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
-    def test_views_of_snapshots(self, test_client) -> None:
+    def test_views_of_snapshots(self, reset_db) -> None:
         t = pxt.create_table('tbl', {'a': IntType()})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         status = t.insert(rows)
@@ -141,7 +141,7 @@ class TestSnapshot:
         v2 = pxt.get_table('v2')
         verify(s1, s2, v1, v2)
 
-    def test_snapshot_of_view_chain(self, test_client) -> None:
+    def test_snapshot_of_view_chain(self, reset_db) -> None:
         t = pxt.create_table('tbl', {'a': IntType()})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         status = t.insert(rows)
@@ -169,7 +169,7 @@ class TestSnapshot:
         s = pxt.get_table('s')
         verify(v1, v2, s)
 
-    def test_multiple_snapshot_paths(self, test_client) -> None:
+    def test_multiple_snapshot_paths(self, reset_db) -> None:
         t = create_test_tbl()
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
         orig_c3 = t.select(t.c3).collect().to_pandas()['c3']

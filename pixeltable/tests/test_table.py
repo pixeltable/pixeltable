@@ -56,7 +56,7 @@ class TestTable:
     def add1(a: int) -> int:
         return a + 1
 
-    def test_create(self, test_client) -> None:
+    def test_create(self, reset_db) -> None:
         pxt.create_dir('dir1')
         schema = {
             'c1': StringType(nullable=False),
@@ -105,12 +105,12 @@ class TestTable:
         with pytest.raises(excs.Error):
             pxt.drop_table('.test2')
 
-    def test_empty_table(self, test_client) -> None:
+    def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('empty_table', {})
         assert 'Table schema is empty' in str(exc_info.value)
 
-    def test_table_attrs(self, test_client) -> None:
+    def test_table_attrs(self, reset_db) -> None:
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20
         comment = "This is a table."
@@ -128,7 +128,7 @@ class TestTable:
         tbl.revert()
         assert tbl.num_retained_versions == num_retained_versions
 
-    def test_import_parquet(self, test_client, tmp_path: pathlib.Path) -> None:
+    def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pixeltable.utils.arrow import iter_tuples
@@ -160,7 +160,7 @@ class TestTable:
                 else:
                     assert val == arrow_tup[col]
 
-    def test_import_huggingface_dataset(self, test_client, tmp_path: pathlib.Path) -> None:
+    def test_import_huggingface_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -222,7 +222,7 @@ class TestTable:
             pxt.import_huggingface_dataset('test', {})
         assert 'type(dataset)' in str(exc_info.value)
 
-    def test_image_table(self, test_client) -> None:
+    def test_image_table(self, reset_db) -> None:
         n_sample_rows = 20
         schema = {
             'img': ImageType(nullable=False),
@@ -269,7 +269,7 @@ class TestTable:
         pxt.drop_table('test')
         assert(MediaStore.count(tbl.get_id()) == 0)
 
-    def test_schema_spec(self, test_client) -> None:
+    def test_schema_spec(self, reset_db) -> None:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c 1': IntType()})
@@ -373,22 +373,22 @@ class TestTable:
             for path in paths:
                 assert os.path.exists(path) and os.path.isfile(path)
 
-    def test_validate_image(self, test_client) -> None:
+    def test_validate_image(self, reset_db) -> None:
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
         self.check_bad_media(rows, ImageType(nullable=True), validate_local_path=False)
 
-    def test_validate_video(self, test_client) -> None:
+    def test_validate_video(self, reset_db) -> None:
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         self.check_bad_media(rows, VideoType(nullable=True))
 
-    def test_validate_audio(self, test_client) -> None:
+    def test_validate_audio(self, reset_db) -> None:
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
         self.check_bad_media(rows, AudioType(nullable=True))
 
-    def test_validate_docs(self, test_client) -> None:
+    def test_validate_docs(self, reset_db) -> None:
         valid_doc_paths = get_documents()
         invalid_doc_paths = [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
         doc_paths = valid_doc_paths + invalid_doc_paths
@@ -396,7 +396,7 @@ class TestTable:
         rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
         self.check_bad_media(rows, DocumentType(nullable=True))
 
-    def test_validate_external_url(self, test_client) -> None:
+    def test_validate_external_url(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
         rows = [
             {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
@@ -416,7 +416,7 @@ class TestTable:
         ]
         self.check_bad_media(rows, VideoType(nullable=True))
 
-    def test_create_s3_image_table(self, test_client) -> None:
+    def test_create_s3_image_table(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'img': ImageType(nullable=False)})
         # this is needed because pxt.reload() doesn't call TableVersion.drop(), which would
@@ -472,7 +472,7 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.total_size == 0
 
-    def test_video_url(self, test_client) -> None:
+    def test_video_url(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
         schema = {
             'payload': IntType(nullable=False),
@@ -491,7 +491,7 @@ class TestTable:
         assert cap.isOpened()
         cap.release()
 
-    def test_create_video_table(self, test_client) -> None:
+    def test_create_video_table(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table(
             'test_tbl',
@@ -546,7 +546,7 @@ class TestTable:
         pxt.drop_table('test_tbl')
         assert MediaStore.count(view.get_id()) == 0
 
-    def test_insert_nulls(self, test_client) -> None:
+    def test_insert_nulls(self, reset_db) -> None:
         schema = {
             'c1': StringType(nullable=True),
             'c2': IntType(nullable=True),
@@ -562,7 +562,7 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert(self, test_client) -> None:
+    def test_insert(self, reset_db) -> None:
         schema = {
             'c1': StringType(nullable=False),
             'c2': IntType(nullable=False),
@@ -635,7 +635,7 @@ class TestTable:
             t.insert(c5=np.ndarray((3, 2)))
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
-    def test_insert_string_with_null(self, test_client) -> None:
+    def test_insert_string_with_null(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': StringType()})
 
         t.insert([{'c1': 'this is a python\x00string'}])
@@ -643,7 +643,7 @@ class TestTable:
         for tup in t.df().collect():
             assert tup['c1'] == 'this is a python string'
 
-    def test_query(self, test_client) -> None:
+    def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
         t = make_tbl('test', col_names)
@@ -871,7 +871,7 @@ class TestTable:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
-    def test_computed_cols(self, test_client) -> None:
+    def test_computed_cols(self, reset_db) -> None:
         schema = {
             'c1': IntType(nullable=False),
             'c2': FloatType(nullable=False),
@@ -935,7 +935,7 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
-    def test_expr_udf_computed_cols(self, test_client) -> None:
+    def test_expr_udf_computed_cols(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': IntType(nullable=False)})
         rows = [{'c1': i} for i in range(100)]
         status = t.insert(rows)
@@ -973,7 +973,7 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(self, test_client, test_tbl: catalog.Table) -> None:
+    def test_computed_col_exceptions(self, reset_db, test_tbl: catalog.Table) -> None:
 
         # exception during insert()
         schema = {'c2': IntType(nullable=False)}
@@ -1027,7 +1027,7 @@ class TestTable:
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
         raise RuntimeError
 
-    def test_computed_img_cols(self, test_client) -> None:
+    def test_computed_img_cols(self, reset_db) -> None:
         schema = {'img': ImageType(nullable=False)}
         t = pxt.create_table('test', schema)
         t.add_column(c2=t.img.width)
@@ -1049,7 +1049,7 @@ class TestTable:
         t.insert(rows, fail_on_exception=False)
         _ = t[t.c3.errortype].show(0)
 
-    def test_computed_window_fn(self, test_client, test_tbl: catalog.Table) -> None:
+    def test_computed_window_fn(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # backfill
         t.add_column(c9=ptf.sum(t.c2, group_by=t.c4, order_by=t.c3))
@@ -1066,7 +1066,7 @@ class TestTable:
         new_t.insert(rows)
         _ = new_t.show(0)
 
-    def test_revert(self, test_client) -> None:
+    def test_revert(self, reset_db) -> None:
         t1 = make_tbl('test1', ['c1', 'c2'])
         assert t1.version() == 0
         rows1 = create_table_data(t1)
@@ -1297,7 +1297,7 @@ class TestTable:
         _ = repr(t)
         _ = t._repr_html_()
 
-    def test_common_col_names(self, test_client) -> None:
+    def test_common_col_names(self, reset_db) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""
         schema = {'id': IntType(nullable=False), 'name': StringType(nullable=False)}
         tbl = pxt.create_table('test', schema)

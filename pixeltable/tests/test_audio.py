@@ -18,7 +18,7 @@ class TestAudio:
             if codec is not None:
                 assert codec == audio_stream.codec_context.codec.name
 
-    def test_basic(self, test_client) -> None:
+    def test_basic(self, reset_db) -> None:
         audio_filepaths = get_audio_files()
         audio_t = pxt.create_table('audio', {'audio_file': AudioType()})
         status = audio_t.insert({'audio_file': p} for p in audio_filepaths)
@@ -27,7 +27,7 @@ class TestAudio:
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
         assert set(paths) == set(audio_filepaths)
 
-    def test_extract(self, test_client) -> None:
+    def test_extract(self, reset_db) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': VideoType()})
         from pixeltable.functions.video import extract_audio

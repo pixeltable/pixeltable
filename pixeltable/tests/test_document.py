@@ -47,7 +47,7 @@ class TestDocument:
     def invalid_doc_paths(self) -> List[str]:
         return [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
 
-    def test_insert(self, test_client) -> None:
+    def test_insert(self, reset_db) -> None:
         file_paths = self.valid_doc_paths()
         doc_t = pxt.create_table('docs', {'doc': DocumentType()})
         status = doc_t.insert({'doc': p} for p in file_paths)
@@ -61,7 +61,7 @@ class TestDocument:
         assert status.num_rows == len(file_paths)
         assert status.num_excs == len(file_paths)
 
-    def test_invalid_arguments(self, test_client) -> None:
+    def test_invalid_arguments(self, reset_db) -> None:
         """ Test input parsing provides useful error messages
         """
         example_file = [p for p in self.valid_doc_paths() if p.endswith('.pdf')][0]
@@ -98,7 +98,7 @@ class TestDocument:
                 _ = DocumentSplitter(document=example_file, separators='', metadata=md)
             assert 'Invalid metadata' in str(exc_info.value)
 
-    def test_doc_splitter(self, test_client) -> None:
+    def test_doc_splitter(self, reset_db) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('fitz')
 
@@ -176,7 +176,7 @@ class TestDocument:
 
                 pxt.drop_table('chunks')
 
-    def test_doc_splitter_headings(self, test_client) -> None:
+    def test_doc_splitter_headings(self, reset_db) -> None:
         skip_test_if_not_installed('spacy')
         file_paths = [ p for p in self.valid_doc_paths() if not p.endswith('.pdf') ]
         doc_t = pxt.create_table('docs', {'doc': DocumentType()})

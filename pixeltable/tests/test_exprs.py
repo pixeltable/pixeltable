@@ -230,7 +230,7 @@ class TestExprs:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
 
-    def test_null_args(self, test_client) -> None:
+    def test_null_args(self, reset_db) -> None:
         # create table with two int columns
         schema = {'c1': FloatType(nullable=True), 'c2': FloatType(nullable=True)}
         t = pxt.create_table('test', schema)
@@ -614,7 +614,7 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, test_client, test_tbl: catalog.Table) -> None:
+    def test_window_fns(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
         _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 

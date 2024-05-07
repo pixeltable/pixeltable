@@ -30,7 +30,7 @@ class TestView:
         t.add_column(d2=t.c3 - t.c10)
         return t
 
-    def test_basic(self, test_client) -> None:
+    def test_basic(self, reset_db) -> None:
         t = self.create_tbl()
 
         # create view with filter and computed columns
@@ -109,7 +109,7 @@ class TestView:
             _ = pxt.create_view('lambda_view', t, schema={'v1': lambda c3: c3 * 2.0})
         assert 'computed with a callable' in str(exc_info.value).lower()
 
-    def test_parallel_views(self, test_client) -> None:
+    def test_parallel_views(self, reset_db) -> None:
         """Two views over the same base table, with non-overlapping filters"""
         t = self.create_tbl()
 
@@ -156,7 +156,7 @@ class TestView:
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
-    def test_chained_views(self, test_client) -> None:
+    def test_chained_views(self, reset_db) -> None:
         """Two views, the second one is a view over the first one"""
         t = self.create_tbl()
 
@@ -251,7 +251,7 @@ class TestView:
         assert v2.version() == v2_version
         check_views()
 
-    def test_unstored_columns(self, test_client) -> None:
+    def test_unstored_columns(self, reset_db) -> None:
         """Test chained views with unstored columns"""
         # create table with image column and two updateable int columns
         schema = {
@@ -330,7 +330,7 @@ class TestView:
         logger.debug('******************* POST UPDATE INT2')
         check_views()
 
-    def test_computed_cols(self, test_client) -> None:
+    def test_computed_cols(self, reset_db) -> None:
         t = self.create_tbl()
 
         # create view with computed columns
@@ -373,7 +373,7 @@ class TestView:
             v.select(v.v1).order_by(v.c2).show(0),
             t.select(t.c3 * 2.0).order_by(t.c2).show(0))
 
-    def test_filter(self, test_client) -> None:
+    def test_filter(self, reset_db) -> None:
         t = create_test_tbl()
 
         # create view with filter
@@ -413,7 +413,7 @@ class TestView:
         _ = pxt.create_view('test_view_2', t, filter=t.c5 >= datetime.date.today())
         _ = pxt.create_view('test_view_3', t, filter=t.c5 < datetime.datetime.now())
 
-    def test_view_of_snapshot(self, test_client) -> None:
+    def test_view_of_snapshot(self, reset_db) -> None:
         """Test view over a snapshot"""
         t = self.create_tbl()
         snap = pxt.create_view('test_snap', t, is_snapshot=True)
@@ -462,7 +462,7 @@ class TestView:
         assert t.count() == 110
         check_view(snap, v)
 
-    def test_snapshots(self, test_client) -> None:
+    def test_snapshots(self, reset_db) -> None:
         """Test snapshot of a view of a snapshot"""
         t = self.create_tbl()
         s = pxt.create_view('test_snap', t, is_snapshot=True)

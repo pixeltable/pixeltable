@@ -11,7 +11,7 @@ class TestFunctions:
         t = img_tbl
         _ = t[t.img, t.img.rotate(90), blend(t.img, t.img.rotate(90), 0.5)].show()
 
-    def test_eval_detections(self, test_client) -> None:
+    def test_eval_detections(self, reset_db) -> None:
         skip_test_if_not_installed('nos')
         video_t = pxt.create_table('video_tbl', {'video': VideoType()})
         # create frame view
@@ -45,7 +45,7 @@ class TestFunctions:
         # for k in common_classes:
         # assert ap_a[k] <= ap_b[k]
 
-    def test_str(self, test_client) -> None:
+    def test_str(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'input': StringType()})
         from pixeltable.functions.string import str_format
         t.add_column(s1=str_format('ABC {0}', t.input))

@@ -213,7 +213,7 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Tab
     return tbl
 
 
-def create_all_datatypes_tbl(test_client) -> catalog.Table:
+def create_all_datatypes_tbl() -> catalog.Table:
     """ Creates a table with all supported datatypes.
     """
     schema = {

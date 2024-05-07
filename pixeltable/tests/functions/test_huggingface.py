@@ -10,7 +10,7 @@ from pixeltable.type_system import StringType, JsonType, ImageType, BoolType, Fl
 
 class TestHuggingface:
 
-    def test_hf_function(self, test_client) -> None:
+    def test_hf_function(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': StringType(), 'bool_col': BoolType()})
         from pixeltable.functions.huggingface import sentence_transformer
@@ -33,7 +33,7 @@ class TestHuggingface:
         # TODO: is there some way to capture the output?
         t.describe()
 
-    def test_sentence_transformer(self, test_client) -> None:
+    def test_sentence_transformer(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
         sents = get_sentences(10)
@@ -69,7 +69,7 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_cross_encoder(self, test_client) -> None:
+    def test_cross_encoder(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
         sents = get_sentences(10)
@@ -103,7 +103,7 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_clip(self, test_client) -> None:
+    def test_clip(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
         t = pxt.create_table('test_tbl', {'text': StringType(), 'img': ImageType()})
         num_rows = 10
@@ -139,7 +139,7 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_detr_for_object_detection(self, test_client) -> None:
+    def test_detr_for_object_detection(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
         t = pxt.create_table('test_tbl', {'img': ImageType()})
         from pixeltable.functions.huggingface import detr_for_object_detection

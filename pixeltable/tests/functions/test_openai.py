@@ -9,7 +9,7 @@ from pixeltable.type_system import StringType, ImageType
 @pytest.mark.remote_api
 class TestOpenai:
 
-    def test_audio(self, test_client) -> None:
+    def test_audio(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         t = pxt.create_table('test_tbl', {'input': StringType()})
@@ -36,7 +36,7 @@ class TestOpenai:
         assert len(results[1]['translation']['text']) > 0
         assert len(results[1]['translation_2']['text']) > 0
 
-    def test_chat_completions(self, test_client) -> None:
+    def test_chat_completions(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         t = pxt.create_table('test_tbl', {'input': StringType()})
@@ -75,7 +75,7 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
 
-    def test_gpt_4_vision(self, test_client) -> None:
+    def test_gpt_4_vision(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         t = pxt.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
@@ -99,7 +99,7 @@ class TestOpenai:
         result = t.collect()['response_2'][0]
         assert len(result) > 0
 
-    def test_embeddings(self, test_client) -> None:
+    def test_embeddings(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import embeddings
@@ -113,7 +113,7 @@ class TestOpenai:
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
 
-    def test_moderations(self, test_client) -> None:
+    def test_moderations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         t = pxt.create_table('test_tbl', {'input': StringType()})
@@ -123,7 +123,7 @@ class TestOpenai:
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
 
-    def test_image_generations(self, test_client) -> None:
+    def test_image_generations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         t = pxt.create_table('test_tbl', {'input': StringType()})
@@ -140,7 +140,7 @@ class TestOpenai:
         assert t.collect()['img_2'][0].size == (512, 512)
 
     @pytest.mark.skip('Test is expensive and slow')
-    def test_image_generations_dall_e_3(self, test_client) -> None:
+    def test_image_generations_dall_e_3(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         t = pxt.create_table('test_tbl', {'input': StringType()})

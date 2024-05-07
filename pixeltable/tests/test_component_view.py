@@ -60,7 +60,7 @@ class ConstantImgIterator(ComponentIterator):
 
 class TestComponentView:
 
-    def test_basic(self, test_client) -> None:
+    def test_basic(self, reset_db) -> None:
         # create video table
         schema = {'video': VideoType(), 'angle': IntType(), 'other_angle': IntType()}
         video_t = pxt.create_table('video_tbl', schema)
@@ -118,7 +118,7 @@ class TestComponentView:
         assert len(result) > 0
         assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
 
-    def test_add_column(self, test_client) -> None:
+    def test_add_column(self, reset_db) -> None:
         # create video table
         video_t = pxt.create_table('video_tbl', {'video': VideoType()})
         video_filepaths = get_test_video_files()
@@ -140,7 +140,7 @@ class TestComponentView:
             view_t.add_column(annotation=JsonType(nullable=False))
         assert 'must be nullable' in str(excinfo.value)
 
-    def test_update(self, test_client) -> None:
+    def test_update(self, reset_db) -> None:
         # create video table
         video_t = pxt.create_table('video_tbl', {'video': VideoType()})
         # create frame view with manually updated column
@@ -176,28 +176,28 @@ class TestComponentView:
         assert 'must be nullable' in str(excinfo.value)
 
     # break up the snapshot tests for better (future) parallelization
-    def test_snapshot1(self, test_client) -> None:
+    def test_snapshot1(self, reset_db) -> None:
         has_column = False
         has_filter  = False
         for reload_md in [False, True]:
             pxt.reload()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
-    def test_snapshot2(self, test_client) -> None:
+    def test_snapshot2(self, reset_db) -> None:
         has_column = True
         has_filter  = False
         for reload_md in [False, True]:
             pxt.reload()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
-    def test_snapshot3(self, test_client) -> None:
+    def test_snapshot3(self, reset_db) -> None:
         has_column = False
         has_filter  = True
         for reload_md in [False, True]:
             pxt.reload()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
-    def test_snapshot4(self, test_client) -> None:
+    def test_snapshot4(self, reset_db) -> None:
         has_column = True
         has_filter  = True
         for reload_md in [False, True]:
@@ -276,7 +276,7 @@ class TestComponentView:
         pxt.drop_table(view_path)
         pxt.drop_table(base_path)
 
-    def test_chained_views(self, test_client) -> None:
+    def test_chained_views(self, reset_db) -> None:
         """Component view followed by a standard view"""
         # create video table
         schema = {'video': VideoType(), 'int1': IntType(), 'int2': IntType()}

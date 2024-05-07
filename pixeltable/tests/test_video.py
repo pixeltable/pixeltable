@@ -40,7 +40,7 @@ class TestVideo:
         assert len(result) == total_num_rows
         return base_t, view_t
 
-    def test_basic(self, test_client) -> None:
+    def test_basic(self, reset_db) -> None:
         video_filepaths = get_video_files()
 
         # default case: computed images are not stored
@@ -60,7 +60,7 @@ class TestVideo:
         tbl.revert()
         assert MediaStore.count(view.get_id()) == view.count()
 
-    def test_query(self, test_client) -> None:
+    def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
@@ -77,7 +77,7 @@ class TestVideo:
         res = view_t.where(view_t.video == url).collect()
         assert len(res) == len(all_rows[all_rows.url == url])
 
-    def test_fps(self, test_client) -> None:
+    def test_fps(self, reset_db) -> None:
         path = get_video_files()[0]
         videos = pxt.create_table('videos', {'video': VideoType()})
         frames_1_0 = pxt.create_view(
@@ -90,7 +90,7 @@ class TestVideo:
         assert frames_0_5.count() == frames_1_0.count() // 2 or frames_0_5.count() == frames_1_0.count() // 2 + 1
         assert frames_0_33.count() == frames_1_0.count() // 3 or frames_0_33.count() == frames_1_0.count() // 3 + 1
 
-    def test_computed_cols(self, test_client) -> None:
+    def test_computed_cols(self, reset_db) -> None:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
@@ -115,7 +115,7 @@ class TestVideo:
         def value(self) -> PIL.Image.Image:
             return self.img
 
-    def test_make_video(self, test_client) -> None:
+    def test_make_video(self, reset_db) -> None:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
         base_t.insert({'video': p} for p in video_filepaths)

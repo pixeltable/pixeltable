@@ -4,7 +4,7 @@ from pixeltable.tests.utils import skip_test_if_not_installed, get_image_files, 
 
 class TestYolox:
 
-    def test_yolox(self, test_client):
+    def test_yolox(self, reset_db):
         skip_test_if_not_installed('yolox')
         from pixeltable.ext.functions.yolox import yolox
         t = pxt.create_table('yolox_test', {'image': pxt.ImageType()})
