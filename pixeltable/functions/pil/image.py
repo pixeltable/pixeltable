@@ -105,9 +105,10 @@ def getpalette(self: PIL.Image.Image, mode: Optional[str] = None) -> Tuple[int]:
     pass
 
 @func.udf(
-    py_fn=PIL.Image.Image.getpixel, return_type=JsonType(), param_types=[ImageType(), ArrayType((2,), dtype=IntType())])
-def getpixel(self: PIL.Image.Image, xy: Tuple[int, int]) -> Tuple[int]:
-    pass
+    return_type=JsonType(), param_types=[ImageType(), ArrayType((2,), dtype=IntType())])
+def getpixel(self: PIL.Image.Image, xy: tuple[int, int]) -> Tuple[int]:
+    # `xy` will be a list; `tuple(xy)` is necessary for pillow 9 compatibility
+    return self.getpixel(tuple(xy))
 
 @func.udf(
     py_fn=PIL.Image.Image.getprojection, return_type=JsonType(), param_types=[ImageType()])
