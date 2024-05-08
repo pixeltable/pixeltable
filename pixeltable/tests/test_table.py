@@ -111,6 +111,14 @@ class TestTable:
             pxt.create_table('empty_table', {})
         assert 'Table schema is empty' in str(exc_info.value)
 
+    def test_drop_table(self, test_tbl: pxt.Table) -> None:
+        t = pxt.get_table('test_tbl')
+        pxt.drop_table('test_tbl')
+        with pytest.raises(excs.Error):
+            _ = pxt.get_table('test_tbl')
+        with pytest.raises(excs.Error):
+            _ = t.show(1)
+
     def test_table_attrs(self, reset_db) -> None:
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20

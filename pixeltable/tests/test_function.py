@@ -136,6 +136,10 @@ class TestFunction:
         _ = FunctionRegistry.get().list_functions()
         print(_)
 
+    def test_list_functions(self, init_env) -> None:
+        _ = pxt.list_functions()
+        print(_)
+
     def test_stored_udf(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
