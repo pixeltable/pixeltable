@@ -1,18 +1,18 @@
 from .catalog import Column, Table, InsertableTable, View
-from .client import Client
 from .dataframe import DataFrame
 from .exceptions import Error, Error
 from .exprs import RELATIVE_PATH_ROOT
 from .func import Function, udf, uda, Aggregator, expr_udf
+from .globals import *
 from .type_system import \
     ColumnType, StringType, IntType, FloatType, BoolType, TimestampType, JsonType, ArrayType, ImageType, VideoType, \
     AudioType, DocumentType
 from .utils.help import help
 # noinspection PyUnresolvedReferences
 from . import functions
+from .__version__ import __version__, __version_tuple__
 
 __all__ = [
-    'Client',
     'DataFrame',
     'Column',
     'Table',
@@ -39,6 +39,3 @@ __all__ = [
     'uda',
     'expr_udf',
 ]
-
-
-
