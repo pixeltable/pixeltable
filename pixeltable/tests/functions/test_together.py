@@ -8,11 +8,10 @@ from ..utils import skip_test_if_not_installed, validate_update_status
 @pytest.mark.remote_api
 class TestTogether:
 
-    def test_completions(self, test_client: pxt.Client) -> None:
+    def test_completions(self, reset_db) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
         from pixeltable.functions.together import completions
         t.add_column(output=completions(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
         t.add_column(output_2=completions(
@@ -36,11 +35,10 @@ class TestTogether:
         assert len(result['output'][0]['choices'][0]['text']) > 0
         assert len(result['output_2'][0]['choices'][0]['text']) > 0
 
-    def test_chat_completions(self, test_client: pxt.Client) -> None:
+    def test_chat_completions(self, reset_db) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
         messages = [{'role': 'user', 'content': t.input}]
         from pixeltable.functions.together import chat_completions
         t.add_column(output=chat_completions(messages=messages, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
@@ -64,21 +62,19 @@ class TestTogether:
         assert len(result['output'][0]['choices'][0]['message']) > 0
         assert len(result['output_2'][0]['choices'][0]['message']) > 0
 
-    def test_embeddings(self, test_client: pxt.Client) -> None:
+    def test_embeddings(self, reset_db) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
-        cl = test_client
-        t = cl.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
         from pixeltable.functions.together import embeddings
         t.add_column(embed=embeddings(input=t.input, model='togethercomputer/m2-bert-80M-8k-retrieval'))
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
 
-    def test_image_generations(self, test_client: pxt.Client) -> None:
+    def test_image_generations(self, reset_db) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
-        cl = test_client
-        t = cl.create_table(
+        t = pxt.create_table(
             'test_tbl',
             {'input': pxt.StringType(), 'negative_prompt': pxt.StringType(nullable=True)}
         )

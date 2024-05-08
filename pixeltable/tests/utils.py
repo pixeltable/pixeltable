@@ -46,13 +46,13 @@ def make_default_type(t: ColumnType.Type) -> ColumnType:
     assert False
 
 
-def make_tbl(cl: pxt.Client, name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
+def make_tbl(name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
     if col_names is None:
         col_names = ['c1']
     schema: Dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
         schema[f'{col_name}'] = make_default_type(ColumnType.Type(i % 5))
-    return cl.create_table(name, schema)
+    return pxt.create_table(name, schema)
 
 
 def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, num_rows: int = 10) -> List[
@@ -130,7 +130,7 @@ def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, n
     return rows
 
 
-def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table:
+def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
     schema = {
         'c1': StringType(nullable=False),
         'c1n': StringType(nullable=True),
@@ -141,7 +141,7 @@ def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table
         'c6': JsonType(nullable=False),
         'c7': JsonType(nullable=False),
     }
-    t = client.create_table(name, schema, primary_key='c2')
+    t = pxt.create_table(name, schema, primary_key='c2')
     t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
 
     num_rows = 100
@@ -196,13 +196,13 @@ def create_test_tbl(client: pxt.Client, name: str = 'test_tbl') -> catalog.Table
     return t
 
 
-def create_img_tbl(cl: pxt.Client, name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Table:
+def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Table:
     schema = {
         'img': ImageType(nullable=False),
         'category': StringType(nullable=False),
         'split': StringType(nullable=False),
     }
-    tbl = cl.create_table(name, schema)
+    tbl = pxt.create_table(name, schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     if num_rows > 0:
         # select output_rows randomly in the hope of getting a good sample of the available categories
@@ -213,7 +213,7 @@ def create_img_tbl(cl: pxt.Client, name: str = 'test_img_tbl', num_rows: int = 0
     return tbl
 
 
-def create_all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
+def create_all_datatypes_tbl() -> catalog.Table:
     """ Creates a table with all supported datatypes.
     """
     schema = {
@@ -228,7 +228,7 @@ def create_all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
         'c_timestamp': TimestampType(nullable=True),
         'c_video': VideoType(nullable=True),
     }
-    tbl = test_client.create_table('all_datatype_tbl', schema)
+    tbl = pxt.create_table('all_datatype_tbl', schema)
     example_rows = create_table_data(tbl, num_rows=11)
 
     for i, r in enumerate(example_rows):
@@ -437,6 +437,12 @@ def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, s
 
         check_tup = DatasetTuple(**encoded_tup)
         assert check_tup in acc_dataset
+
+
+def reload_db() -> None:
+    catalog.Catalog.clear()
+    pxt.init()
+
 
 @pxt.expr_udf
 def clip_img_embed(img: PIL.Image.Image) -> np.ndarray:
