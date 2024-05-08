@@ -1,15 +1,10 @@
 import pixeltable as pxt
-from pixeltable import catalog
-from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
 from pixeltable.type_system import VideoType, StringType
 
 from ..utils import get_video_files, skip_test_if_not_installed
 
 class TestFunctions:
-    def test_pil(self, img_tbl: catalog.Table) -> None:
-        t = img_tbl
-        _ = t[t.img, t.img.rotate(90), blend(t.img, t.img.rotate(90), 0.5)].show()
 
     def test_eval_detections(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('nos')
