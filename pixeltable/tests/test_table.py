@@ -1,6 +1,7 @@
 import datetime
 import math
 import os
+import pathlib
 import random
 from typing import List, Tuple
 
@@ -8,7 +9,6 @@ import PIL
 import cv2
 import numpy as np
 import pandas as pd
-import pathlib
 import pytest
 
 import pixeltable as pxt
@@ -16,15 +16,16 @@ import pixeltable.functions as ptf
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import \
-    make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
-    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table, validate_update_status
-from pixeltable.tests.utils import skip_test_if_not_installed
 from pixeltable.type_system import \
     StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
     DocumentType
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
+from .utils import \
+    make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
+    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table, validate_update_status
+from .utils import skip_test_if_not_installed, reload_db
+
 
 class TestTable:
     # exc for a % 10 == 0
@@ -56,68 +57,73 @@ class TestTable:
     def add1(a: int) -> int:
         return a + 1
 
-    def test_create(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        cl.create_dir('dir1')
+    def test_create(self, reset_db) -> None:
+        pxt.create_dir('dir1')
         schema = {
             'c1': StringType(nullable=False),
             'c2': IntType(nullable=False),
             'c3': FloatType(nullable=False),
             'c4': TimestampType(nullable=False),
         }
-        tbl = cl.create_table('test', schema)
-        _ = cl.create_table('dir1.test', schema)
+        tbl = pxt.create_table('test', schema)
+        _ = pxt.create_table('dir1.test', schema)
 
         with pytest.raises(excs.Error):
-            _ = cl.create_table('1test', schema)
+            _ = pxt.create_table('1test', schema)
         with pytest.raises(excs.Error):
-            _ = cl.create_table('bad name', schema={'c1': StringType()})
+            _ = pxt.create_table('bad name', schema={'c1': StringType()})
         with pytest.raises(excs.Error):
-            _ = cl.create_table('test', schema)
+            _ = pxt.create_table('test', schema)
         with pytest.raises(excs.Error):
-            _ = cl.create_table('dir2.test2', schema)
+            _ = pxt.create_table('dir2.test2', schema)
 
-        _ = cl.list_tables()
-        _ = cl.list_tables('dir1')
+        _ = pxt.list_tables()
+        _ = pxt.list_tables('dir1')
 
         with pytest.raises(excs.Error):
-            _ = cl.list_tables('1dir')
+            _ = pxt.list_tables('1dir')
         with pytest.raises(excs.Error):
-            _ = cl.list_tables('dir2')
+            _ = pxt.list_tables('dir2')
 
         # test loading with new client
-        cl = pxt.Client(reload=True)
+        reload_db()
 
-        tbl = cl.get_table('test')
+        tbl = pxt.get_table('test')
         assert isinstance(tbl, catalog.InsertableTable)
         tbl.add_column(c5=IntType())
         tbl.drop_column('c1')
         tbl.rename_column('c2', 'c17')
 
-        cl.move('test', 'test2')
+        pxt.move('test', 'test2')
 
-        cl.drop_table('test2')
-        cl.drop_table('dir1.test')
+        pxt.drop_table('test2')
+        pxt.drop_table('dir1.test')
 
         with pytest.raises(excs.Error):
-            cl.drop_table('test')
+            pxt.drop_table('test')
         with pytest.raises(excs.Error):
-            cl.drop_table('dir1.test2')
+            pxt.drop_table('dir1.test2')
         with pytest.raises(excs.Error):
-            cl.drop_table('.test2')
+            pxt.drop_table('.test2')
 
-    def test_empty_table(self, test_client: pxt.Client) -> None:
-        cl = test_client
+    def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('empty_table', {})
+            pxt.create_table('empty_table', {})
         assert 'Table schema is empty' in str(exc_info.value)
 
-    def test_table_attrs(self, test_client: pxt.Client) -> None:
-        cl = test_client
+    def test_drop_table(self, test_tbl: pxt.Table) -> None:
+        t = pxt.get_table('test_tbl')
+        pxt.drop_table('test_tbl')
+        with pytest.raises(excs.Error):
+            _ = pxt.get_table('test_tbl')
+        with pytest.raises(excs.Error):
+            _ = t.show(1)
+
+    def test_table_attrs(self, reset_db) -> None:
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20
         comment = "This is a table."
-        tbl = cl.create_table('test_table_attrs', schema, num_retained_versions=num_retained_versions, comment=comment)
+        tbl = pxt.create_table('test_table_attrs', schema, num_retained_versions=num_retained_versions, comment=comment)
         assert tbl.num_retained_versions == num_retained_versions
         assert tbl.comment == comment
         new_num_retained_versions = 30
@@ -131,7 +137,7 @@ class TestTable:
         tbl.revert()
         assert tbl.num_retained_versions == num_retained_versions
 
-    def test_import_parquet(self, test_client: pxt.Client, tmp_path: pathlib.Path) -> None:
+    def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pixeltable.utils.arrow import iter_tuples
@@ -140,8 +146,8 @@ class TestTable:
         parquet_dir.mkdir()
         make_test_arrow_table(parquet_dir)
 
-        tab = test_client.import_parquet('test_parquet', parquet_path=str(parquet_dir))
-        assert 'test_parquet' in test_client.list_tables()
+        tab = pxt.import_parquet('test_parquet', parquet_path=str(parquet_dir))
+        assert 'test_parquet' in pxt.list_tables()
         assert tab is not None
         num_elts = tab.count()
         arrow_tab: pa.Table = pa.parquet.read_table(str(parquet_dir))
@@ -163,7 +169,7 @@ class TestTable:
                 else:
                     assert val == arrow_tup[col]
 
-    def test_import_huggingface_dataset(self, test_client: pxt.Client, tmp_path: pathlib.Path) -> None:
+    def test_import_huggingface_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -203,7 +209,7 @@ class TestTable:
             dataset_name = rec['dataset_name']
             hf_dataset = rec['dataset']
 
-            tab = test_client.import_huggingface_dataset(
+            tab = pxt.import_huggingface_dataset(
                 dataset_name,
                 hf_dataset,
                 column_name_for_split=split_column_name,
@@ -222,19 +228,18 @@ class TestTable:
                 assert False
 
         with pytest.raises(excs.Error) as exc_info:
-            test_client.import_huggingface_dataset('test', {})
+            pxt.import_huggingface_dataset('test', {})
         assert 'type(dataset)' in str(exc_info.value)
 
-    def test_image_table(self, test_client: pxt.Client) -> None:
+    def test_image_table(self, reset_db) -> None:
         n_sample_rows = 20
-        cl = test_client
         schema = {
             'img': ImageType(nullable=False),
             'category': StringType(nullable=False),
             'split': StringType(nullable=False),
             'img_literal': ImageType(nullable=False),
         }
-        tbl = cl.create_table('test', schema)
+        tbl = pxt.create_table('test', schema)
         assert(MediaStore.count(tbl.get_id()) == 0)
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
@@ -270,79 +275,78 @@ class TestTable:
         assert(MediaStore.count(tbl.get_id()) == n_sample_rows)
 
         # Test that all stored images are cleared when table is dropped
-        cl.drop_table('test')
+        pxt.drop_table('test')
         assert(MediaStore.count(tbl.get_id()) == 0)
 
-    def test_schema_spec(self, test_client: pxt.Client) -> None:
-        cl = test_client
+    def test_schema_spec(self, reset_db) -> None:
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c 1': IntType()})
+            pxt.create_table('test', {'c 1': IntType()})
         assert 'invalid column name' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': {}})
+            pxt.create_table('test', {'c1': {}})
         assert '"type" is required' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': {'xyz': IntType()}})
+            pxt.create_table('test', {'c1': {'xyz': IntType()}})
         assert "invalid key 'xyz'" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': {'stored': True}})
+            pxt.create_table('test', {'c1': {'stored': True}})
         assert '"type" is required' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': {'type': 'string'}})
+            pxt.create_table('test', {'c1': {'type': 'string'}})
         assert 'must be a ColumnType' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': {'value': 1, 'type': StringType()}})
+            pxt.create_table('test', {'c1': {'value': 1, 'type': StringType()}})
         assert '"type" is redundant' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': {'value': pytest}})
+            pxt.create_table('test', {'c1': {'value': pytest}})
         assert 'value needs to be either' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             def f() -> float:
                 return 1.0
-            cl.create_table('test', {'c1': {'value': f}})
+            pxt.create_table('test', {'c1': {'value': f}})
         assert '"type" is required' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': {'type': StringType(), 'stored': 'true'}})
+            pxt.create_table('test', {'c1': {'type': StringType(), 'stored': 'true'}})
         assert '"stored" must be a bool' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': StringType()}, primary_key='c2')
+            pxt.create_table('test', {'c1': StringType()}, primary_key='c2')
         assert 'primary key column c2 not found' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': StringType()}, primary_key=['c1', 'c2'])
+            pxt.create_table('test', {'c1': StringType()}, primary_key=['c1', 'c2'])
         assert 'primary key column c2 not found' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': StringType()}, primary_key=['c2'])
+            pxt.create_table('test', {'c1': StringType()}, primary_key=['c2'])
         assert 'primary key column c2 not found' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': StringType()}, primary_key=0)
+            pxt.create_table('test', {'c1': StringType()}, primary_key=0)
         assert 'primary_key must be a' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            cl.create_table('test', {'c1': StringType(nullable=True)}, primary_key='c1')
+            pxt.create_table('test', {'c1': StringType(nullable=True)}, primary_key='c1')
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
     def check_bad_media(
-            self, test_client: pxt.Client, rows: List[Tuple[str, bool]], col_type: pxt.ColumnType,
+            self, rows: List[Tuple[str, bool]], col_type: pxt.ColumnType,
             validate_local_path: bool = True
     ) -> None:
         schema = {
             'media': col_type,
             'is_bad_media': BoolType(nullable=False),
         }
-        tbl = test_client.create_table('test', schema)
+        tbl = pxt.create_table('test', schema)
 
         assert len(rows) > 0
         total_bad_rows = sum([int(row['is_bad_media']) for row in rows])
@@ -378,30 +382,30 @@ class TestTable:
             for path in paths:
                 assert os.path.exists(path) and os.path.isfile(path)
 
-    def test_validate_image(self, test_client: pxt.Client) -> None:
+    def test_validate_image(self, reset_db) -> None:
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
-        self.check_bad_media(test_client, rows, ImageType(nullable=True), validate_local_path=False)
+        self.check_bad_media(rows, ImageType(nullable=True), validate_local_path=False)
 
-    def test_validate_video(self, test_client: pxt.Client) -> None:
+    def test_validate_video(self, reset_db) -> None:
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
-        self.check_bad_media(test_client, rows, VideoType(nullable=True))
+        self.check_bad_media(rows, VideoType(nullable=True))
 
-    def test_validate_audio(self, test_client: pxt.Client) -> None:
+    def test_validate_audio(self, reset_db) -> None:
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
-        self.check_bad_media(test_client, rows, AudioType(nullable=True))
+        self.check_bad_media(rows, AudioType(nullable=True))
 
-    def test_validate_docs(self, test_client: pxt.Client) -> None:
+    def test_validate_docs(self, reset_db) -> None:
         valid_doc_paths = get_documents()
         invalid_doc_paths = [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
         doc_paths = valid_doc_paths + invalid_doc_paths
         is_valid = [True] * len(valid_doc_paths) + [False] * len(invalid_doc_paths)
         rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
-        self.check_bad_media(test_client, rows, DocumentType(nullable=True))
+        self.check_bad_media(rows, DocumentType(nullable=True))
 
-    def test_validate_external_url(self, test_client: pxt.Client) -> None:
+    def test_validate_external_url(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
         rows = [
             {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
@@ -419,13 +423,12 @@ class TestTable:
             },
 
         ]
-        self.check_bad_media(test_client, rows, VideoType(nullable=True))
+        self.check_bad_media(rows, VideoType(nullable=True))
 
-    def test_create_s3_image_table(self, test_client: pxt.Client) -> None:
+    def test_create_s3_image_table(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
-        cl = test_client
-        tbl = cl.create_table('test', {'img': ImageType(nullable=False)})
-        # this is needed because Client.reset_catalog() doesn't call TableVersion.drop(), which would
+        tbl = pxt.create_table('test', {'img': ImageType(nullable=False)})
+        # this is needed because reload_db() doesn't call TableVersion.drop(), which would
         # clear the file cache
         # TODO: change reset_catalog() to drop tables
         FileCache.get().clear()
@@ -464,28 +467,27 @@ class TestTable:
         assert cache_stats.num_hits == 0
 
         # start with fresh client and FileCache instance to test FileCache initialization with pre-existing files
-        cl = pxt.Client(reload=True)
+        reload_db()
         # is there a better way to do this?
         FileCache._instance = None
-        t = cl.get_table('test')
+        t = pxt.get_table('test')
         _ = t.show(0)
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == len(urls)
         assert cache_stats.num_hits == len(urls)
 
         # dropping the table also clears the file cache
-        cl.drop_table('test')
+        pxt.drop_table('test')
         cache_stats = FileCache.get().stats()
         assert cache_stats.total_size == 0
 
-    def test_video_url(self, test_client: pxt.Client) -> None:
+    def test_video_url(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
-        cl = test_client
         schema = {
             'payload': IntType(nullable=False),
             'video': VideoType(nullable=False),
         }
-        tbl = cl.create_table('test', schema)
+        tbl = pxt.create_table('test', schema)
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         tbl.insert(payload=1, video=url)
         row = tbl.select(tbl.video.fileurl, tbl.video.localpath).collect()[0]
@@ -498,14 +500,13 @@ class TestTable:
         assert cap.isOpened()
         cap.release()
 
-    def test_create_video_table(self, test_client: pxt.Client) -> None:
+    def test_create_video_table(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
-        cl = test_client
-        tbl = cl.create_table(
+        tbl = pxt.create_table(
             'test_tbl',
             {'payload': IntType(nullable=False), 'video': VideoType(nullable=True)})
         args = {'video': tbl.video, 'fps': 0}
-        view = cl.create_view('test_view', tbl, iterator_class=FrameIterator, iterator_args=args)
+        view = pxt.create_view('test_view', tbl, iterator_class=FrameIterator, iterator_args=args)
         view.add_column(c1=view.frame.rotate(30), stored=True)
         view.add_column(c2=view.c1.rotate(40), stored=False)
         view.add_column(c3=view.c2.rotate(50), stored=True)
@@ -516,9 +517,9 @@ class TestTable:
         view.add_column(c5=self.window_fn(view.frame_idx, 1, group_by=view.video))
 
         # reload to make sure that metadata gets restored correctly
-        cl = pxt.Client(reload=True)
-        tbl = cl.get_table('test_tbl')
-        view = cl.get_table('test_view')
+        reload_db()
+        tbl = pxt.get_table('test_tbl')
+        view = pxt.get_table('test_view')
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         status = tbl.insert(payload=1, video=url)
@@ -548,14 +549,13 @@ class TestTable:
         # drop() clears stored images and the cache
         tbl.insert(payload=1, video=get_video_files()[0])
         with pytest.raises(excs.Error) as exc_info:
-            cl.drop_table('test_tbl')
+            pxt.drop_table('test_tbl')
         assert 'has dependents: test_view' in str(exc_info.value)
-        cl.drop_table('test_view')
-        cl.drop_table('test_tbl')
+        pxt.drop_table('test_view')
+        pxt.drop_table('test_tbl')
         assert MediaStore.count(view.get_id()) == 0
 
-    def test_insert_nulls(self, test_client: pxt.Client) -> None:
-        cl = test_client
+    def test_insert_nulls(self, reset_db) -> None:
         schema = {
             'c1': StringType(nullable=True),
             'c2': IntType(nullable=True),
@@ -566,13 +566,12 @@ class TestTable:
             'c7': ImageType(nullable=True),
             'c8': VideoType(nullable=True),
         }
-        t = cl.create_table('test1', schema)
+        t = pxt.create_table('test1', schema)
         status = t.insert(c1='abc')
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert(self, test_client: pxt.Client) -> None:
-        cl = test_client
+    def test_insert(self, reset_db) -> None:
         schema = {
             'c1': StringType(nullable=False),
             'c2': IntType(nullable=False),
@@ -583,7 +582,7 @@ class TestTable:
             'c7': ImageType(nullable=False),
             'c8': VideoType(nullable=False),
         }
-        t = cl.create_table('test1', schema)
+        t = pxt.create_table('test1', schema)
         rows = create_table_data(t)
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -618,54 +617,52 @@ class TestTable:
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c7', 'c2', 'c2']):
-            cl.drop_table('test1', ignore_errors=True)
-            t = cl.create_table('test1', {col_name: col_type})
+            pxt.drop_table('test1', ignore_errors=True)
+            t = pxt.create_table('test1', {col_name: col_type})
             with pytest.raises(excs.Error) as exc_info:
                 t.insert({col_name: r[value_col_name]} for r in rows)
             assert 'expected' in str(exc_info.value).lower()
 
         # rows not list of dicts
-        cl.drop_table('test1', ignore_errors=True)
-        t = cl.create_table('test1', {'c1': StringType()})
+        pxt.drop_table('test1', ignore_errors=True)
+        t = pxt.create_table('test1', {'c1': StringType()})
         with pytest.raises(excs.Error) as exc_info:
             t.insert(['1'])
         assert 'list of dictionaries' in str(exc_info.value)
 
         # bad null value
-        cl.drop_table('test1', ignore_errors=True)
-        t = cl.create_table('test1', {'c1': StringType(nullable=False)})
+        pxt.drop_table('test1', ignore_errors=True)
+        t = pxt.create_table('test1', {'c1': StringType(nullable=False)})
         with pytest.raises(excs.Error) as exc_info:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
 
         # bad array literal
-        cl.drop_table('test1', ignore_errors=True)
-        t = cl.create_table('test1', {'c5': ArrayType((2, 3), dtype=IntType(), nullable=False)})
+        pxt.drop_table('test1', ignore_errors=True)
+        t = pxt.create_table('test1', {'c5': ArrayType((2, 3), dtype=IntType(), nullable=False)})
         with pytest.raises(excs.Error) as exc_info:
             t.insert(c5=np.ndarray((3, 2)))
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
-    def test_insert_string_with_null(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        t = cl.create_table('test', {'c1': StringType()})
+    def test_insert_string_with_null(self, reset_db) -> None:
+        t = pxt.create_table('test', {'c1': StringType()})
 
         t.insert([{'c1': 'this is a python\x00string'}])
         assert t.count() == 1
         for tup in t.df().collect():
             assert tup['c1'] == 'this is a python string'
 
-    def test_query(self, test_client: pxt.Client) -> None:
+    def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
-        cl = test_client
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
-        t = make_tbl(cl, 'test', col_names)
+        t = make_tbl('test', col_names)
         rows = create_table_data(t)
         t.insert(rows)
         _ = t.show(n=0)
 
         # test querying existing table
-        cl = pxt.Client(reload=True)
-        t2 = cl.get_table('test')
+        reload_db()
+        t2 = pxt.get_table('test')
         _  = t2.show(n=0)
 
     def test_batch_update(self, test_tbl: pxt.Table) -> None:
@@ -681,10 +678,9 @@ class TestTable:
         assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
 
-        cl = pxt.Client()
         # test composite primary key
         schema = {'c1': StringType(), 'c2': IntType(), 'c3': FloatType()}
-        t = cl.create_table('composite', schema=schema, primary_key=['c1', 'c2'])
+        t = pxt.create_table('composite', schema=schema, primary_key=['c1', 'c2'])
         rows = [{'c1': str(i), 'c2': i, 'c3': float(i)} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
@@ -708,7 +704,7 @@ class TestTable:
         assert 'primary key columns (c2) missing' in str(exc_info.value).lower()
 
         # table without primary key
-        t2 = cl.create_table('no_pk', schema=schema)
+        t2 = pxt.create_table('no_pk', schema=schema)
         validate_update_status(t2.insert(rows), expected_rows=10)
         with pytest.raises(excs.Error) as exc_info:
             _ = t2.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}])
@@ -777,8 +773,8 @@ class TestTable:
         assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'] == computed3)
 
         # revert, then verify that we're back to where we started
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
@@ -864,8 +860,8 @@ class TestTable:
         assert cnt == 1
 
         # revert, then verify that we're back where we started
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
         assert cnt == 10
@@ -884,14 +880,13 @@ class TestTable:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
-    def test_computed_cols(self, test_client: pxt.client) -> None:
-        cl = test_client
+    def test_computed_cols(self, reset_db) -> None:
         schema = {
             'c1': IntType(nullable=False),
             'c2': FloatType(nullable=False),
             'c3': JsonType(nullable=False),
         }
-        t : pxt.InsertableTable = cl.create_table('test', schema)
+        t : pxt.InsertableTable = pxt.create_table('test', schema)
         status = t.add_column(c4=t.c1 + 1)
         assert status.num_excs == 0
         status = t.add_column(c5=t.c4 + 1)
@@ -929,8 +924,8 @@ class TestTable:
             t.insert(rows2)
 
         # test loading from store
-        cl = pxt.Client(reload=True)
-        t = cl.get_table('test')
+        reload_db()
+        t = pxt.get_table('test')
         assert len(t.columns()) == len(t.columns())
         for i in range(len(t.columns())):
             if t.columns()[i].value_expr is not None:
@@ -949,9 +944,8 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
-    def test_expr_udf_computed_cols(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        t = cl.create_table('test', {'c1': IntType(nullable=False)})
+    def test_expr_udf_computed_cols(self, reset_db) -> None:
+        t = pxt.create_table('test', {'c1': IntType(nullable=False)})
         rows = [{'c1': i} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -979,8 +973,8 @@ class TestTable:
 
         check(t)
         # test loading from store
-        cl = pxt.Client(reload=True)
-        t = cl.get_table('test')
+        reload_db()
+        t = pxt.get_table('test')
         check(t)
 
         # make sure we can still insert data and that computed cols are still set correctly
@@ -988,13 +982,12 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(self, test_client: pxt.Client, test_tbl: catalog.Table) -> None:
-        cl = test_client
+    def test_computed_col_exceptions(self, reset_db, test_tbl: catalog.Table) -> None:
 
         # exception during insert()
         schema = {'c2': IntType(nullable=False)}
         rows = list(test_tbl.select(test_tbl.c2).collect())
-        t = cl.create_table('test_insert', schema)
+        t = pxt.create_table('test_insert', schema)
         status = t.add_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
         status = t.insert(rows, fail_on_exception=False)
@@ -1003,7 +996,7 @@ class TestTable:
         assert t.where(t.add1.errortype != None).count() == 10
 
         # exception during add_column()
-        t = cl.create_table('test_add_column', schema)
+        t = pxt.create_table('test_add_column', schema)
         status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
@@ -1022,8 +1015,8 @@ class TestTable:
         assert MediaStore.count(t.get_id()) == t.count() * stores_img_col
 
         # test loading from store
-        cl = pxt.Client(reload=True)
-        t2 = cl.get_table(t.get_name())
+        reload_db()
+        t2 = pxt.get_table(t.get_name())
         assert len(t.columns()) == len(t2.columns())
         for i in range(len(t.columns())):
             if t.columns()[i].value_expr is not None:
@@ -1043,31 +1036,29 @@ class TestTable:
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
         raise RuntimeError
 
-    def test_computed_img_cols(self, test_client: pxt.Client) -> None:
-        cl = test_client
+    def test_computed_img_cols(self, reset_db) -> None:
         schema = {'img': ImageType(nullable=False)}
-        t = cl.create_table('test', schema)
+        t = pxt.create_table('test', schema)
         t.add_column(c2=t.img.width)
         # c3 is not stored by default
         t.add_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=False)
 
-        t = cl.create_table('test2', schema)
+        t = pxt.create_table('test2', schema)
         # c3 is now stored
         t.add_column(c3=t.img.rotate(90), stored=True)
         self._test_computed_img_cols(t, stores_img_col=True)
         _ = t[t.c3.errortype].show(0)
 
         # computed img col with exceptions
-        t = cl.create_table('test3', schema)
+        t = pxt.create_table('test3', schema)
         t.add_column(c3=self.img_fn_with_exc(t.img), stored=True)
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         t.insert(rows, fail_on_exception=False)
         _ = t[t.c3.errortype].show(0)
 
-    def test_computed_window_fn(self, test_client: pxt.Client, test_tbl: catalog.Table) -> None:
-        cl = test_client
+    def test_computed_window_fn(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # backfill
         t.add_column(c9=ptf.sum(t.c2, group_by=t.c4, order_by=t.c3))
@@ -1077,16 +1068,15 @@ class TestTable:
             'c3': FloatType(nullable=False),
             'c4': BoolType(nullable=False),
         }
-        new_t = cl.create_table('insert_test', schema)
+        new_t = pxt.create_table('insert_test', schema)
         new_t.add_column(c5=lambda c2: c2 * c2, type=IntType())
         new_t.add_column(c6=ptf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.show(0)
 
-    def test_revert(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        t1 = make_tbl(cl, 'test1', ['c1', 'c2'])
+    def test_revert(self, reset_db) -> None:
+        t1 = make_tbl('test1', ['c1', 'c2'])
         assert t1.version() == 0
         rows1 = create_table_data(t1)
         t1.insert(rows1)
@@ -1154,8 +1144,8 @@ class TestTable:
             _ = t.add_column(c5=(t.c2 + t.c3), stored=False)
 
         # make sure this is still true after reloading the metadata
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols + 1
 
         # revert() works
@@ -1163,8 +1153,8 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols
 
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
@@ -1205,8 +1195,8 @@ class TestTable:
         assert 'duplicate column name' in str(exc_info.value).lower()
 
         # make sure this is still true after reloading the metadata
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols + 2
 
         # revert() works
@@ -1215,8 +1205,8 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols
 
     def test_drop_column(self, test_tbl: catalog.Table) -> None:
@@ -1229,8 +1219,8 @@ class TestTable:
             t.drop_column('unknown')
 
         # make sure this is still true after reloading the metadata
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols - 1
 
         # revert() works
@@ -1238,8 +1228,8 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols
 
     def test_rename_column(self, test_tbl: catalog.Table) -> None:
@@ -1267,8 +1257,8 @@ class TestTable:
             t.rename_column('c2', 'c3')
 
         # make sure this is still true after reloading the metadata
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         check_rename(t, 'c1_renamed', 'c1')
 
         # revert() works
@@ -1278,8 +1268,8 @@ class TestTable:
         #check_rename(t, 'c1', 'c1_renamed')
 
         # make sure this is still true after reloading the metadata once more
-        cl = pxt.Client(reload=True)
-        t = cl.get_table(t.get_name())
+        reload_db()
+        t = pxt.get_table(t.get_name())
         check_rename(t, 'c1', 'c1_renamed')
 
     def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
@@ -1316,11 +1306,10 @@ class TestTable:
         _ = repr(t)
         _ = t._repr_html_()
 
-    def test_common_col_names(self, test_client: pxt.Client) -> None:
+    def test_common_col_names(self, reset_db) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""
-        cl = test_client
         schema = {'id': IntType(nullable=False), 'name': StringType(nullable=False)}
-        tbl = cl.create_table('test', schema)
+        tbl = pxt.create_table('test', schema)
         status = tbl.insert({'id': id, 'name': str(id)} for id in range(10))
         assert status.num_rows == 10
         assert status.num_excs == 0

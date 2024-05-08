@@ -53,7 +53,7 @@ def speech(
     )
     ext = response_format or 'mp3'
     output_filename = str(env.Env.get().tmp_dir / f"{uuid.uuid4()}.{ext}")
-    content.stream_to_file(output_filename, chunk_size=1 << 20)
+    content.write_to_file(output_filename)
     return output_filename
 
 

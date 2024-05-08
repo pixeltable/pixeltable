@@ -13,16 +13,16 @@ from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
-from pixeltable.tests.utils import create_test_tbl, create_all_datatypes_tbl, clip_img_embed, \
-    clip_text_embed, create_img_tbl, skip_test_if_not_installed
 from pixeltable.type_system import FloatType
+from .utils import create_test_tbl, create_all_datatypes_tbl, clip_img_embed, \
+    clip_text_embed, create_img_tbl, skip_test_if_not_installed, reload_db
 
 
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory) -> None:
     from pixeltable.env import Env
-    # set the relevant env vars for Client() to connect to the test db
 
+    # set the relevant env vars for the test db
     shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
@@ -34,25 +34,21 @@ def init_env(tmp_path_factory) -> None:
     # ensure this home dir exits
     shared_home.mkdir(parents=True, exist_ok=True)
     # this also runs create_all()
-    Env.get().set_up(echo=True)
+    Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
     yield
     # leave db in place for debugging purposes
 
 @pytest.fixture(scope='function')
-def test_client(init_env) -> pxt.Client:
-    # Clean the DB *before* instantiating a client object. This is because some tests
-    # (such as test_migration.py) may leave the DB in a broken state, from which the
-    # client is uninstantiable.
+def reset_db(init_env) -> None:
+    # Clean the DB *before* reloading. This is because some tests
+    # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
-    cl = pxt.Client(reload=True)
-    cl.logging(level=logging.DEBUG, to_stdout=True)
-    yield cl
+    reload_db()
 
 
 def clean_db(restore_tables: bool = True) -> None:
     from pixeltable.env import Env
-    # The logic from Client.reset_catalog() has been moved here, so that it
-    # does not rely on instantiating a Client object. As before, UUID-named data tables will
+    # UUID-named data tables will
     # not be cleaned. If in the future it is desirable to clean out data tables as well,
     # the commented lines may be used to drop ALL tables from the test db.
     # sql_md = declarative_base().metadata
@@ -76,21 +72,19 @@ def clean_db(restore_tables: bool = True) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(test_client: pxt.Client) -> catalog.Table:
-    return create_test_tbl(test_client)
+def test_tbl(reset_db) -> catalog.Table:
+    return create_test_tbl()
 
 # @pytest.fixture(scope='function')
-# def test_stored_fn(test_client: pxt.Client) -> pxt.Function:
+# def test_stored_fn(reset_db) -> pxt.Function:
 #     @pxt.udf(return_type=pxt.IntType(), param_types=[pxt.IntType()])
 #     def test_fn(x):
 #         return x + 1
-#     test_client.create_function('test_fn', test_fn)
+#     pxt.create_function('test_fn', test_fn)
 #     return test_fn
 
 @pytest.fixture(scope='function')
 def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
-#def test_tbl_exprs(test_tbl: catalog.Table, test_stored_fn: pxt.Function) -> List[exprs.Expr]:
-
     t = test_tbl
     return [
         t.c1,
@@ -124,12 +118,12 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
     ]
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(test_client: pxt.Client) -> catalog.Table:
-    return create_all_datatypes_tbl(test_client)
+def all_datatypes_tbl(reset_db) -> catalog.Table:
+    return create_all_datatypes_tbl()
 
 @pytest.fixture(scope='function')
-def img_tbl(test_client: pxt.Client) -> catalog.Table:
-    return create_img_tbl(test_client, 'test_img_tbl')
+def img_tbl(reset_db) -> catalog.Table:
+    return create_img_tbl('test_img_tbl')
 
 @pytest.fixture(scope='function')
 def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> List[exprs.Expr]:
@@ -145,12 +139,12 @@ def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> List[exprs.Expr]:
     ]
 
 @pytest.fixture(scope='function')
-def small_img_tbl(test_client: pxt.Client) -> catalog.Table:
-    return create_img_tbl(test_client, 'small_img_tbl', num_rows=40)
+def small_img_tbl(reset_db) -> catalog.Table:
+    return create_img_tbl('small_img_tbl', num_rows=40)
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(test_client: pxt.Client) -> pxt.Table:
+def indexed_img_tbl(reset_db) -> pxt.Table:
     skip_test_if_not_installed('transformers')
-    t = create_img_tbl(test_client, 'indexed_img_tbl', num_rows=40)
+    t = create_img_tbl('indexed_img_tbl', num_rows=40)
     t.add_embedding_index('img', metric='cosine', img_embed=clip_img_embed, text_embed=clip_text_embed)
     return t
