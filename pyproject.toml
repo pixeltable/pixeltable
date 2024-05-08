@@ -87,7 +87,6 @@ setuptools = "~69.1"
 [tool.poetry-dynamic-versioning]
 enable = true
 vcs = "git"
-metadata = true
 dirty = true
 
 [tool.poetry-dynamic-versioning.substitution]
