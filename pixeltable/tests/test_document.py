@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators.document import DocumentSplitter
-from pixeltable.tests.utils import (
+from .utils import (
     get_audio_files,
     get_documents,
     get_image_files,
@@ -47,10 +47,9 @@ class TestDocument:
     def invalid_doc_paths(self) -> List[str]:
         return [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
 
-    def test_insert(self, test_client: pxt.Client) -> None:
+    def test_insert(self, reset_db) -> None:
         file_paths = self.valid_doc_paths()
-        cl = test_client
-        doc_t = cl.create_table('docs', {'doc': DocumentType()})
+        doc_t = pxt.create_table('docs', {'doc': DocumentType()})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_rows == len(file_paths)
         assert status.num_excs == 0
@@ -62,7 +61,7 @@ class TestDocument:
         assert status.num_rows == len(file_paths)
         assert status.num_excs == len(file_paths)
 
-    def test_invalid_arguments(self, test_client: pxt.Client) -> None:
+    def test_invalid_arguments(self, reset_db) -> None:
         """ Test input parsing provides useful error messages
         """
         example_file = [p for p in self.valid_doc_paths() if p.endswith('.pdf')][0]
@@ -99,13 +98,12 @@ class TestDocument:
                 _ = DocumentSplitter(document=example_file, separators='', metadata=md)
             assert 'Invalid metadata' in str(exc_info.value)
 
-    def test_doc_splitter(self, test_client: pxt.Client) -> None:
+    def test_doc_splitter(self, reset_db) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('fitz')
 
         file_paths = self.valid_doc_paths()
-        cl = test_client
-        doc_t = cl.create_table('docs', {'doc': DocumentType()})
+        doc_t = pxt.create_table('docs', {'doc': DocumentType()})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
         import tiktoken
@@ -128,7 +126,7 @@ class TestDocument:
                 if sep2:
                     iterator_args['limit'] = limit
                     iterator_args['overlap'] = 0
-                chunks_t = cl.create_view(
+                chunks_t = pxt.create_view(
                     f'chunks', doc_t, iterator_class=DocumentSplitter, iterator_args=iterator_args)
                 res = list(chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect())
 
@@ -176,13 +174,12 @@ class TestDocument:
                         if r['doc'].endswith('pdf'):
                             _check_pdf_metadata(r, sep1)
 
-                cl.drop_table('chunks')
+                pxt.drop_table('chunks')
 
-    def test_doc_splitter_headings(self, test_client: pxt.Client) -> None:
+    def test_doc_splitter_headings(self, reset_db) -> None:
         skip_test_if_not_installed('spacy')
         file_paths = [ p for p in self.valid_doc_paths() if not p.endswith('.pdf') ]
-        cl = test_client
-        doc_t = cl.create_table('docs', {'doc': DocumentType()})
+        doc_t = pxt.create_table('docs', {'doc': DocumentType()})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 
@@ -197,7 +194,7 @@ class TestDocument:
                 'metadata': md_str
             }
             print(f'{md_str=}')
-            chunks_t = cl.create_view(
+            chunks_t = pxt.create_view(
                 f'chunks', doc_t, iterator_class=DocumentSplitter, iterator_args=iterator_args)
             res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
             requested_md_elements = set(md_str.split(','))
@@ -207,4 +204,4 @@ class TestDocument:
                 else:
                     with pytest.raises(pxt.Error):
                         _ = res[md_element]
-            cl.drop_table('chunks')
+            pxt.drop_table('chunks')

@@ -5,8 +5,8 @@ creating the view).
 
 Use this handle to query and update the view and to add and drop columns.
 
-`View` instances are created by calling [`Client.create_view`][pixeltable.Client.create_view]
-or [`Client.get_table`][pixeltable.Client.get_table].
+`View` instances are created by calling [`pxt.create_view`][pixeltable.create_view]
+or [`pxt.get_table`][pixeltable.get_table].
 
 ## Overview
 | Column Operations | |

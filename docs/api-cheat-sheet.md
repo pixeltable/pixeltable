@@ -6,55 +6,50 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 ```
 
-Creating a client
-```python
-cl = pxt.Client()
-```
-
-## Client operations summary
+## Operations summary
 
 | Task                   | Code                                                                                                                                        |
 |--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| Create a (mutable) table           | t = cl.[create_table][pixeltable.Client.create_table]('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})               |
-| Create a view           | t = cl.[create_view][pixeltable.Client.create_view]('view_name', base_tbl, schema={'col_1': pxt.StringType, ...}, filter=base_tbl.col > 10) |
-| Create a snapshot           | t = cl.[create_view][pixeltable.Client.create_view]('snapshot_name', t, is_snapshot=True)                                                   |
+| Create a (mutable) table           | t = pxt.[create_table][pxt.create_table]('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})               |
+| Create a view           | t = pxt.[create_view][pxt.create_view]('view_name', base_tbl, schema={'col_1': pxt.StringType, ...}, filter=base_tbl.col > 10) |
+| Create a snapshot           | t = pxt.[create_view][pxt.create_view]('snapshot_name', t, is_snapshot=True)                                                   |
 
 The following functions apply to tables, views, and snapshots.
 
 | Task                   | Code                                                                                                  |
 |--------------------------|-------------------------------------------------------------------------------------------------------|
-| Use an existing table | t = cl.[get_table][pixeltable.Client.get_table]('video_data')                                         |
-| Rename a table | cl.[move][pixeltable.Client.move]('video_data', 'vd')                                 |
-| Move a table | cl.[move][pixeltable.Client.move]('video_data', 'experiments.video_data')                                 |
-| List tables              | cl.[list_tables][pixeltable.Client.list_tables]()                                                     |
-| Delete a table           | cl.[drop_table][pixeltable.Client.drop_table]('video_data')                                           |
+| Use an existing table | t = pxt.[get_table][pxt.get_table]('video_data')                                         |
+| Rename a table | pxt.[move][pxt.move]('video_data', 'vd')                                 |
+| Move a table | pxt.[move][pxt.move]('video_data', 'experiments.video_data')                                 |
+| List tables              | pxt.[list_tables][pxt.list_tables]()                                                     |
+| Delete a table           | pxt.[drop_table][pxt.drop_table]('video_data')                                           |
 
 
 ### Directories
 | Task                   | Code                                                                                                  |
 |--------------------------|-------------------------------------------------------------------------------------------------------|
-| Create a directory           | cl.[create_dir][pixeltable.Client.create_dir]('experiments')                                           |
-| Rename or move a directory | cl.[move][pixeltable.Client.move]('experiments', 'project_x.experiments')                             |
-| Delete a directory | f = cl.[rm_dir][pixeltable.Client.rm_dir]('experiments')                                    |
-| List directories | cl.[list_dirs][pixeltable.Client.list_dirs]('project_x')                   |
+| Create a directory           | pxt.[create_dir][pxt.create_dir]('experiments')                                           |
+| Rename or move a directory | pxt.[move][pxt.move]('experiments', 'project_x.experiments')                             |
+| Delete a directory | f = pxt.[rm_dir][pxt.rm_dir]('experiments')                                    |
+| List directories | pxt.[list_dirs][pxt.list_dirs]('project_x')                   |
 
 ### Functions
 | Task                   | Code                                                                                                  |
 |--------------------------|-------------------------------------------------------------------------------------------------------|
-| Create a stored function | cl.[create_function][pixeltable.Client.create_function]('func_name', ...)                             |
-| Load a stored function   | f = cl.[get_function][pixeltable.Client.get_function]('func_name')                                    |
-| Rename a stored function | cl.[move][pixeltable.Client.move]('func_name', 'better_name')                   |
-| Move a stored function | cl.[move][pixeltable.Client.move]('func_name', 'experiments.func_name')                   |
-| Update a stored function | cl.[update_function][pixeltable.Client.update_function]('func_name', ...)                             |
-| Delete a stored function | cl.[drop_function][pixeltable.Client.drop_function]('func_name')                                      |
+| Create a stored function | pxt.[create_function][pxt.create_function]('func_name', ...)                             |
+| Load a stored function   | f = pxt.[get_function][pxt.get_function]('func_name')                                    |
+| Rename a stored function | pxt.[move][pxt.move]('func_name', 'better_name')                   |
+| Move a stored function | pxt.[move][pxt.move]('func_name', 'experiments.func_name')                   |
+| Update a stored function | pxt.[update_function][pxt.update_function]('func_name', ...)                             |
+| Delete a stored function | pxt.[drop_function][pxt.drop_function]('func_name')                                      |
 
 ## Frame extraction for video data
 Create a table with video data and view for the frames:
 ```python
-v = cl.create_table('tbl_name', [pxt.Column('video', pxt.VideoType())])
+v = pxt.create_table('tbl_name', [pxt.Column('video', pxt.VideoType())])
 from pixeltable.iterators import FrameIterator
 args = {'video': v.video, 'fps': 0}
-f = cl.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_args=args)
+f = pxt.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_args=args)
 ```
 
 `fps: 0` extracts frames at the original frame rate.

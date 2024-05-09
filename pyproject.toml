@@ -1,10 +1,10 @@
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core", "poetry-dynamic-versioning>=1.3.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.poetry]
 name = "pixeltable"
-version = "0.2.5"
+version = "0.0.0"
 description = "Pixeltable: The Multimodal AI Data Plane"
 authors = ["Marcel Kornacker <marcelk@gmail.com>"]
 readme = "README.md"
@@ -23,7 +23,6 @@ pillow = ">=10.0"
 opencv-python-headless = "^4.7.0.68"
 tqdm = "^4.64.1"
 jmespath = "^1.0.1"
-regex = "^2022.10.31"
 cloudpickle = "^2.2.1"
 psycopg2-binary = "^2.9.5"
 psutil = "^5.9.5"
@@ -85,6 +84,14 @@ datasets = ">=2.15.0"
 # setuptools >= 69.2 has known issues with Github Actions
 setuptools = "~69.1"
 
+[tool.poetry-dynamic-versioning]
+enable = true
+vcs = "git"
+dirty = true
+
+[tool.poetry-dynamic-versioning.substitution]
+files = ["pixeltable/__version__.py"]
+
 [tool.mypy]
 plugins = "sqlalchemy.ext.mypy.plugin"
 disallow_untyped_defs = true
@@ -118,6 +125,10 @@ disable = ["C0114","C0116","C0415","E1121","R0401","R0801","R0902","R0913","R091
 addopts = "-v -m \"not remote_api\""
 markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)"
+]
+filterwarnings = [
+    "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
+    "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning"
 ]
 
 [tool.ruff]
