@@ -1,11 +1,9 @@
-import PIL
-import PIL.Image
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
-from .utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed
+from .utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed, reload_db
 
 
 class TestIndex:
@@ -85,14 +83,13 @@ class TestIndex:
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
-        cl = pxt.Client()
         schema = {
             'img': pxt.ImageType(nullable=False),
             'category': pxt.StringType(nullable=False),
             'split': pxt.StringType(nullable=False),
         }
         tbl_name = 'index_test'
-        img_t = cl.create_table(tbl_name, schema=schema)
+        img_t = pxt.create_table(tbl_name, schema=schema)
         img_t.insert(rows[:30])
 
         img_t.add_embedding_index('img', img_embed=clip_img_embed, text_embed=clip_text_embed)
@@ -123,8 +120,8 @@ class TestIndex:
         img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
-        cl = pxt.Client(reload=True)
-        img_t = cl.get_table(tbl_name)
+        reload_db()
+        img_t = pxt.get_table(tbl_name)
         status = img_t.insert(rows)
         assert status.num_excs == 0
 
