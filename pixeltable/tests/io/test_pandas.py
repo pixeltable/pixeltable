@@ -10,7 +10,7 @@ class TestPandas:
 
     def test_pandas_csv(self, test_client: pxt.Client) -> None:
         cl = test_client
-        from pixeltable.datatransfer.pandas import import_csv
+        from pixeltable.io.pandas import import_csv
 
         t1 = import_csv(cl, 'online_foods', 'pixeltable/tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
@@ -73,7 +73,7 @@ class TestPandas:
     def test_pandas_images(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
         cl = test_client
-        from pixeltable.datatransfer.pandas import import_csv
+        from pixeltable.io.pandas import import_csv
 
         # Test overriding string type to images
         t4 = import_csv(
@@ -92,7 +92,7 @@ class TestPandas:
 
     def test_pandas_excel(self, test_client: pxt.Client) -> None:
         skip_test_if_not_installed('openpyxl')
-        from pixeltable.datatransfer.pandas import import_excel
+        from pixeltable.io.pandas import import_excel
         cl = test_client
 
         t4 = import_excel(cl, 'fin_sample', 'pixeltable/tests/data/datasets/Financial Sample.xlsx')
