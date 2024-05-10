@@ -201,10 +201,10 @@ class StoreBase:
         if col.records_errors:
             # we also need to create the errormsg and errortype storage cols
             stmt = (f'ALTER TABLE {self._storage_name()} '
-                    f'ADD COLUMN {col.errormsg_store_name()} {StringType().to_sql()} DEFAULT NULL')
+                    f'ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL')
             conn.execute(sql.text(stmt))
             stmt = (f'ALTER TABLE {self._storage_name()} '
-                    f'ADD COLUMN {col.errortype_store_name()} {StringType().to_sql()} DEFAULT NULL')
+                    f'ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL')
             conn.execute(sql.text(stmt))
             added_storage_cols.extend([col.errormsg_store_name(), col.errortype_store_name()])
         self.create_sa_tbl()
