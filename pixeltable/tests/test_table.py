@@ -1,7 +1,6 @@
 import datetime
 import math
 import os
-import pathlib
 import random
 from typing import List, Tuple
 
@@ -23,8 +22,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 from .utils import \
     make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
-    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table, validate_update_status
-from .utils import skip_test_if_not_installed, reload_db
+    assert_resultset_eq, validate_update_status, skip_test_if_not_installed, reload_db
 
 
 class TestTable:
