@@ -1,9 +1,10 @@
-from typing import Dict, Any, Tuple, Optional
+from typing import Tuple, Optional
 
 import PIL.Image
+from PIL.Image import Dither
 
-from pixeltable.type_system import FloatType, ImageType, IntType, ArrayType, ColumnType, StringType, JsonType, BoolType
 import pixeltable.func as func
+from pixeltable.type_system import FloatType, ImageType, IntType, ArrayType, ColumnType, StringType, JsonType
 
 
 @func.udf(
@@ -78,13 +79,8 @@ def _(self: PIL.Image.Image, size: Tuple[int, int]) -> ColumnType:
 def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
     return self.rotate(angle)
 
-# Image.transform()
-@func.udf(param_types=[ImageType(), ArrayType((2,), dtype=IntType()), IntType()])
-def transform(self: PIL.Image.Image, size: Tuple[int, int], method: int) -> PIL.Image.Image:
-    return self.transform(size, method)
-
-@func.udf(py_fn=PIL.Image.Image.effect_spread, param_types=[ImageType(), FloatType()])
-def effect_spread(self: PIL.Image.Image, distance: float) -> PIL.Image.Image:
+@func.udf(py_fn=PIL.Image.Image.effect_spread, param_types=[ImageType(), IntType()])
+def effect_spread(self: PIL.Image.Image, distance: int) -> PIL.Image.Image:
     pass
 
 @func.udf(py_fn=PIL.Image.Image.transpose, param_types=[ImageType(), IntType()])
@@ -92,7 +88,6 @@ def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
     pass
 
 @rotate.conditional_return_type
-@transform.conditional_return_type
 @effect_spread.conditional_return_type
 @transpose.conditional_return_type
 def _(self: PIL.Image.Image) -> ColumnType:
@@ -100,7 +95,7 @@ def _(self: PIL.Image.Image) -> ColumnType:
 
 @func.udf(
     py_fn=PIL.Image.Image.entropy, return_type=FloatType(), param_types=[ImageType(), ImageType(), JsonType()])
-def entropy(self: PIL.Image.Image, mask: PIL.Image.Image, histogram: Dict) -> float:
+def entropy(self: PIL.Image.Image, mask: PIL.Image.Image, extrema: Optional[list] = None) -> float:
     pass
 
 @func.udf(py_fn=PIL.Image.Image.getbands, return_type=JsonType(), param_types=[ImageType()])
@@ -121,29 +116,32 @@ def getextrema(self: PIL.Image.Image) -> Tuple[int, int]:
 
 @func.udf(
     py_fn=PIL.Image.Image.getpalette, return_type=JsonType(), param_types=[ImageType(), StringType()])
-def getpalette(self: PIL.Image.Image, mode: str) -> Tuple[int]:
+def getpalette(self: PIL.Image.Image, mode: Optional[str] = None) -> Tuple[int]:
     pass
 
 @func.udf(
-    py_fn=PIL.Image.Image.getpixel, return_type=JsonType(), param_types=[ImageType(), ArrayType((2,), dtype=IntType())])
-def getpixel(self: PIL.Image.Image, xy: Tuple[int, int]) -> Tuple[int]:
-    pass
+    return_type=JsonType(), param_types=[ImageType(), ArrayType((2,), dtype=IntType())])
+def getpixel(self: PIL.Image.Image, xy: tuple[int, int]) -> Tuple[int]:
+    # `xy` will be a list; `tuple(xy)` is necessary for pillow 9 compatibility
+    return self.getpixel(tuple(xy))
 
 @func.udf(py_fn=PIL.Image.Image.getprojection, return_type=JsonType(), param_types=[ImageType()])
 def getprojection(self: PIL.Image.Image) -> Tuple[int]:
     pass
 
 @func.udf(py_fn=PIL.Image.Image.histogram, return_type=JsonType(), param_types=[ImageType(), ImageType(), JsonType()])
-def histogram(self: PIL.Image.Image, mask: PIL.Image.Image, histogram: Dict) -> Tuple[int]:
+def histogram(self: PIL.Image.Image, mask: PIL.Image.Image, extrema: Optional[list] = None) -> Tuple[int]:
     pass
 
 @func.udf(
     py_fn=PIL.Image.Image.quantize, return_type=ImageType(),
     param_types=[ImageType(), IntType(), IntType(nullable=True), IntType(), IntType(nullable=True), IntType()])
 def quantize(
-        self: PIL.Image.Image, colors: int, method: int, kmeans: int, palette: int, dither: int) -> PIL.Image.Image:
+        self: PIL.Image.Image, colors: int = 256, method: Optional[int] = None, kmeans: int = 0,
+        palette: Optional[int] = None, dither: int = Dither.FLOYDSTEINBERG) -> PIL.Image.Image:
     pass
 
-@func.udf(py_fn=PIL.Image.Image.reduce, return_type=ImageType(), param_types=[ImageType(), IntType(), JsonType()])
-def reduce(self: PIL.Image.Image, factor: int, filter: Tuple[int]) -> PIL.Image.Image:
+@func.udf(
+    py_fn=PIL.Image.Image.reduce, return_type=ImageType(), param_types=[ImageType(), IntType(), JsonType()])
+def reduce(self: PIL.Image.Image, factor: int, box: Optional[Tuple[int]]) -> PIL.Image.Image:
     pass
