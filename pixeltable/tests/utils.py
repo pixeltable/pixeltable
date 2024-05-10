@@ -2,9 +2,8 @@ import datetime
 import glob
 import json
 import os
-from collections import namedtuple
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 import PIL.Image
 import numpy as np
@@ -397,46 +396,6 @@ def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:
     assert img1.size == img2.size
     diff = PIL.ImageChops.difference(img1, img2)
     assert diff.getbbox() is None
-
-def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, split_column_name: str) -> None:
-    import datasets
-    assert df.count() == hf_dataset.num_rows
-    assert set(df.get_column_names()) == (set(hf_dataset.features.keys()) | {split_column_name})
-
-    # immutable so we can use it as in a set
-    DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))
-    acc_dataset: Set[DatasetTuple] = set()
-    for tup in hf_dataset:
-        immutable_tup = {}
-        for k in tup:
-            if isinstance(tup[k], list):
-                immutable_tup[k] = tuple(tup[k])
-            else:
-                immutable_tup[k] = tup[k]
-
-        acc_dataset.add(DatasetTuple(**immutable_tup))
-
-    for tup in df.collect():
-        assert tup[split_column_name] in hf_dataset.split._name
-
-        encoded_tup = {}
-        for column_name, value in tup.items():
-            if column_name == split_column_name:
-                continue
-            feature_type = hf_dataset.features[column_name]
-            if isinstance(feature_type, datasets.ClassLabel):
-                assert value in feature_type.names
-                # must use the index of the class label as the value to
-                # compare with dataset iteration output.
-                value = feature_type.encode_example(value)
-            elif isinstance(feature_type, datasets.Sequence):
-                assert feature_type.feature.dtype == 'float32', 'may need to add more types'
-                value = tuple([float(x) for x in value])
-
-            encoded_tup[column_name] = value
-
-        check_tup = DatasetTuple(**encoded_tup)
-        assert check_tup in acc_dataset
 
 
 def reload_db() -> None:

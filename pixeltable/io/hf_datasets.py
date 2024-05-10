@@ -66,12 +66,28 @@ def import_huggingface_dataset(
     table_path: str,
     dataset: Union[datasets.Dataset, datasets.DatasetDict],
     *,
-    column_name_for_split: Optional[str],
-    schema_override: Optional[Dict[str, Any]],
+    column_name_for_split: Optional[str] = None,
+    schema_override: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> 'pixeltable.InsertableTable':
+    """Create a new `InsertableTable` from a Huggingface dataset, or dataset dict with multiple splits.
+        Requires datasets library to be installed.
+
+    Args:
+        path_str: Path to the table.
+        dataset: Huggingface datasts.Dataset or datasts.DatasetDict to insert into the table.
+        column_name_for_split: column name to use for split information. If None, no split information will be stored.
+        schema_override: Optional dictionary mapping column names to column type to override the corresponding defaults from
+        `pixeltable.utils.hf_datasets.huggingface_schema_to_pixeltable_schema`. The column type should be a pixeltable ColumnType.
+        For example, {'col_vid': VideoType()}, rather than {'col_vid': StringType()}.
+
+        kwargs: Additional arguments to pass to `create_table`.
+
+    Returns:
+        The newly created table. The table will have loaded the data from the dataset.
+    """
     import pixeltable as pxt
-    """See `pixeltable.import_huggingface_dataset` for documentation"""
+
     if table_path in pxt.list_tables():
         raise excs.Error(f'table {table_path} already exists')
 

@@ -9,7 +9,7 @@ from .type_system import \
     AudioType, DocumentType
 from .utils.help import help
 # noinspection PyUnresolvedReferences
-from . import functions
+from . import functions, io
 from .__version__ import __version__, __version_tuple__
 
 __all__ = [

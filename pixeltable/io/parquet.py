@@ -132,11 +132,23 @@ def import_parquet(
     table_path: str,
     *,
     parquet_path: str,
-    schema_override: Optional[Dict[str, ts.ColumnType]],
+    schema_override: Optional[Dict[str, ts.ColumnType]] = None,
     **kwargs,
 ) -> 'catalog.InsertableTable':
+    """Create a new `InsertableTable` from a Parquet file or set of files. Requires pyarrow to be installed.
+    Args:
+        path_str: Path to the table within pixeltable.
+        parquet_path: Path to an individual Parquet file or directory of Parquet files.
+        schema_override: Optional dictionary mapping column names to column type to override the default
+                        schema inferred from the Parquet file. The column type should be a pixeltable ColumnType.
+                        For example, {'col_vid': VideoType()}, rather than {'col_vid': StringType()}.
+                        Any fields not provided explicitly will map to types with `pixeltable.utils.parquet.parquet_schema_to_pixeltable_schema`
+        kwargs: Additional arguments to pass to `create_table`.
+
+    Returns:
+        The newly created table. The table will have loaded the data from the Parquet file(s).
+    """
     import pixeltable as pxt
-    """See `pixeltable.import_parquet` for documentation"""
     input_path = Path(parquet_path).expanduser()
     parquet_dataset = pa.parquet.ParquetDataset(input_path)
 

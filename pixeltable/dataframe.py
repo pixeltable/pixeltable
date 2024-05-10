@@ -693,7 +693,7 @@ class DataFrame:
         Env.get().require_package('torch')
         Env.get().require_package('torchvision')
 
-        from pixeltable.utils.parquet import save_parquet # pylint: disable=import-outside-toplevel
+        from pixeltable.io.parquet import save_parquet # pylint: disable=import-outside-toplevel
         from pixeltable.utils.pytorch import PixeltablePytorchDataset # pylint: disable=import-outside-toplevel
 
         summary_string = json.dumps(self._as_dict())
