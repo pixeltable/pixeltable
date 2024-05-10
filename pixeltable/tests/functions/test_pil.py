@@ -1,19 +1,13 @@
-from typing import cast
-
-from PIL.Image import Transform, Quantize, Dither, Transpose
+from PIL.Image import Quantize, Transpose
 
 from pixeltable import Table
 from pixeltable.functions.pil.image import *
-from ..utils import get_image_files
 
 
 class TestPil:
 
-    def to_img(self, x: Any) -> PIL.Image:
-        return x
-
     def test_pil(self, img_tbl: Table) -> None:
-        #mask_img = next(f for f in get_image_files() if f.endswith('n03888257_1389.JPEG'))
+        # mask_img = next(f for f in get_image_files() if f.endswith('n03888257_1389.JPEG'))
         t = img_tbl
         _ = t[t.img.rotate(90)].show()
         _ = t[alpha_composite(t.img.convert(mode='RGBA'), t.img.rotate(90).convert(mode='RGBA'))].show()  # Needs RGBA images to work
