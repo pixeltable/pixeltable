@@ -9,7 +9,6 @@ import pixeltable.type_system as ts
 
 
 def import_pandas(
-        cl: pxt.Client,
         tbl_name: str,
         df: pd.DataFrame,
         *,
@@ -29,13 +28,12 @@ def import_pandas(
         dict(_df_row_to_pxt_row(row, schema))
         for row in df.itertuples()
     )
-    table = cl.create_table(tbl_name, schema)
+    table = pxt.create_table(tbl_name, schema)
     table.insert(tbl_rows)
     return table
 
 
 def import_csv(
-        cl: pxt.Client,
         table_path: str,
         filepath_or_buffer,
         schema: Optional[dict[str, ts.ColumnType]] = None,
@@ -47,11 +45,10 @@ def import_csv(
     See the Pandas documentation for `read_csv` for more details.
     """
     df = pd.read_csv(filepath_or_buffer, **kwargs)
-    return import_pandas(cl, table_path, df, schema=schema)
+    return import_pandas(table_path, df, schema=schema)
 
 
 def import_excel(
-        cl: pxt.Client,
         table_path: str,
         io,
         *args,
@@ -64,7 +61,7 @@ def import_excel(
     See the Pandas documentation for `read_excel` for more details.
     """
     df = pd.read_excel(io, *args, **kwargs)
-    return import_pandas(cl, table_path, df, schema=schema)
+    return import_pandas(table_path, df, schema=schema)
 
 
 def _df_to_pxt_schema(df: pd.DataFrame) -> dict[str, pxt.ColumnType]:
