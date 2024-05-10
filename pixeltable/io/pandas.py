@@ -14,6 +14,15 @@ def import_pandas(
         *,
         schema: Optional[dict[str, pxt.ColumnType]] = None
 ) -> pxt.catalog.InsertableTable:
+    """Creates a new `Table` from a Pandas `DataFrame`, with the specified name. The schema of the table
+    will be inferred from the `DataFrame`, unless `schema` is specified.
+
+    Args:
+        tbl_name: The name of the table to create.
+        df: The Pandas `DataFrame`.
+        schema: If specified, then the importer will use `schema` as the table schema, instead of inferring it
+            from the `DataFrame`.
+    """
     if schema is None:
         # Infer schema
         schema = _df_to_pxt_schema(df)
@@ -40,7 +49,7 @@ def import_csv(
         **kwargs
 ) -> pxt.catalog.InsertableTable:
     """
-    Creates a new `InsertableTable` from a csv file. This is a convenience method and is equivalent
+    Creates a new `Table` from a csv file. This is a convenience method and is equivalent
     to calling `import_pandas(table_path, pd.read_csv(filepath_or_buffer, **kwargs), schema=schema)`.
     See the Pandas documentation for `read_csv` for more details.
     """
@@ -56,7 +65,7 @@ def import_excel(
         **kwargs
 ) -> pxt.catalog.InsertableTable:
     """
-    Creates a new `InsertableTable` from an excel (.xlsx) file. This is a convenience method and is equivalent
+    Creates a new `Table` from an excel (.xlsx) file. This is a convenience method and is equivalent
     to calling `import_pandas(table_path, pd.read_excel(io, *args, **kwargs), schema=schema)`.
     See the Pandas documentation for `read_excel` for more details.
     """

@@ -144,7 +144,7 @@ def import_parquet(
     schema_override: Optional[Dict[str, ts.ColumnType]] = None,
     **kwargs,
 ) -> pxt.catalog.InsertableTable:
-    """Create a new `InsertableTable` from a Parquet file or set of files. Requires pyarrow to be installed.
+    """Create a new `Table` from a Parquet file or set of files. Requires pyarrow to be installed.
     Args:
         path_str: Path to the table within pixeltable.
         parquet_path: Path to an individual Parquet file or directory of Parquet files.

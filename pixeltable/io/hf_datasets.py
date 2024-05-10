@@ -80,7 +80,7 @@ def import_huggingface_dataset(
     schema_override: Optional[dict[str, Any]] = None,
     **kwargs,
 ) -> 'pixeltable.InsertableTable':
-    """Create a new `InsertableTable` from a Huggingface dataset, or dataset dict with multiple splits.
+    """Create a new `Table` from a Huggingface dataset, or dataset dict with multiple splits.
         Requires datasets library to be installed.
 
     Args:
