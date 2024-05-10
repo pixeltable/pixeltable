@@ -1,26 +1,31 @@
+from __future__ import annotations
+
 import io
 import json
 import logging
+import random
+import typing
 from collections import deque
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, Optional
 
-import numpy as np
 import PIL.Image
-import pyarrow as pa
-import pyarrow.parquet
+import numpy as np
 
-import pixeltable.type_system as ts
-from pixeltable.utils.arrow import iter_tuples, to_arrow_schema, to_pixeltable_schema
-from pixeltable.utils.transactional_directory import transactional_directory
 import pixeltable.exceptions as exc
+import pixeltable.type_system as ts
+from pixeltable.utils.transactional_directory import transactional_directory
 
-import random
+if typing.TYPE_CHECKING:
+    import pixeltable as pxt
+    import pyarrow as pa
 
 _logger = logging.getLogger(__name__)
 
 
 def _write_batch(value_batch : Dict[str, deque], schema : pa.Schema, output_path : Path) -> None:
+    import pyarrow as pa
+
     pydict = {}
     for field in schema:
         if isinstance(field.type, pa.FixedShapeTensorType):
@@ -32,7 +37,7 @@ def _write_batch(value_batch : Dict[str, deque], schema : pa.Schema, output_path
     tab = pa.Table.from_pydict(pydict, schema=schema)
     pa.parquet.write_table(tab, output_path)
 
-def save_parquet(df: 'pixeltable.DataFrame', dest_path: Path, partition_size_bytes: int = 100_000_000) -> None:
+def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int = 100_000_000) -> None:
     """
         Internal method to stream dataframe data to parquet format.
         Does not materialize the dataset to memory.
@@ -47,6 +52,8 @@ def save_parquet(df: 'pixeltable.DataFrame', dest_path: Path, partition_size_byt
             dest_path : path to directory to save the parquet files to.
             partition_size_bytes : maximum target size for each chunk. Default 100_000_000 bytes.
     """
+    from pixeltable.utils.arrow import to_arrow_schema
+
     column_names = df.get_column_names()
     column_types = df.get_column_types()
     type_dict = {k: v.as_dict() for k, v in zip(column_names, column_types)}
@@ -122,6 +129,8 @@ def save_parquet(df: 'pixeltable.DataFrame', dest_path: Path, partition_size_byt
 
 def parquet_schema_to_pixeltable_schema(parquet_path: str) -> Dict[str, Optional[ts.ColumnType]]:
     """Generate a default pixeltable schema for the given parquet file. Returns None for unknown types."""
+    import pyarrow as pa
+    from pixeltable.utils.arrow import to_pixeltable_schema
 
     input_path = Path(parquet_path).expanduser()
     parquet_dataset = pa.parquet.ParquetDataset(input_path)
@@ -134,7 +143,7 @@ def import_parquet(
     parquet_path: str,
     schema_override: Optional[Dict[str, ts.ColumnType]] = None,
     **kwargs,
-) -> 'catalog.InsertableTable':
+) -> pxt.catalog.InsertableTable:
     """Create a new `InsertableTable` from a Parquet file or set of files. Requires pyarrow to be installed.
     Args:
         path_str: Path to the table within pixeltable.
@@ -149,6 +158,9 @@ def import_parquet(
         The newly created table. The table will have loaded the data from the Parquet file(s).
     """
     import pixeltable as pxt
+    import pyarrow as pa
+    from pixeltable.utils.arrow import iter_tuples
+
     input_path = Path(parquet_path).expanduser()
     parquet_dataset = pa.parquet.ParquetDataset(input_path)
 
