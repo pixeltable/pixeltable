@@ -1,10 +1,10 @@
-from typing import Dict, Any, Tuple, Optional
+from typing import Tuple, Optional
 
 import PIL.Image
-from PIL.Image import Dither, Resampling
+from PIL.Image import Dither
 
-from pixeltable.type_system import FloatType, ImageType, IntType, ArrayType, ColumnType, StringType, JsonType, BoolType
 import pixeltable.func as func
+from pixeltable.type_system import FloatType, ImageType, IntType, ArrayType, ColumnType, StringType, JsonType
 
 
 @func.udf(
