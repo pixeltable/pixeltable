@@ -28,7 +28,6 @@ def udf(
         param_types: Optional[List[ts.ColumnType]] = None,
         batch_size: Optional[int] = None,
         substitute_fn: Optional[Callable] = None,
-        call_return_type: Optional[Callable] = None,
         _force_stored: bool = False
 ) -> Callable: ...
 
@@ -59,12 +58,11 @@ def udf(*args, **kwargs):
         param_types = kwargs.pop('param_types', None)
         batch_size = kwargs.pop('batch_size', None)
         substitute_fn = kwargs.pop('py_fn', None)
-        call_return_type = kwargs.pop('call_return_type', None)
         force_stored = kwargs.pop('_force_stored', False)
 
         def decorator(decorated_fn: Callable):
             return make_function(
-                decorated_fn, return_type, param_types, batch_size, call_return_type=call_return_type,
+                decorated_fn, return_type, param_types, batch_size,
                 substitute_fn=substitute_fn, force_stored=force_stored)
 
         return decorator
@@ -76,7 +74,6 @@ def make_function(
     param_types: Optional[List[ts.ColumnType]] = None,
     batch_size: Optional[int] = None,
     substitute_fn: Optional[Callable] = None,
-    call_return_type: Optional[Callable] = None,
     function_name: Optional[str] = None,
     force_stored: bool = False
 ) -> Function:
@@ -121,13 +118,10 @@ def make_function(
         py_fn = substitute_fn
 
     if batch_size is None:
-        result = CallableFunction(
-            signature=sig, py_fn=py_fn, self_path=function_path, self_name=function_name,
-            call_return_type=call_return_type)
+        result = CallableFunction(signature=sig, py_fn=py_fn, self_path=function_path, self_name=function_name)
     else:
         result = ExplicitBatchedFunction(
-            signature=sig, batch_size=batch_size, invoker_fn=py_fn, self_path=function_path,
-            call_return_type=call_return_type)
+            signature=sig, batch_size=batch_size, invoker_fn=py_fn, self_path=function_path)
 
     # If this function is part of a module, register it
     if function_path is not None:
