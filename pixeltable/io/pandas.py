@@ -1,8 +1,8 @@
-from typing import Optional, Any, Iterable
+from typing import Optional, Any
 
 import numpy as np
-
 import pandas as pd
+
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -128,7 +128,8 @@ def _np_dtype_to_pxt_type(np_dtype: np.dtype, data_col: pd.Series) -> pxt.Column
     raise excs.Error(f'Unsupported dtype: {np_dtype}')
 
 
-def _df_row_to_pxt_row(row: tuple[Any, ...], schema: dict[str, pxt.ColumnType]) -> Iterable[tuple[str, Any]]:
+def _df_row_to_pxt_row(row: tuple[Any, ...], schema: dict[str, pxt.ColumnType]) -> dict[str, Any]:
+    rows = {}
     for val, (col_name, pxt_type) in zip(row[1:], schema.items()):
         if pxt_type.is_float_type():
             val = float(val)
@@ -150,4 +151,5 @@ def _df_row_to_pxt_row(row: tuple[Any, ...], schema: dict[str, pxt.ColumnType]) 
                 val = None
             else:
                 val = pd.Timestamp(val).to_pydatetime()
-        yield col_name, val
+        rows[col_name] = val
+    return rows
