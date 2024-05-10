@@ -3,12 +3,12 @@ from __future__ import annotations
 import abc
 import importlib
 import inspect
-import pixeltable
 from typing import Optional, Dict, Any, Tuple, Callable
 
+import pixeltable
+import pixeltable.type_system as ts
 from .globals import resolve_symbol
 from .signature import Signature
-import pixeltable.type_system as ts
 
 
 class Function(abc.ABC):
@@ -20,20 +20,12 @@ class Function(abc.ABC):
     """
 
     def __init__(
-            self, signature: Signature, py_signature: inspect.Signature, self_path: Optional[str] = None,
-            call_return_type: Optional[Callable] = None
+            self, signature: Signature, py_signature: inspect.Signature, self_path: Optional[str] = None
     ):
         self.signature = signature
         self.py_signature = py_signature
         self.self_path = self_path  # fully-qualified path to self
-
-        if call_return_type is not None:
-            # verify that call_return_type only has parameters that are also present in the signature
-            sig = inspect.signature(call_return_type)
-            for param in sig.parameters.values():
-                if param.name not in signature.parameters:
-                    raise ValueError(f'call_return_type has parameter {param.name} that is not in the signature')
-        self._call_return_type = call_return_type
+        self._conditional_return_type: Optional[Callable[..., ts.ColumnType]] = None
 
     @property
     def name(self) -> str:
@@ -64,15 +56,25 @@ class Function(abc.ABC):
 
     def call_return_type(self, kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
-        if self._call_return_type is None:
+        if self._conditional_return_type is None:
             return self.signature.return_type
         bound_args = self.py_signature.bind(**kwargs)
         kw_args: dict[str, Any] = {}
-        sig = inspect.signature(self._call_return_type)
+        sig = inspect.signature(self._conditional_return_type)
         for param in sig.parameters.values():
             if param.name in bound_args.arguments:
                 kw_args[param.name] = bound_args.arguments[param.name]
-        return self._call_return_type(**kw_args)
+        return self._conditional_return_type(**kw_args)
+
+    def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
+        """Instance decorator for specifying a conditional return type for this function"""
+        # verify that call_return_type only has parameters that are also present in the signature
+        sig = inspect.signature(fn)
+        for param in sig.parameters.values():
+            if param.name not in self.signature.parameters:
+                raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in the signature')
+        self._conditional_return_type = fn
+        return fn
 
     @abc.abstractmethod
     def exec(self, *args: Any, **kwargs: Any) -> Any:

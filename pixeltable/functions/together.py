@@ -84,6 +84,7 @@ def chat_completions(
         tool_choice=tool_choice
     ).dict()
 
+
 _embedding_dimensions_cache = {
     'togethercomputer/m2-bert-80M-2k-retrieval': 768,
     'togethercomputer/m2-bert-80M-8k-retrieval': 768,
@@ -95,22 +96,23 @@ _embedding_dimensions_cache = {
     'bert-base-uncased': 768,
 }
 
-def _embeddings_call_return_type(model: str) -> pxt.ArrayType:
-    if model not in _embedding_dimensions_cache:
-        # TODO: find some other way to retrieve a sample
-        return pxt.ArrayType((None,), dtype=pxt.FloatType())
-    dimensions = _embedding_dimensions_cache[model]
-    return pxt.ArrayType((dimensions,), dtype=pxt.FloatType())
 
-@pxt.udf(
-    batch_size=32, return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()),
-    call_return_type=_embeddings_call_return_type)
+@pxt.udf(batch_size=32, return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()))
 def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
     result = together_client().embeddings.create(input=input, model=model)
     return [
         np.array(data.embedding, dtype=np.float64)
         for data in result.data
     ]
+
+
+@embeddings.conditional_return_type
+def _(model: str) -> pxt.ArrayType:
+    if model not in _embedding_dimensions_cache:
+        # TODO: find some other way to retrieve a sample
+        return pxt.ArrayType((None,), dtype=pxt.FloatType())
+    dimensions = _embedding_dimensions_cache[model]
+    return pxt.ArrayType((dimensions,), dtype=pxt.FloatType())
 
 
 @pxt.udf
