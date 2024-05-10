@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.request
 from copy import copy
 from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
+from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping, _SpecialForm
 
 import PIL.Image
 import av
@@ -240,10 +240,12 @@ class ColumnType:
                 return None
         return None
 
-
     @classmethod
     def from_python_type(cls, t: type) -> Optional[ColumnType]:
-        if typing.get_origin(t) is typing.Union:
+        if t is ImageT:
+            # Unconstrained image
+            return ImageType()
+        elif typing.get_origin(t) is typing.Union:
             union_args = typing.get_args(t)
             if union_args[1] is type(None):
                 # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
@@ -252,6 +254,24 @@ class ColumnType:
                 if underlying is not None:
                     underlying.nullable = True
                     return underlying
+        elif typing.get_origin(t) is typing.Annotated:
+            annotated_args = typing.get_args(t)
+            base = annotated_args[0]
+            parameters = annotated_args[1]
+            if base is str:
+                if parameters == 'pxt.VideoT':
+                    return VideoType()
+                elif parameters == 'pxt.AudioT':
+                    return AudioType()
+                elif parameters == 'pxt.DocumentT':
+                    return DocumentType()
+            elif issubclass(base, np.ndarray):
+                dtype, shape = parameters
+                pxt_dtype = cls.from_python_type(dtype)
+                if pxt_dtype is not None:
+                    return ArrayType(dtype=pxt_dtype, shape=shape)
+            elif issubclass(base, PIL.Image.Image):
+                return ImageType(size=parameters)
         else:
             # Discard type parameters to ensure that parameterized types such as `list[T]`
             # are correctly mapped to Pixeltable types.
@@ -885,3 +905,33 @@ class DocumentType(ColumnType):
                 raise excs.Error(f'Not a recognized document format: {val}')
         except Exception as e:
             raise excs.Error(f'Not a recognized document format: {val}') from None
+
+
+class SpecialType:
+
+    def __init__(self, fn: Callable):
+        self._getitem = fn
+        self._name = fn.__name__
+        self.__doc__ = fn.__doc__
+
+    def __repr__(self) -> str:
+        return self._name
+
+    def __getitem__(self, parameters):
+        return self._getitem(self, parameters)
+
+
+@SpecialType
+def ArrayT(_, parameters: tuple[type, tuple[Optional[int], ...]]) -> type:
+    dtype, dim = parameters
+    return typing.Annotated[np.ndarray, (dtype, dim)]
+
+
+@SpecialType
+def ImageT(_, dim: tuple[int, int]) -> type:
+    return typing.Annotated[PIL.Image.Image, dim]
+
+
+VideoT = typing.Annotated[str, 'pxt.VideoT']
+AudioT = typing.Annotated[str, 'pxt.AudioT']
+DocumentT = typing.Annotated[str, 'pxt.DocumentT']
