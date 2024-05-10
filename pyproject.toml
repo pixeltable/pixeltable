@@ -44,6 +44,8 @@ ftfy = "^6.2.0"
 optional = true
 
 [tool.poetry.group.dev.dependencies]
+# setuptools >= 69.2 has known issues with Github Actions
+setuptools = "69.1.1"
 # pytest-related
 pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
@@ -82,8 +84,6 @@ sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 datasets = ">=2.15.0"
 openpyxl = ">=3.1"  # Excel (.xlsx) support
-# setuptools >= 69.2 has known issues with Github Actions
-setuptools = "~69.1"
 
 [tool.poetry-dynamic-versioning]
 enable = true
