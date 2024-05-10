@@ -1,4 +1,4 @@
-from typing import Optional, Any
+from typing import Optional, Any, Iterable
 
 import numpy as np
 import pandas as pd
@@ -12,27 +12,27 @@ def import_pandas(
         tbl_name: str,
         df: pd.DataFrame,
         *,
-        schema: Optional[dict[str, pxt.ColumnType]] = None
+        schema_overrides: Optional[dict[str, pxt.ColumnType]] = None
 ) -> pxt.catalog.InsertableTable:
     """Creates a new `Table` from a Pandas `DataFrame`, with the specified name. The schema of the table
     will be inferred from the `DataFrame`, unless `schema` is specified.
 
+    The column names of the new `Table` will be identical to those in the `DataFrame`, as long as they are valid
+    Pixeltable identifiers. If a column name is not a valid Pixeltable identifier, it will be normalized according to
+    the following procedure:
+    - first replace any non-alphanumeric characters with underscores;
+    - then, preface the result with the letter 'c' if it begins with a number or an underscore;
+    - then, if there are any duplicate column names, suffix the duplicates with '_2', '_3', etc., in column order.
+
     Args:
         tbl_name: The name of the table to create.
         df: The Pandas `DataFrame`.
-        schema: If specified, then the importer will use `schema` as the table schema, instead of inferring it
-            from the `DataFrame`.
+        schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
+            name `name` will be given type `type`, instead of being inferred from the `DataFrame`. The keys in
+            `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid
+            Pixeltable identifiers).
     """
-    if schema is None:
-        # Infer schema
-        schema = _df_to_pxt_schema(df)
-    else:
-        # Validate the specified schema
-        if len(schema) != len(df.columns):
-            raise excs.Error(
-                f'Specified schema does not match number of columns in the given DataFrame: '
-                f'{len(schema)} != {len(df.columns)}'
-            )
+    schema = _df_to_pxt_schema(df, schema_overrides)
     tbl_rows = (
         dict(_df_row_to_pxt_row(row, schema))
         for row in df.itertuples()
@@ -45,7 +45,7 @@ def import_pandas(
 def import_csv(
         table_path: str,
         filepath_or_buffer,
-        schema: Optional[dict[str, ts.ColumnType]] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         **kwargs
 ) -> pxt.catalog.InsertableTable:
     """
@@ -54,14 +54,14 @@ def import_csv(
     See the Pandas documentation for `read_csv` for more details.
     """
     df = pd.read_csv(filepath_or_buffer, **kwargs)
-    return import_pandas(table_path, df, schema=schema)
+    return import_pandas(table_path, df, schema_overrides=schema_overrides)
 
 
 def import_excel(
         table_path: str,
         io,
         *args,
-        schema: Optional[dict[str, ts.ColumnType]] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         **kwargs
 ) -> pxt.catalog.InsertableTable:
     """
@@ -70,24 +70,34 @@ def import_excel(
     See the Pandas documentation for `read_excel` for more details.
     """
     df = pd.read_excel(io, *args, **kwargs)
-    return import_pandas(table_path, df, schema=schema)
+    return import_pandas(table_path, df, schema_overrides=schema_overrides)
 
 
-def _df_to_pxt_schema(df: pd.DataFrame) -> dict[str, pxt.ColumnType]:
-    cols = [
-        (_normalize_pxt_col_name(pd_name), _np_dtype_to_pxt_type(pd_dtype, df[pd_name]))
-        for pd_name, pd_dtype in zip(df.columns, df.dtypes)
-    ]
+def _df_to_pxt_schema(
+        df: pd.DataFrame,
+        schema_overrides: Optional[dict[str, pxt.ColumnType]]
+) -> dict[str, pxt.ColumnType]:
+    if schema_overrides is not None:
+        for pd_name in schema_overrides:
+            if pd_name not in df.columns:
+                raise excs.Error(
+                    f'Column `{pd_name}` specified in `schema_overrides` does not exist in the given `DataFrame`.'
+                )
     schema = {}
-    for col_name, col_type in cols:
-        # Ensure that column names are unique by appending a unique suffix
+    for pd_name, pd_dtype in zip(df.columns, df.dtypes):
+        if schema_overrides is not None and pd_name in schema_overrides:
+            pxt_type = schema_overrides[pd_name]
+        else:
+            pxt_type = _np_dtype_to_pxt_type(pd_dtype, df[pd_name])
+        pxt_name = _normalize_pxt_col_name(pd_name)
+        # Ensure that column names are unique by appending a distinguishing suffix
         # to any collisions
-        if col_name in schema:
+        if pxt_name in schema:
             n = 2
-            while f'{col_name}_{n}' in schema:
+            while f'{pxt_name}_{n}' in schema:
                 n += 1
-            col_name = f'{col_name}_{n}'
-        schema[col_name] = col_type
+            pxt_name = f'{pxt_name}_{n}'
+        schema[pxt_name] = pxt_type
     return schema
 
 

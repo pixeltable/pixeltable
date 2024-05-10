@@ -1,8 +1,10 @@
 import datetime
 
 import numpy as np
+import pytest
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 from ..utils import skip_test_if_not_installed
 
 
@@ -76,7 +78,7 @@ class TestPandas:
         t4 = import_csv(
             'images',
             'pixeltable/tests/data/datasets/images.csv',
-            schema={'name': pxt.StringType(), 'image': pxt.ImageType(nullable=True)}
+            schema_overrides={'image': pxt.ImageType(nullable=True)}
         )
         assert t4.count() == 4
         assert t4.column_types() == {
@@ -101,6 +103,17 @@ class TestPandas:
         assert t5.column_types()['OrderDate'] == pxt.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
         assert t5.df().collect()[43]['OrderDate'] is None
+
+    def test_pandas_errors(self, reset_db) -> None:
+        from pixeltable.io import import_csv
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = import_csv(
+                'online_foods',
+                'pixeltable/tests/data/datasets/onlinefoods.csv',
+                schema_overrides={'Non-Column': pxt.StringType()}
+            )
+        assert '`Non-Column` specified in `schema_overrides` does not exist' in str(exc_info.value)
 
 
 def _assert_equals_with_nans(a: list[float], b: list[float]) -> bool:
