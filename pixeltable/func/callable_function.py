@@ -23,12 +23,12 @@ class CallableFunction(Function):
 
     def __init__(
             self, signature: Signature, py_fn: Callable, self_path: Optional[str] = None,
-            self_name: Optional[str] = None, call_return_type: Optional[Callable] = None):
+            self_name: Optional[str] = None):
         assert py_fn is not None
         self.py_fn = py_fn
         self.self_name = self_name
         py_signature = inspect.signature(self.py_fn)
-        super().__init__(signature, py_signature, self_path=self_path, call_return_type=call_return_type)
+        super().__init__(signature, py_signature, self_path=self_path)
 
     def exec(self, *args: Any, **kwargs: Any) -> Any:
         return self.py_fn(*args, **kwargs)
