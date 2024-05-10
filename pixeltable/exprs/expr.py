@@ -397,9 +397,12 @@ class Expr(abc.ABC):
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert False, 'not implemented'
 
-    def isin(self, value_list: list[Any]) -> 'pixeltable.exprs.InPredicate':
+    def isin(self, value_set: Any) -> 'pixeltable.exprs.InPredicate':
         from .in_predicate import InPredicate
-        return InPredicate(self, value_list)
+        if isinstance(value_set, Expr):
+            return InPredicate(self, value_set_expr=value_set)
+        else:
+            return InPredicate(self, value_set_literal=value_set)
 
     def astype(self, new_type: ts.ColumnType) -> 'pixeltable.exprs.TypeCast':
         from pixeltable.exprs import TypeCast
