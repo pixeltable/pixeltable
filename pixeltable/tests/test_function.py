@@ -330,10 +330,12 @@ class TestFunction:
         assert 'cannot infer pixeltable type for parameter untyped' in str(exc_info.value).lower()
 
         with pytest.raises(ValueError) as exc_info:
-            def _call_return_type(wrong_param: str) -> pxt.ColumnType:
+            @udf6.conditional_return_type
+            def _(wrong_param: str) -> pxt.ColumnType:
                 return pxt.StringType()
-            @pxt.udf(call_return_type=_call_return_type)
-            def udf6(name: str) -> str:
-                return ''
-        assert 'wrong_param that is not in the signature' in str(exc_info.value).lower()
+        assert '`wrong_param` that is not in the signature' in str(exc_info.value).lower()
 
+
+@pxt.udf
+def udf6(name: str) -> str:
+    return ''

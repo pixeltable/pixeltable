@@ -373,13 +373,6 @@ class ColumnType:
         return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
     @abc.abstractmethod
-    def to_sql(self) -> str:
-        """
-        Return corresponding Postgres type.
-        """
-        pass
-
-    @abc.abstractmethod
     def to_sa_type(self) -> sql.types.TypeEngine:
         """
         Return corresponding SQLAlchemy type.
@@ -406,9 +399,6 @@ class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INVALID, nullable=nullable)
 
-    def to_sql(self) -> str:
-        assert False
-
     def to_sa_type(self) -> sql.types.TypeEngine:
         assert False
 
@@ -434,9 +424,6 @@ class StringType(ColumnType):
                 return None
         return convert
 
-    def to_sql(self) -> str:
-        return 'VARCHAR'
-
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.String()
 
@@ -460,9 +447,6 @@ class IntType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INT, nullable=nullable)
 
-    def to_sql(self) -> str:
-        return 'BIGINT'
-
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.BigInteger()
 
@@ -474,9 +458,6 @@ class IntType(ColumnType):
 class FloatType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.FLOAT, nullable=nullable)
-
-    def to_sql(self) -> str:
-        return 'FLOAT'
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.Float()
@@ -495,9 +476,6 @@ class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.BOOL, nullable=nullable)
 
-    def to_sql(self) -> str:
-        return 'BOOLEAN'
-
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.Boolean()
 
@@ -514,9 +492,6 @@ class BoolType(ColumnType):
 class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
-
-    def to_sql(self) -> str:
-        return 'INTEGER'
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.TIMESTAMP()
@@ -552,9 +527,6 @@ class JsonType(ColumnType):
                 field_name: cls.deserialize(field_type_dict) for field_name, field_type_dict in d['type_spec'].items()
             }
         return cls(type_spec, nullable=d['nullable'])
-
-    def to_sql(self) -> str:
-        return 'JSONB'
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.dialects.postgresql.JSONB()
@@ -659,9 +631,6 @@ class ArrayType(ColumnType):
             return np.array(val, dtype=self.numpy_dtype())
         return val
 
-    def to_sql(self) -> str:
-        return 'BYTEA'
-
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.LargeBinary()
 
@@ -764,9 +733,6 @@ class ImageType(ColumnType):
             return img
         return convert
 
-    def to_sql(self) -> str:
-        return 'VARCHAR'
-
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.String()
 
@@ -787,11 +753,8 @@ class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.VIDEO, nullable=nullable)
 
-    def to_sql(self) -> str:
-        # stored as a file path
-        return 'VARCHAR'
-
     def to_sa_type(self) -> sql.types.TypeEngine:
+        # stored as a file path
         return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
@@ -822,11 +785,8 @@ class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.AUDIO, nullable=nullable)
 
-    def to_sql(self) -> str:
-        # stored as a file path
-        return 'VARCHAR'
-
     def to_sa_type(self) -> sql.types.TypeEngine:
+        # stored as a file path
         return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
@@ -866,11 +826,8 @@ class DocumentType(ColumnType):
         else:
             self._doc_formats = [t for t in self.DocumentFormat]
 
-    def to_sql(self) -> str:
-        # stored as a file path
-        return 'VARCHAR'
-
     def to_sa_type(self) -> sql.types.TypeEngine:
+        # stored as a file path
         return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
