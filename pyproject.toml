@@ -1,10 +1,10 @@
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core", "poetry-dynamic-versioning>=1.3.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.poetry]
 name = "pixeltable"
-version = "0.2.5"
+version = "0.0.0"
 description = "Pixeltable: The Multimodal AI Data Plane"
 authors = ["Marcel Kornacker <marcelk@gmail.com>"]
 readme = "README.md"
@@ -84,6 +84,14 @@ datasets = ">=2.15.0"
 openpyxl = ">=3.1"  # Excel (.xlsx) support
 # setuptools >= 69.2 has known issues with Github Actions
 setuptools = "~69.1"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+vcs = "git"
+dirty = true
+
+[tool.poetry-dynamic-versioning.substitution]
+files = ["pixeltable/__version__.py"]
 
 [tool.mypy]
 plugins = "sqlalchemy.ext.mypy.plugin"
