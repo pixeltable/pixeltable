@@ -2,6 +2,7 @@ import json
 import urllib.parse
 import urllib.request
 from typing import List, Dict
+from datetime import datetime
 
 import pytest
 import sqlalchemy as sql
@@ -16,7 +17,7 @@ from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import cast, sum, count
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
-from .utils import get_image_files, skip_test_if_not_installed, validate_update_status
+from .utils import get_image_files, skip_test_if_not_installed, validate_update_status, reload_catalog
 from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
     VideoType
 
@@ -358,18 +359,42 @@ class TestExprs:
 
     def test_in(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        rows = list(t.where(t.c2.isin([1, 2, 3])).select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).collect())
+        user_cols = [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]
+        # list of literals
+        rows = list(t.where(t.c2.isin([1, 2, 3])).select(*user_cols).collect())
         assert len(rows) == 3
 
-        with pytest.raises(excs.Error) as excinfo:
-            # incompatible values
-            _ = t.where(t.c2.isin([1, 'a'])).collect()
-        assert "list item 'a' is not compatible with the type of c2" in str(excinfo.value)
+        # list of literals with some incompatible values
+        rows = list(t.where(t.c2.isin(['a', datetime.now(), 1, 2, 3])).select(*user_cols).collect())
+        assert len(rows) == 3
+
+        # dict of literals
+        rows = list(t.where(t.c2.isin({1: 'a', 2: 'b', 3: 'c'})).select(*user_cols).collect())
+        assert len(rows) == 3
+
+        # json expr
+        rows = list(t.where(t.c2.isin(t.c6.f5)).select(*user_cols).collect())
+        assert len(rows) == 3
 
         with pytest.raises(excs.Error) as excinfo:
             # not a scalar
             _ = t.where(t.c6.isin([{'a': 1}, {'b': 2}])).collect()
         assert 'only supported for scalar types' in str(excinfo.value)
+
+        with pytest.raises(excs.Error) as excinfo:
+            # bad json path returns None
+            _ = t.where(t.c2.isin(t.c7.badpath)).collect()
+        assert 'must be a list or dict, not None' in str(excinfo.value)
+
+        with pytest.raises(excs.Error) as excinfo:
+            # json path returns scalar
+            _ = t.where(t.c2.isin(t.c6.f2)).collect()
+        assert 'must be a list or dict, not 0' in str(excinfo.value)
+
+        with pytest.raises(excs.Error) as excinfo:
+            # not a scalar
+            _ = t.where(t.c2.isin(t.c1)).collect()
+        assert 'c1 has type string' in str(excinfo.value)
 
         status = t.add_column(in_test=t.c2.isin([1, 2, 3]))
         assert status.num_excs == 0
@@ -380,8 +405,8 @@ class TestExprs:
         validate_update_status(t.insert(rows), len(rows))
 
         # still works after catalog reload
-        cl = pxt.Client(reload=True)
-        t = cl.get_table('test_tbl')
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
         inc_pk(rows, 1000)
         validate_update_status(t.insert(rows), len(rows))
 

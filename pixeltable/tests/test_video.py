@@ -9,7 +9,7 @@ from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 from pixeltable.type_system import VideoType, ImageType
 from pixeltable.utils.media_store import MediaStore
-from .utils import get_video_files, skip_test_if_not_installed, reload_db
+from .utils import get_video_files, skip_test_if_not_installed, reload_catalog
 
 
 class TestVideo:
@@ -148,6 +148,6 @@ class TestVideo:
             view_t.add_column(agg2=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store
-        reload_db()
+        reload_catalog()
         base_t, view_t = pxt.get_table(base_t.get_name()), pxt.get_table(view_t.get_name())
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()

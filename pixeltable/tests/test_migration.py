@@ -10,7 +10,7 @@ import pytest
 
 from pixeltable.env import Env
 from .conftest import clean_db
-from .utils import reload_db
+from .utils import reload_catalog
 
 _logger = logging.getLogger('pixeltable')
 
@@ -43,4 +43,4 @@ class TestMigration:
                 )
             # TODO(aaron-siegel) This will test that the migration succeeds without raising any exceptions.
             # We should also add some assertions to sanity-check the outcome.
-            reload_db()
+            reload_catalog()

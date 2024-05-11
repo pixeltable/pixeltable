@@ -21,7 +21,7 @@ class InPredicate(Predicate):
             raise excs.Error(f'isin(): only supported for scalar types, not {lhs.col_type}')
         super().__init__()
 
-        self.value_list: Optional[list[Any]] = None
+        self.value_list: Optional[list[Any]] = None  # only contains values of the correct type
         if value_set_expr is not None:
             if not value_set_expr.col_type.is_json_type():
                 raise excs.Error(
@@ -61,7 +61,9 @@ class InPredicate(Predicate):
         return result
 
     def __str__(self) -> str:
-        return f'{self.components[0]}.isin({self.value_list})'
+        if self.value_list is not None:
+            return f'{self.components[0]}.isin({self.value_list})'
+        return f'{self.components[0]}.isin({self.components[1]})'
 
     def _equals(self, other: InPredicate) -> bool:
         return self.value_list == other.value_list
