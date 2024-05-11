@@ -341,6 +341,31 @@ class DataFrame:
         assert set(out_names) == seen_out_names
         return out_exprs, out_names
 
+    def _vars(self) -> dict[str, exprs.Variable]:
+        """Return a dict mapping parameter name to Variable"""
+        all_exprs: list[exprs.Expr] = []
+        all_exprs.extend(self._select_list_exprs)
+        if self.where_clause is not None:
+            all_exprs.append(self.where_clause)
+        if self.group_by_clause is not None:
+            all_exprs.extend(self.group_by_clause)
+        if self.order_by_clause is not None:
+            all_exprs.extend([expr for expr, _ in self.order_by_clause])
+        vars = exprs.Expr.list_subexprs(all_exprs, expr_class=exprs.Variable)
+        unique_vars: dict[str, exprs.Variable] = {}
+        for var in vars:
+            if var.name not in unique_vars:
+                unique_vars[var.name] = var.col_type
+            else:
+                if unique_vars[var.name] != var.col_type:
+                    raise excs.Error(f'Multiple definitions of parameter {var.name}')
+        return unique_vars
+
+    def parameters(self) -> dict[str, ColumnType]:
+        """Return a dict mapping parameter name to parameter type"""
+        vars = self._vars()
+        return {name: var.col_type for name, var in vars.items()}
+
     def _exec(self) -> Generator[exprs.DataRow, None, None]:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
@@ -399,6 +424,34 @@ class DataFrame:
 
     def get_column_types(self) -> List[ColumnType]:
         return [expr.col_type for expr in self._select_list_exprs]
+
+    def bind(self, args: dict[str, Any]) -> DataFrame:
+        """Bind arguments to parameters and return a new DataFrame."""
+        # substitute Variables with the corresponding values according to 'args', converted to Literals
+        select_list_exprs = copy.deepcopy(self._select_list_exprs)
+        where_clause = copy.deepcopy(self.where_clause)
+        group_by_clause = copy.deepcopy(self.group_by_clause)
+        order_by_exprs = copy.deepcopy([order_by_expr for order_by_expr, _ in self.order_by_clause])
+        vars = self._vars()
+        for arg_name, arg_val in args.items():
+            assert arg_name in vars
+            var_expr = vars[arg_name]
+            arg_expr = exprs.Expr.from_object(arg_val)
+            if arg_expr is None:
+                raise excs.Error(f'Cannot convert argument {arg_val} to a Pixeltable expression')
+
+            exprs.Expr.list_substitute(select_list_exprs, var_expr, arg_expr)
+            if where_clause is not None:
+                where_clause.substitute(var_expr, arg_expr)
+            exprs.Expr.list_substitute(group_by_clause, var_expr, arg_expr)
+            exprs.Expr.list_substitute(order_by_exprs, var_expr, arg_expr)
+        select_list = zip(select_list_exprs, self._column_names)
+        order_by_clause = [(expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])]
+
+        return DataFrame(
+            self.tbl, select_list=select_list, where_clause=where_clause,
+            group_by_clause=group_by_clause, grouping_tbl=self.grouping_tbl,
+            order_by_clause=order_by_clause, limit=self.limit_val)
 
     def collect(self) -> DataFrameResultSet:
         try:

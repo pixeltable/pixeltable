@@ -242,6 +242,16 @@ class TestFunction:
                 return order_by
         assert 'reserved' in str(exc_info.value)
 
+    @pxt.query
+    def lt_x(t, x: int) -> int:
+        return t.where(t.c2 < x)
+
+    def test_query(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+
+        res1 = t.select(out=self.lt_x(t, 10)).order_by(t.c2).collect()
+        pass
+
     @pxt.expr_udf
     def add1(x: int) -> int:
         return x + 1

@@ -2,8 +2,8 @@ from .catalog import Column, Table, InsertableTable, View
 from .dataframe import DataFrame
 from .exceptions import Error, Error
 from .exprs import RELATIVE_PATH_ROOT
-from .func import Function, udf, uda, Aggregator, expr_udf
 from .globals import *
+from .func import Function, udf, uda, Aggregator, expr_udf, query
 from .type_system import \
     ColumnType, StringType, IntType, FloatType, BoolType, TimestampType, JsonType, ArrayType, ImageType, VideoType, \
     AudioType, DocumentType
@@ -38,4 +38,5 @@ __all__ = [
     'Aggregator',
     'uda',
     'expr_udf',
+    'query',
 ]

@@ -158,7 +158,9 @@ class Expr(abc.ABC):
         return result
 
     @classmethod
-    def copy_list(cls, expr_list: List[Expr]) -> List[Expr]:
+    def copy_list(cls, expr_list: Optional[List[Expr]]) -> Optional[List[Expr]]:
+        if expr_list is None:
+            return None
         return [e.copy() for e in expr_list]
 
     def __deepcopy__(self, memo=None) -> Expr:
