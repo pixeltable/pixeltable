@@ -41,7 +41,7 @@ To verify that it's working:
 
 ```
 import pixeltable as pxt
-cl = pxt.Client()
+pxt.list_tables()
 ```
 
 For more detailed installation instructions, see the
