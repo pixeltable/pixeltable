@@ -11,8 +11,8 @@ readme = "README.md"
 exclude = [
     ".pytype",
     ".pytest_cache",
-    "pixeltable/.pytest_cache",
-    "pixeltable/tests/data"
+    "tests",
+    "docs",
 ]
 
 [tool.poetry.dependencies]
