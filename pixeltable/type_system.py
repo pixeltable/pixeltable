@@ -80,7 +80,7 @@ class ColumnType:
         (Type.INT, Type.FLOAT): Type.FLOAT,
     }
 
-    def __init__(self, t: Type, nullable: bool = False):
+    def __init__(self, t: Type, nullable: bool = True):
         self._type = t
         self.nullable = nullable
 
@@ -396,7 +396,7 @@ class ColumnType:
 
 
 class InvalidType(ColumnType):
-    def __init__(self, nullable: bool = False):
+    def __init__(self, nullable: bool = True):
         super().__init__(self.Type.INVALID, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
@@ -410,7 +410,7 @@ class InvalidType(ColumnType):
 
 
 class StringType(ColumnType):
-    def __init__(self, nullable: bool = False):
+    def __init__(self, nullable: bool = True):
         super().__init__(self.Type.STRING, nullable=nullable)
 
     def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
@@ -444,7 +444,7 @@ class StringType(ColumnType):
 
 
 class IntType(ColumnType):
-    def __init__(self, nullable: bool = False):
+    def __init__(self, nullable: bool = True):
         super().__init__(self.Type.INT, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
@@ -456,7 +456,7 @@ class IntType(ColumnType):
 
 
 class FloatType(ColumnType):
-    def __init__(self, nullable: bool = False):
+    def __init__(self, nullable: bool = True):
         super().__init__(self.Type.FLOAT, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
@@ -473,7 +473,7 @@ class FloatType(ColumnType):
 
 
 class BoolType(ColumnType):
-    def __init__(self, nullable: bool = False):
+    def __init__(self, nullable: bool = True):
         super().__init__(self.Type.BOOL, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
@@ -490,7 +490,7 @@ class BoolType(ColumnType):
 
 
 class TimestampType(ColumnType):
-    def __init__(self, nullable: bool = False):
+    def __init__(self, nullable: bool = True):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
@@ -508,7 +508,7 @@ class TimestampType(ColumnType):
 
 class JsonType(ColumnType):
     # TODO: type_spec also needs to be able to express lists
-    def __init__(self, type_spec: Optional[Dict[str, ColumnType]] = None, nullable: bool = False):
+    def __init__(self, type_spec: Optional[dict[str, ColumnType]] = None, nullable: bool = True):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_spec = type_spec
 
@@ -553,7 +553,7 @@ class JsonType(ColumnType):
 
 class ArrayType(ColumnType):
     def __init__(
-            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
+            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = True):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         self.shape = shape
         assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
@@ -649,7 +649,7 @@ class ArrayType(ColumnType):
 class ImageType(ColumnType):
     def __init__(
             self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[Tuple[int, int]] = None,
-            mode: Optional[str] = None, nullable: bool = False
+            mode: Optional[str] = None, nullable: bool = True
     ):
         """
         TODO: does it make sense to specify only width or height?
@@ -750,7 +750,7 @@ class ImageType(ColumnType):
 
 
 class VideoType(ColumnType):
-    def __init__(self, nullable: bool = False):
+    def __init__(self, nullable: bool = True):
         super().__init__(self.Type.VIDEO, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
@@ -782,7 +782,7 @@ class VideoType(ColumnType):
 
 
 class AudioType(ColumnType):
-    def __init__(self, nullable: bool = False):
+    def __init__(self, nullable: bool = True):
         super().__init__(self.Type.AUDIO, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
@@ -815,7 +815,7 @@ class DocumentType(ColumnType):
         MD = 1
         PDF = 2
 
-    def __init__(self, nullable: bool = False, doc_formats: Optional[str] = None):
+    def __init__(self, nullable: bool = True, doc_formats: Optional[str] = None):
         super().__init__(self.Type.DOCUMENT, nullable=nullable)
         if doc_formats is not None:
             type_strs = doc_formats.split(',')

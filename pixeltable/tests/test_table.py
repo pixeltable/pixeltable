@@ -319,15 +319,15 @@ class TestTable:
         assert '"stored" must be a bool' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            pxt.create_table('test', {'c1': StringType()}, primary_key='c2')
+            pxt.create_table('test', {'c1': StringType(nullable=False)}, primary_key='c2')
         assert 'primary key column c2 not found' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            pxt.create_table('test', {'c1': StringType()}, primary_key=['c1', 'c2'])
+            pxt.create_table('test', {'c1': StringType(nullable=False)}, primary_key=['c1', 'c2'])
         assert 'primary key column c2 not found' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            pxt.create_table('test', {'c1': StringType()}, primary_key=['c2'])
+            pxt.create_table('test', {'c1': StringType(nullable=False)}, primary_key=['c2'])
         assert 'primary key column c2 not found' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
@@ -335,7 +335,7 @@ class TestTable:
         assert 'primary_key must be a' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            pxt.create_table('test', {'c1': StringType(nullable=True)}, primary_key='c1')
+            pxt.create_table('test', {'c1': StringType()}, primary_key='c1')
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
     def check_bad_media(
@@ -679,7 +679,7 @@ class TestTable:
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
 
         # test composite primary key
-        schema = {'c1': StringType(), 'c2': IntType(), 'c3': FloatType()}
+        schema = {'c1': StringType(nullable=False), 'c2': IntType(nullable=False), 'c3': FloatType()}
         t = pxt.create_table('composite', schema=schema, primary_key=['c1', 'c2'])
         rows = [{'c1': str(i), 'c2': i, 'c3': float(i)} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
