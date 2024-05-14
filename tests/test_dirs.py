@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from .utils import make_tbl, reload_db
+from .utils import make_tbl, reload_catalog
 
 
 class TestDirs:
@@ -46,7 +46,7 @@ class TestDirs:
             pxt.create_dir('t2.sub2')
 
         # new client: force loading from store
-        reload_db()
+        reload_catalog()
 
         listing = pxt.list_dirs(recursive=True)
         assert listing == dirs
@@ -85,7 +85,7 @@ class TestDirs:
         assert pxt.list_dirs('dir1.sub1') == []
 
         # check after reloading
-        reload_db()
+        reload_catalog()
         assert pxt.list_dirs('dir1.sub1') == []
 
     def test_move(self, reset_db) -> None:
@@ -100,5 +100,5 @@ class TestDirs:
         assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']
 
         # new client: force loading from store
-        reload_db()
+        reload_catalog()
         assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']

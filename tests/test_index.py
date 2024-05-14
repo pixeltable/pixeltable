@@ -3,7 +3,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
-from .utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed, reload_db
+from .utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed, reload_catalog
 
 
 class TestIndex:
@@ -120,7 +120,7 @@ class TestIndex:
         img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
-        reload_db()
+        reload_catalog()
         img_t = pxt.get_table(tbl_name)
         status = img_t.insert(rows)
         assert status.num_excs == 0
