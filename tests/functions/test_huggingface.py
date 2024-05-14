@@ -5,7 +5,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.type_system import StringType, JsonType, ImageType, BoolType, FloatType
 from ..utils import skip_test_if_not_installed, get_sentences, get_image_files, \
-    SAMPLE_IMAGE_URL, reload_db
+    SAMPLE_IMAGE_URL, reload_catalog
 
 
 class TestHuggingface:
@@ -62,7 +62,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        reload_db()
+        reload_catalog()
         t = pxt.get_table('test_tbl')
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
@@ -96,7 +96,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        reload_db()
+        reload_catalog()
         t = pxt.get_table('test_tbl')
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
@@ -132,7 +132,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        reload_db()
+        reload_catalog()
         t = pxt.get_table('test_tbl')
         status = t.insert({'text': text, 'img': img} for text, img in zip(sents, imgs))
         assert status.num_rows == len(sents)

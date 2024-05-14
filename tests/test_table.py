@@ -24,7 +24,7 @@ from pixeltable.utils.media_store import MediaStore
 from .utils import \
     make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
     assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table, validate_update_status
-from .utils import skip_test_if_not_installed, reload_db
+from .utils import skip_test_if_not_installed, reload_catalog
 
 
 class TestTable:
@@ -86,7 +86,7 @@ class TestTable:
             _ = pxt.list_tables('dir2')
 
         # test loading with new client
-        reload_db()
+        reload_catalog()
 
         tbl = pxt.get_table('test')
         assert isinstance(tbl, catalog.InsertableTable)
@@ -467,7 +467,7 @@ class TestTable:
         assert cache_stats.num_hits == 0
 
         # start with fresh client and FileCache instance to test FileCache initialization with pre-existing files
-        reload_db()
+        reload_catalog()
         # is there a better way to do this?
         FileCache._instance = None
         t = pxt.get_table('test')
@@ -517,7 +517,7 @@ class TestTable:
         view.add_column(c5=self.window_fn(view.frame_idx, 1, group_by=view.video))
 
         # reload to make sure that metadata gets restored correctly
-        reload_db()
+        reload_catalog()
         tbl = pxt.get_table('test_tbl')
         view = pxt.get_table('test_view')
         # we're inserting only a single row and the video column is not in position 0
@@ -661,7 +661,7 @@ class TestTable:
         _ = t.show(n=0)
 
         # test querying existing table
-        reload_db()
+        reload_catalog()
         t2 = pxt.get_table('test')
         _  = t2.show(n=0)
 
@@ -773,7 +773,7 @@ class TestTable:
         assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'] == computed3)
 
         # revert, then verify that we're back to where we started
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
@@ -860,7 +860,7 @@ class TestTable:
         assert cnt == 1
 
         # revert, then verify that we're back where we started
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
@@ -924,7 +924,7 @@ class TestTable:
             t.insert(rows2)
 
         # test loading from store
-        reload_db()
+        reload_catalog()
         t = pxt.get_table('test')
         assert len(t.columns()) == len(t.columns())
         for i in range(len(t.columns())):
@@ -973,7 +973,7 @@ class TestTable:
 
         check(t)
         # test loading from store
-        reload_db()
+        reload_catalog()
         t = pxt.get_table('test')
         check(t)
 
@@ -1015,7 +1015,7 @@ class TestTable:
         assert MediaStore.count(t.get_id()) == t.count() * stores_img_col
 
         # test loading from store
-        reload_db()
+        reload_catalog()
         t2 = pxt.get_table(t.get_name())
         assert len(t.columns()) == len(t2.columns())
         for i in range(len(t.columns())):
@@ -1144,7 +1144,7 @@ class TestTable:
             _ = t.add_column(c5=(t.c2 + t.c3), stored=False)
 
         # make sure this is still true after reloading the metadata
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols + 1
 
@@ -1153,7 +1153,7 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols
 
@@ -1195,7 +1195,7 @@ class TestTable:
         assert 'duplicate column name' in str(exc_info.value).lower()
 
         # make sure this is still true after reloading the metadata
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols + 2
 
@@ -1205,7 +1205,7 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols
 
@@ -1219,7 +1219,7 @@ class TestTable:
             t.drop_column('unknown')
 
         # make sure this is still true after reloading the metadata
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols - 1
 
@@ -1228,7 +1228,7 @@ class TestTable:
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         assert len(t.columns()) == num_orig_cols
 
@@ -1257,7 +1257,7 @@ class TestTable:
             t.rename_column('c2', 'c3')
 
         # make sure this is still true after reloading the metadata
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         check_rename(t, 'c1_renamed', 'c1')
 
@@ -1268,7 +1268,7 @@ class TestTable:
         #check_rename(t, 'c1', 'c1_renamed')
 
         # make sure this is still true after reloading the metadata once more
-        reload_db()
+        reload_catalog()
         t = pxt.get_table(t.get_name())
         check_rename(t, 'c1', 'c1_renamed')
 
