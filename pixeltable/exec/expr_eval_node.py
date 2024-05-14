@@ -1,19 +1,19 @@
-import sys
-import warnings
-from typing import List, Optional, Tuple
-from dataclasses import dataclass, field
 import logging
+import sys
 import time
+import warnings
+from dataclasses import dataclass
+from typing import List, Optional
 
 from tqdm import tqdm, TqdmWarning
 
+import pixeltable.exprs as exprs
+from pixeltable.func import CallableFunction
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-import pixeltable.exprs as exprs
-import pixeltable.func as func
-
 
 _logger = logging.getLogger('pixeltable')
+
 
 class ExprEvalNode(ExecNode):
     """Materializes expressions
@@ -22,7 +22,7 @@ class ExprEvalNode(ExecNode):
     class Cohort:
         """List of exprs that form an evaluation context and contain calls to at most one external function"""
         exprs: List[exprs.Expr]
-        ext_function: Optional[func.BatchedFunction]
+        batched_fn: Optional[CallableFunction]
         segment_ctxs: List[exprs.RowBuilder.EvalCtx]
         target_slot_idxs: List[int]
         batch_size: int = 8
@@ -63,12 +63,12 @@ class ExprEvalNode(ExecNode):
         if self.pbar is not None:
             self.pbar.close()
 
-    def _get_batched_fn(self, expr: exprs.Expr) -> Optional[func.BatchedFunction]:
-        if not isinstance(expr, exprs.FunctionCall):
-            return None
-        return expr.fn if isinstance(expr.fn, func.BatchedFunction) else None
+    def _get_batched_fn(self, expr: exprs.Expr) -> Optional[CallableFunction]:
+        if isinstance(expr, exprs.FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched:
+            return expr.fn
+        return None
 
-    def _is_ext_call(self, expr: exprs.Expr) -> bool:
+    def _is_batched_fn_call(self, expr: exprs.Expr) -> bool:
         return self._get_batched_fn(expr) is not None
 
     def _create_cohorts(self) -> None:
@@ -76,14 +76,14 @@ class ExprEvalNode(ExecNode):
         # break up all_exprs into cohorts such that each cohort contains calls to at most one external function;
         # seed the cohorts with only the ext fn calls
         cohorts: List[List[exprs.Expr]] = []
-        current_ext_function: Optional[func.BatchedFunction] = None
+        current_batched_fn: Optional[CallableFunction] = None
         for e in all_exprs:
-            if not self._is_ext_call(e):
+            if not self._is_batched_fn_call(e):
                 continue
-            if current_ext_function is None or current_ext_function != e.fn:
+            if current_batched_fn is None or current_batched_fn != e.fn:
                 # create a new cohort
                 cohorts.append([])
-                current_ext_function = e.fn
+                current_batched_fn = e.fn
             cohorts[-1].append(e)
 
         # expand the cohorts to include all exprs that are in the same evaluation context as the external calls;
@@ -115,13 +115,13 @@ class ExprEvalNode(ExecNode):
             assert len(cohort) > 0
             # create the first segment here, so we can avoid checking for an empty list in the loop
             segments = [[cohort[0]]]
-            is_ext_segment = self._is_ext_call(cohort[0])
-            ext_fn: Optional[func.BatchedFunction] = self._get_batched_fn(cohort[0])
+            is_ext_segment = self._is_batched_fn_call(cohort[0])
+            batched_fn: Optional[CallableFunction] = self._get_batched_fn(cohort[0])
             for e in cohort[1:]:
-                if self._is_ext_call(e):
+                if self._is_batched_fn_call(e):
                     segments.append([e])
                     is_ext_segment = True
-                    ext_fn = self._get_batched_fn(e)
+                    batched_fn = self._get_batched_fn(e)
                 else:
                     if is_ext_segment:
                         # start a new segment
@@ -135,21 +135,21 @@ class ExprEvalNode(ExecNode):
                     slot_idxs=[e.slot_idx for e in s], exprs=s, target_slot_idxs=[], target_exprs=[])
                 for s in segments
             ]
-            cohort_info = self.Cohort(cohort, ext_fn, segment_ctxs, target_slot_idxs[i])
+            cohort_info = self.Cohort(cohort, batched_fn, segment_ctxs, target_slot_idxs[i])
             self.cohorts.append(cohort_info)
 
     def _exec_cohort(self, cohort: Cohort, rows: DataRowBatch) -> None:
         """Compute the cohort for the entire input batch by dividing it up into sub-batches"""
         batch_start_idx = 0  # start row of the current sub-batch
         # for multi-resolution models, we re-assess the correct ext fn batch size for each input batch
-        ext_batch_size = cohort.ext_function.get_batch_size() if cohort.ext_function is not None else None
+        ext_batch_size = cohort.batched_fn.get_batch_size() if cohort.batched_fn is not None else None
         if ext_batch_size is not None:
             cohort.batch_size = ext_batch_size
 
         while batch_start_idx < len(rows):
             num_batch_rows = min(cohort.batch_size, len(rows) - batch_start_idx)
             for segment_ctx in cohort.segment_ctxs:
-                if not self._is_ext_call(segment_ctx.exprs[0]):
+                if not self._is_batched_fn_call(segment_ctx.exprs[0]):
                     # compute batch row-wise
                     for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
                         self.row_builder.eval(
@@ -193,7 +193,7 @@ class ExprEvalNode(ExecNode):
                             for k in kwarg_batches.keys()
                         }
                         start_ts = time.perf_counter()
-                        result_batch = fn_call.fn.invoke(call_args, call_kwargs)
+                        result_batch = fn_call.fn.exec_batch(*call_args, **call_kwargs)
                         self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
                         self.ctx.profile.eval_count[fn_call.slot_idx] += num_ext_batch_rows
 
