@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import copy
-from typing import Optional, List, Any, Dict, Tuple, Iterable, Union
+from typing import Optional, List, Any, Dict, Tuple, Iterable
 
 import sqlalchemy as sql
 
@@ -21,7 +20,7 @@ class InPredicate(Predicate):
             raise excs.Error(f'isin(): only supported for scalar types, not {lhs.col_type}')
         super().__init__()
 
-        self.value_list: Optional[list[Any]] = None  # only contains values of the correct type
+        self.value_list: Optional[list] = None  # only contains values of the correct type
         if value_set_expr is not None:
             if not value_set_expr.col_type.is_json_type():
                 raise excs.Error(
@@ -44,14 +43,14 @@ class InPredicate(Predicate):
         return self.components[1]
 
     def _normalize_value_set(self, value_set: Any, filter_type_mismatches: bool = True) -> Iterable:
-        if not isinstance(value_set, (list, dict)):
-            raise excs.Error(f'isin(): argument must be a list or dict, not {value_set!r}')
-        value_list = value_set.keys() if isinstance(value_set, dict) else value_set
+        if not isinstance(value_set, Iterable):
+            raise excs.Error(f'isin(): argument must be an Iterable (eg, list, dict, ...), not {value_set!r}')
+        value_list = list(value_set)
         if not filter_type_mismatches:
             return value_list
 
         # ignore elements of the wrong type
-        result: list[Any] = []
+        result = []
         for val in value_list:
             try:
                 self._lhs.col_type.validate_literal(val)

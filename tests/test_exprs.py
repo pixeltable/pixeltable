@@ -368,6 +368,10 @@ class TestExprs:
         rows = list(t.where(t.c2.isin(['a', datetime.now(), 1, 2, 3])).select(*user_cols).collect())
         assert len(rows) == 3
 
+        # set of literals
+        rows = list(t.where(t.c2.isin({1, 2, 3})).select(*user_cols).collect())
+        assert len(rows) == 3
+
         # dict of literals
         rows = list(t.where(t.c2.isin({1: 'a', 2: 'b', 3: 'c'})).select(*user_cols).collect())
         assert len(rows) == 3
@@ -384,12 +388,12 @@ class TestExprs:
         with pytest.raises(excs.Error) as excinfo:
             # bad json path returns None
             _ = t.where(t.c2.isin(t.c7.badpath)).collect()
-        assert 'must be a list or dict, not None' in str(excinfo.value)
+        assert 'must be an Iterable' in str(excinfo.value)
 
         with pytest.raises(excs.Error) as excinfo:
             # json path returns scalar
             _ = t.where(t.c2.isin(t.c6.f2)).collect()
-        assert 'must be a list or dict, not 0' in str(excinfo.value)
+        assert ', not 0' in str(excinfo.value)
 
         with pytest.raises(excs.Error) as excinfo:
             # not a scalar
