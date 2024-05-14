@@ -91,13 +91,16 @@ class CallableFunction(Function):
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:
+        md = self.signature.as_dict()
+        if self.batch_size is not None:
+            md['batch_size'] = self.batch_size
         return self.signature.as_dict(), cloudpickle.dumps(self.py_fn)
 
     @classmethod
     def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
         py_fn = cloudpickle.loads(binary_obj)
         assert isinstance(py_fn, Callable)
-        return CallableFunction(Signature.from_dict(md), py_fn, self_name=name)
+        return CallableFunction(Signature.from_dict(md), py_fn, self_name=name, batch_size=md.get('batch_size'))
 
     def validate_call(self, bound_args: dict[str, Any]) -> None:
         import pixeltable.exprs as exprs

@@ -11,6 +11,7 @@ import toml
 import pixeltable as pxt
 import pixeltable.metadata as metadata
 from pixeltable.env import Env
+from pixeltable.func import Batch
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, JsonType
 
@@ -146,6 +147,8 @@ class Dumper:
         v['str_format'] = pxt.functions.string.str_format('{0} {key}', t.c1, key=t.c1)
         # Computed column using a bespoke udf
         v['test_udf'] = test_udf(t.c2)
+        # Computed column using a batched function
+        t['batched'] = test_udf_batched(t.c1, upper=False)
         # astype
         v['astype'] = t.c1.astype(pxt.FloatType())
         # computed column using a stored function
@@ -155,6 +158,11 @@ class Dumper:
 @pxt.udf
 def test_udf(n: int) -> int:
     return n + 1
+
+
+@pxt.udf(batch_size=4)
+def test_udf_batched(strings: Batch[str], *, upper: bool = True) -> Batch[str]:
+    return [string.upper() if upper else string.lower() for string in strings]
 
 
 def main() -> None:
