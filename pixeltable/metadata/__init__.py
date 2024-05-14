@@ -10,7 +10,7 @@ import sqlalchemy.orm as orm
 from .schema import SystemInfo, SystemInfoMd
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
-VERSION = 13
+VERSION = 14
 
 
 def create_system_info(engine: sql.engine.Engine) -> None:
@@ -29,6 +29,10 @@ converter_cbs: Dict[int, Callable[[sql.engine.Engine], None]] = {}
 def register_converter(version: int, cb: Callable[[sql.engine.Engine], None]) -> None:
     global converter_cbs
     converter_cbs[version] = cb
+
+def noop_converter(engine: sql.engine.Engine) -> None:
+    # Converter to use when incrementing the schema version, but without any functional changes
+    pass
 
 # load all converter modules
 for _, modname, _ in pkgutil.iter_modules([os.path.dirname(__file__) + '/converters']):

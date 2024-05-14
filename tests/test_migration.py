@@ -7,8 +7,10 @@ import sys
 
 import pgserver
 import pytest
+import toml
 
 from pixeltable.env import Env
+from pixeltable.metadata import VERSION
 from .conftest import clean_db
 from .utils import reload_db
 
@@ -24,10 +26,18 @@ class TestMigration:
         pg_package_dir = os.path.dirname(pgserver.__file__)
         pg_restore_binary = f'{pg_package_dir}/pginstall/bin/pg_restore'
         _logger.info(f'Using pg_restore binary at: {pg_restore_binary}')
-        dump_files = glob.glob('pixeltable/tests/data/dbdumps/*.dump.gz')
+        dump_files = glob.glob('tests/data/dbdumps/*.dump.gz')
         dump_files.sort()
+        versions_found: list[int] = []
         for dump_file in dump_files:
             _logger.info(f'Testing migration from DB dump {dump_file}.')
+            info_file = dump_file.rstrip('.dump.gz') + '-info.toml'
+            with open(info_file, 'r', encoding='utf-8') as fp:
+                info = toml.load(fp)
+                version = info['pixeltable-dump']['metadata-version']
+                assert isinstance(version, int)
+                _logger.info(f'Migration DB dump from version: {version}')
+                versions_found.append(version)
             _logger.info(f'DB URL: {env.db_url}')
             clean_db(restore_tables=False)
             with open(dump_file, 'rb') as dump:
@@ -44,3 +54,8 @@ class TestMigration:
             # TODO(aaron-siegel) This will test that the migration succeeds without raising any exceptions.
             # We should also add some assertions to sanity-check the outcome.
             reload_db()
+        _logger.info(f'Verified DB dumps with versions: {versions_found}')
+        assert VERSION in versions_found, \
+            f'No DB dump found for current schema version {VERSION}. You can generate one with:\n' \
+            f'`python pixeltable/tool/create_test_db_dump.py`\n' \
+            f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
