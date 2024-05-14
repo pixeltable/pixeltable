@@ -11,15 +11,15 @@ readme = "README.md"
 exclude = [
     ".pytype",
     ".pytest_cache",
-    "pixeltable/.pytest_cache",
-    "pixeltable/tests/data"
+    "tests",
+    "docs",
 ]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
-numpy = ">=1.26"
+numpy = ">=1.25"
 pandas = ">=2.0,<3.0"
-pillow = ">=10.0"
+pillow = ">=9.3.0"
 opencv-python-headless = "^4.7.0.68"
 tqdm = "^4.64.1"
 jmespath = "^1.0.1"
