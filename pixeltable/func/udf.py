@@ -6,7 +6,7 @@ from typing import List, Callable, Optional, overload, Any
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from .batched_function import ExplicitBatchedFunction
+from .batched_function import BatchedFunction
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
 from .function import Function
@@ -120,8 +120,7 @@ def make_function(
     if batch_size is None:
         result = CallableFunction(signature=sig, py_fn=py_fn, self_path=function_path, self_name=function_name)
     else:
-        result = ExplicitBatchedFunction(
-            signature=sig, batch_size=batch_size, invoker_fn=py_fn, self_path=function_path)
+        result = BatchedFunction(signature=sig, batch_size=batch_size, invoker_fn=py_fn, self_path=function_path)
 
     # If this function is part of a module, register it
     if function_path is not None:
