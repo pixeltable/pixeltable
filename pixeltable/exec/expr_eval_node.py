@@ -115,18 +115,18 @@ class ExprEvalNode(ExecNode):
             assert len(cohort) > 0
             # create the first segment here, so we can avoid checking for an empty list in the loop
             segments = [[cohort[0]]]
-            is_ext_segment = self._is_batched_fn_call(cohort[0])
+            is_batched_segment = self._is_batched_fn_call(cohort[0])
             batched_fn: Optional[CallableFunction] = self._get_batched_fn(cohort[0])
             for e in cohort[1:]:
                 if self._is_batched_fn_call(e):
                     segments.append([e])
-                    is_ext_segment = True
+                    is_batched_segment = True
                     batched_fn = self._get_batched_fn(e)
                 else:
-                    if is_ext_segment:
+                    if is_batched_segment:
                         # start a new segment
                         segments.append([])
-                        is_ext_segment = False
+                        is_batched_segment = False
                     segments[-1].append(e)
 
             # we create the EvalCtxs manually because create_eval_ctx() would repeat the dependencies of each segment
