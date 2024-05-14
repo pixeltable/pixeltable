@@ -495,36 +495,8 @@ class TestExprs:
         result = t[t.img, t.img.height, t.img.rotate(90)].show(n=100)
         _ = result._repr_html_()
 
-    def test_img_functions(self, img_tbl) -> None:
-        skip_test_if_not_installed('nos')
-        t = img_tbl
-        from pixeltable.functions.pil.image import resize
-        result = t[t.img.resize((224, 224))].show(0)
-        result = t[resize(t.img, (224, 224))].show(0)
-        result = t[blend(t.img, t.img.rotate(90), 0.5)].show(100)
-        print(result)
-        from pixeltable.functions.nos.image_embedding import openai_clip
-        result = t[openai_clip(t.img.resize((224, 224)))].show(10)
-        print(result)
-        _ = result._repr_html_()
-        _ = t.img.entropy() > 1
-        _ = (t.img.entropy() > 1) & (t.split == 'train')
-        _ = (t.img.entropy() > 1) & (t.split == 'train') & (t.split == 'val')
-        _ = (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
-        _ = t[(t.split == 'train') & (t.category == 'n03445777')][t.img].show()
-        print(_)
-        result = t[t.img.width > 1].show()
-        print(result)
-        result = t[(t.split == 'val') & (t.img.entropy() > 1) & (t.category == 'n03445777')].show()
-        print(result)
-        result = t[
-            (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
-        ][t.img, t.split].show()
-        print(result)
-
     @pytest.mark.skip(reason='temporarily disabled')
     def test_similarity(self, small_img_tbl) -> None:
-        skip_test_if_not_installed('nos')
         t = small_img_tbl
         _ = t.show(30)
         probe = t.select(t.img, t.category).show(1)

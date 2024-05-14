@@ -18,21 +18,6 @@ from .utils import get_video_files, get_audio_files, get_documents, skip_test_if
 
 class TestDataFrame:
 
-    @pxt.udf(return_type=pxt.JsonType(nullable=False), param_types=[pxt.JsonType(nullable=False)])
-    def yolo_to_coco(detections):
-        bboxes, labels = detections['bboxes'], detections['labels']
-        num_annotations = len(detections['bboxes'])
-        assert num_annotations == len(detections['labels'])
-        result = []
-        for i in range(num_annotations):
-            bbox = bboxes[i]
-            ann = {
-                'bbox': [round(bbox[0]), round(bbox[1]), round(bbox[2] - bbox[0]), round(bbox[3] - bbox[1])],
-                'category': labels[i],
-            }
-            result.append(ann)
-        return result
-
     def test_select_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res1 = t[t.c1, t.c2, t.c3].show(0)
@@ -174,7 +159,6 @@ class TestDataFrame:
         _ = df._repr_html_()
 
     def test_count(self, test_tbl: catalog.Table, small_img_tbl) -> None:
-        skip_test_if_not_installed('nos')
         t = test_tbl
         cnt = t.count()
         assert cnt == 100
@@ -411,16 +395,16 @@ class TestDataFrame:
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
     def test_to_coco(self, reset_db) -> None:
-        skip_test_if_not_installed('nos')
+        skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO
+        from pixeltable.ext.functions.yolox import yolox, yolo_to_coco
         base_t = pxt.create_table('videos', {'video': pxt.VideoType()})
         args = {'video': base_t.video, 'fps': 1}
         view_t = pxt.create_view('frames', base_t, iterator_class=FrameIterator, iterator_args=args)
-        from pixeltable.functions.nos.object_detection_2d import yolox_medium
-        view_t.add_column(detections=yolox_medium(view_t.frame))
+        view_t.add_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])
 
-        query = view_t.select({'image': view_t.frame, 'annotations': self.yolo_to_coco(view_t.detections)})
+        query = view_t.select({'image': view_t.frame, 'annotations': yolo_to_coco(view_t.detections)})
         path = query.to_coco_dataset()
         # we get a valid COCO dataset
         coco_ds = COCO(path)

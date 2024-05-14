@@ -418,7 +418,7 @@ class TestTable:
             },
             # test http url
             {
-                'media': 'https://github.com/pixeltable/pixeltable/raw/master/pixeltable/tests/data/videos/bangkok.mp4',
+                'media': 'https://github.com/pixeltable/pixeltable/raw/master/tests/data/videos/bangkok.mp4',
                 'is_bad_media': False
             },
 

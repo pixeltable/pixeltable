@@ -4,10 +4,12 @@ from pixeltable.type_system import VideoType, StringType
 
 from ..utils import get_video_files, skip_test_if_not_installed
 
+
 class TestFunctions:
 
     def test_eval_detections(self, reset_db) -> None:
-        skip_test_if_not_installed('nos')
+        skip_test_if_not_installed('yolox')
+        from pixeltable.ext.functions.yolox import yolox
         video_t = pxt.create_table('video_tbl', {'video': VideoType()})
         # create frame view
         args = {'video': video_t.video, 'fps': 1}
@@ -16,10 +18,9 @@ class TestFunctions:
         files = get_video_files()
         video_t.insert(video=files[-1])
         v.add_column(frame_s=v.frame.resize([640, 480]))
-        from pixeltable.functions.nos.object_detection_2d import yolox_nano, yolox_small, yolox_large
-        v.add_column(detections_a=yolox_nano(v.frame_s))
-        v.add_column(detections_b=yolox_small(v.frame_s))
-        v.add_column(gt=yolox_large(v.frame_s))
+        v.add_column(detections_a=yolox(v.frame_s, model_id='yolox_nano'))
+        v.add_column(detections_b=yolox(v.frame_s, model_id='yolox_s'))
+        v.add_column(gt=yolox(v.frame_s, model_id='yolox_l'))
         from pixeltable.functions.eval import eval_detections, mean_ap
         res = v.select(
             eval_detections(
@@ -31,14 +32,8 @@ class TestFunctions:
         v.add_column(
             eval_b=eval_detections(
                 v.detections_b.bboxes, v.detections_b.labels, v.detections_b.scores, v.gt.bboxes, v.gt.labels))
-        ap_a = v.select(mean_ap(v.eval_a)).show()[0, 0]
-        ap_b = v.select(mean_ap(v.eval_b)).show()[0, 0]
-        common_classes = set(ap_a.keys()) & set(ap_b.keys())
-
-        ## TODO: following assertion is failing on CI,
-        # It is not necessarily a bug, as assert codition is not expected to be always true
-        # for k in common_classes:
-        # assert ap_a[k] <= ap_b[k]
+        _ = v.select(mean_ap(v.eval_a)).show()[0, 0]
+        _ = v.select(mean_ap(v.eval_b)).show()[0, 0]
 
     def test_str(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'input': StringType()})
