@@ -174,9 +174,6 @@ class FunctionCall(Expr):
                     f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
                     f'{param_type}')
 
-    def is_nos_call(self) -> bool:
-        return isinstance(self.fn, func.NOSFunction)
-
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
             return False
