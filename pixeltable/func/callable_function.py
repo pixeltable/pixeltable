@@ -94,7 +94,7 @@ class CallableFunction(Function):
         md = self.signature.as_dict()
         if self.batch_size is not None:
             md['batch_size'] = self.batch_size
-        return self.signature.as_dict(), cloudpickle.dumps(self.py_fn)
+        return md, cloudpickle.dumps(self.py_fn)
 
     @classmethod
     def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
