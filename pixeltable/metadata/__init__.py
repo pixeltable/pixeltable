@@ -40,11 +40,11 @@ for _, modname, _ in pkgutil.iter_modules([os.path.dirname(__file__) + '/convert
 
 def upgrade_md(engine: sql.engine.Engine) -> None:
     """Upgrade the metadata schema to the current version"""
-    with orm.Session(engine, future=True) as session:
+    with orm.Session(engine) as session:
         system_info = session.query(SystemInfo).one().md
         md_version = system_info['schema_version']
         if md_version == VERSION:
-                return
+            return
         while md_version < VERSION:
             if md_version not in converter_cbs:
                 raise RuntimeError(f'No metadata converter for version {md_version}')
