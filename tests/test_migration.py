@@ -16,7 +16,7 @@ from pixeltable.exprs import FunctionCall
 from pixeltable.func import CallableFunction
 from pixeltable.metadata import VERSION, SystemInfo
 from .conftest import clean_db
-from .utils import reload_catalog
+from .utils import reload_catalog, skip_test_if_not_installed
 
 _logger = logging.getLogger('pixeltable')
 
@@ -26,6 +26,7 @@ class TestMigration:
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Does not run on Python 3.11+ (due to pickling issue)')
     def test_db_migration(self, init_env) -> None:
+        skip_test_if_not_installed('transformers')
         env = Env.get()
         pg_package_dir = os.path.dirname(pgserver.__file__)
         pg_restore_binary = f'{pg_package_dir}/pginstall/bin/pg_restore'
