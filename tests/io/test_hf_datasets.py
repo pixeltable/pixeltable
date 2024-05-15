@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.tests.utils import skip_test_if_not_installed
+from ..utils import skip_test_if_not_installed
 
 
 class TestHfDatasets:

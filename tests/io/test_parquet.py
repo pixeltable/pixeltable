@@ -1,7 +1,7 @@
 import pathlib
 
 import pixeltable as pxt
-from pixeltable.tests.utils import skip_test_if_not_installed, make_test_arrow_table
+from ..utils import skip_test_if_not_installed, make_test_arrow_table
 
 
 class TestParquet:
