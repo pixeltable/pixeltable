@@ -5,41 +5,74 @@ on:
     branches: [master]
   push:
     branches: [master]
+  workflow_dispatch:
 
 jobs:
   pytest:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest]
-        # TODO: pixeltable currently fails on python 3.12.
-        python-version: ["3.9", "3.10", "3.11"]
-        poetry-version: ["1.7.1"]
+        os: [ubuntu-22.04, macos-12, windows-2022]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        poetry-version: ["1.8.2"]
+        poetry-options: ["--with dev"]
+        include:
+          # Adds one additional matrix configuration that runs the unit tests
+          # against a minimal installation of pixeltable (without --with dev).
+          - os: ubuntu-22.04
+            python-version: "3.9"
+            poetry-version: "1.8.2"
+            poetry-options: ""
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash -el {0}  # Needed for conda to work
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-      - name: Install python
-        uses: actions/setup-python@v5
+      - name: Delete unnecessary files
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /opt/hostedtoolcache
+          df -h
+      - name: Install conda
+        uses: conda-incubator/setup-miniconda@v3
         with:
+          miniconda-version: latest
+          activate-environment: pxt
           python-version: ${{ matrix.python-version }}
+          use-only-tar-bz2: true  # Needed to use conda with cache action
+      - name: Show conda info
+        run: conda info
       - name: Install poetry
-        uses: abatilo/actions-poetry@v2
-        with:
-          poetry-version: ${{ matrix.poetry-version }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install poetry==${{ matrix.poetry-version }}
       - name: Define a venv cache
         uses: actions/cache@v4
         with:
           # The cache is keyed to the following:
           # - Matrix parameters
-          # - poetry.lock and related .toml files (so that if the dependencies
-          #   or poetry config change, the cache will be invalidated)
-          path: ./.venv
-          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml') }}
+          # - poetry.lock and related .toml files and Makefile (so that if the
+          #   dependencies or poetry config change, the cache will be invalidated)
+          path: ${{ env.CONDA }}/envs
+          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{
+            matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
-        run: poetry install --with dev
+        run: poetry install ${{ matrix.poetry-options }}
+      - name: Install yolox
+        # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
+        if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' }}
+        run: python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
+      - name: Ensure pytest is installed
+        # This is necessary for running the tests without --with dev
+        if: ${{ matrix.poetry-options == '' }}
+        run: pip install pytest coverage
       - name: Run the unit tests
-        run: poetry run pytest -v
+        run: coverage run -m --source=pixeltable pytest -v -m ''
         env:
           # In a PR, these secrets will be empty, and the relevant tests will be skipped
           FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
@@ -53,4 +86,12 @@ jobs:
           FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-
+      - name: Generate code coverage report
+        run: coverage report -m
+      - name: Print utilization info
+        run: |
+          df -h
+          du -h -d3 /home/runner
+          du -h -d3 /home/runner/.cache
+        shell: bash -l {0}  # We don't want `set -e` here
+        continue-on-error: true

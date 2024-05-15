@@ -11,6 +11,8 @@ import traceback
 from pathlib import Path
 from typing import List, Optional, Any, Dict, Generator, Tuple, Set
 
+import PIL.Image
+import cv2
 import pandas as pd
 import pandas.io.formats.style
 import sqlalchemy as sql
@@ -24,6 +26,7 @@ from pixeltable.catalog import is_valid_identifier
 from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
+from pixeltable.utils.http_server import get_file_uri
 
 __all__ = [
     'DataFrame'
@@ -31,40 +34,24 @@ __all__ = [
 
 _logger = logging.getLogger('pixeltable')
 
-def _format_img(img: object) -> str:
-    """
-    Create <img> tag for Image object.
-    """
-    assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
-    with io.BytesIO() as buffer:
-        img.save(buffer, 'jpeg')
-        img_base64 = base64.b64encode(buffer.getvalue()).decode()
-        return f'<img src="data:image/jpeg;base64,{img_base64}">'
-
 def _create_source_tag(file_path: str) -> str:
-    abs_path = Path(file_path)
-    assert abs_path.is_absolute()
-    src_url = f'{Env.get().http_address}/{abs_path}'
+    src_url = get_file_uri(Env.get().http_address, file_path)
     mime = mimetypes.guess_type(src_url)[0]
     # if mime is None, the attribute string would not be valid html.
     mime_attr = f'type="{mime}"' if mime is not None else ''
     return f'<source src="{src_url}" {mime_attr} />'
 
-def _format_video(file_path: str) -> str:
-    return f'<video controls>{_create_source_tag(file_path)}</video>'
-
-def _format_audio(file_path: str) -> str:
-    return f'<audio controls>{_create_source_tag(file_path)}</audio>'
-
 class DataFrameResultSet:
+
     def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
         self._rows = rows
         self._col_names = col_names
         self._col_types = col_types
         self._formatters = {
-            ts.ImageType: _format_img,
-            ts.VideoType: _format_video,
-            ts.AudioType: _format_audio,
+            ts.ImageType: self._format_img,
+            ts.VideoType: self._format_video,
+            ts.AudioType: self._format_audio,
+            ts.DocumentType: self._format_document,
         }
 
     def __len__(self) -> int:
@@ -80,13 +67,12 @@ class DataFrameResultSet:
         return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
-        formatters = {}
-        for col_name, col_type in zip(self._col_names, self._col_types):
-                if col_type.__class__ in self._formatters:
-                    formatters[col_name] = self._formatters[col_type.__class__]
-        
-        # TODO: why does mypy complain about formatters having an incorrect type?
-        return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)  # type: ignore[arg-type]
+        formatters = {
+            col_name: self._formatters[col_type.__class__]
+            for col_name, col_type in zip(self._col_names, self._col_types)
+            if col_type.__class__ in self._formatters
+        }
+        return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)
 
     def __str__(self) -> str:
         return self.to_pandas().to_string()
@@ -100,6 +86,99 @@ class DataFrameResultSet:
 
     def _row_to_dict(self, row_idx: int) -> Dict[str, Any]:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
+
+    # Formatters
+    def _format_img(self, img: Image.Image) -> str:
+        """
+        Create <img> tag for Image object.
+        """
+        assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
+        # Try to make it look decent in a variety of display scenarios
+        if len(self._rows) > 1:
+            width = 240  # Multiple rows: display small images
+        elif len(self._col_names) > 1:
+            width = 480  # Multiple columns: display medium images
+        else:
+            width = 640  # A single image: larger display
+        with io.BytesIO() as buffer:
+            img.save(buffer, 'jpeg')
+            img_base64 = base64.b64encode(buffer.getvalue()).decode()
+            return f'''
+            <div class="pxt_image" style="width:{width}px;">
+                <img src="data:image/jpeg;base64,{img_base64}" width="{width}" />
+            </div>
+            '''
+
+    def _format_video(self, file_path: str) -> str:
+        thumb_tag = ""
+        # Attempt to extract the first frame of the video to use as a thumbnail,
+        # so that the notebook can be exported as HTML and viewed in contexts where
+        # the video itself is not accessible.
+        # TODO(aaron-siegel): If the video is backed by a concrete external URL,
+        # should we link to that instead?
+        video_reader = cv2.VideoCapture(str(file_path))
+        if video_reader.isOpened():
+            status, img_array = video_reader.read()
+            if status:
+                img_array = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
+                thumb = PIL.Image.fromarray(img_array)
+                with io.BytesIO() as buffer:
+                    thumb.save(buffer, 'jpeg')
+                    thumb_base64 = base64.b64encode(buffer.getvalue()).decode()
+                    thumb_tag = f'poster="data:image/jpeg;base64,{thumb_base64}"'
+            video_reader.release()
+        if len(self._rows) > 1:
+            width = 320
+        elif len(self._col_names) > 1:
+            width = 480
+        else:
+            width = 800
+        return f'''
+        <div class="pxt_video" style="width:{width}px;">
+            <video controls width="{width}" {thumb_tag}>
+                {_create_source_tag(file_path)}
+            </video>
+        </div>
+        '''
+
+    def _format_document(self, file_path: str) -> str:
+        max_width = max_height = 320
+        # by default, file path will be shown as a link
+        inner_element = file_path
+        # try generating a thumbnail for different types and use that if successful
+        if file_path.lower().endswith('.pdf'):
+            try:
+                import fitz
+                doc = fitz.open(file_path)
+                p = doc.get_page_pixmap(0)
+                while p.width > max_width or p.height > max_height:
+                    # shrink(1) will halve each dimension
+                    p.shrink(1)
+                data = p.tobytes(output='jpeg')
+                thumb_base64 = base64.b64encode(data).decode()
+                img_src = f"data:image/jpeg;base64,{thumb_base64}"
+                inner_element = f'''
+                    <img style="object-fit: contain; border: 1px solid black;" src="{img_src}" />
+                '''
+            except:
+                logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
+
+        return f'''
+        <div class="pxt_document" style="width:{max_width}px;">
+            <a href="{get_file_uri(Env.get().http_address, file_path)}">
+                {inner_element}
+            </a>
+        </div>
+        '''
+
+    def _format_audio(self, file_path: str) -> str:
+        return f'''
+        <div class="pxt_audio">
+            <audio controls>
+                {_create_source_tag(file_path)}
+            </audio>
+        </div>
+        '''
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
@@ -140,37 +219,36 @@ class DataFrameResultSetIterator:
         return row
 
 
-# TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
-class AnalysisInfo:
-    def __init__(self, tbl: catalog.TableVersion):
-        self.tbl = tbl
-        # output of the SQL scan stage
-        self.sql_scan_output_exprs: List[exprs.Expr] = []
-        # output of the agg stage
-        self.agg_output_exprs: List[exprs.Expr] = []
-        # Where clause of the Select stmt of the SQL scan stage
-        self.sql_where_clause: Optional[sql.ClauseElement] = None
-        # filter predicate applied to input rows of the SQL scan stage
-        self.filter: Optional[exprs.Predicate] = None
-        self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
-        self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
-        self.has_frame_col: bool = False  # True if we're referencing the frame col
-
-        self.evaluator: Optional[exprs.Evaluator] = None
-        self.sql_scan_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of SQL scan stage
-        self.agg_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of agg stage
-        self.filter_eval_ctx: List[exprs.Expr] = []
-        self.group_by_eval_ctx: List[exprs.Expr] = []
-
-    def finalize_exec(self) -> None:
-        """
-        Call release() on all collected Exprs.
-        """
-        exprs.Expr.release_list(self.sql_scan_output_exprs)
-        exprs.Expr.release_list(self.agg_output_exprs)
-        if self.filter is not None:
-            self.filter.release()
-
+# # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
+# class AnalysisInfo:
+#     def __init__(self, tbl: catalog.TableVersion):
+#         self.tbl = tbl
+#         # output of the SQL scan stage
+#         self.sql_scan_output_exprs: List[exprs.Expr] = []
+#         # output of the agg stage
+#         self.agg_output_exprs: List[exprs.Expr] = []
+#         # Where clause of the Select stmt of the SQL scan stage
+#         self.sql_where_clause: Optional[sql.ClauseElement] = None
+#         # filter predicate applied to input rows of the SQL scan stage
+#         self.filter: Optional[exprs.Predicate] = None
+#         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
+#         self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
+#         self.has_frame_col: bool = False  # True if we're referencing the frame col
+#
+#         self.evaluator: Optional[exprs.Evaluator] = None
+#         self.sql_scan_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of SQL scan stage
+#         self.agg_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of agg stage
+#         self.filter_eval_ctx: List[exprs.Expr] = []
+#         self.group_by_eval_ctx: List[exprs.Expr] = []
+#
+#     def finalize_exec(self) -> None:
+#         """
+#         Call release() on all collected Exprs.
+#         """
+#         exprs.Expr.release_list(self.sql_scan_output_exprs)
+#         exprs.Expr.release_list(self.agg_output_exprs)
+#         if self.filter is not None:
+#             self.filter.release()
 
 
 class DataFrame:
@@ -207,11 +285,11 @@ class DataFrame:
     def _select_list_check_rep(cls,
         select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]],
     ) -> None:
-        """Validate basic select list types. 
+        """Validate basic select list types.
         """
         if select_list is None: # basic check for valid select list
             return
-        
+
         assert len(select_list) > 0
         for ent in select_list:
             assert isinstance(ent, tuple)
@@ -228,7 +306,7 @@ class DataFrame:
     ) -> Tuple[List[exprs.Expr], List[str]]:
         """
         Expand select list information with all columns and their names
-        Returns: 
+        Returns:
             a pair composed of the list of expressions and the list of corresponding names
         """
         if select_list is None:
@@ -427,7 +505,7 @@ class DataFrame:
         base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
         if len(base_list) == 0:
             raise excs.Error(f'Empty select list')
-        
+
         # analyze select list; wrap literals with the corresponding expressions
         select_list = []
         for raw_expr, name in base_list:
@@ -526,9 +604,9 @@ class DataFrame:
         if isinstance(index, list):
             return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
-    
+
     def _as_dict(self) -> Dict[str, Any]:
-        """ 
+        """
             Returns:
                 Dictionary representing this dataframe.
         """
@@ -618,9 +696,9 @@ class DataFrame:
         from pixeltable.utils.parquet import save_parquet # pylint: disable=import-outside-toplevel
         from pixeltable.utils.pytorch import PixeltablePytorchDataset # pylint: disable=import-outside-toplevel
 
-        summary_string = json.dumps(self._as_dict()) 
+        summary_string = json.dumps(self._as_dict())
         cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
-    
+
         dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet') # pylint: disable = protected-access
         if dest_path.exists(): # fast path: use cache
             assert dest_path.is_dir()

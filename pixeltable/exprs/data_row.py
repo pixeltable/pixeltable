@@ -1,8 +1,12 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Tuple
-import io
-import urllib
 
+import io
+import urllib.parse
+import urllib.request
+from typing import Optional, List, Any, Tuple
+
+import sqlalchemy as sql
+import pgvector.sqlalchemy
 import PIL
 import numpy as np
 
@@ -104,10 +108,11 @@ class DataRow:
             assert self.file_paths[index] is not None
             if self.vals[index] is None:
                 self.vals[index] = PIL.Image.open(self.file_paths[index])
+                self.vals[index].load()
 
         return self.vals[index]
 
-    def get_stored_val(self, index: object) -> Any:
+    def get_stored_val(self, index: object, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
         """Return the value that gets stored in the db"""
         assert self.excs[index] is None
         if not self.has_val[index]:
@@ -122,6 +127,8 @@ class DataRow:
         if self.vals[index] is not None and index in self.array_slot_idxs:
             assert isinstance(self.vals[index], np.ndarray)
             np_array = self.vals[index]
+            if sa_col_type is not None and isinstance(sa_col_type, pgvector.sqlalchemy.Vector):
+                return np_array
             buffer = io.BytesIO()
             np.save(buffer, np_array)
             return buffer.getvalue()
@@ -137,14 +144,19 @@ class DataRow:
         if (idx in self.img_slot_idxs or idx in self.media_slot_idxs) and isinstance(val, str):
             # this is either a local file path or a URL
             parsed = urllib.parse.urlparse(val)
-            if parsed.scheme == '' or parsed.scheme == 'file':
+            # Determine if this is a local file or a remote URL. If the scheme length is <= 1,
+            # we assume it's a local file. (This is because a Windows path will be interpreted
+            # by urllib as a URL with scheme equal to the drive letter.)
+            if len(parsed.scheme) <= 1 or parsed.scheme == 'file':
                 # local file path
                 assert self.file_urls[idx] is None and self.file_paths[idx] is None
-                if parsed.scheme == '':
-                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(parsed.path))
+                if len(parsed.scheme) <= 1:
+                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(val))
+                    self.file_paths[idx] = val
                 else:
                     self.file_urls[idx] = val
-                self.file_paths[idx] = urllib.parse.unquote(parsed.path)
+                    # Wrap the path in a url2pathname() call to ensure proper handling on Windows.
+                    self.file_paths[idx] = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
             else:
                 # URL
                 assert self.file_urls[idx] is None

@@ -1,19 +1,21 @@
 from __future__ import annotations
-from typing import List, Optional, Any, Tuple, Dict
-import threading
-from collections import defaultdict
-from uuid import UUID
-import concurrent
-import logging
-import urllib
-from pathlib import Path
 
-from .data_row_batch import DataRowBatch
-from .exec_node import ExecNode
-import pixeltable.exprs as exprs
-from pixeltable.utils.filecache import FileCache
+import concurrent.futures
+import logging
+import threading
+import urllib.parse
+import urllib.request
+from collections import defaultdict
+from pathlib import Path
+from typing import List, Optional, Any, Tuple, Dict
+from uuid import UUID
+
 import pixeltable.env as env
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
+from pixeltable.utils.filecache import FileCache
+from .data_row_batch import DataRowBatch
+from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
 
@@ -81,11 +83,13 @@ class CachePrefetchNode(ExecNode):
         """Fetches a remote URL into Env.tmp_dir and returns its path"""
         url = row.file_urls[slot_idx]
         parsed = urllib.parse.urlparse(url)
-        assert parsed.scheme != '' and parsed.scheme != 'file'
+        # Use len(parsed.scheme) > 1 here to ensure we're not being passed
+        # a Windows filename
+        assert len(parsed.scheme) > 1 and parsed.scheme != 'file'
         # preserve the file extension, if there is one
         extension = ''
         if parsed.path != '':
-            p = Path(urllib.parse.unquote(parsed.path))
+            p = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
             extension = p.suffix
         tmp_path = env.Env.get().create_tmp_path(extension=extension)
         try:
@@ -95,7 +99,6 @@ class CachePrefetchNode(ExecNode):
                     if self.boto_client is None:
                         self.boto_client = get_client()
                     self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
-                    return tmp_path
             elif parsed.scheme == 'http' or parsed.scheme == 'https':
                 with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
                     data = resp.read()

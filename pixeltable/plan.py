@@ -60,24 +60,10 @@ class Analyzer:
         # filter predicate applied to output rows of the SQL scan
         self.filter: Optional[exprs.Predicate] = None
         # not executable
-        self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
+        #self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
         if where_clause is not None:
             where_clause_conjuncts, self.filter = where_clause.split_conjuncts(lambda e: e.sql_expr() is not None)
             self.sql_where_clause = exprs.CompoundPredicate.make_conjunction(where_clause_conjuncts)
-            if self.filter is not None:
-                similarity_clauses, self.filter = self.filter.split_conjuncts(
-                    lambda e: isinstance(e, exprs.ImageSimilarityPredicate))
-                if len(similarity_clauses) > 1:
-                    raise excs.Error(f'More than one nearest() not supported')
-                if len(similarity_clauses) == 1:
-                    if len(self.order_by_clause) > 0:
-                        raise excs.Error((
-                            f'nearest() returns results in order of proximity and cannot be used in conjunction with '
-                            f'order_by()'))
-                    self.similarity_clause = similarity_clauses[0]
-                    img_col = self.similarity_clause.img_col_ref.col
-                    if not img_col.is_indexed:
-                        raise excs.Error(f'nearest() not available for unindexed column {img_col.name}')
 
         # all exprs that are evaluated in Python; not executable
         self.all_exprs = self.select_list.copy()
@@ -203,8 +189,6 @@ class Planner:
         refd_tbl_ids: Set[UUID] = set()
         if where_clause is not None:
             analyzer = cls.analyze(tbl, where_clause)
-            if analyzer.similarity_clause is not None:
-                raise excs.Error('nearest() cannot be used with count()')
             if analyzer.filter is not None:
                 raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
             clause_element = analyzer.sql_where_clause.sql_expr()
@@ -220,18 +204,11 @@ class Planner:
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
-        # things we need to materialize:
-        # 1. stored_cols: all cols we need to store, incl computed cols (and indices)
+        # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols if c.is_stored]
         assert len(stored_cols) > 0
-        # 2. values to insert into indices
-        indexed_cols = [c for c in tbl.cols if c.is_indexed]
-        index_info: List[Tuple[catalog.Column, func.Function]] = []
-        if len(indexed_cols) > 0:
-            from pixeltable.functions.nos.image_embedding import openai_clip
-            index_info = [(c, openai_clip) for c in tbl.cols if c.is_indexed]
 
-        row_builder = exprs.RowBuilder([], stored_cols, index_info, [])
+        row_builder = exprs.RowBuilder([], stored_cols, [])
 
         # create InMemoryDataNode for 'rows'
         stored_col_info = row_builder.output_slot_idxs()
@@ -260,7 +237,7 @@ class Planner:
     @classmethod
     def create_update_plan(
             cls, tbl: catalog.TableVersionPath,
-            update_targets: List[Tuple[catalog.Column, exprs.Expr]],
+            update_targets: dict[catalog.Column, exprs.Expr],
             recompute_targets: List[catalog.Column],
             where_clause: Optional[exprs.Predicate], cascade: bool
     ) -> Tuple[exec.ExecNode, List[str], List[catalog.Column]]:
@@ -279,7 +256,7 @@ class Planner:
         # retrieve all stored cols and all target exprs
         assert isinstance(tbl, catalog.TableVersionPath)
         target = tbl.tbl_version  # the one we need to update
-        updated_cols = [col for col, _ in update_targets]
+        updated_cols = list(update_targets.keys())
         if len(recompute_targets) > 0:
             recomputed_cols = recompute_targets.copy()
         else:
@@ -291,12 +268,12 @@ class Planner:
             col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
         select_list = [exprs.ColumnRef(col) for col in copied_cols]
-        select_list.extend([expr for _, expr in update_targets])
+        select_list.extend(update_targets.values())
 
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
         # recomputed cols reference the new values of the updated cols
-        for col, e in update_targets:
+        for col, e in update_targets.items():
             exprs.Expr.list_substitute(recomputed_exprs, exprs.ColumnRef(col), e)
         select_list.extend(recomputed_exprs)
 
@@ -375,16 +352,10 @@ class Planner:
         #   the store
         target = view.tbl_version  # the one we need to populate
         stored_cols = [c for c in target.cols if c.is_stored and (c.is_computed or target.is_iterator_column(c))]
-        # 2. index values
-        indexed_cols = [c for c in target.cols if c.is_indexed]
-        index_info: List[Tuple[catalog.Column, func.Function]] = []
-        if len(indexed_cols) > 0:
-            from pixeltable.functions.nos.image_embedding import openai_clip
-            index_info = [(c, openai_clip) for c in target.cols if c.is_indexed]
-        # 3. for component views: iterator args
+        # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
-        row_builder = exprs.RowBuilder(iterator_args, stored_cols, index_info, [])
+        row_builder = exprs.RowBuilder(iterator_args, stored_cols, [])
 
         # execution plan:
         # 1. materialize exprs computed from the base that are needed for stored view columns
@@ -548,7 +519,7 @@ class Planner:
         analyzer = Analyzer(
             tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
             order_by_clause=order_by_clause)
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], analyzer.sql_exprs)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], analyzer.sql_exprs)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -582,7 +553,7 @@ class Planner:
         sql_select_list = analyzer.sql_exprs.copy()
         plan = exec.SqlScanNode(
             tbl, row_builder, select_list=sql_select_list, where_clause=analyzer.sql_where_clause,
-            filter=analyzer.filter, similarity_clause=analyzer.similarity_clause, order_by_items=order_by_items,
+            filter=analyzer.filter, order_by_items=order_by_items,
             limit=sql_limit, set_pk=with_pk, exact_version_only=exact_version_only)
         plan = cls._insert_prefetch_node(tbl.tbl_version.id, analyzer.select_list, row_builder, plan)
 
@@ -627,21 +598,15 @@ class Planner:
     @classmethod
     def create_add_column_plan(
             cls, tbl: catalog.TableVersionPath, col: catalog.Column
-    ) -> Tuple[exec.ExecNode, Optional[int], Optional[int]]:
+    ) -> Tuple[exec.ExecNode, Optional[int]]:
         """Creates a plan for InsertableTable.add_column()
         Returns:
             plan: the plan to execute
-            ctx: the context to use for the plan
             value_expr slot idx for the plan output (for computed cols)
-            embedding slot idx for the plan output (for indexed image cols)
         """
         assert isinstance(tbl, catalog.TableVersionPath)
         index_info: List[Tuple[catalog.Column, func.Function]] = []
-        if col.is_indexed:
-            from pixeltable.functions.nos.image_embedding import openai_clip
-            index_info = [(col, openai_clip)]
-        row_builder = exprs.RowBuilder(
-            output_exprs=[], columns=[col], indices=index_info, input_exprs=[])
+        row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[])
         analyzer = Analyzer(tbl, row_builder.default_eval_ctx.target_exprs)
         plan = cls._create_query_plan(tbl, row_builder=row_builder, analyzer=analyzer, with_pk=True)
         plan.ctx.batch_size = 16
@@ -651,6 +616,5 @@ class Planner:
         # we want to flush images
         if col.is_computed and col.is_stored and col.col_type.is_image_type():
             plan.set_stored_img_cols(row_builder.output_slot_idxs())
-        value_expr_slot_idx: Optional[int] = row_builder.output_slot_idxs()[0].slot_idx if col.is_computed else None
-        embedding_slot_idx: Optional[int] = row_builder.index_slot_idxs()[0].slot_idx if col.is_indexed else None
-        return plan, value_expr_slot_idx, embedding_slot_idx
+        value_expr_slot_idx = row_builder.output_slot_idxs()[0].slot_idx if col.is_computed else None
+        return plan, value_expr_slot_idx

@@ -4,11 +4,9 @@ import logging
 from typing import Optional, Union, Callable, Set
 
 import sqlalchemy as sql
-from pgvector.sqlalchemy import Vector
 
-from pixeltable import exceptions as excs
-from pixeltable.metadata import schema
-from pixeltable.type_system import ColumnType, StringType
+import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from .globals import is_valid_identifier
 
 _logger = logging.getLogger('pixeltable')
@@ -20,48 +18,42 @@ class Column:
     table/view.
     """
     def __init__(
-            self, name: str, col_type: Optional[ColumnType] = None,
+            self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
             computed_with: Optional[Union['Expr', Callable]] = None,
-            primary_key: bool = False, stored: Optional[bool] = None,
-            indexed: bool = False,
-            # these parameters aren't set by users
-            col_id: Optional[int] = None):
+            is_pk: bool = False, stored: Optional[bool] = None,
+            col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
+            schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None
+    ):
         """Column constructor.
 
         Args:
-            name: column name
+            name: column name; None for system columns (eg, index columns)
             col_type: column type; can be None if the type can be derived from ``computed_with``
             computed_with: a callable or an Expr object that computes the column value
-            primary_key: if True, this column is part of the primary key
+            is_pk: if True, this column is part of the primary key
             stored: determines whether a computed column is present in the stored table or recomputed on demand
-            indexed: if True, this column has a nearest neighbor index (only valid for image columns)
             col_id: column ID (only used internally)
 
         Computed columns: those have a non-None ``computed_with`` argument
-
         - when constructed by the user: ``computed_with`` was constructed explicitly and is passed in;
           col_type is None
         - when loaded from md store: ``computed_with`` is set and col_type is set
 
         ``computed_with`` is a Callable:
-
         - the callable's parameter names must correspond to existing columns in the table for which this Column
           is being used
         - ``col_type`` needs to be set to the callable's return type
 
         ``stored`` (only valid for computed image columns):
-
         - if True: the column is present in the stored table
         - if False: the column is not present in the stored table and recomputed during a query
         - if None: the system chooses for you (at present, this is always False, but this may change in the future)
-
-        indexed: only valid for image columns; if true, maintains an NN index for this column
         """
-        if not is_valid_identifier(name):
+        if name is not None and not is_valid_identifier(name):
             raise excs.Error(f"Invalid column name: '{name}'")
         self.name = name
         if col_type is None and computed_with is None:
-            raise excs.Error(f'Column {name}: col_type is required if computed_with is not specified')
+            raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
         self.value_expr: Optional['Expr'] = None
         self.compute_func: Optional[Callable] = None
@@ -90,34 +82,19 @@ class Column:
         self.stored = stored
         self.dependent_cols: Set[Column] = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
-        self.primary_key = primary_key
+        self.is_pk = is_pk
+        self.schema_version_add = schema_version_add
+        self.schema_version_drop = schema_version_drop
 
         # column in the stored table for the values of this Column
         self.sa_col: Optional[sql.schema.Column] = None
+        self.sa_col_type = sa_col_type
 
         # computed cols also have storage columns for the exception string and type
         self.sa_errormsg_col: Optional[sql.schema.Column] = None
         self.sa_errortype_col: Optional[sql.schema.Column] = None
-        # indexed columns also have a column for the embeddings
-        self.sa_idx_col: Optional[sql.schema.Column] = None
         from .table_version import TableVersion
         self.tbl: Optional[TableVersion] = None  # set by owning TableVersion
-
-        if indexed and not self.col_type.is_image_type():
-            raise excs.Error(f'Column {name}: indexed=True requires ImageType')
-        self.is_indexed = indexed
-
-    @classmethod
-    def from_md(cls, col_id: int, md: schema.SchemaColumn, tbl: 'TableVersion') -> Column:
-        """Construct a Column from metadata.
-
-        Leaves out value_expr, because that requires TableVersion.cols to be complete.
-        """
-        col = cls(
-            md.name, col_type=ColumnType.from_dict(md.col_type), primary_key=md.is_pk,
-            stored=md.stored, indexed=md.is_indexed, col_id=col_id)
-        col.tbl = tbl
-        return col
 
     def __hash__(self) -> int:
         assert self.tbl is not None
@@ -136,6 +113,10 @@ class Column:
         from pixeltable import exprs
         l = list(self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call))
         return len(l) > 0
+
+    def get_idx_info(self) -> dict[str, 'pixeltable.catalog.TableVersion.IndexInfo']:
+        assert self.tbl is not None
+        return {name: info for name, info in self.tbl.idxs_by_name.items() if info.col == self}
 
     @property
     def is_computed(self) -> bool:
@@ -167,26 +148,26 @@ class Column:
         """
         assert self.is_stored
         # all storage columns are nullable (we deal with null errors in Pixeltable directly)
-        self.sa_col = sql.Column(self.storage_name(), self.col_type.to_sa_type(), nullable=True)
+        self.sa_col = sql.Column(
+            self.store_name(), self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type,
+            nullable=True)
         if self.is_computed or self.col_type.is_media_type():
-            self.sa_errormsg_col = sql.Column(self.errormsg_storage_name(), StringType().to_sa_type(), nullable=True)
-            self.sa_errortype_col = sql.Column(self.errortype_storage_name(), StringType().to_sa_type(), nullable=True)
-        if self.is_indexed:
-            self.sa_idx_col = sql.Column(self.index_storage_name(), Vector(512), nullable=True)
+            self.sa_errormsg_col = sql.Column(self.errormsg_store_name(), ts.StringType().to_sa_type(), nullable=True)
+            self.sa_errortype_col = sql.Column(self.errortype_store_name(), ts.StringType().to_sa_type(), nullable=True)
 
-    def storage_name(self) -> str:
+    def get_sa_col_type(self) -> sql.sqltypes.TypeEngine:
+        return self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type
+
+    def store_name(self) -> str:
         assert self.id is not None
         assert self.is_stored
         return f'col_{self.id}'
 
-    def errormsg_storage_name(self) -> str:
-        return f'{self.storage_name()}_errormsg'
+    def errormsg_store_name(self) -> str:
+        return f'{self.store_name()}_errormsg'
 
-    def errortype_storage_name(self) -> str:
-        return f'{self.storage_name()}_errortype'
-
-    def index_storage_name(self) -> str:
-        return f'{self.storage_name()}_idx_0'
+    def errortype_store_name(self) -> str:
+        return f'{self.store_name()}_errortype'
 
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'

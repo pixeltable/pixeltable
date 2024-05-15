@@ -1,6 +1,6 @@
 import tempfile
 from pathlib import Path
-from typing import Optional, Union, Any
+from typing import Optional, Union
 
 import PIL.Image
 import av
@@ -13,13 +13,9 @@ import pixeltable.func as func
 # import all standard function modules here so they get registered with the FunctionRegistry
 import pixeltable.functions.pil.image
 from pixeltable import exprs
-from pixeltable.type_system import StringType, IntType, JsonType, ColumnType, FloatType, ImageType, VideoType
-
+from pixeltable.type_system import IntType, ColumnType, FloatType, ImageType, VideoType
 # automatically import all submodules so that the udfs get registered
-from . import image
-from . import string
-from . import video
-
+from . import image, string, video, huggingface
 
 # TODO: remove and replace calls with astype()
 def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
@@ -27,8 +23,8 @@ def cast(expr: exprs.Expr, target_type: ColumnType) -> exprs.Expr:
     return expr
 
 @func.uda(
-    update_types=[IntType()], value_type=IntType(), name='sum', allows_window=True, requires_order_by=False)
-class SumAggregator(func.Aggregator):
+    update_types=[IntType()], value_type=IntType(), allows_window=True, requires_order_by=False)
+class sum(func.Aggregator):
     def __init__(self):
         self.sum: Union[int, float] = 0
     def update(self, val: Union[int, float]) -> None:
@@ -39,8 +35,8 @@ class SumAggregator(func.Aggregator):
 
 
 @func.uda(
-    update_types=[IntType()], value_type=IntType(), name='count', allows_window = True, requires_order_by = False)
-class CountAggregator(func.Aggregator):
+    update_types=[IntType()], value_type=IntType(), allows_window = True, requires_order_by = False)
+class count(func.Aggregator):
     def __init__(self):
         self.count = 0
     def update(self, val: int) -> None:
@@ -51,8 +47,8 @@ class CountAggregator(func.Aggregator):
 
 
 @func.uda(
-    update_types=[IntType()], value_type=FloatType(), name='mean', allows_window=False, requires_order_by=False)
-class MeanAggregator(func.Aggregator):
+    update_types=[IntType()], value_type=FloatType(), allows_window=False, requires_order_by=False)
+class mean(func.Aggregator):
     def __init__(self):
         self.sum = 0
         self.count = 0
@@ -67,9 +63,9 @@ class MeanAggregator(func.Aggregator):
 
 
 @func.uda(
-    init_types=[IntType()], update_types=[ImageType()], value_type=VideoType(), name='make_video',
+    init_types=[IntType()], update_types=[ImageType()], value_type=VideoType(),
     requires_order_by=True, allows_window=False)
-class VideoAggregator(func.Aggregator):
+class make_video(func.Aggregator):
     def __init__(self, fps: int = 25):
         """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
         self.container: Optional[av.container.OutputContainer] = None

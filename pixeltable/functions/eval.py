@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import List, Tuple, Dict
 from collections import defaultdict
 import sys
@@ -157,16 +156,16 @@ def calculate_image_tpfp(
         ts.JsonType(nullable=False)
     ])
 def eval_detections(
-        pred_bboxes: List[List[int]], pred_classes: List[int], pred_scores: List[float],
-        gt_bboxes: List[List[int]], gt_classes: List[int]
+        pred_bboxes: List[List[int]], pred_labels: List[int], pred_scores: List[float],
+        gt_bboxes: List[List[int]], gt_labels: List[int]
 ) -> Dict:
-    class_idxs = list(set(pred_classes + gt_classes))
+    class_idxs = list(set(pred_labels + gt_labels))
     result: List[Dict] = []
     pred_bboxes_arr = np.asarray(pred_bboxes)
-    pred_classes_arr = np.asarray(pred_classes)
+    pred_classes_arr = np.asarray(pred_labels)
     pred_scores_arr = np.asarray(pred_scores)
     gt_bboxes_arr = np.asarray(gt_bboxes)
-    gt_classes_arr = np.asarray(gt_classes)
+    gt_classes_arr = np.asarray(gt_labels)
     for class_idx in class_idxs:
         pred_filter = pred_classes_arr == class_idx
         gt_filter = gt_classes_arr == class_idx
@@ -181,8 +180,8 @@ def eval_detections(
     return result
 
 @func.uda(
-    update_types=[ts.JsonType()], value_type=ts.JsonType(), name='mean_ap', allows_std_agg=True, allows_window=False)
-class MeanAPAggregator:
+    update_types=[ts.JsonType()], value_type=ts.JsonType(), allows_std_agg=True, allows_window=False)
+class mean_ap(func.Aggregator):
     def __init__(self):
         self.class_tpfp: Dict[int, List[Dict]] = defaultdict(list)
 

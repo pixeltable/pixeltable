@@ -1,20 +1,22 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
-import json
+
 import inspect
+import json
+import sys
+from typing import Optional, List, Any, Dict, Tuple
 
 import sqlalchemy as sql
 
-from .expr import Expr
-from .rowid_ref import RowidRef
-from .inline_dict import InlineDict
-from .inline_array import InlineArray
-from .data_row import DataRow
-from .row_builder import RowBuilder
-import pixeltable.func as func
-import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
+import pixeltable.func as func
 import pixeltable.type_system as ts
+from .data_row import DataRow
+from .expr import Expr
+from .inline_array import InlineArray
+from .inline_dict import InlineDict
+from .row_builder import RowBuilder
+from .rowid_ref import RowidRef
 
 
 class FunctionCall(Expr):
@@ -26,7 +28,7 @@ class FunctionCall(Expr):
         if group_by_clause is None:
             group_by_clause = []
         signature = fn.signature
-        super().__init__(signature.get_return_type(bound_args))
+        super().__init__(fn.call_return_type(bound_args))
         self.fn = fn
         self.is_method_call = is_method_call
         self.check_args(signature, bound_args)
@@ -44,9 +46,9 @@ class FunctionCall(Expr):
 
         # Tuple[int, Any]:
         # - for Exprs: (index into components, None)
-        # - otherwise: (-1, val)
-        self.args: List[Tuple[int, Any]] = []
-        self.kwargs: Dict[str, Tuple[int, Any]] = {}
+        # - otherwise: (None, val)
+        self.args: List[Tuple[Optional[int], Optional[Any]]] = []
+        self.kwargs: Dict[str, Tuple[Optional[int], Optional[Any]]] = {}
 
         # we record the types of non-variable parameters for runtime type checks
         self.arg_types: List[ts.ColumnType] = []
@@ -60,7 +62,7 @@ class FunctionCall(Expr):
                 self.args.append((len(self.components), None))
                 self.components.append(arg.copy())
             else:
-                self.args.append((-1, arg))
+                self.args.append((None, arg))
             if param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD:
                 self.arg_types.append(signature.parameters[param.name].col_type)
 
@@ -72,7 +74,7 @@ class FunctionCall(Expr):
                 self.kwargs[param_name] = (len(self.components), None)
                 self.components.append(arg.copy())
             else:
-                self.kwargs[param_name] = (-1, arg)
+                self.kwargs[param_name] = (None, arg)
             if fn.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                 self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
@@ -90,16 +92,24 @@ class FunctionCall(Expr):
             self.group_by_stop_idx = len(self.components) + len(group_by_exprs)
             self.components.extend(group_by_exprs)
 
+        if isinstance(self.fn, func.ExprTemplateFunction):
+            # we instantiate the template to create an Expr that can be evaluated and record that as a component
+            fn_expr = self.fn.instantiate(**bound_args)
+            self.components.append(fn_expr)
+            self.fn_expr_idx = len(self.components) - 1
+        else:
+            self.fn_expr_idx = sys.maxsize
+
         # we want to make sure that order_by_clause get assigned slot_idxs, even though we won't need to evaluate them
         # (that's done in SQL)
         if len(order_by_clause) > 0 and not isinstance(order_by_clause[0], Expr):
             raise excs.Error(
                 f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}')
+        # don't add components after this, everthing after order_by_start_idx is part of the order_by clause
         self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_clause)
 
         self.constant_args = {param_name for param_name, arg in bound_args.items() if not isinstance(arg, Expr)}
-
         # execution state for aggregate functions
         self.aggregator: Optional[Any] = None
         self.current_partition_vals: Optional[List[Any]] = None
@@ -205,12 +215,12 @@ class FunctionCall(Expr):
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
         arg_strs = [
-            str(arg) if idx == -1 else str(self.components[idx]) for idx, arg in self.args[start_idx:]
+            str(arg) if idx is None else str(self.components[idx]) for idx, arg in self.args[start_idx:]
         ]
         def print_arg(arg: Any) -> str:
             return f"'{arg}'" if isinstance(arg, str) else str(arg)
         arg_strs.extend([
-            f'{param_name}={print_arg(arg) if idx == -1 else str(self.components[idx])}'
+            f'{param_name}={print_arg(arg) if idx is None else str(self.components[idx])}'
             for param_name, (idx, arg) in self.kwargs.items()
         ])
         if len(self.order_by) > 0:
@@ -277,7 +287,7 @@ class FunctionCall(Expr):
         """Return args and kwargs, constructed for data_row"""
         kwargs: Dict[str, Any] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
-            val = arg if component_idx == -1 else data_row[self.components[component_idx].slot_idx]
+            val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
             param = self.fn.signature.parameters[param_name]
             if param.kind == inspect.Parameter.VAR_KEYWORD:
                 # expand **kwargs parameter
@@ -288,7 +298,7 @@ class FunctionCall(Expr):
 
         args: List[Any] = []
         for param_idx, (component_idx, arg) in enumerate(self.args):
-            val = arg if component_idx == -1 else data_row[self.components[component_idx].slot_idx]
+            val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
             param = self.fn.signature.parameters_by_pos[param_idx]
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
                 # expand *args parameter
@@ -318,7 +328,13 @@ class FunctionCall(Expr):
                     data_row[self.slot_idx] = None
                     return
 
-        if isinstance(self.fn, func.CallableFunction):
+        if isinstance(self.fn, func.ExprTemplateFunction):
+            # we need to evaluate the template
+            # TODO: can we get rid of this extra copy?
+            fn_expr = self.components[self.fn_expr_idx]
+            data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
+        elif isinstance(self.fn, func.CallableFunction):
+            # optimization: avoid additional level of indirection we'd get from calling Function.exec()
             data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:
             if self.has_group_by():
@@ -333,9 +349,10 @@ class FunctionCall(Expr):
                 self.aggregator = self.fn.agg_cls(**self.agg_init_args)
             self.aggregator.update(*args)
             data_row[self.slot_idx] = self.aggregator.value()
-        else:
-            assert self.is_agg_fn_call
+        elif self.is_agg_fn_call:
             data_row[self.slot_idx] = self.aggregator.value()
+        else:
+            data_row[self.slot_idx] = self.fn.exec(*args, **kwargs)
 
     def _as_dict(self) -> Dict:
         result = {
@@ -354,9 +371,9 @@ class FunctionCall(Expr):
         # reassemble bound args
         fn = func.Function.from_dict(d['fn'])
         param_names = list(fn.signature.parameters.keys())
-        bound_args = {param_names[i]: arg if idx == -1 else components[idx] for i, (idx, arg) in enumerate(d['args'])}
+        bound_args = {param_names[i]: arg if idx is None else components[idx] for i, (idx, arg) in enumerate(d['args'])}
         bound_args.update(
-            {param_name: val if idx == -1 else components[idx] for param_name, (idx, val) in d['kwargs'].items()})
+            {param_name: val if idx is None else components[idx] for param_name, (idx, val) in d['kwargs'].items()})
         group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx']:]
         fn_call = cls(

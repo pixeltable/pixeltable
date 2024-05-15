@@ -29,9 +29,7 @@ class Dumper:
         os.environ['PIXELTABLE_DB'] = db_name
         os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 
-        Env.get().set_up(reinit_db=True)
-        self.cl = pxt.Client()
-        self.cl.logging(level=logging.DEBUG, to_stdout=True)
+        Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
 
     def dump_db(self) -> None:
         md_version = metadata.VERSION
@@ -76,8 +74,13 @@ class Dumper:
             'c6': JsonType(nullable=False),
             'c7': JsonType(nullable=False),
         }
-        t = self.cl.create_table('sample_table', schema, primary_key='c2')
+        t = pxt.create_table('sample_table', schema, primary_key='c2')
+
+        # Add columns for InlineArray and InlineDict
         t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
+        t.add_column(c9=[['a', 'b', 'c'], ['d', 'e', 'f']])
+        t.add_column(c10=[t.c1, [t.c1n, t.c2]])
+        t.add_column(c11={'int': 22, 'dict': {'key': 'val'}, 'expr': t.c1})
 
         # Add columns for .astype converters to ensure they're persisted properly
         t.add_column(c2_as_float=t.c2.astype(FloatType()))
@@ -136,6 +139,22 @@ class Dumper:
             for i in range(num_rows)
         ]
         t.insert(rows)
+        pxt.create_dir('views')
+        v = pxt.create_view('views.sample_view', t, filter=(t.c2 < 50))
+        _ = pxt.create_view('views.sample_snapshot', t, filter=(t.c2 >= 75), is_snapshot=True)
+        # Computed column using a library function
+        v['str_format'] = pxt.functions.string.str_format('{0} {key}', t.c1, key=t.c1)
+        # Computed column using a bespoke udf
+        v['test_udf'] = test_udf(t.c2)
+        # astype
+        v['astype'] = t.c1.astype(pxt.FloatType())
+        # computed column using a stored function
+        v['stored'] = t.c1.apply(lambda x: f'Hello, {x}', col_type=pxt.StringType())
+
+
+@pxt.udf
+def test_udf(n: int) -> int:
+    return n + 1
 
 
 def main() -> None:

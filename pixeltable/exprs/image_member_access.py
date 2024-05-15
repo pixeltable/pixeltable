@@ -1,19 +1,17 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple, Union
+
+from typing import Optional, List, Any, Dict, Tuple
 
 import PIL
 import sqlalchemy as sql
 
-from .expr import Expr
-from .column_ref import ColumnRef
-from .function_call import FunctionCall
-from .image_similarity_predicate import ImageSimilarityPredicate
-from .data_row import DataRow
-from .row_builder import RowBuilder
-import pixeltable.catalog as catalog
-import pixeltable.func as func
 import pixeltable.exceptions as excs
+import pixeltable.func as func
 import pixeltable.type_system as ts
+from .data_row import DataRow
+from .expr import Expr
+from .function_call import FunctionCall
+from .row_builder import RowBuilder
 
 
 # TODO: this doesn't dig up all attrs for actual jpeg images
@@ -43,9 +41,7 @@ class ImageMemberAccess(Expr):
     attr_info = _create_pil_attr_info()
 
     def __init__(self, member_name: str, caller: Expr):
-        if member_name == 'nearest':
-            super().__init__(ts.InvalidType())  # requires FunctionCall to return value
-        elif member_name in self.attr_info:
+        if member_name in self.attr_info:
             super().__init__(self.attr_info[member_name])
         else:
             candidates = func.FunctionRegistry.get().get_type_methods(member_name, ts.ColumnType.Type.IMAGE)
@@ -78,22 +74,8 @@ class ImageMemberAccess(Expr):
         assert len(components) == 1
         return cls(d['member_name'], components[0])
 
-    def __call__(self, *args, **kwargs) -> Union[FunctionCall, ImageSimilarityPredicate]:
-        caller = self._caller
-        call_signature = f'({",".join([type(arg).__name__ for arg in args])})'
-        if self.member_name == 'nearest':
-            # - caller must be ColumnRef
-            # - signature is (Union[PIL.Image.Image, str])
-            if not isinstance(caller, ColumnRef):
-                raise excs.Error(f'nearest(): caller must be an image column')
-            if len(args) != 1 or (not isinstance(args[0], PIL.Image.Image) and not isinstance(args[0], str)):
-                raise excs.Error(f'nearest(): requires a PIL.Image.Image or str, got {call_signature} instead')
-            return ImageSimilarityPredicate(
-                caller,
-                img=args[0] if isinstance(args[0], PIL.Image.Image) else None,
-                text=args[0] if isinstance(args[0], str) else None)
-
-        result = self.img_method(*[caller, *args], **kwargs)
+    def __call__(self, *args, **kwargs) -> FunctionCall:
+        result = self.img_method(*[self._caller, *args], **kwargs)
         result.is_method_call = True
         return result
 
@@ -112,4 +94,3 @@ class ImageMemberAccess(Expr):
             data_row[self.slot_idx] = getattr(caller_val, self.member_name)
         except AttributeError:
             data_row[self.slot_idx] = None
-

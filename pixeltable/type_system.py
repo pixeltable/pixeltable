@@ -6,9 +6,10 @@ import enum
 import json
 import typing
 import urllib.parse
+import urllib.request
 from copy import copy
 from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union
+from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
 
 import PIL.Image
 import av
@@ -224,6 +225,8 @@ class ColumnType:
             return BoolType()
         if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
             return TimestampType()
+        if isinstance(val, PIL.Image.Image):
+            return ImageType(width=val.width, height=val.height)
         if isinstance(val, np.ndarray):
             col_type = ArrayType.from_literal(val)
             if col_type is not None:
@@ -240,18 +243,37 @@ class ColumnType:
 
     @classmethod
     def from_python_type(cls, t: type) -> Optional[ColumnType]:
-        if t in _python_type_to_column_type:
-            return _python_type_to_column_type[t]
-        elif isinstance(t, typing._UnionGenericAlias) and t.__args__[1] is type(None):
-            # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
-            # We treat it as the underlying type but with nullable=True.
-            if t.__args__[0] in _python_type_to_column_type:
-                underlying = copy(_python_type_to_column_type[t.__args__[0]])
-                underlying.nullable = True
-                return underlying
-
+        if typing.get_origin(t) is typing.Union:
+            union_args = typing.get_args(t)
+            if union_args[1] is type(None):
+                # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
+                # We treat it as the underlying type but with nullable=True.
+                underlying = cls.from_python_type(union_args[0])
+                if underlying is not None:
+                    underlying.nullable = True
+                    return underlying
+        else:
+            # Discard type parameters to ensure that parameterized types such as `list[T]`
+            # are correctly mapped to Pixeltable types.
+            base = typing.get_origin(t)
+            if base is None:
+                # No type parameters; the base type is just `t` itself
+                base = t
+            if base is str:
+                return StringType()
+            if base is int:
+                return IntType()
+            if base is float:
+                return FloatType()
+            if base is bool:
+                return BoolType()
+            if base is datetime.date or base is datetime.datetime:
+                return TimestampType()
+            if issubclass(base, Sequence) or issubclass(base, Mapping):
+                return JsonType()
+            if issubclass(base, PIL.Image.Image):
+                return ImageType()
         return None
-
 
     def validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
@@ -275,7 +297,7 @@ class ColumnType:
             parsed = urllib.parse.urlparse(val)
             if parsed.scheme != '' and parsed.scheme != 'file':
                 return
-            path = Path(urllib.parse.unquote(parsed.path))
+            path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
             if not path.is_file():
                 raise TypeError(f'File not found: {str(path)}')
         else:
@@ -351,42 +373,12 @@ class ColumnType:
         return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
     @abc.abstractmethod
-    def to_sql(self) -> str:
+    def to_sa_type(self) -> sql.types.TypeEngine:
         """
-        Return corresponding Postgres type.
+        Return corresponding SQLAlchemy type.
         """
         pass
 
-    @abc.abstractmethod
-    def to_sa_type(self) -> Any:
-        """
-        Return corresponding SQLAlchemy type.
-        return type Any: there doesn't appear to be a superclass for the sqlalchemy types
-        """
-        assert self._type != self.Type.INVALID
-        if self._type == self.Type.STRING:
-            return sql.String
-        if self._type == self.Type.INT:
-            return sql.Integer
-        if self._type == self.Type.FLOAT:
-            return sql.Float
-        if self._type == self.Type.BOOL:
-            return sql.Boolean
-        if self._type == self.Type.TIMESTAMP:
-            return sql.TIMESTAMP
-        if self._type == self.Type.IMAGE:
-            # the URL
-            return sql.String
-        if self._type == self.Type.JSON:
-            return sql.dialects.postgresql.JSONB
-        if self._type == self.Type.ARRAY:
-            return sql.VARBINARY
-        assert False
-
-    @abc.abstractmethod
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        assert False, f'Have not implemented {self.__class__.__name__} to Arrow'
- 
     @staticmethod
     def no_conversion(v: Any) -> Any:
         """
@@ -407,13 +399,7 @@ class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INVALID, nullable=nullable)
 
-    def to_sql(self) -> str:
-        assert False
-
-    def to_sa_type(self) -> Any:
-        assert False
-
-    def to_arrow_type(self) -> 'pyarrow.DataType':
+    def to_sa_type(self) -> sql.types.TypeEngine:
         assert False
 
     def print_value(self, val: Any) -> str:
@@ -421,6 +407,7 @@ class InvalidType(ColumnType):
 
     def _validate_literal(self, val: Any) -> None:
         assert False
+
 
 class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -437,15 +424,8 @@ class StringType(ColumnType):
                 return None
         return convert
 
-    def to_sql(self) -> str:
-        return 'VARCHAR'
-
-    def to_sa_type(self) -> str:
-        return sql.String
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.string()
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.String()
 
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
@@ -454,20 +434,21 @@ class StringType(ColumnType):
         if not isinstance(val, str):
             raise TypeError(f'Expected string, got {val.__class__.__name__}')
 
+    def _create_literal(self, val: Any) -> Any:
+        # Replace null byte within python string with space to avoid issues with Postgres.
+        # Use a space to avoid merging words.
+        # TODO(orm): this will also be an issue with JSON inputs, would space still be a good replacement?
+        if isinstance(val, str) and '\x00' in val:
+            return val.replace('\x00', ' ')
+        return val
+
 
 class IntType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INT, nullable=nullable)
 
-    def to_sql(self) -> str:
-        return 'BIGINT'
-
-    def to_sa_type(self) -> str:
-        return sql.BigInteger
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.int64() # to be consistent with bigint above
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.BigInteger()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, int):
@@ -478,15 +459,8 @@ class FloatType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.FLOAT, nullable=nullable)
 
-    def to_sql(self) -> str:
-        return 'FLOAT'
-
-    def to_sa_type(self) -> str:
-        return sql.Float
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa
-        return pa.float32()
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.Float()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, float):
@@ -497,19 +471,13 @@ class FloatType(ColumnType):
             return float(val)
         return val
 
+
 class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.BOOL, nullable=nullable)
 
-    def to_sql(self) -> str:
-        return 'BOOLEAN'
-
-    def to_sa_type(self) -> str:
-        return sql.Boolean
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.bool_()
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.Boolean()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, bool):
@@ -520,19 +488,13 @@ class BoolType(ColumnType):
             return bool(val)
         return val
 
+
 class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
-    def to_sql(self) -> str:
-        return 'INTEGER'
-
-    def to_sa_type(self) -> str:
-        return sql.TIMESTAMP
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.timestamp('us') # postgres timestamp is microseconds
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.TIMESTAMP()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
@@ -542,6 +504,7 @@ class TimestampType(ColumnType):
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
         return val
+
 
 class JsonType(ColumnType):
     # TODO: type_spec also needs to be able to express lists
@@ -565,15 +528,8 @@ class JsonType(ColumnType):
             }
         return cls(type_spec, nullable=d['nullable'])
 
-    def to_sql(self) -> str:
-        return 'JSONB'
-
-    def to_sa_type(self) -> str:
-        return sql.dialects.postgresql.JSONB
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.string() # TODO: weight advantage of pa.struct type.
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.dialects.postgresql.JSONB()
 
     def print_value(self, val: Any) -> str:
         val_type = self.infer_literal_type(val)
@@ -593,6 +549,7 @@ class JsonType(ColumnType):
         if isinstance(val, tuple):
             val = list(val)
         return val
+
 
 class ArrayType(ColumnType):
     def __init__(
@@ -669,20 +626,13 @@ class ArrayType(ColumnType):
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, (list,tuple)):
-            return np.array(val)
+            # map python float to whichever numpy float is
+            # declared for this type, rather than assume float64
+            return np.array(val, dtype=self.numpy_dtype())
         return val
 
-    def to_sql(self) -> str:
-        return 'BYTEA'
-
-    def to_sa_type(self) -> str:
-        return sql.LargeBinary
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        if any([n is None for n in self.shape]):
-            raise TypeError(f'Cannot convert array with unknown shape to Arrow')        
-        return pa.fixed_shape_tensor(pa.from_numpy_dtype(self.numpy_dtype()), self.shape)
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.LargeBinary()
 
     def numpy_dtype(self) -> np.dtype:
         if self.dtype == self.Type.INT:
@@ -783,15 +733,8 @@ class ImageType(ColumnType):
             return img
         return convert
 
-    def to_sql(self) -> str:
-        return 'VARCHAR'
-
-    def to_sa_type(self) -> str:
-        return sql.String
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.binary()
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         if isinstance(val, PIL.Image.Image):
@@ -805,20 +748,14 @@ class ImageType(ColumnType):
         except PIL.UnidentifiedImageError:
             raise excs.Error(f'Not a valid image: {val}') from None
 
+
 class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.VIDEO, nullable=nullable)
 
-    def to_sql(self) -> str:
+    def to_sa_type(self) -> sql.types.TypeEngine:
         # stored as a file path
-        return 'VARCHAR'
-
-    def to_sa_type(self) -> str:
-        return sql.String
-    
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa # pylint: disable=import-outside-toplevel
-        return pa.string()
+        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -843,20 +780,14 @@ class VideoType(ColumnType):
         except av.AVError:
             raise excs.Error(f'Not a valid video: {val}') from None
 
+
 class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.AUDIO, nullable=nullable)
 
-    def to_sql(self) -> str:
+    def to_sa_type(self) -> sql.types.TypeEngine:
         # stored as a file path
-        return 'VARCHAR'
-
-    def to_sa_type(self) -> str:
-        return sql.String
-
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa  # pylint: disable=import-outside-toplevel
-        return pa.string()
+        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -876,6 +807,7 @@ class AudioType(ColumnType):
         except av.AVError as e:
             raise excs.Error(f'Not a valid audio file: {val}\n{e}') from None
 
+
 class DocumentType(ColumnType):
     @enum.unique
     class DocumentFormat(enum.Enum):
@@ -894,16 +826,9 @@ class DocumentType(ColumnType):
         else:
             self._doc_formats = [t for t in self.DocumentFormat]
 
-    def to_sql(self) -> str:
+    def to_sa_type(self) -> sql.types.TypeEngine:
         # stored as a file path
-        return 'VARCHAR'
-
-    def to_sa_type(self) -> str:
-        return sql.String
-
-    def to_arrow_type(self) -> 'pyarrow.DataType':
-        import pyarrow as pa  # pylint: disable=import-outside-toplevel
-        return pa.string()
+        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -911,28 +836,9 @@ class DocumentType(ColumnType):
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         from pixeltable.utils.documents import get_document_handle
-        with open(val, 'r') as fh:
-            try:
-                s = fh.read()
-                dh = get_document_handle(s)
-                if dh is None:
-                    raise excs.Error(f'Not a recognized document format: {val}')
-            except Exception as e:
-                raise excs.Error(f'Not a recognized document format: {val}') from None
-
-
-# A dictionary mapping various Python types to their respective ColumnTypes.
-# This can be used to infer Pixeltable ColumnTypes from type hints on Python
-# functions. (Since Python functions do not necessarily have type hints, this
-# should always be an optional/convenience inference.)
-_python_type_to_column_type: dict[type, ColumnType] = {
-    str: StringType(),
-    int: IntType(),
-    float: FloatType(),
-    bool: BoolType(),
-    datetime.datetime: TimestampType(),
-    datetime.date: TimestampType(),
-    list: JsonType(),
-    dict: JsonType(),
-    PIL.Image.Image: ImageType()
-}
+        try:
+            dh = get_document_handle(val)
+            if dh is None:
+                raise excs.Error(f'Not a recognized document format: {val}')
+        except Exception as e:
+            raise excs.Error(f'Not a recognized document format: {val}') from None

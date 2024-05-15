@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import inspect
-import sys
-from typing import Optional, Dict, Callable, List, Tuple
+from typing import Optional, Dict, Callable, List, Tuple, Any
 from uuid import UUID
 import cloudpickle
 
@@ -30,6 +29,9 @@ class CallableFunction(Function):
         self.self_name = self_name
         py_signature = inspect.signature(self.py_fn)
         super().__init__(signature, py_signature, self_path=self_path)
+
+    def exec(self, *args: Any, **kwargs: Any) -> Any:
+        return self.py_fn(*args, **kwargs)
 
     @property
     def display_name(self) -> str:
@@ -61,3 +63,9 @@ class CallableFunction(Function):
 
     def to_store(self) -> Tuple[Dict, bytes]:
         return (self.signature.as_dict(), cloudpickle.dumps(self.py_fn))
+
+    @classmethod
+    def from_store(cls, name: Optional[str], md: Dict, binary_obj: bytes) -> Function:
+        py_fn = cloudpickle.loads(binary_obj)
+        assert isinstance(py_fn, Callable)
+        return CallableFunction(Signature.from_dict(md), py_fn, self_name=name)
