@@ -8,7 +8,6 @@ import sys
 import pgserver
 import pytest
 import sqlalchemy.orm as orm
-import toml
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -27,6 +26,8 @@ class TestMigration:
     @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Does not run on Python 3.11+ (due to pickling issue)')
     def test_db_migration(self, init_env) -> None:
         skip_test_if_not_installed('transformers')
+        import toml
+
         env = Env.get()
         pg_package_dir = os.path.dirname(pgserver.__file__)
         pg_restore_binary = f'{pg_package_dir}/pginstall/bin/pg_restore'
