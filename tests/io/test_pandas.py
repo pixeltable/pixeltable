@@ -13,7 +13,7 @@ class TestPandas:
     def test_pandas_csv(self, reset_db) -> None:
         from pixeltable.io import import_csv
 
-        t1 = import_csv('online_foods', 'pixeltable/tests/data/datasets/onlinefoods.csv')
+        t1 = import_csv('online_foods', 'tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
         assert t1.column_types() == {
             'Age': pxt.IntType(),
@@ -32,7 +32,7 @@ class TestPandas:
         }
         assert t1.select(t1.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
 
-        t2 = import_csv('ibm', 'pixeltable/tests/data/datasets/classeurIBM.csv')
+        t2 = import_csv('ibm', 'tests/data/datasets/classeurIBM.csv')
         assert t2.count() == 4263
         assert t2.column_types() == {
             'Date': pxt.StringType(),
@@ -46,7 +46,7 @@ class TestPandas:
 
         t3 = import_csv(
             'edge_cases',
-            'pixeltable/tests/data/datasets/edge-cases.csv',
+            'tests/data/datasets/edge-cases.csv',
             parse_dates=['ts', 'ts_n']
         )
         assert t3.count() == 4
@@ -77,7 +77,7 @@ class TestPandas:
         # Test overriding string type to images
         t4 = import_csv(
             'images',
-            'pixeltable/tests/data/datasets/images.csv',
+            'tests/data/datasets/images.csv',
             schema_overrides={'image': pxt.ImageType(nullable=True)}
         )
         assert t4.count() == 4
@@ -92,13 +92,13 @@ class TestPandas:
         skip_test_if_not_installed('openpyxl')
         from pixeltable.io.pandas import import_excel
 
-        t4 = import_excel('fin_sample', 'pixeltable/tests/data/datasets/Financial Sample.xlsx')
+        t4 = import_excel('fin_sample', 'tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
         assert t4.column_types()['Date'] == pxt.TimestampType()
         entry = t4.df().limit(1).collect()[0]
         assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0)
 
-        t5 = import_excel('sale_data', 'pixeltable/tests/data/datasets/SaleData.xlsx')
+        t5 = import_excel('sale_data', 'tests/data/datasets/SaleData.xlsx')
         assert t5.count() == 45
         assert t5.column_types()['OrderDate'] == pxt.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
@@ -110,7 +110,7 @@ class TestPandas:
         with pytest.raises(excs.Error) as exc_info:
             _ = import_csv(
                 'online_foods',
-                'pixeltable/tests/data/datasets/onlinefoods.csv',
+                'tests/data/datasets/onlinefoods.csv',
                 schema_overrides={'Non-Column': pxt.StringType()}
             )
         assert '`Non-Column` specified in `schema_overrides` does not exist' in str(exc_info.value)
