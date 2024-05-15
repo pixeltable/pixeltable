@@ -202,7 +202,7 @@ class SqlScanNode(ExecNode):
                 self.row_builder.eval(output_row, self.filter_eval_ctx, profile=self.ctx.profile)
                 if output_row[self.filter.slot_idx]:
                     needs_row = True
-                    if self.limit is not None and len(output_batch) >= self.limit:
+                    if self.limit > 0 and len(output_batch) >= self.limit:
                         self.has_more_rows = False
                         break
                 else:

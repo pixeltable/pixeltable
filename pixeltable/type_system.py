@@ -533,6 +533,8 @@ class JsonType(ColumnType):
 
     def print_value(self, val: Any) -> str:
         val_type = self.infer_literal_type(val)
+        if val_type is None:
+            return super().print_value(val)
         if val_type == self:
             return str(val)
         return val_type.print_value(val)
