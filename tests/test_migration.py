@@ -71,6 +71,8 @@ class TestMigration:
             reload_db()
 
             # TODO(aaron-siegel) We need many more of these sorts of checks.
+            if old_version >= 13:
+                self._run_v13_tests()
             if old_version >= 14:
                 self._run_v14_tests()
 
@@ -81,8 +83,16 @@ class TestMigration:
             f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
 
     @classmethod
-    def _run_v14_tests(cls):
-        """Tests that DB artifacts of version 14+ are expected to pass."""
+    def _run_v13_tests(cls) -> None:
+        """Tests that apply to DB artifacts of version 13+."""
+        t = pxt.get_table('views.empty_view')
+        # Test that the batched function is properly loaded as batched
+        expr = t['batched'].col.value_expr
+        assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
+
+    @classmethod
+    def _run_v14_tests(cls) -> None:
+        """Tests that apply to DB artifacts of version 14+."""
         t = pxt.get_table('views.sample_view')
         # Test that stored batched functions are properly loaded as batched
         expr = t['test_udf_batched'].col.value_expr

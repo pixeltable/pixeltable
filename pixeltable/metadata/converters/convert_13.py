@@ -21,7 +21,7 @@ def convert_13(engine: sql.engine.Engine) -> None:
 
 
 # Traverse the schema dictionary and replace instances of `ExplicitBatchedFunction` with
-# `CallableFunction`. Schema versions prior to 14 can't contain serialized batched functions,
+# `CallableFunction`. DB versions prior to 14 can't contain serialized batched functions,
 # so this is all we need to do.
 def _update_md(md: Any) -> Any:
     if isinstance(md, dict):
