@@ -16,7 +16,7 @@ from pixeltable.exprs import FunctionCall
 from pixeltable.func import CallableFunction
 from pixeltable.metadata import VERSION, SystemInfo
 from .conftest import clean_db
-from .utils import reload_db
+from .utils import reload_catalog
 
 _logger = logging.getLogger('pixeltable')
 
@@ -68,7 +68,7 @@ class TestMigration:
                 md = session.query(SystemInfo).one().md
                 assert md['schema_version'] == VERSION
 
-            reload_db()
+            reload_catalog()
 
             # TODO(aaron-siegel) We need many more of these sorts of checks.
             if old_version >= 13:

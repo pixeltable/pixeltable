@@ -83,6 +83,11 @@ class Dumper:
         t.add_column(c10=[t.c1, [t.c1n, t.c2]])
         t.add_column(c11={'int': 22, 'dict': {'key': 'val'}, 'expr': t.c1})
 
+        # InPredicate
+        t.add_column(isin_1=t.c1.isin(['test string 1', 'test string 2', 'test string 3']))
+        t.add_column(isin_2=t.c2.isin([1, 2, 3, 4, 5]))
+        t.add_column(isin_2=t.c2.isin(t.c6.f5))
+
         # Add columns for .astype converters to ensure they're persisted properly
         t.add_column(c2_as_float=t.c2.astype(FloatType()))
 
