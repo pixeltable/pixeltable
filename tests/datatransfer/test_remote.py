@@ -1,10 +1,10 @@
 import logging
-from typing import Any
 
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.datatransfer.remote import MockRemote
 
 _logger = logging.getLogger('pixeltable')
 
@@ -15,7 +15,7 @@ class TestLabelStudio:
         schema = {'col1': pxt.StringType(), 'col2': pxt.ImageType(), 'col3': pxt.StringType(), 'col4': pxt.VideoType()}
         t = pxt.create_table('test_remote', schema)
 
-        remote1 = self.MockRemote(
+        remote1 = MockRemote(
             {'push1': pxt.StringType(), 'push2': pxt.ImageType()},
             {'pull1': pxt.StringType(), 'pull2': pxt.VideoType()}
         )
@@ -55,7 +55,7 @@ class TestLabelStudio:
 
         schema3 = {'img': pxt.ImageType(), 'spec_img': pxt.ImageType(512, 512)}
         t3 = pxt.create_table('test_remote_3', schema3)
-        remote2 = self.MockRemote(
+        remote2 = MockRemote(
             {'push_img': pxt.ImageType(), 'push_spec_img': pxt.ImageType(512, 512)},
             {'pull_img': pxt.ImageType(), 'pull_spec_img': pxt.ImageType(512, 512)}
         )
@@ -72,26 +72,3 @@ class TestLabelStudio:
         with pytest.raises(excs.Error) as exc_info:
             t3.link_remote(remote2, {'spec_img': 'pull_img'})
         assert 'Column `spec_img` cannot be pulled from remote column `pull_img`' in str(exc_info.value)
-
-    class MockRemote(pxt.Remote):
-
-        def __init__(self, push_cols: dict[str, pxt.ColumnType], pull_cols: dict[str, pxt.ColumnType]):
-            self.push_cols = push_cols
-            self.pull_cols = pull_cols
-
-        def get_push_columns(self) -> dict[str, pxt.ColumnType]:
-            return self.push_cols
-
-        def get_pull_columns(self) -> dict[str, pxt.ColumnType]:
-            return self.pull_cols
-
-        def sync(self, t: pxt.Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
-            raise NotImplementedError()
-
-        def to_dict(self) -> dict[str, Any]:
-            return {'test_key': 'test_val'}
-
-        @classmethod
-        def from_dict(cls, md: dict[str, Any]) -> pxt.Remote:
-            assert md == {'test_key': 'test_val'}
-            return cls()

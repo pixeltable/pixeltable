@@ -78,6 +78,8 @@ class TestMigration:
                 self._run_v13_tests()
             if old_version >= 14:
                 self._run_v14_tests()
+            if old_version >= 15:
+                self._run_v15_tests()
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, \
@@ -100,3 +102,17 @@ class TestMigration:
         # Test that stored batched functions are properly loaded as batched
         expr = t['test_udf_batched'].col.value_expr
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
+
+    @classmethod
+    def _run_v15_tests(cls) -> None:
+        """Tests that apply to DB artifacts of version 15+."""
+        from pixeltable.datatransfer.remote import MockRemote
+        t = pxt.get_table('views.sample_view')
+        # Test that remotes are loaded properly.
+        remotes = t.get_remotes()
+        assert len(remotes) == 1
+        remote, col_mapping = next(iter(remotes.items()))
+        assert isinstance(remote, MockRemote)
+        assert remote.get_push_columns() == {'int_field': pxt.IntType()}
+        assert remote.get_pull_columns() == {'str_field': pxt.StringType()}
+        assert col_mapping == {'test_udf': 'int_field', 'str_format': 'str_field'}

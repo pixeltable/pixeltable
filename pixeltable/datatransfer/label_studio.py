@@ -26,14 +26,13 @@ class LabelStudioProject(Remote):
 
     def __init__(self, project_id: int):
         self.project_id = project_id
-        self.ls_client = env.Env.get().label_studio_client
         self._project: Optional[label_studio_sdk.project.Project] = None
 
     @property
     def project(self) -> label_studio_sdk.project.Project:
         if self._project is None:
             try:
-                self._project = self.ls_client.get_project(self.project_id)
+                self._project = env.Env.get().label_studio_client.get_project(self.project_id)
             except HTTPError as exc:
                 raise excs.Error(f'Could not locate Label Studio project: {self.project_id} '
                                  '(cannot connect to server or project no longer exists)') from exc

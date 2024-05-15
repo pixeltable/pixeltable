@@ -162,6 +162,13 @@ class Dumper:
         # astype
         v['astype'] = t.c1.astype(pxt.FloatType())
 
+        # Add remotes
+        from pixeltable.datatransfer.remote import MockRemote
+        v.link_remote(
+            MockRemote({'int_field': pxt.IntType()}, {'str_field': pxt.StringType()}),
+            col_mapping={'test_udf': 'int_field', 'str_format': 'str_field'}
+        )
+
 
 @pxt.udf(_force_stored=True)
 def test_udf_stored(n: int) -> int:
