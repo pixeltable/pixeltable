@@ -7,8 +7,8 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
-from pixeltable.tests.utils import create_test_tbl, assert_resultset_eq
 from pixeltable.type_system import IntType, FloatType, ImageType
+from .utils import create_test_tbl, assert_resultset_eq, reload_catalog
 
 logger = logging.getLogger('pixeltable')
 
@@ -19,9 +19,9 @@ class TestView:
     - test consecutive component views
 
     """
-    def create_tbl(self, cl: pxt.Client) -> catalog.InsertableTable:
+    def create_tbl(self) -> catalog.InsertableTable:
         """Create table with computed columns"""
-        t = create_test_tbl(cl)
+        t = create_test_tbl()
         t.add_column(d1=t.c3 - 1)
         # add column that can be updated
         t.add_column(c10=FloatType(nullable=True))
@@ -30,16 +30,15 @@ class TestView:
         t.add_column(d2=t.c3 - t.c10)
         return t
 
-    def test_basic(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        t = self.create_tbl(cl)
+    def test_basic(self, reset_db) -> None:
+        t = self.create_tbl()
 
         # create view with filter and computed columns
         schema = {
             'v1': t.c3 * 2.0,
             'v2': t.c6.f5,
         }
-        v = cl.create_view('test_view', t, schema=schema, filter=t.c2 < 10)
+        v = pxt.create_view('test_view', t, schema=schema, filter=t.c2 < 10)
         # TODO: test repr more thoroughly
         _ = v.__repr__()
         assert_resultset_eq(
@@ -67,9 +66,9 @@ class TestView:
         check_view(t, v)
 
         # check view md after reload
-        cl = pxt.Client(reload=True)
-        t = cl.get_table('test_tbl')
-        v = cl.get_table('test_view')
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        v = pxt.get_table('test_view')
         check_view(t, v)
 
         view_query = v.select(v.v1).order_by(v.c2)
@@ -95,30 +94,29 @@ class TestView:
         check_view(t, v)
 
         # test delete view
-        cl.drop_table('test_view')
+        pxt.drop_table('test_view')
         with pytest.raises(excs.Error) as exc_info:
-            _ = cl.get_table('test_view')
+            _ = pxt.get_table('test_view')
         assert 'No such path:' in str(exc_info.value)
-        cl = pxt.Client(reload=True)
+        reload_catalog()
         # still true after reload
         with pytest.raises(excs.Error) as exc_info:
-            _ = cl.get_table('test_view')
+            _ = pxt.get_table('test_view')
         assert 'No such path:' in str(exc_info.value)
 
-        t = cl.get_table('test_tbl')
+        t = pxt.get_table('test_tbl')
         with pytest.raises(excs.Error) as exc_info:
-            _ = cl.create_view('lambda_view', t, schema={'v1': lambda c3: c3 * 2.0})
+            _ = pxt.create_view('lambda_view', t, schema={'v1': lambda c3: c3 * 2.0})
         assert 'computed with a callable' in str(exc_info.value).lower()
 
-    def test_parallel_views(self, test_client: pxt.Client) -> None:
+    def test_parallel_views(self, reset_db) -> None:
         """Two views over the same base table, with non-overlapping filters"""
-        cl = test_client
-        t = self.create_tbl(cl)
+        t = self.create_tbl()
 
         # create view with filter and computed columns
-        v1 = cl.create_view('v1', t, schema={'v1': t.c3 * 2}, filter=t.c2 < 10)
+        v1 = pxt.create_view('v1', t, schema={'v1': t.c3 * 2}, filter=t.c2 < 10)
         # create another view with a non-overlapping filter and computed columns
-        v2 = cl.create_view('v2', t, schema={'v1': t.c3 * 3}, filter=(t.c2 < 20) & (t.c2 >= 10))
+        v2 = pxt.create_view('v2', t, schema={'v1': t.c3 * 3}, filter=(t.c2 < 20) & (t.c2 >= 10))
 
         # sanity checks
         v1_query = v1.select(v1.v1).order_by(v1.c2)
@@ -158,20 +156,19 @@ class TestView:
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
-    def test_chained_views(self, test_client: pxt.Client) -> None:
+    def test_chained_views(self, reset_db) -> None:
         """Two views, the second one is a view over the first one"""
-        cl = test_client
-        t = self.create_tbl(cl)
+        t = self.create_tbl()
 
         # create view with filter and computed columns
-        v1 = cl.create_view('v1', t, schema={'col1': t.c3 * 2}, filter=t.c2 < 10)
+        v1 = pxt.create_view('v1', t, schema={'col1': t.c3 * 2}, filter=t.c2 < 10)
         # create a view on top of v1
         v2_schema = {
             'col2': t.c3 * 3,  # only base
             'col3': v1.col1 / 2,  # only v1
             'col4': t.c10 + v1.col1,  # both base and v1
         }
-        v2 = cl.create_view('v2', v1, schema=v2_schema, filter=t.c2 < 5)
+        v2 = pxt.create_view('v2', v1, schema=v2_schema, filter=t.c2 < 5)
 
         def check_views():
             assert_resultset_eq(
@@ -254,16 +251,15 @@ class TestView:
         assert v2.version() == v2_version
         check_views()
 
-    def test_unstored_columns(self, test_client: pxt.Client) -> None:
+    def test_unstored_columns(self, reset_db) -> None:
         """Test chained views with unstored columns"""
         # create table with image column and two updateable int columns
-        cl = test_client
         schema = {
             'img': ImageType(),
             'int1': IntType(nullable=False),
             'int2': IntType(nullable=False),
         }
-        t = cl.create_table('test_tbl', schema)
+        t = pxt.create_table('test_tbl', schema)
         # populate table with images of a defined size
         width, height = 100, 100
         rows = [
@@ -286,7 +282,7 @@ class TestView:
             'int4': IntType(nullable=True),  # TODO: add default
         }
         logger.debug('******************* CREATE V1')
-        v1 = cl.create_view('v1', t, schema=v1_schema)
+        v1 = pxt.create_view('v1', t, schema=v1_schema)
         v1.update({'int4': 1})
         _ = v1.select(v1.img2.width, v1.img2.height).collect()
 
@@ -299,7 +295,7 @@ class TestView:
               },
         }
         logger.debug('******************* CREATE V2')
-        v2 = cl.create_view('v2', v1, schema=v2_schema, filter=v1.int1 < 10)
+        v2 = pxt.create_view('v2', v1, schema=v2_schema, filter=v1.int1 < 10)
 
         def check_views() -> None:
             assert_resultset_eq(
@@ -334,16 +330,15 @@ class TestView:
         logger.debug('******************* POST UPDATE INT2')
         check_views()
 
-    def test_computed_cols(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        t = self.create_tbl(cl)
+    def test_computed_cols(self, reset_db) -> None:
+        t = self.create_tbl()
 
         # create view with computed columns
         schema = {
             'v1': t.c3 * 2.0,
             'v2': t.c6.f5,
         }
-        v = cl.create_view('test_view', t, schema=schema)
+        v = pxt.create_view('test_view', t, schema=schema)
         assert_resultset_eq(
             v.select(v.v1).order_by(v.c2).show(0),
             t.select(t.c3 * 2.0).order_by(t.c2).show(0))
@@ -352,9 +347,9 @@ class TestView:
         v.add_column(v4=v.v2[0])
 
         # use view md after reload
-        cl = pxt.Client(reload=True)
-        t = cl.get_table('test_tbl')
-        v = cl.get_table('test_view')
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        v = pxt.get_table('test_view')
 
         # insert data
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).collect())
@@ -378,20 +373,19 @@ class TestView:
             v.select(v.v1).order_by(v.c2).show(0),
             t.select(t.c3 * 2.0).order_by(t.c2).show(0))
 
-    def test_filter(self, test_client: pxt.Client) -> None:
-        cl = test_client
-        t = create_test_tbl(cl)
+    def test_filter(self, reset_db) -> None:
+        t = create_test_tbl()
 
         # create view with filter
-        v = cl.create_view('test_view', t, filter=t.c2 < 10)
+        v = pxt.create_view('test_view', t, filter=t.c2 < 10)
         assert_resultset_eq(
             v.order_by(v.c2).show(0),
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
         # use view md after reload
-        cl = pxt.Client(reload=True)
-        t = cl.get_table('test_tbl')
-        v = cl.get_table('test_view')
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        v = pxt.get_table('test_view')
 
         # insert data: of 20 new rows, only 10 are reflected in the view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).where(t.c2 < 20).collect())
@@ -416,21 +410,20 @@ class TestView:
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
         # create views with filters containing date and datetime
-        _ = cl.create_view('test_view_2', t, filter=t.c5 >= datetime.date.today())
-        _ = cl.create_view('test_view_3', t, filter=t.c5 < datetime.datetime.now())
+        _ = pxt.create_view('test_view_2', t, filter=t.c5 >= datetime.date.today())
+        _ = pxt.create_view('test_view_3', t, filter=t.c5 < datetime.datetime.now())
 
-    def test_view_of_snapshot(self, test_client: pxt.Client) -> None:
+    def test_view_of_snapshot(self, reset_db) -> None:
         """Test view over a snapshot"""
-        cl = test_client
-        t = self.create_tbl(cl)
-        snap = cl.create_view('test_snap', t, is_snapshot=True)
+        t = self.create_tbl()
+        snap = pxt.create_view('test_snap', t, is_snapshot=True)
 
         # create view with filter and computed columns
         schema = {
             'v1': snap.c3 * 2.0,
             'v2': snap.c6.f5,
         }
-        v = cl.create_view('test_view', snap, schema=schema, filter=snap.c2 < 10)
+        v = pxt.create_view('test_view', snap, schema=schema, filter=snap.c2 < 10)
 
         def check_view(s: pxt.Table, v: pxt.Table) -> None:
             assert v.count() == s.where(s.c2 < 10).count()
@@ -448,10 +441,10 @@ class TestView:
         assert v.count() == t.where(t.c2 < 10).count()
 
         # use view md after reload
-        cl = pxt.Client(reload=True)
-        t = cl.get_table('test_tbl')
-        snap = cl.get_table('test_snap')
-        v = cl.get_table('test_view')
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        snap = pxt.get_table('test_snap')
+        v = pxt.get_table('test_view')
 
         # insert data: no changes to view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
@@ -469,19 +462,18 @@ class TestView:
         assert t.count() == 110
         check_view(snap, v)
 
-    def test_snapshots(self, test_client: pxt.Client) -> None:
+    def test_snapshots(self, reset_db) -> None:
         """Test snapshot of a view of a snapshot"""
-        cl = test_client
-        t = self.create_tbl(cl)
-        s = cl.create_view('test_snap', t, is_snapshot=True)
+        t = self.create_tbl()
+        s = pxt.create_view('test_snap', t, is_snapshot=True)
         assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
 
         with pytest.raises(excs.Error) as exc_info:
-            v = cl.create_view('test_view', s, schema={'v1': t.c3 * 2.0})
+            v = pxt.create_view('test_view', s, schema={'v1': t.c3 * 2.0})
         assert 'value expression cannot be computed in the context of the base test_snap' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            v = cl.create_view('test_view', s, filter=t.c2 < 10)
+            v = pxt.create_view('test_view', s, filter=t.c2 < 10)
         assert 'filter cannot be computed in the context of the base test_snap' in str(exc_info.value).lower()
 
         # create view with filter and computed columns
@@ -489,9 +481,9 @@ class TestView:
             'v1': s.c3 * 2.0,
             'v2': s.c6.f5,
         }
-        v = cl.create_view('test_view', s, schema=schema, filter=s.c2 < 10)
+        v = pxt.create_view('test_view', s, schema=schema, filter=s.c2 < 10)
         orig_view_cols = v.column_names()
-        view_s = cl.create_view('test_view_snap', v, is_snapshot=True)
+        view_s = pxt.create_view('test_view_snap', v, is_snapshot=True)
         assert set(view_s.column_names()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
@@ -512,9 +504,9 @@ class TestView:
         assert set(view_s.column_names()) == set(orig_view_cols)
 
         # check md after reload
-        cl = pxt.Client(reload=True)
-        t = cl.get_table('test_tbl')
-        view_s = cl.get_table('test_view_snap')
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        view_s = pxt.get_table('test_view_snap')
         check(s, v, view_s)
         assert set(view_s.column_names()) == set(orig_view_cols)
 

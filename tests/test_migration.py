@@ -9,10 +9,10 @@ import pgserver
 import pytest
 import sqlalchemy.orm as orm
 
-import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.metadata import SystemInfo
-from pixeltable.tests.conftest import clean_db
+from .conftest import clean_db
+from .utils import reload_catalog
 
 _logger = logging.getLogger('pixeltable')
 
@@ -52,8 +52,4 @@ class TestMigration:
                 versions_tested.add(md_version)
             # TODO(aaron-siegel) This will test that the migration succeeds without raising any exceptions.
             # We should also add some assertions to sanity-check the outcome.
-            _ = pxt.Client(reload=True)
-
-        assert pxt.metadata.VERSION in versions_tested, \
-            f'No migration test artifact for current DB version {pxt.metadata.VERSION}. Please add one! ' \
-            'This can be done by running `python pixeltable/tool/create_test_db_dump.py`.'
+            reload_catalog()

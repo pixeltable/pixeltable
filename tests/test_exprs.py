@@ -2,6 +2,7 @@ import json
 import urllib.parse
 import urllib.request
 from typing import List, Dict
+from datetime import datetime
 
 import pytest
 import sqlalchemy as sql
@@ -16,7 +17,7 @@ from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import cast, sum, count
 from pixeltable.functions.pil.image import blend
 from pixeltable.iterators import FrameIterator
-from pixeltable.tests.utils import get_image_files, skip_test_if_not_installed
+from .utils import get_image_files, skip_test_if_not_installed, validate_update_status, reload_catalog
 from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
     VideoType
 
@@ -230,10 +231,10 @@ class TestExprs:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
 
-    def test_null_args(self, test_client: pxt.Client) -> None:
+    def test_null_args(self, reset_db) -> None:
         # create table with two int columns
         schema = {'c1': FloatType(nullable=True), 'c2': FloatType(nullable=True)}
-        t = test_client.create_table('test', schema)
+        t = pxt.create_table('test', schema)
 
         # computed column that doesn't allow nulls
         t.add_column(c3=lambda c1, c2: c1 + c2, type=FloatType(nullable=False))
@@ -355,6 +356,63 @@ class TestExprs:
         print(_)
         _ = t[t.array_col[:, 0]].show()
         print(_)
+
+    def test_in(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        user_cols = [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]
+        # list of literals
+        rows = list(t.where(t.c2.isin([1, 2, 3])).select(*user_cols).collect())
+        assert len(rows) == 3
+
+        # list of literals with some incompatible values
+        rows = list(t.where(t.c2.isin(['a', datetime.now(), 1, 2, 3])).select(*user_cols).collect())
+        assert len(rows) == 3
+
+        # set of literals
+        rows = list(t.where(t.c2.isin({1, 2, 3})).select(*user_cols).collect())
+        assert len(rows) == 3
+
+        # dict of literals
+        rows = list(t.where(t.c2.isin({1: 'a', 2: 'b', 3: 'c'})).select(*user_cols).collect())
+        assert len(rows) == 3
+
+        # json expr
+        rows = list(t.where(t.c2.isin(t.c6.f5)).select(*user_cols).collect())
+        assert len(rows) == 3
+
+        with pytest.raises(excs.Error) as excinfo:
+            # not a scalar
+            _ = t.where(t.c6.isin([{'a': 1}, {'b': 2}])).collect()
+        assert 'only supported for scalar types' in str(excinfo.value)
+
+        with pytest.raises(excs.Error) as excinfo:
+            # bad json path returns None
+            _ = t.where(t.c2.isin(t.c7.badpath)).collect()
+        assert 'must be an Iterable' in str(excinfo.value)
+
+        with pytest.raises(excs.Error) as excinfo:
+            # json path returns scalar
+            _ = t.where(t.c2.isin(t.c6.f2)).collect()
+        assert ', not 0' in str(excinfo.value)
+
+        with pytest.raises(excs.Error) as excinfo:
+            # not a scalar
+            _ = t.where(t.c2.isin(t.c1)).collect()
+        assert 'c1 has type string' in str(excinfo.value)
+
+        status = t.add_column(in_test=t.c2.isin([1, 2, 3]))
+        assert status.num_excs == 0
+        def inc_pk(rows: list[dict], offset: int) -> None:
+            for r in rows:
+                r['c2'] += offset
+        inc_pk(rows, 1000)
+        validate_update_status(t.insert(rows), len(rows))
+
+        # still works after catalog reload
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        inc_pk(rows, 1000)
+        validate_update_status(t.insert(rows), len(rows))
 
     def test_astype(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -614,8 +672,7 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, test_client: pxt.Client, test_tbl: catalog.Table) -> None:
-        cl = test_client
+    def test_window_fns(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
         _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
@@ -630,9 +687,9 @@ class TestExprs:
         _ = t.c9.col.has_window_fn_call()
 
         # ordering conflict between frame extraction and window fn
-        base_t = cl.create_table('videos', {'video': VideoType(), 'c2': IntType(nullable=False)})
+        base_t = pxt.create_table('videos', {'video': VideoType(), 'c2': IntType(nullable=False)})
         args = {'video': base_t.video, 'fps': 0}
-        v = cl.create_view('frame_view', base_t, iterator_class=FrameIterator, iterator_args=args)
+        v = pxt.create_view('frame_view', base_t, iterator_class=FrameIterator, iterator_args=args)
         # compatible ordering
         _ = v.select(v.frame, sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
         with pytest.raises(excs.Error):
@@ -644,7 +701,7 @@ class TestExprs:
             'c3': FloatType(nullable=False),
             'c4': BoolType(nullable=False),
         }
-        new_t = cl.create_table('insert_test', schema=schema)
+        new_t = pxt.create_table('insert_test', schema=schema)
         new_t.add_column(c2_sum=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)

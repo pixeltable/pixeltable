@@ -22,7 +22,7 @@ from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
 from pixeltable import metadata
-from pixeltable.utils.http_server import FixedRootHandler, LoggingHTTPServer
+from pixeltable.utils.http_server import make_server
 
 if TYPE_CHECKING:
     import label_studio_sdk
@@ -37,7 +37,10 @@ class Env:
     @classmethod
     def get(cls) -> Env:
         if cls._instance is None:
-            cls._instance = Env()
+            env = Env()
+            env._set_up()
+            env._upgrade_metadata()
+            cls._instance = env
         return cls._instance
 
     def __init__(self):
@@ -97,6 +100,31 @@ class Env:
         assert self._http_address is not None
         return self._http_address
 
+    def configure_logging(
+            self, *, to_stdout: Optional[bool] = None, level: Optional[int] = None,
+            add: Optional[str] = None, remove: Optional[str] = None
+    ) -> None:
+        """Configure logging.
+
+        Args:
+            to_stdout: if True, also log to stdout
+            level: default log level
+            add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
+            remove: comma-separated list of module names
+        """
+        if to_stdout is not None:
+            self.log_to_stdout(to_stdout)
+        if level is not None:
+            self.set_log_level(level)
+        if add is not None:
+            for module, level in [t.split(':') for t in add.split(',')]:
+                self.set_module_log_level(module, int(level))
+        if remove is not None:
+            for module in remove.split(','):
+                self.set_module_log_level(module, None)
+        if to_stdout is None and level is None and add is None and remove is None:
+            self.print_log_config()
+
     def print_log_config(self) -> None:
         print(f'logging to {self._logfilename}')
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
@@ -138,7 +166,7 @@ class Env:
         else:
             return False
 
-    def set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
+    def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
             return
 
@@ -258,7 +286,7 @@ class Env:
         # Disable spurious warnings
         warnings.simplefilter("ignore", category=TqdmWarning)
 
-    def upgrade_metadata(self) -> None:
+    def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
 
     def _create_nos_client(self) -> None:
@@ -325,13 +353,13 @@ class Env:
         """
         The http server root is the file system root.
         eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
+        in windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
         This arrangement enables serving media hosted within _home,
         as well as external media inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.
         """
         # Port 0 means OS picks one for us.
-        address = ("127.0.0.1", 0)
-        self._httpd = LoggingHTTPServer(address, FixedRootHandler)
+        self._httpd = make_server("127.0.0.1", 0)
         port = self._httpd.server_address[1]
         self._http_address = f'http://127.0.0.1:{port}'
 

@@ -53,7 +53,7 @@ def speech(
     )
     ext = response_format or 'mp3'
     output_filename = str(env.Env.get().tmp_dir / f"{uuid.uuid4()}.{ext}")
-    content.stream_to_file(output_filename, chunk_size=1 << 20)
+    content.write_to_file(output_filename)
     return output_filename
 
 
@@ -187,17 +187,8 @@ _embedding_dimensions_cache: dict[str, int] = {
     'text-embedding-3-large': 3072,
 }
 
-def _embeddings_call_return_type(model: str, dimensions: Optional[int] = None) -> ts.ColumnType:
-    if dimensions is None:
-        if model not in _embedding_dimensions_cache:
-            # TODO: find some other way to retrieve a sample
-            return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
-        dimensions = _embedding_dimensions_cache.get(model, None)
-    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 
-@pxt.udf(
-    batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()),
-    call_return_type=_embeddings_call_return_type)
+@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
 @_retry
 def embeddings(
         input: Batch[str],
@@ -219,22 +210,20 @@ def embeddings(
     ]
 
 
+@embeddings.conditional_return_type
+def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
+    if dimensions is None:
+        if model not in _embedding_dimensions_cache:
+            # TODO: find some other way to retrieve a sample
+            return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+        dimensions = _embedding_dimensions_cache.get(model, None)
+    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
+
+
 #####################################
 # Images Endpoints
 
-def _image_generations_call_return_type(size: Optional[str] = None) -> ts.ImageType:
-    if size is None:
-        return ts.ImageType(size=(1024, 1024))
-    x_pos = size.find('x')
-    if x_pos == -1:
-        return ts.ImageType()
-    try:
-        width, height = int(size[:x_pos]), int(size[x_pos + 1:])
-    except ValueError:
-        return ts.ImageType()
-    return ts.ImageType(size=(width, height))
-
-@pxt.udf(call_return_type=_image_generations_call_return_type)
+@pxt.udf
 @_retry
 def image_generations(
         prompt: str,
@@ -260,6 +249,20 @@ def image_generations(
     img = PIL.Image.open(io.BytesIO(b64_bytes))
     img.load()
     return img
+
+
+@image_generations.conditional_return_type
+def _(size: Optional[str] = None) -> ts.ImageType:
+    if size is None:
+        return ts.ImageType(size=(1024, 1024))
+    x_pos = size.find('x')
+    if x_pos == -1:
+        return ts.ImageType()
+    try:
+        width, height = int(size[:x_pos]), int(size[x_pos + 1:])
+    except ValueError:
+        return ts.ImageType()
+    return ts.ImageType(size=(width, height))
 
 
 #####################################

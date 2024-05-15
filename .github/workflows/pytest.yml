@@ -14,14 +14,14 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
         python-version: ["3.9", "3.10", "3.11", "3.12"]
-        poetry-version: ["1.7.1"]
+        poetry-version: ["1.8.2"]
         poetry-options: ["--with dev"]
         include:
           # Adds one additional matrix configuration that runs the unit tests
           # against a minimal installation of pixeltable (without --with dev).
           - os: ubuntu-22.04
             python-version: "3.9"
-            poetry-version: "1.7.1"
+            poetry-version: "1.8.2"
             poetry-options: ""
     runs-on: ${{ matrix.os }}
     defaults:
@@ -82,8 +82,8 @@ jobs:
         run: coverage report -m
       - name: Print utilization info
         run: |
+          df -h
           du -h -d3 /home/runner
           du -h -d3 /home/runner/.cache
-          df -h
         shell: bash -l {0}  # We don't want `set -e` here
         continue-on-error: true
