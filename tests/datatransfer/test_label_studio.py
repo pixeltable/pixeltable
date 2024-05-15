@@ -11,7 +11,7 @@ import requests.exceptions
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.tests.utils import skip_test_if_not_installed, get_image_files, validate_update_status
+from ..utils import skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog
 
 _logger = logging.getLogger('pixeltable')
 
@@ -98,8 +98,8 @@ class TestLabelStudio:
             )
             assert len(remote.project.get_task(task_id)['annotations']) == 1
         # Pull the annotations back to Pixeltable
-        cl = pxt.Client(reload=True)  # Ensure we correctly reload from md
-        t = cl.get_table('test_ls_sync')
+        reload_catalog()
+        t = pxt.get_table('test_ls_sync')
         t.sync_remotes()
         annotations = t.collect()['annotations_col']
         assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(2)), annotations
@@ -186,10 +186,9 @@ class TestLabelStudio:
 
 
 @pytest.fixture(scope='function')
-def ls_image_table(test_client: pxt.Client) -> pxt.Table:
+def ls_image_table(reset_db) -> pxt.Table:
     skip_test_if_not_installed('label_studio_sdk')
-    cl = test_client
-    t = cl.create_table(
+    t = pxt.create_table(
         'test_ls_sync',
         {'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
     )

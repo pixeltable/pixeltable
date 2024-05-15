@@ -11,10 +11,9 @@ _logger = logging.getLogger('pixeltable')
 
 class TestLabelStudio:
 
-    def test_remote_validation(self, test_client: pxt.Client):
-        cl = test_client
+    def test_remote_validation(self, reset_db):
         schema = {'col1': pxt.StringType(), 'col2': pxt.ImageType(), 'col3': pxt.StringType(), 'col4': pxt.VideoType()}
-        t = cl.create_table('test_remote', schema)
+        t = pxt.create_table('test_remote', schema)
 
         remote1 = self.MockRemote(
             {'push1': pxt.StringType(), 'push2': pxt.ImageType()},
@@ -39,7 +38,7 @@ class TestLabelStudio:
 
         # Default spec is correct
         schema2 = {'push1': pxt.StringType(), 'push2': pxt.ImageType(), 'pull1': pxt.StringType(), 'pull2': pxt.VideoType()}
-        t2 = cl.create_table('test_remote_2', schema2)
+        t2 = pxt.create_table('test_remote_2', schema2)
         t2.link_remote(remote1)
 
         # Incompatible types for push
@@ -55,7 +54,7 @@ class TestLabelStudio:
         # Subtype/supertype relationships
 
         schema3 = {'img': pxt.ImageType(), 'spec_img': pxt.ImageType(512, 512)}
-        t3 = cl.create_table('test_remote_3', schema3)
+        t3 = pxt.create_table('test_remote_3', schema3)
         remote2 = self.MockRemote(
             {'push_img': pxt.ImageType(), 'push_spec_img': pxt.ImageType(512, 512)},
             {'pull_img': pxt.ImageType(), 'pull_spec_img': pxt.ImageType(512, 512)}

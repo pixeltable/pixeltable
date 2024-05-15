@@ -130,7 +130,9 @@ markers = [
 ]
 filterwarnings = [
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
-    "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning"
+    "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning",
+    "ignore:Pydantic V1 style `@root_validator` validators are deprecated.:DeprecationWarning",
+    "ignore:`allow_reuse` is deprecated and will be ignored:DeprecationWarning"
 ]
 
 [tool.ruff]
