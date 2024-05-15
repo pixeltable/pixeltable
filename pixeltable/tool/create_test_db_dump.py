@@ -11,6 +11,7 @@ import toml
 import pixeltable as pxt
 import pixeltable.metadata as metadata
 from pixeltable.env import Env
+from pixeltable.func import Batch
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, JsonType
 
@@ -85,7 +86,7 @@ class Dumper:
         # InPredicate
         t.add_column(isin_1=t.c1.isin(['test string 1', 'test string 2', 'test string 3']))
         t.add_column(isin_2=t.c2.isin([1, 2, 3, 4, 5]))
-        t.add_column(isin_2=t.c2.isin(t.c6.f5))
+        t.add_column(isin_3=t.c2.isin(t.c6.f5))
 
         # Add columns for .astype converters to ensure they're persisted properly
         t.add_column(c2_as_float=t.c2.astype(FloatType()))
@@ -147,19 +148,29 @@ class Dumper:
         pxt.create_dir('views')
         v = pxt.create_view('views.sample_view', t, filter=(t.c2 < 50))
         _ = pxt.create_view('views.sample_snapshot', t, filter=(t.c2 >= 75), is_snapshot=True)
+        e = pxt.create_view('views.empty_view', t, filter=t.c2 == 4171780)
+        assert e.count() == 0
         # Computed column using a library function
         v['str_format'] = pxt.functions.string.str_format('{0} {key}', t.c1, key=t.c1)
-        # Computed column using a bespoke udf
-        v['test_udf'] = test_udf(t.c2)
+        # Computed column using a bespoke stored udf
+        v['test_udf'] = test_udf_stored(t.c2)
+        # Computed column using a batched function
+        # (apply this to the empty view, since it's a "heavyweight" function)
+        e['batched'] = pxt.functions.huggingface.clip_text(t.c1, model_id='openai/clip-vit-base-patch32')
+        # computed column using a stored batched function
+        v['test_udf_batched'] = test_udf_stored_batched(t.c1, upper=False)
         # astype
         v['astype'] = t.c1.astype(pxt.FloatType())
-        # computed column using a stored function
-        v['stored'] = t.c1.apply(lambda x: f'Hello, {x}', col_type=pxt.StringType())
 
 
-@pxt.udf
-def test_udf(n: int) -> int:
+@pxt.udf(_force_stored=True)
+def test_udf_stored(n: int) -> int:
     return n + 1
+
+
+@pxt.udf(batch_size=4, _force_stored=True)
+def test_udf_stored_batched(strings: Batch[str], *, upper: bool = True) -> Batch[str]:
+    return [string.upper() if upper else string.lower() for string in strings]
 
 
 def main() -> None:
