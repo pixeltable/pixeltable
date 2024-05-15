@@ -26,7 +26,7 @@ class TestMigration:
         pg_package_dir = os.path.dirname(pgserver.__file__)
         pg_restore_binary = f'{pg_package_dir}/pginstall/bin/pg_restore'
         _logger.info(f'Using pg_restore binary at: {pg_restore_binary}')
-        dump_files = glob.glob('pixeltable/tests/data/dbdumps/*.dump.gz')
+        dump_files = glob.glob('tests/data/dbdumps/*.dump.gz')
         dump_files.sort()
         assert len(dump_files) > 0
 
@@ -52,4 +52,5 @@ class TestMigration:
                 versions_tested.add(md_version)
             # TODO(aaron-siegel) This will test that the migration succeeds without raising any exceptions.
             # We should also add some assertions to sanity-check the outcome.
+            env._upgrade_metadata()
             reload_catalog()
