@@ -169,7 +169,8 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
             'f2': i,
             'f3': float(i),
             'f4': bool(i % 2),
-            'f5': [1.0, 2.0, 3.0, 4.0],
+            'f5': [1, 2, 3],
+            #'f5': [1.0, 2.0, 3.0, 4.0],
             'f6': {
                 'f7': 'test string 2',
                 'f8': [1.0, 2.0, 3.0, 4.0],
@@ -398,7 +399,7 @@ def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:
     assert diff.getbbox() is None
 
 
-def reload_db() -> None:
+def reload_catalog() -> None:
     catalog.Catalog.clear()
     pxt.init()
 
