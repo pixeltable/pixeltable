@@ -243,7 +243,7 @@ class TestFunction:
         assert 'reserved' in str(exc_info.value)
 
     @pxt.query
-    def lt_x(t, x: int) -> int:
+    def lt_x(t: pxt.Table, x: int) -> int:
         return t.where(t.c2 < x).select(t.c2, t.c1)
 
     def test_query(self, test_tbl: catalog.Table) -> None:
@@ -256,6 +256,25 @@ class TestFunction:
         reload_catalog()
         t = pxt.get_table(name)
         _ = t.select(t.query1).collect()
+
+    def test_query2(self, test_tbl: catalog.Table) -> None:
+        @pxt.query
+        def test_query_fun(t: pxt.Table, query: str):
+            """ simply returns 2 passages from the table"""
+            return (t.select(t.text).limit(2))
+
+        queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()}, )
+        queries.insert([{'query_text': 'how much is the stock of AI companies up?'}, {'query_text': 'what happened to the term machine learning?'}])
+
+        test_doc_chunks = pxt.create_table('test_doc_chunks', schema={'text': pxt.StringType()})
+        test_doc_chunks.insert([{'text': 'the stock of artificial intelligence companies is up 1000%'},
+                         {'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'},
+                         {'text': 'machine learning is a subset of artificial intelligence'},
+                         {'text': 'gas car companies are in danger of being left behind by electric car companies'},
+        ])
+        queries.select(queries.query_text, out=test_doc_chunks.query(test_query_fun)(queries.query_text)).show()
+
+        pass
 
     @pxt.expr_udf
     def add1(x: int) -> int:

@@ -19,7 +19,8 @@ class Parameter:
     name: str
     col_type: Optional[ts.ColumnType]  # None for variable parameters
     kind: enum.Enum  # inspect.Parameter.kind; inspect._ParameterKind is private
-    # for some reason, this needs to precede is_batched in the dataclass definition
+    # for some reason, this needs to precede is_batched in the dataclass definition,
+    # otherwise Python complains that an argument with a default is followed by an argument without a default
     default: Any = inspect.Parameter.empty  # default value for the parameter
     is_batched: bool = False  # True if the parameter is a batched parameter (eg, Batch[dict])
 
@@ -66,8 +67,6 @@ class Parameter:
         )
 
     def to_py_param(self) -> inspect.Parameter:
-        if self.kind is None:
-            pass
         return inspect.Parameter(self.name, self.kind, default=self.default)
 
 

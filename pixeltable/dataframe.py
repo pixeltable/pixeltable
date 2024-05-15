@@ -343,7 +343,9 @@ class DataFrame:
         return out_exprs, out_names
 
     def _vars(self) -> dict[str, exprs.Variable]:
-        """Return a dict mapping parameter name to Variable"""
+        """
+        Return a dict mapping variable name to Variable for all Variables contained in any component of the DataFrame
+        """
         all_exprs: list[exprs.Expr] = []
         all_exprs.extend(self._select_list_exprs)
         if self.where_clause is not None:
@@ -363,7 +365,10 @@ class DataFrame:
         return unique_vars
 
     def parameters(self) -> dict[str, ColumnType]:
-        """Return a dict mapping parameter name to parameter type"""
+        """Return a dict mapping parameter name to parameter type.
+
+        Parameters are Variables contained in any component of the DataFrame.
+        """
         vars = self._vars()
         return {name: var.col_type for name, var in vars.items()}
 
@@ -442,7 +447,9 @@ class DataFrame:
             [order_by_expr for order_by_expr, _ in self.order_by_clause] if self.order_by_clause is not None else None)
         vars = self._vars()
         for arg_name, arg_val in args.items():
-            assert arg_name in vars
+            if arg_name not in vars:
+                # ignore unused variables
+                continue
             var_expr = vars[arg_name]
             arg_expr = exprs.Expr.from_object(arg_val)
             if arg_expr is None:
@@ -456,7 +463,7 @@ class DataFrame:
             if order_by_exprs is not None:
                 exprs.Expr.list_substitute(order_by_exprs, var_expr, arg_expr)
         select_list = list(zip(select_list_exprs, self._column_names))
-        order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None
+        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None
         if order_by_exprs is not None:
             order_by_clause = [
                 (expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])
@@ -784,7 +791,13 @@ class DataFrame:
         from pixeltable.utils.parquet import save_parquet # pylint: disable=import-outside-toplevel
         from pixeltable.utils.pytorch import PixeltablePytorchDataset # pylint: disable=import-outside-toplevel
 
-        summary_string = json.dumps(self.as_dict())
+        # for caching purposes, create a checksum of the specific query that this dataframe represents;
+        # we also need to include the actual ids of the tables referenced by the query (TableVersionPath.as_dict()
+        # includes the effective versions, which are None for non-snapshot versions)
+        checksum_dict = self.as_dict()
+        tbl_versions = [tbl_version.version for tbl_version in self.tbl.get_tbl_versions()]
+        checksum_dict['tbl_versions'] = tbl_versions
+        summary_string = json.dumps(checksum_dict)
         cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
 
         dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet') # pylint: disable = protected-access

@@ -1,3 +1,4 @@
+import PIL.Image
 import numpy as np
 import pytest
 
@@ -39,6 +40,22 @@ class TestIndex:
                 .limit(1).collect()
 
             t.drop_index(column_name='img')
+
+
+    def test_search_fn(self, small_img_tbl: pxt.Table) -> None:
+        skip_test_if_not_installed('transformers')
+        t = small_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+        _ = t.select(t.img.localpath).collect()
+
+        t.add_embedding_index('img', metric='cosine', img_embed=clip_img_embed, text_embed=clip_text_embed)
+        _ =  t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
+
+        @pxt.query
+        def img_matches(t: pxt.Table, img: PIL.Image.Image):
+            return t.select(t.img.localpath).order_by(t.img.similarity(img), asc=False).limit(3)
+
+        res = list(t.select(img=t.img.localpath, matches=t.query(img_matches)(t.img)).head(1))
 
     def test_search_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')

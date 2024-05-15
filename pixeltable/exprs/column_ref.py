@@ -64,8 +64,8 @@ class ColumnRef(Expr):
         return super().__getattr__(name)
 
     def similarity(self, other: Any) -> Expr:
-        if isinstance(other, Expr):
-            raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
+        # if isinstance(other, Expr):
+        #     raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = Expr.from_object(other)
         if item is None or not(item.col_type.is_string_type() or item.col_type.is_image_type()):
             raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not a {type(other)}')
