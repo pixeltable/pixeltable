@@ -130,6 +130,10 @@ class Table(SchemaObject):
         """Return the number of rows in this table."""
         return self.df().count()
 
+    def query(self, template: 'pixeltable.func.QueryTemplate') -> 'pixeltable.func.QueryTemplateFunction':
+        query_fn = template.bind(self)
+        return query_fn
+
     def column_names(self) -> List[str]:
         """Return the names of the columns in this table."""
         return [c.name for c in self.tbl_version_path.columns()]

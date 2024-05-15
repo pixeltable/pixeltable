@@ -9,7 +9,7 @@ import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable.func import Function, FunctionRegistry, Batch
 from pixeltable.type_system import IntType, FloatType
-from .utils import assert_resultset_eq, reload_catalog
+from .utils import assert_resultset_eq, reload_catalog, validate_update_status
 
 
 def dummy_fn(i: int) -> int:
@@ -244,13 +244,18 @@ class TestFunction:
 
     @pxt.query
     def lt_x(t, x: int) -> int:
-        return t.where(t.c2 < x)
+        return t.where(t.c2 < x).select(t.c2, t.c1)
 
     def test_query(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
+        name = t.get_name()
 
-        res1 = t.select(out=self.lt_x(t, 10)).order_by(t.c2).collect()
-        pass
+        res1 = t.select(out=t.query(self.lt_x)(t.c2)).order_by(t.c2).collect()
+        validate_update_status(t.add_column(query1=t.query(self.lt_x)(t.c2)))
+        _ = t.select(t.query1).collect()
+        reload_catalog()
+        t = pxt.get_table(name)
+        _ = t.select(t.query1).collect()
 
     @pxt.expr_udf
     def add1(x: int) -> int:

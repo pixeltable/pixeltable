@@ -11,7 +11,7 @@ class ExprTemplateFunction(Function):
     """A parameterized expression from which an executable Expr is created with a function call."""
 
     def __init__(
-            self, expr: 'pixeltable.exprs.Expr', py_signature: inspect.Signature, self_path: Optional[str] = None,
+            self, expr: 'pixeltable.exprs.Expr', signature: Signature, self_path: Optional[str] = None,
             name: Optional[str] = None):
         import pixeltable.exprs as exprs
         self.expr = expr
@@ -23,28 +23,21 @@ class ExprTemplateFunction(Function):
 
         # verify default values
         self.defaults: Dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
-        for py_param in py_signature.parameters.values():
-            if py_param.default is inspect.Parameter.empty:
+        for param in signature.parameters.values():
+            if param.default is inspect.Parameter.empty:
                 continue
-            param_expr = self.param_exprs_by_name[py_param.name]
+            param_expr = self.param_exprs_by_name[param.name]
             try:
-                literal_default = exprs.Literal(py_param.default, col_type=param_expr.col_type)
-                self.defaults[py_param.name] = literal_default
+                literal_default = exprs.Literal(param.default, col_type=param_expr.col_type)
+                self.defaults[param.name] = literal_default
             except TypeError as e:
                 msg = str(e)
-                raise excs.Error(f"Default value for parameter '{py_param.name}': {msg[0].lower() + msg[1:]}")
-        # construct signature
-        assert len(self.param_exprs) == len(py_signature.parameters)
-        fn_params = [
-            Parameter(p.name, self.param_exprs_by_name[p.name].col_type, p.kind)
-            for p in py_signature.parameters.values()
-        ]
-        signature = Signature(return_type=expr.col_type, parameters=fn_params)
+                raise excs.Error(f"Default value for parameter '{param.name}': {msg[0].lower() + msg[1:]}")
 
-        super().__init__(signature, py_signature=py_signature, self_path=self_path)
+        super().__init__(signature, self_path=self_path)
 
     def instantiate(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.Expr':
-        bound_args = self.py_signature.bind(*args, **kwargs).arguments
+        bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})

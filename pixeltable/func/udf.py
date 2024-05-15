@@ -9,7 +9,7 @@ import pixeltable.type_system as ts
 from .batched_function import ExplicitBatchedFunction
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
-from .query_template_function import QueryTemplateFunction
+from .query_template_function import QueryTemplateFunction, QueryTemplate
 from .function import Function
 from .function_registry import FunctionRegistry
 from .globals import validate_symbol_path
@@ -149,17 +149,17 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         # TODO: verify that the inferred return type matches that of the template
         # TODO: verify that the signature doesn't contain batched parameters
 
-        # construct Parameters from the function signature
-        params = Signature.create_parameters(py_fn, param_types=param_types)
+        # construct Signature from the function signature
+        sig = Signature.create(py_fn=py_fn, param_types=param_types, return_type=ts.InvalidType())
         import pixeltable.exprs as exprs
-        var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
+        var_exprs = [exprs.Variable(param.name, param.col_type) for param in sig.parameters.values()]
         # call the function with the parameter expressions to construct an Expr with parameters
         template = py_fn(*var_exprs)
         assert isinstance(template, exprs.Expr)
-        py_sig = inspect.signature(py_fn)
+        sig.return_type = template.col_type
         if function_path is not None:
             validate_symbol_path(function_path)
-        return ExprTemplateFunction(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
+        return ExprTemplateFunction(template, sig, self_path=function_path, name=py_fn.__name__)
 
     if len(args) == 1:
         assert len(kwargs) == 0 and callable(args[0])
@@ -169,34 +169,22 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         return lambda py_fn: decorator(py_fn, kwargs['param_types'])
 
 @overload
-def query(py_fn: Callable) -> ExprTemplateFunction: ...
+def query(py_fn: Callable) -> QueryTemplate: ...
 
 @overload
 def query(*, param_types: Optional[List[ts.ColumnType]] = None) -> Callable: ...
 
 def query(*args: Any, **kwargs: Any) -> Any:
-    def decorator(py_fn: Callable, param_types: Optional[List[ts.ColumnType]]) -> ExprTemplateFunction:
+    def decorator(py_fn: Callable, param_types: Optional[List[ts.ColumnType]]) -> QueryTemplate:
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
             # this is a named function in a module
             function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
         else:
             function_path = None
+        return QueryTemplate(py_fn, param_types=param_types, path=function_path, name=py_fn.__name__)
 
         # TODO: verify that the inferred return type matches that of the template
         # TODO: verify that the signature doesn't contain batched parameters
-
-        # construct Parameters from the function signature
-        params = Signature.create_parameters(py_fn, param_types=param_types)
-        from pixeltable import DataFrame
-        import pixeltable.exprs as exprs
-        var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
-        # call the function with the parameter expressions to construct a DataFrame with parameters
-        template = py_fn(*var_exprs)
-        assert isinstance(template, DataFrame)
-        py_sig = inspect.signature(py_fn)
-        if function_path is not None:
-            validate_symbol_path(function_path)
-        return QueryTemplateFunction(template, py_signature=py_sig, self_path=function_path, name=py_fn.__name__)
 
     if len(args) == 1:
         assert len(kwargs) == 0 and callable(args[0])

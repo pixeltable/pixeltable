@@ -5,6 +5,7 @@ from typing import Optional, List, Union
 from uuid import UUID
 
 import pixeltable
+import pixeltable.catalog as catalog
 from .column import Column
 from .globals import POS_COLUMN_NAME
 from .table_version import TableVersion
@@ -131,3 +132,15 @@ class TableVersionPath:
             return self.base.has_column(col)
         else:
             return False
+
+    def as_dict(self) -> dict:
+        return {
+            'tbl_version': self.tbl_version.as_dict(),
+            'base': self.base.as_dict() if self.base is not None else None
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> TableVersionPath:
+        tbl_version = TableVersion.from_dict(d['tbl_version'])
+        base = TableVersionPath.from_dict(d['base']) if d['base'] is not None else None
+        return cls(tbl_version, base)

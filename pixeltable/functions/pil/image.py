@@ -143,5 +143,5 @@ def quantize(
 
 @func.udf(
     py_fn=PIL.Image.Image.reduce, return_type=ImageType(), param_types=[ImageType(), IntType(), JsonType()])
-def reduce(self: PIL.Image.Image, factor: int, box: Optional[Tuple[int]]) -> PIL.Image.Image:
+def reduce(self: PIL.Image.Image, factor: int, box: Optional[Tuple[int]] = None) -> PIL.Image.Image:
     pass

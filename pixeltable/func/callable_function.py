@@ -27,8 +27,7 @@ class CallableFunction(Function):
         assert py_fn is not None
         self.py_fn = py_fn
         self.self_name = self_name
-        py_signature = inspect.signature(self.py_fn)
-        super().__init__(signature, py_signature, self_path=self_path)
+        super().__init__(signature, self_path=self_path)
 
     def exec(self, *args: Any, **kwargs: Any) -> Any:
         return self.py_fn(*args, **kwargs)

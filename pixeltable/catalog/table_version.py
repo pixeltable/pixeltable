@@ -455,7 +455,7 @@ class TableVersion:
             plan.ctx.num_rows = row_count
 
             try:
-                plan.ctx.conn = conn
+                plan.ctx.set_conn(conn)
                 plan.open()
                 num_excs = self.store_tbl.load_column(col, plan, value_expr_slot_idx, conn)
                 if num_excs > 0:
@@ -1024,3 +1024,13 @@ class TableVersion:
         return schema.TableSchemaVersionMd(
             schema_version=self.schema_version, preceding_schema_version=preceding_schema_version,
             columns=column_md, num_retained_versions=self.num_retained_versions, comment=self.comment)
+
+    def as_dict(self) -> dict:
+        return {'id': str(self.id), 'effective_version': self.effective_version}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'TableVersion':
+        import pixeltable.catalog as catalog
+        id = UUID(d['id'])
+        effective_version = d['effective_version']
+        return catalog.Catalog.get().tbl_versions[(id, effective_version)]

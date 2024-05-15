@@ -83,7 +83,7 @@ class View(Table):
 
                 # construct Signature and type-check bound_args
                 params = [
-                    func.Parameter(param_name, param_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                    func.Parameter(param_name, param_type, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
                     for param_name, param_type in iterator_cls.input_schema().items()
                 ]
                 sig = func.Signature(InvalidType(), params)

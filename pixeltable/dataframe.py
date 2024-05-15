@@ -22,6 +22,7 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
+import pixeltable.func as func
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.env import Env
 from pixeltable.plan import Planner
@@ -355,7 +356,7 @@ class DataFrame:
         unique_vars: dict[str, exprs.Variable] = {}
         for var in vars:
             if var.name not in unique_vars:
-                unique_vars[var.name] = var.col_type
+                unique_vars[var.name] = var
             else:
                 if unique_vars[var.name] != var.col_type:
                     raise excs.Error(f'Multiple definitions of parameter {var.name}')
@@ -366,7 +367,7 @@ class DataFrame:
         vars = self._vars()
         return {name: var.col_type for name, var in vars.items()}
 
-    def _exec(self) -> Generator[exprs.DataRow, None, None]:
+    def _exec(self, conn: Optional[sql.engine.Connection] = None) -> Generator[exprs.DataRow, None, None]:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
@@ -383,13 +384,14 @@ class DataFrame:
 
         for item in self._select_list_exprs:
             item.bind_rel_paths(None)
+
         plan = Planner.create_query_plan(
             self.tbl, self._select_list_exprs, where_clause=self.where_clause, group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause if self.order_by_clause is not None else [],
             limit=self.limit_val if self.limit_val is not None else 0)  # limit_val == 0: no limit_val
 
-        with Env.get().engine.begin() as conn:
-            plan.ctx.conn = conn
+        def exec_plan(conn: sql.engine.Connection) -> Generator[exprs.DataRow, None, None]:
+            plan.ctx.set_conn(conn)
             plan.open()
             try:
                 for row_batch in plan:
@@ -397,7 +399,12 @@ class DataFrame:
                         yield data_row
             finally:
                 plan.close()
-            return
+
+        if conn is None:
+            with Env.get().engine.begin() as conn:
+                yield from exec_plan(conn)
+        else:
+            yield from exec_plan(conn)
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
@@ -431,7 +438,8 @@ class DataFrame:
         select_list_exprs = copy.deepcopy(self._select_list_exprs)
         where_clause = copy.deepcopy(self.where_clause)
         group_by_clause = copy.deepcopy(self.group_by_clause)
-        order_by_exprs = copy.deepcopy([order_by_expr for order_by_expr, _ in self.order_by_clause])
+        order_by_exprs = copy.deepcopy(
+            [order_by_expr for order_by_expr, _ in self.order_by_clause] if self.order_by_clause is not None else None)
         vars = self._vars()
         for arg_name, arg_val in args.items():
             assert arg_name in vars
@@ -443,10 +451,16 @@ class DataFrame:
             exprs.Expr.list_substitute(select_list_exprs, var_expr, arg_expr)
             if where_clause is not None:
                 where_clause.substitute(var_expr, arg_expr)
-            exprs.Expr.list_substitute(group_by_clause, var_expr, arg_expr)
-            exprs.Expr.list_substitute(order_by_exprs, var_expr, arg_expr)
-        select_list = zip(select_list_exprs, self._column_names)
-        order_by_clause = [(expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])]
+            if group_by_clause is not None:
+                exprs.Expr.list_substitute(group_by_clause, var_expr, arg_expr)
+            if order_by_exprs is not None:
+                exprs.Expr.list_substitute(order_by_exprs, var_expr, arg_expr)
+        select_list = list(zip(select_list_exprs, self._column_names))
+        order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None
+        if order_by_exprs is not None:
+            order_by_clause = [
+                (expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])
+            ]
 
         return DataFrame(
             self.tbl, select_list=select_list, where_clause=where_clause,
@@ -454,9 +468,12 @@ class DataFrame:
             order_by_clause=order_by_clause, limit=self.limit_val)
 
     def collect(self) -> DataFrameResultSet:
+        return self._collect()
+
+    def _collect(self, conn: Optional[sql.engine.Connection] = None) -> DataFrameResultSet:
         try:
             result_rows = []
-            for data_row in self._exec():
+            for data_row in self._exec(conn):
                 result_row = [data_row[e.slot_idx] for e in self._select_list_exprs]
                 result_rows.append(result_row)
         except excs.ExprEvalError as e:
@@ -658,7 +675,7 @@ class DataFrame:
             return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
 
-    def _as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> Dict[str, Any]:
         """
             Returns:
                 Dictionary representing this dataframe.
@@ -666,18 +683,36 @@ class DataFrame:
         tbl_versions = self.tbl.get_tbl_versions()
         d = {
             '_classname': 'DataFrame',
-            'tbl_ids': [str(t.id) for t in tbl_versions],
-            'tbl_versions': [t.version for t in tbl_versions],
+            'tbl': self.tbl.as_dict(),
             'select_list':
                 [(e.as_dict(), name) for (e, name) in self.select_list] if self.select_list is not None else None,
             'where_clause': self.where_clause.as_dict() if self.where_clause is not None else None,
             'group_by_clause':
                 [e.as_dict() for e in self.group_by_clause] if self.group_by_clause is not None else None,
+            'grouping_tbl': self.grouping_tbl.as_dict() if self.grouping_tbl is not None else None,
             'order_by_clause':
                 [(e.as_dict(), asc) for (e,asc) in self.order_by_clause] if self.order_by_clause is not None else None,
             'limit_val': self.limit_val,
         }
         return d
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'DataFrame':
+        tbl = catalog.TableVersionPath.from_dict(d['tbl'])
+        select_list = [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] \
+            if d['select_list'] is not None else None
+        where_clause = exprs.Predicate.from_dict(d['where_clause']) \
+            if d['where_clause'] is not None else None
+        group_by_clause = [exprs.Expr.from_dict(e) for e in d['group_by_clause']] \
+            if d['group_by_clause'] is not None else None
+        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) \
+            if d['grouping_tbl'] is not None else None
+        order_by_clause = [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']] \
+            if d['order_by_clause'] is not None else None
+        limit_val = d['limit_val']
+        return DataFrame(
+            tbl, select_list=select_list, where_clause=where_clause, group_by_clause=group_by_clause,
+            grouping_tbl=grouping_tbl, order_by_clause=order_by_clause, limit=limit_val)
 
     def to_coco_dataset(self) -> Path:
         """Convert the dataframe to a COCO dataset.
@@ -698,7 +733,7 @@ class DataFrame:
         """
         from pixeltable.utils.coco import write_coco_dataset
 
-        summary_string = json.dumps(self._as_dict())
+        summary_string = json.dumps(self.as_dict())
         cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
 
         dest_path = (Env.get().dataset_cache_dir / f'coco_{cache_key}')
@@ -749,7 +784,7 @@ class DataFrame:
         from pixeltable.utils.parquet import save_parquet # pylint: disable=import-outside-toplevel
         from pixeltable.utils.pytorch import PixeltablePytorchDataset # pylint: disable=import-outside-toplevel
 
-        summary_string = json.dumps(self._as_dict())
+        summary_string = json.dumps(self.as_dict())
         cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
 
         dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet') # pylint: disable = protected-access

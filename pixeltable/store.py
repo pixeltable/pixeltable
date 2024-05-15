@@ -271,7 +271,7 @@ class StoreBase:
             number of inserted rows, number of exceptions, set of column ids that have exceptions
         """
         assert v_min is not None
-        exec_plan.ctx.conn = conn
+        exec_plan.ctx.set_conn(conn)
         batch_size = 16  # TODO: is this a good batch size?
         # TODO: total?
         num_excs = 0

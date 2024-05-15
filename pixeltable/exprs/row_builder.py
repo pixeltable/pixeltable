@@ -1,16 +1,19 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple, Set, Iterable
-from dataclasses import dataclass
-import time
-import sys
 
+import sys
+import time
+from dataclasses import dataclass
+from typing import Optional, List, Any, Dict, Tuple, Set
+
+import sqlalchemy as sql
+
+import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
+import pixeltable.func as func
+import pixeltable.utils as utils
+from .data_row import DataRow
 from .expr import Expr
 from .expr_set import ExprSet
-from .data_row import DataRow
-import pixeltable.utils as utils
-import pixeltable.func as func
-import pixeltable.exceptions as excs
-import pixeltable.catalog as catalog
 
 
 class ExecProfile:
@@ -107,9 +110,11 @@ class RowBuilder:
         # - the separate eval ctx allows the ColumnRef to materialize the iterator args only when the underlying
         #   iterated object changes
         col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
+
         def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
             tbl = col_ref.col.tbl
             return tbl.is_component_view() and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
+
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
         component_views = [col_ref.col.tbl for col_ref in unstored_iter_col_refs]
         unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
@@ -153,6 +158,12 @@ class RowBuilder:
     def output_slot_idxs(self) -> List[ColumnSlotIdx]:
         """Return ColumnSlotIdx for output columns"""
         return self.table_columns
+
+    def set_conn(self, conn: sql.engine.Connection) -> None:
+        from .function_call import FunctionCall
+        for expr in self.unique_exprs:
+            if isinstance(expr, FunctionCall) and isinstance(expr.fn, func.QueryTemplateFunction):
+                expr.fn.set_conn(conn)
 
     @property
     def num_materialized(self) -> int:
@@ -326,4 +337,3 @@ class RowBuilder:
                 table_row[col.errormsg_store_name()] = None
 
         return table_row, num_excs
-
