@@ -84,7 +84,7 @@ class TestTogether:
             t.input,
             model='stabilityai/stable-diffusion-2-1',
             steps=30,
-            seed=4178780,
+            seed=4171780,
             height=768,
             width=512,
             negative_prompt=t.negative_prompt
