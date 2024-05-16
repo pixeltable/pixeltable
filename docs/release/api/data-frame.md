@@ -5,13 +5,13 @@ Pixeltable dataframes do not hold data or allow you to update data (use [insert]
 Another difference to pandas is that query execution needs to be initiated explicitly in order to return results.
 
 ## Overview
-| Query Construction| |
-|------------|-----------------------------------------------------|
-| [`select`][pixeltable.DataFrame.select] | Select output expressions |
-| [`where`][pixeltable.DataFrame.where] | Filter table rows |
+| Query Construction                          |                                                        |
+|---------------------------------------------|--------------------------------------------------------|
+| [`select`][pixeltable.DataFrame.select]     | Select output expressions                              |
+| [`where`][pixeltable.DataFrame.where]       | Filter table rows                                      |
 | [`group_by`][pixeltable.DataFrame.group_by] | Group table rows in order to apply aggregate functions |
-| [`order_by`][pixeltable.DataFrame.order_by] | Order output rows |
-| [`limit`][pixeltable.DataFrame.limit] | Limit the number of output rows |
+| [`order_by`][pixeltable.DataFrame.order_by] | Order output rows                                      |
+| [`limit`][pixeltable.DataFrame.limit]       | Limit the number of output rows                        |
 
 | Query Execution| |
 |------------|-----------------------------------------------------|
