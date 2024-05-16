@@ -16,7 +16,7 @@ from .utils import (
     skip_test_if_not_installed,
 )
 from pixeltable.type_system import DocumentType
-
+from pixeltable.utils.documents import get_document_handle
 
 def _check_pdf_metadata(rec, sep1):
     if sep1 in ['page', 'paragraph', 'sentence']:
@@ -60,6 +60,24 @@ class TestDocument:
         status = doc_t.insert(({'doc': p} for p in file_paths), fail_on_exception=False)
         assert status.num_rows == len(file_paths)
         assert status.num_excs == len(file_paths)
+
+    def test_get_document_handle(self) -> None:
+        file_paths = self.valid_doc_paths()
+        for path in file_paths:
+            extension = path.split('.')[-1].lower()
+            handle = get_document_handle(path)
+            assert handle is not None
+            if extension == 'pdf':
+                assert handle.format == DocumentType.DocumentFormat.PDF, path
+                assert handle.pdf_doc is not None, path
+            elif extension in ['html', 'htm']:
+                assert handle.format == DocumentType.DocumentFormat.HTML, path
+                assert handle.bs_doc is not None, path
+            elif extension in ['md', 'mmd']:
+                assert handle.format == DocumentType.DocumentFormat.MD, path
+                assert handle.md_ast is not None, path
+            else:
+                assert False, f'Unexpected extension {extension}, add corresponding check'
 
     def test_invalid_arguments(self, reset_db) -> None:
         """ Test input parsing provides useful error messages
