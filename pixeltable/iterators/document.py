@@ -15,13 +15,13 @@ _logger = logging.getLogger('pixeltable')
 
 class ChunkMetadata(enum.Enum):
     TITLE = 1
-    HEADING = 2
+    HEADINGS = 2
     SOURCELINE = 3
     PAGE = 4
     BOUNDING_BOX = 5
 
 class Separator(enum.Enum):
-    HEADING = 1
+    HEADINGS = 1
     PARAGRAPH = 2
     SENTENCE = 3
     TOKEN_LIMIT = 4
@@ -96,7 +96,7 @@ class DocumentSplitter(ComponentIterator):
     """
     METADATA_COLUMN_TYPES = {
         ChunkMetadata.TITLE: StringType(nullable=True),
-        ChunkMetadata.HEADING: JsonType(nullable=True),
+        ChunkMetadata.HEADINGS: JsonType(nullable=True),
         ChunkMetadata.SOURCELINE: IntType(nullable=True),
         ChunkMetadata.PAGE: IntType(nullable=True),
         ChunkMetadata.BOUNDING_BOX: JsonType(nullable=True),
@@ -202,7 +202,7 @@ class DocumentSplitter(ComponentIterator):
             for md_field in self._metadata_fields:
                 if md_field == ChunkMetadata.TITLE:
                     result[md_field.name.lower()] = self._doc_title
-                elif md_field == ChunkMetadata.HEADING:
+                elif md_field == ChunkMetadata.HEADINGS:
                     result[md_field.name.lower()] = section.metadata.heading
                 elif md_field == ChunkMetadata.SOURCELINE:
                     result[md_field.name.lower()] = section.metadata.sourceline
@@ -216,7 +216,7 @@ class DocumentSplitter(ComponentIterator):
         """Create DocumentSections reflecting the html-specific separators"""
         import bs4
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
-        emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
+        emit_on_heading = Separator.HEADINGS in self._separators or emit_on_paragraph
         # current state
         accumulated_text = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
@@ -276,7 +276,7 @@ class DocumentSplitter(ComponentIterator):
         """Create DocumentSections reflecting the html-specific separators"""
         assert self._doc_handle.md_ast is not None
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
-        emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
+        emit_on_heading = Separator.HEADINGS in self._separators or emit_on_paragraph
         # current state
         accumulated_text = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
