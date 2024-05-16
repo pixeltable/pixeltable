@@ -19,8 +19,7 @@ class TestVideo:
         pxt.drop_table(view_name, ignore_errors=True)
         pxt.drop_table(base_name, ignore_errors=True)
         base_t = pxt.create_table(base_name, {'video': VideoType()})
-        args = {'video': base_t.video, 'fps': 1}
-        view_t = pxt.create_view(view_name, base_t, iterator_class=FrameIterator, iterator_args=args)
+        view_t = pxt.create_view(view_name, base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         return base_t, view_t
 
     def create_and_insert(
@@ -80,11 +79,11 @@ class TestVideo:
         path = get_video_files()[0]
         videos = pxt.create_table('videos', {'video': VideoType()})
         frames_1_0 = pxt.create_view(
-            'frames_1_0', videos, iterator_class=FrameIterator, iterator_args={'video': videos.video, 'fps': 1})
+            'frames_1_0', videos, iterator=FrameIterator.create(video=videos.video, fps=1))
         frames_0_5 = pxt.create_view(
-            'frames_0_5', videos, iterator_class=FrameIterator, iterator_args={'video': videos.video, 'fps': 1/2})
+            'frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1/2))
         frames_0_33 = pxt.create_view(
-            'frames_0_33', videos, iterator_class=FrameIterator, iterator_args={'video': videos.video, 'fps': 1/3})
+            'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1/3))
         videos.insert(video=path)
         assert frames_0_5.count() == frames_1_0.count() // 2 or frames_0_5.count() == frames_1_0.count() // 2 + 1
         assert frames_0_33.count() == frames_1_0.count() // 3 or frames_0_33.count() == frames_1_0.count() // 3 + 1

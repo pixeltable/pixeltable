@@ -118,16 +118,15 @@ class TestDocument:
                                               ['', 'token_limit', 'char_limit']):
             chunk_limits = [10, 20, 100] if sep2 else [None]
             for limit in chunk_limits:
-                iterator_args = {
-                    'document': doc_t.doc,
-                    'separators': ','.join([sep1, sep2]),
-                    'metadata': 'title,heading,sourceline,page,bounding_box'
-                }
-                if sep2:
-                    iterator_args['limit'] = limit
-                    iterator_args['overlap'] = 0
                 chunks_t = pxt.create_view(
-                    f'chunks', doc_t, iterator_class=DocumentSplitter, iterator_args=iterator_args)
+                    'chunks', doc_t,
+                    iterator=DocumentSplitter.create(document=
+                        doc_t.doc,
+                        separators=','.join([sep1, sep2]),
+                        metadata='title,heading,sourceline,page,bounding_box',
+                        limit=limit if sep2 else None,
+                        overlap=0 if sep2 else None)
+                )
                 res = list(chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect())
 
                 if all_text_reference is None:
@@ -188,14 +187,10 @@ class TestDocument:
         md_tuples = list(itertools.chain.from_iterable(itertools.combinations(md_elements, i) for i in range(len(md_elements) + 1)))
         _ = [','.join(t) for t in md_tuples]
         for md_str in [','.join(t) for t in md_tuples]:
-            iterator_args = {
-                'document': doc_t.doc,
-                'separators': 'sentence',
-                'metadata': md_str
-            }
             print(f'{md_str=}')
             chunks_t = pxt.create_view(
-                f'chunks', doc_t, iterator_class=DocumentSplitter, iterator_args=iterator_args)
+                'chunks', doc_t,
+                iterator=DocumentSplitter.create(document=doc_t.doc, separators='sentence', metadata=md_str))
             res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
             requested_md_elements = set(md_str.split(','))
             for md_element in md_elements:

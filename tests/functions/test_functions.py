@@ -10,8 +10,7 @@ class TestFunctions:
         skip_test_if_not_installed('nos')
         video_t = pxt.create_table('video_tbl', {'video': VideoType()})
         # create frame view
-        args = {'video': video_t.video, 'fps': 1}
-        v = pxt.create_view('test_view', video_t, iterator_class=FrameIterator, iterator_args=args)
+        v = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video_t.video, fps=1))
 
         files = get_video_files()
         video_t.insert(video=files[-1])

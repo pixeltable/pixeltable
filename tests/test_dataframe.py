@@ -414,8 +414,7 @@ class TestDataFrame:
         skip_test_if_not_installed('nos')
         from pycocotools.coco import COCO
         base_t = pxt.create_table('videos', {'video': pxt.VideoType()})
-        args = {'video': base_t.video, 'fps': 1}
-        view_t = pxt.create_view('frames', base_t, iterator_class=FrameIterator, iterator_args=args)
+        view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         from pixeltable.functions.nos.object_detection_2d import yolox_medium
         view_t.add_column(detections=yolox_medium(view_t.frame))
         base_t.insert(video=get_video_files()[0])
