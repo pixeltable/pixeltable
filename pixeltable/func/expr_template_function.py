@@ -76,17 +76,9 @@ class ExprTemplateFunction(Function):
         return self.self_name
 
     def _as_dict(self) -> Dict:
-        if self.self_path is not None:
-            return super()._as_dict()
-        return {
-            'name': self.name,
-            'expr': self.expr.as_dict(),
-            **super()._as_dict()
-        }
+        return {'name': self.name, 'signature': self.signature.as_dict(), 'expr': self.expr.as_dict()}
 
     @classmethod
     def _from_dict(cls, d: Dict) -> Function:
-        if 'expr' not in d:
-            return super()._from_dict(d)
         import pixeltable.exprs as exprs
-        return cls(exprs.Expr.from_dict(d['expr']), name=d['name'])
+        return cls(exprs.Expr.from_dict(d['expr']), Signature.from_dict(d['signature']), name=d['name'])

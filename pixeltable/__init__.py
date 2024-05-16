@@ -1,6 +1,7 @@
 from .catalog import Column, Table, InsertableTable, View
 from .dataframe import DataFrame
 from .exceptions import Error, Error
+from .func import Function, udf, Aggregator, uda, expr_udf, query
 from .exprs import RELATIVE_PATH_ROOT
 from .globals import *
 from .type_system import (

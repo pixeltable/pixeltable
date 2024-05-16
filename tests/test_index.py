@@ -48,7 +48,6 @@ class TestIndex:
             .limit(5)
 
     def test_query(self, reset_db) -> None:
-        pass
         queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()}, )
         queries.insert([{'query_text': 'how much is the stock of AI companies up?'}, {'query_text': 'what happened to the term machine learning?'}])
 
@@ -60,6 +59,11 @@ class TestIndex:
         ])
         test_doc_chunks.add_embedding_index(col_name='text', text_embed=clip_text_embed)
         _ = queries.select(queries.query_text, out=test_doc_chunks.query(self.top_k_chunks)(queries.query_text)).collect()
+        queries.add_column(chunks=test_doc_chunks.query(self.top_k_chunks)(queries.query_text))
+        _ = queries.collect()
+        reload_catalog()
+        queries = pxt.get_table('queries')
+        _ = queries.collect()
         pass
 
 
