@@ -23,8 +23,12 @@ def init() -> None:
 
 
 def create_table(
-        path_str: str, schema: dict[str, Any], *, primary_key: Optional[Union[str, list[str]]] = None,
-        num_retained_versions: int = 10, comment: str = ''
+    path_str: str,
+    schema: dict[str, Any],
+    *,
+    primary_key: Optional[Union[str, list[str]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
 ) -> catalog.InsertableTable:
     """Create a new `InsertableTable`.
 
@@ -60,18 +64,30 @@ def create_table(
             raise excs.Error('primary_key must be a single column name or a list of column names')
 
     tbl = catalog.InsertableTable.create(
-        dir._id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions,
-        comment=comment)
+        dir._id,
+        path.name,
+        schema,
+        primary_key=primary_key,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+    )
     Catalog.get().paths[path] = tbl
     _logger.info(f'Created table `{path_str}`.')
     return tbl
 
+
 def create_view(
-        path_str: str, base: catalog.Table, *, schema: Optional[dict[str, Any]] = None,
-        filter: Optional[Predicate] = None, is_snapshot: bool = False,
-        iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
-        num_retained_versions: int = 10, comment: str = '',
-        ignore_errors: bool = False) -> catalog.View:
+    path_str: str,
+    base: catalog.Table,
+    *,
+    schema: Optional[dict[str, Any]] = None,
+    filter: Optional[Predicate] = None,
+    is_snapshot: bool = False,
+    iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    ignore_errors: bool = False,
+) -> catalog.View:
     """Create a new `View`.
 
     Args:
@@ -124,9 +140,17 @@ def create_view(
     else:
         iterator_class, iterator_args = iterator
     view = catalog.View.create(
-        dir._id, path.name, base=base, schema=schema, predicate=filter, is_snapshot=is_snapshot,
-        iterator_cls=iterator_class, iterator_args=iterator_args, num_retained_versions=num_retained_versions,
-        comment=comment)
+        dir._id,
+        path.name,
+        base=base,
+        schema=schema,
+        predicate=filter,
+        is_snapshot=is_snapshot,
+        iterator_cls=iterator_class,
+        iterator_args=iterator_args,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+    )
     Catalog.get().paths[path] = view
     _logger.info(f'Created view `{path_str}`.')
     return view
@@ -362,18 +386,20 @@ def list_functions() -> pd.DataFrame:
     paths = ['.'.join(f.self_path.split('.')[:-1]) for f in functions]
     names = [f.name for f in functions]
     params = [
-        ', '.join(
-            [param_name + ': ' + str(param_type) for param_name, param_type in f.signature.parameters.items()])
+        ', '.join([param_name + ': ' + str(param_type) for param_name, param_type in f.signature.parameters.items()])
         for f in functions
     ]
-    pd_df = pd.DataFrame({
-        'Path': paths,
-        'Function Name': names,
-        'Parameters': params,
-        'Return Type': [str(f.signature.get_return_type()) for f in functions],
-    })
-    pd_df = pd_df.style.set_properties(**{'text-align': 'left'}) \
-        .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])  # center-align headings
+    pd_df = pd.DataFrame(
+        {
+            'Path': paths,
+            'Function Name': names,
+            'Parameters': params,
+            'Return Type': [str(f.signature.get_return_type()) for f in functions],
+        }
+    )
+    pd_df = pd_df.style.set_properties(**{'text-align': 'left'}).set_table_styles(
+        [dict(selector='th', props=[('text-align', 'center')])]
+    )  # center-align headings
     return pd_df.hide(axis='index')
 
 
@@ -397,68 +423,3 @@ def get_path(schema_obj: catalog.SchemaObject) -> str:
         dir_id = dir._dir_id
     path_elements.append(schema_obj._name)
     return '.'.join(path_elements)
-
-
-def import_huggingface_dataset(
-    table_path: str,
-    dataset: Union['datasets.Dataset', 'datasets.DatasetDict'],
-    *,
-    column_name_for_split: Optional[str] = 'split',
-    schema_override: Optional[dict[str, Any]] = None,
-    **kwargs
-) -> catalog.InsertableTable:
-    """Create a new `InsertableTable` from a Huggingface dataset, or dataset dict with multiple splits.
-        Requires datasets library to be installed.
-
-    Args:
-        path_str: Path to the table.
-        dataset: Huggingface datasts.Dataset or datasts.DatasetDict to insert into the table.
-        column_name_for_split: column name to use for split information. If None, no split information will be stored.
-        schema_override: Optional dictionary mapping column names to column type to override the corresponding defaults from
-        `pixeltable.utils.hf_datasets.huggingface_schema_to_pixeltable_schema`. The column type should be a pixeltable ColumnType.
-        For example, {'col_vid': VideoType()}, rather than {'col_vid': StringType()}.
-
-        kwargs: Additional arguments to pass to `create_table`.
-
-    Returns:
-        The newly created table. The table will have loaded the data from the dataset.
-    """
-    from pixeltable.utils import hf_datasets
-
-    return hf_datasets.import_huggingface_dataset(
-        table_path,
-        dataset,
-        column_name_for_split=column_name_for_split,
-        schema_override=schema_override,
-        **kwargs,
-    )
-
-
-def import_parquet(
-    table_path: str,
-    *,
-    parquet_path: str,
-    schema_override: Optional[dict[str, Any]] = None,
-    **kwargs,
-) -> catalog.InsertableTable:
-    """Create a new `InsertableTable` from a Parquet file or set of files. Requires pyarrow to be installed.
-    Args:
-        path_str: Path to the table within pixeltable.
-        parquet_path: Path to an individual Parquet file or directory of Parquet files.
-        schema_override: Optional dictionary mapping column names to column type to override the default
-                        schema inferred from the Parquet file. The column type should be a pixeltable ColumnType.
-                        For example, {'col_vid': VideoType()}, rather than {'col_vid': StringType()}.
-                        Any fields not provided explicitly will map to types with `pixeltable.utils.parquet.parquet_schema_to_pixeltable_schema`
-        kwargs: Additional arguments to pass to `create_table`.
-
-    Returns:
-        The newly created table. The table will have loaded the data from the Parquet file(s).
-    """
-    from pixeltable.utils import parquet
-
-    return parquet.import_parquet(
-        table_path=table_path,
-        parquet_path=parquet_path,
-        schema_override=schema_override,
-        **kwargs,
-    )

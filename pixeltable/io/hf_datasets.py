@@ -1,11 +1,17 @@
-import datasets
-from typing import Union, Optional, List, Dict, Any
+from __future__ import annotations
+
+import logging
+import math
+import random
+import typing
+from typing import Union, Optional, Any
+
+import pixeltable
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
-import math
-import logging
-import pixeltable
-import random
+
+if typing.TYPE_CHECKING:
+    import datasets
 
 _logger = logging.getLogger(__name__)
 
@@ -17,7 +23,7 @@ _K_BATCH_SIZE_BYTES = 100_000_000
 # note, there are many more types. we allow overrides in the schema_override parameter
 # to handle cases where the appropriate type is not yet mapped, or to override this mapping.
 # https://huggingface.co/docs/datasets/v2.17.0/en/package_reference/main_classes#datasets.Value
-_hf_to_pxt: Dict[str, ts.ColumnType] = {
+_hf_to_pxt: dict[str, ts.ColumnType] = {
     'int32': ts.IntType(nullable=True),  # pixeltable widens to big int
     'int64': ts.IntType(nullable=True),
     'bool': ts.BoolType(nullable=True),
@@ -27,10 +33,13 @@ _hf_to_pxt: Dict[str, ts.ColumnType] = {
     'timestamp[ms]': ts.TimestampType(nullable=True),  # HF dataset iterator converts timestamps to datetime.datetime
 }
 
+
 def _to_pixeltable_type(
     feature_type: Union[datasets.ClassLabel, datasets.Value, datasets.Sequence],
 ) -> Optional[ts.ColumnType]:
     """Convert a huggingface feature type to a pixeltable ColumnType if one is defined."""
+    import datasets
+
     if isinstance(feature_type, datasets.ClassLabel):
         # enum, example: ClassLabel(names=['neg', 'pos'], id=None)
         return ts.StringType(nullable=True)
@@ -45,14 +54,18 @@ def _to_pixeltable_type(
     else:
         return None
 
+
 def _get_hf_schema(dataset: Union[datasets.Dataset, datasets.DatasetDict]) -> datasets.Features:
     """Get the schema of a huggingface dataset as a dictionary."""
+    import datasets
+
     first_dataset = dataset if isinstance(dataset, datasets.Dataset) else next(iter(dataset.values()))
     return first_dataset.features
 
+
 def huggingface_schema_to_pixeltable_schema(
     hf_dataset: Union[datasets.Dataset, datasets.DatasetDict],
-) -> Dict[str, Optional[ts.ColumnType]]:
+) -> dict[str, Optional[ts.ColumnType]]:
     """Generate a pixeltable schema from a huggingface dataset schema.
     Columns without a known mapping are mapped to None
     """
@@ -62,16 +75,34 @@ def huggingface_schema_to_pixeltable_schema(
     }
     return pixeltable_schema
 
+
 def import_huggingface_dataset(
     table_path: str,
     dataset: Union[datasets.Dataset, datasets.DatasetDict],
     *,
-    column_name_for_split: Optional[str],
-    schema_override: Optional[Dict[str, Any]],
+    column_name_for_split: Optional[str] = None,
+    schema_override: Optional[dict[str, Any]] = None,
     **kwargs,
 ) -> 'pixeltable.InsertableTable':
+    """Create a new `Table` from a Huggingface dataset, or dataset dict with multiple splits.
+        Requires datasets library to be installed.
+
+    Args:
+        path_str: Path to the table.
+        dataset: Huggingface datasets.Dataset or datasets.DatasetDict to insert into the table.
+        column_name_for_split: column name to use for split information. If None, no split information will be stored.
+        schema_override: Optional dictionary mapping column names to column type to override the corresponding defaults from
+        `pixeltable.utils.hf_datasets.huggingface_schema_to_pixeltable_schema`. The column type should be a pixeltable ColumnType.
+        For example, {'col_vid': VideoType()}, rather than {'col_vid': StringType()}.
+
+        kwargs: Additional arguments to pass to `create_table`.
+
+    Returns:
+        The newly created table. The table will have loaded the data from the dataset.
+    """
+    import datasets
     import pixeltable as pxt
-    """See `pixeltable.import_huggingface_dataset` for documentation"""
+
     if table_path in pxt.list_tables():
         raise excs.Error(f'table {table_path} already exists')
 
@@ -124,7 +155,7 @@ def import_huggingface_dataset(
         tmp_name = f'{table_path}_tmp_{random.randint(0, 100000000)}'
         tab = pxt.create_table(tmp_name, pixeltable_schema, **kwargs)
 
-        def _translate_row(row: Dict[str, Any], split_name: str) -> Dict[str, Any]:
+        def _translate_row(row: dict[str, Any], split_name: str) -> dict[str, Any]:
             output_row = row.copy()
             # map all class labels to strings
             for field, values in categorical_features.items():
