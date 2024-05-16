@@ -506,7 +506,7 @@ class TestTable:
             'test_tbl',
             {'payload': IntType(nullable=False), 'video': VideoType(nullable=True)})
         args = {'video': tbl.video, 'fps': 0}
-        view = pxt.create_view('test_view', tbl, iterator_class=FrameIterator, iterator_args=args)
+        view = pxt.create_view('test_view', tbl, iterator=FrameIterator.create(video=tbl.video, fps=0))
         view.add_column(c1=view.frame.rotate(30), stored=True)
         view.add_column(c2=view.c1.rotate(40), stored=False)
         view.add_column(c3=view.c2.rotate(50), stored=True)
