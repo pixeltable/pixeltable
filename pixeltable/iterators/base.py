@@ -46,3 +46,7 @@ class ComponentIterator(ABC):
     def set_pos(self, pos: int) -> None:
         """Set the iterator position to pos"""
         raise NotImplementedError
+
+    @classmethod
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return cls, kwargs

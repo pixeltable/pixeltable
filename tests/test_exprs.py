@@ -688,8 +688,7 @@ class TestExprs:
 
         # ordering conflict between frame extraction and window fn
         base_t = pxt.create_table('videos', {'video': VideoType(), 'c2': IntType(nullable=False)})
-        args = {'video': base_t.video, 'fps': 0}
-        v = pxt.create_view('frame_view', base_t, iterator_class=FrameIterator, iterator_args=args)
+        v = pxt.create_view('frame_view', base_t, iterator=FrameIterator.create(video=base_t.video, fps=0))
         # compatible ordering
         _ = v.select(v.frame, sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
         with pytest.raises(excs.Error):

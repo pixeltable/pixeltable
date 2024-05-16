@@ -1,15 +1,15 @@
-from typing import Dict, Any, List, Tuple, Optional, Iterable, Iterator
-import logging
 import dataclasses
 import enum
+import logging
+from typing import Dict, Any, List, Tuple, Optional, Iterable, Iterator
+
 import ftfy
 
-from .base import ComponentIterator
-
-from pixeltable.type_system import ColumnType, DocumentType, StringType, IntType, JsonType
-from pixeltable.exceptions import Error
 from pixeltable.env import Env
+from pixeltable.exceptions import Error
+from pixeltable.type_system import ColumnType, DocumentType, StringType, IntType, JsonType
 from pixeltable.utils.documents import get_document_handle
+from .base import ComponentIterator
 
 _logger = logging.getLogger('pixeltable')
 
