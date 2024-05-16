@@ -68,9 +68,9 @@ def create_table(
 
 def create_view(
         path_str: str, base: catalog.Table, *, schema: Optional[dict[str, Any]] = None,
-        filter: Optional[Predicate] = None,
-        is_snapshot: bool = False, iterator_class: Optional[Type[ComponentIterator]] = None,
-        iterator_args: Optional[dict[str, Any]] = None, num_retained_versions: int = 10, comment: str = '',
+        filter: Optional[Predicate] = None, is_snapshot: bool = False,
+        iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
+        num_retained_versions: int = 10, comment: str = '',
         ignore_errors: bool = False) -> catalog.View:
     """Create a new `View`.
 
@@ -106,7 +106,6 @@ def create_view(
         >>> snapshot_view = cl.create_view(
             'my_snapshot', base, schema={'col3': base.col2 + 1}, filter=base.col1 > 10, is_snapshot=True)
     """
-    assert (iterator_class is None) == (iterator_args is None)
     assert isinstance(base, catalog.Table)
     path = catalog.Path(path_str)
     try:
@@ -120,6 +119,10 @@ def create_view(
 
     if schema is None:
         schema = {}
+    if iterator is None:
+        iterator_class, iterator_args = None, None
+    else:
+        iterator_class, iterator_args = iterator
     view = catalog.View.create(
         dir._id, path.name, base=base, schema=schema, predicate=filter, is_snapshot=is_snapshot,
         iterator_cls=iterator_class, iterator_args=iterator_args, num_retained_versions=num_retained_versions,
