@@ -360,7 +360,7 @@ class DataFrame:
             if var.name not in unique_vars:
                 unique_vars[var.name] = var
             else:
-                if unique_vars[var.name] != var.col_type:
+                if unique_vars[var.name].col_type != var.col_type:
                     raise excs.Error(f'Multiple definitions of parameter {var.name}')
         return unique_vars
 

@@ -41,6 +41,27 @@ class TestIndex:
 
             t.drop_index(column_name='img')
 
+    @pxt.query
+    def top_k_chunks(t: pxt.Table, query_text: str) -> pxt.DataFrame:
+        return t.select(t.text, sim=t.text.similarity(query_text))\
+            .order_by(t.text.similarity(query_text), asc=False)\
+            .limit(5)
+
+    def test_query(self, reset_db) -> None:
+        pass
+        queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()}, )
+        queries.insert([{'query_text': 'how much is the stock of AI companies up?'}, {'query_text': 'what happened to the term machine learning?'}])
+
+        test_doc_chunks = pxt.create_table('test_doc_chunks', schema={'text': pxt.StringType()})
+        test_doc_chunks.insert([{'text': 'the stock of artificial intelligence companies is up 1000%'},
+                            {'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'},
+                            {'text': 'machine learning is a subset of artificial intelligence'},
+                            {'text': 'gas car companies are in danger of being left behind by electric car companies'},
+        ])
+        test_doc_chunks.add_embedding_index(col_name='text', text_embed=clip_text_embed)
+        _ = queries.select(queries.query_text, out=test_doc_chunks.query(self.top_k_chunks)(queries.query_text)).collect()
+        pass
+
 
     def test_search_fn(self, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
