@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.type_system import IntType
-from .utils import create_test_tbl, assert_resultset_eq, create_img_tbl, clip_img_embed, reload_db
+from .utils import create_test_tbl, assert_resultset_eq, create_img_tbl, clip_img_embed, reload_catalog
 
 
 class TestSnapshot:
@@ -22,7 +22,7 @@ class TestSnapshot:
 
         if reload_md:
             # reload md
-            reload_db()
+            reload_catalog()
             tbl = pxt.get_table(tbl_path)
             snap = pxt.get_table(snap_path)
 
@@ -76,7 +76,7 @@ class TestSnapshot:
         for reload_md in [False, True]:
             for has_filter in [False, True]:
                 for has_cols in [False, True]:
-                    reload_db()
+                    reload_catalog()
                     tbl = create_test_tbl(name=tbl_path)
                     schema = {
                         'v1': tbl.c3 * 2.0,
@@ -134,7 +134,7 @@ class TestSnapshot:
         assert status.num_excs == 0
         verify(s1, s2, v1, v2)
 
-        reload_db()
+        reload_catalog()
         s1 = pxt.get_table('s1')
         s2 = pxt.get_table('s2')
         v1 = pxt.get_table('v1')
@@ -163,7 +163,7 @@ class TestSnapshot:
         assert status.num_excs == 0
         verify(v1, v2, s)
 
-        reload_db()
+        reload_catalog()
         v1 = pxt.get_table('v1')
         v2 = pxt.get_table('v2')
         s = pxt.get_table('s')
@@ -220,7 +220,7 @@ class TestSnapshot:
         validate(t, v, s1, s2, s3, s4)
 
         # make sure it works after metadata reload
-        reload_db()
+        reload_catalog()
         t, v = pxt.get_table('test_tbl'), pxt.get_table('v')
         s1, s2, s3, s4 = pxt.get_table('s1'), pxt.get_table('s2'), pxt.get_table('s3'), pxt.get_table('s4')
         validate(t, v, s1, s2, s3, s4)
