@@ -15,8 +15,7 @@ class QueryTemplate:
     def __init__(self, template_callable: Callable, param_types: Optional[list[ts.ColumnType]], path: str, name: str):
         self.template_callable = template_callable
         sig = inspect.signature(template_callable)
-        # we exclude the first parameter (= the Table) from the Function signature
-        py_params = list(sig.parameters.values())[1:]
+        py_params = list(sig.parameters.values())
         self.params = Signature.create_parameters(py_params=py_params, param_types=param_types)
         self.params_by_name = {p.name: p for p in self.params}
         self.path = path
@@ -26,7 +25,7 @@ class QueryTemplate:
         import pixeltable.exprs as exprs
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in self.params]
         # call the function with the parameter expressions to construct a DataFrame with parameters
-        template = self.template_callable(t, *var_exprs)
+        template = self.template_callable(*var_exprs)
         from pixeltable import DataFrame
         assert isinstance(template, DataFrame)
         sig = Signature(return_type=ts.JsonType(), parameters=self.params)

@@ -121,7 +121,7 @@ class InsertableTable(Table):
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
         self._validate_input_rows(rows)
-        result = self.tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
+        result = self._tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
         if result.num_excs == 0:
             cols_with_excs_str = ''

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple, Iterable
+from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple, Iterable, overload
 from uuid import UUID
 
 import pandas as pd
@@ -33,6 +33,8 @@ class Table(SchemaObject):
         super().__init__(id, name, dir_id)
         self.is_dropped = False
         self.tbl_version_path = tbl_version_path
+        from pixeltable.func import QueryTemplateFunction
+        self.queries: dict[str, QueryTemplateFunction] = {}
 
     def move(self, new_name: str, new_dir_id: UUID) -> None:
         super().move(new_name, new_dir_id)
@@ -48,6 +50,7 @@ class Table(SchemaObject):
         """Return the version of this table. Used by tests to ascertain version changes."""
         return self.tbl_version_path.tbl_version.version
 
+    @property
     def _tbl_version(self) -> TableVersion:
         """Return TableVersion for just this table."""
         return self.tbl_version_path.tbl_version
@@ -59,10 +62,14 @@ class Table(SchemaObject):
         if self.is_dropped:
             raise excs.Error(f'{self.display_name()} {self.name} has been dropped')
 
-    def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
+    def __getattr__(
+            self, name: str
+    ) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.func.QueryTemplateFunction']:
         """Return a ColumnRef for the given column name.
         """
-        return getattr(self.tbl_version_path, col_name)
+        if name in self.queries:
+            return self.queries[name]
+        return getattr(self.tbl_version_path, name)
 
     def __getitem__(self, index: object) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame']:
         """Return a ColumnRef for the given column name, or a DataFrame for the given slice.
@@ -129,10 +136,6 @@ class Table(SchemaObject):
     def count(self) -> int:
         """Return the number of rows in this table."""
         return self.df().count()
-
-    def query(self, template: 'pixeltable.func.QueryTemplate') -> 'pixeltable.func.QueryTemplateFunction':
-        query_fn = template.bind(self)
-        return query_fn
 
     def column_names(self) -> List[str]:
         """Return the names of the columns in this table."""
@@ -697,3 +700,39 @@ class Table(SchemaObject):
             raise excs.Error('Cannot revert a snapshot')
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.revert()
+
+    @overload
+    def query(self, py_fn: Callable) -> 'pixeltable.func.QueryTemplateFunction': ...
+
+    @overload
+    def query(self, *, param_types: Optional[List[ts.ColumnType]] = None) -> Callable: ...
+
+    def query(self, *args: Any, **kwargs: Any) -> Any:
+        def decorator(
+                py_fn: Callable, param_types: Optional[List[ts.ColumnType]]
+        ) -> 'pixeltable.func.QueryTemplateFunction':
+            if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
+                # this is a named function in a module
+                function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
+            else:
+                function_path = None
+            import pixeltable.func as func
+            template = func.QueryTemplate(py_fn, param_types=param_types, path=function_path, name=py_fn.__name__)
+            query_fn = template.bind(self)
+            query_name = py_fn.__name__
+            if query_name in self.column_names():
+                raise excs.Error(f'Query name {query_name} conflicts with existing column')
+            if query_name in self.queries:
+                raise excs.Error(f'Duplicate query name: {query_name}')
+            self.queries[query_name] = query_fn
+            return query_fn
+
+            # TODO: verify that the inferred return type matches that of the template
+            # TODO: verify that the signature doesn't contain batched parameters
+
+        if len(args) == 1:
+            assert len(kwargs) == 0 and callable(args[0])
+            return decorator(args[0], None)
+        else:
+            assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
+            return lambda py_fn: decorator(py_fn, kwargs['param_types'])

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from typing import List, Callable, Optional, overload, Any
 
 import pixeltable as pxt
@@ -8,10 +7,10 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
-from .query_template_function import QueryTemplateFunction, QueryTemplate
 from .function import Function
 from .function_registry import FunctionRegistry
 from .globals import validate_symbol_path
+from .query_template_function import QueryTemplate
 from .signature import Signature
 
 
@@ -164,27 +163,27 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
         return lambda py_fn: decorator(py_fn, kwargs['param_types'])
 
-@overload
-def query(py_fn: Callable) -> QueryTemplate: ...
-
-@overload
-def query(*, param_types: Optional[List[ts.ColumnType]] = None) -> Callable: ...
-
-def query(*args: Any, **kwargs: Any) -> Any:
-    def decorator(py_fn: Callable, param_types: Optional[List[ts.ColumnType]]) -> QueryTemplate:
-        if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
-            # this is a named function in a module
-            function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
-        else:
-            function_path = None
-        return QueryTemplate(py_fn, param_types=param_types, path=function_path, name=py_fn.__name__)
-
-        # TODO: verify that the inferred return type matches that of the template
-        # TODO: verify that the signature doesn't contain batched parameters
-
-    if len(args) == 1:
-        assert len(kwargs) == 0 and callable(args[0])
-        return decorator(args[0], None)
-    else:
-        assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
-        return lambda py_fn: decorator(py_fn, kwargs['param_types'])
+# @overload
+# def query(py_fn: Callable) -> QueryTemplate: ...
+#
+# @overload
+# def query(*, param_types: Optional[List[ts.ColumnType]] = None) -> Callable: ...
+#
+# def query(*args: Any, **kwargs: Any) -> Any:
+#     def decorator(py_fn: Callable, param_types: Optional[List[ts.ColumnType]]) -> QueryTemplate:
+#         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
+#             # this is a named function in a module
+#             function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
+#         else:
+#             function_path = None
+#         return QueryTemplate(py_fn, param_types=param_types, path=function_path, name=py_fn.__name__)
+#
+#         # TODO: verify that the inferred return type matches that of the template
+#         # TODO: verify that the signature doesn't contain batched parameters
+#
+#     if len(args) == 1:
+#         assert len(kwargs) == 0 and callable(args[0])
+#         return decorator(args[0], None)
+#     else:
+#         assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
+#         return lambda py_fn: decorator(py_fn, kwargs['param_types'])

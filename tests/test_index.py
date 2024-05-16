@@ -41,31 +41,31 @@ class TestIndex:
 
             t.drop_index(column_name='img')
 
-    @pxt.query
-    def top_k_chunks(t: pxt.Table, query_text: str) -> pxt.DataFrame:
-        return t.select(t.text, sim=t.text.similarity(query_text))\
-            .order_by(t.text.similarity(query_text), asc=False)\
-            .limit(5)
-
     def test_query(self, reset_db) -> None:
         queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()}, )
         queries.insert([{'query_text': 'how much is the stock of AI companies up?'}, {'query_text': 'what happened to the term machine learning?'}])
 
-        test_doc_chunks = pxt.create_table('test_doc_chunks', schema={'text': pxt.StringType()})
-        test_doc_chunks.insert([{'text': 'the stock of artificial intelligence companies is up 1000%'},
-                            {'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'},
-                            {'text': 'machine learning is a subset of artificial intelligence'},
-                            {'text': 'gas car companies are in danger of being left behind by electric car companies'},
+        chunks = pxt.create_table('test_doc_chunks', schema={'text': pxt.StringType()})
+        chunks.insert([
+            {'text': 'the stock of artificial intelligence companies is up 1000%'},
+            {'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'},
+            {'text': 'machine learning is a subset of artificial intelligence'},
+            {'text': 'gas car companies are in danger of being left behind by electric car companies'},
         ])
-        test_doc_chunks.add_embedding_index(col_name='text', text_embed=clip_text_embed)
-        _ = queries.select(queries.query_text, out=test_doc_chunks.query(self.top_k_chunks)(queries.query_text)).collect()
-        queries.add_column(chunks=test_doc_chunks.query(self.top_k_chunks)(queries.query_text))
-        _ = queries.collect()
-        reload_catalog()
-        queries = pxt.get_table('queries')
-        _ = queries.collect()
-        pass
+        chunks.add_embedding_index(col_name='text', text_embed=clip_text_embed)
 
+        @chunks.query
+        def top_k_chunks(query_text: str) -> pxt.DataFrame:
+            return chunks.select(chunks.text, sim=chunks.text.similarity(query_text)) \
+                .order_by(chunks.text.similarity(query_text), asc=False) \
+                .limit(5)
+
+        _ = queries.select(queries.query_text, out=chunks.top_k_chunks(queries.query_text)).collect()
+        queries.add_column(chunks=chunks.top_k_chunks(queries.query_text))
+        _ = queries.collect()
+        # reload_catalog()
+        # queries = pxt.get_table('queries')
+        # _ = queries.collect()
 
     def test_search_fn(self, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
@@ -76,11 +76,11 @@ class TestIndex:
         t.add_embedding_index('img', metric='cosine', img_embed=clip_img_embed, text_embed=clip_text_embed)
         _ =  t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
 
-        @pxt.query
-        def img_matches(t: pxt.Table, img: PIL.Image.Image):
+        @t.query
+        def img_matches(img: PIL.Image.Image):
             return t.select(t.img.localpath).order_by(t.img.similarity(img), asc=False).limit(3)
 
-        res = list(t.select(img=t.img.localpath, matches=t.query(img_matches)(t.img)).head(1))
+        res = list(t.select(img=t.img.localpath, matches=t.img_matches(t.img)).head(1))
 
     def test_search_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
