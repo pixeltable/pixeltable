@@ -9,7 +9,6 @@ from ..utils import skip_test_if_not_installed
 
 
 class TestPandas:
-
     def test_pandas_csv(self, reset_db) -> None:
         from pixeltable.io import import_csv
 
@@ -28,7 +27,7 @@ class TestPandas:
             'Pin_code': pxt.IntType(),
             'Output': pxt.StringType(),
             'Feedback': pxt.StringType(),
-            'Unnamed__12': pxt.StringType()
+            'Unnamed__12': pxt.StringType(),
         }
         assert t1.select(t1.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
 
@@ -41,14 +40,10 @@ class TestPandas:
             'Low': pxt.FloatType(),
             'Close': pxt.FloatType(),
             'Volume': pxt.IntType(),
-            'Adj_Close': pxt.FloatType()
+            'Adj_Close': pxt.FloatType(),
         }
 
-        t3 = import_csv(
-            'edge_cases',
-            'tests/data/datasets/edge-cases.csv',
-            parse_dates=['ts', 'ts_n']
-        )
+        t3 = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', parse_dates=['ts', 'ts_n'])
         assert t3.count() == 4
         assert t3.column_types() == {
             'int': pxt.IntType(),
@@ -76,15 +71,10 @@ class TestPandas:
 
         # Test overriding string type to images
         t4 = import_csv(
-            'images',
-            'tests/data/datasets/images.csv',
-            schema_overrides={'image': pxt.ImageType(nullable=True)}
+            'images', 'tests/data/datasets/images.csv', schema_overrides={'image': pxt.ImageType(nullable=True)}
         )
         assert t4.count() == 4
-        assert t4.column_types() == {
-            'name': pxt.StringType(),
-            'image': pxt.ImageType(nullable=True)
-        }
+        assert t4.column_types() == {'name': pxt.StringType(), 'image': pxt.ImageType(nullable=True)}
         result_set = t4.select(t4.image.width).collect()
         assert result_set['width'] == [1024, 962, 1024, None]
 
@@ -109,9 +99,7 @@ class TestPandas:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = import_csv(
-                'online_foods',
-                'tests/data/datasets/onlinefoods.csv',
-                schema_overrides={'Non-Column': pxt.StringType()}
+                'online_foods', 'tests/data/datasets/onlinefoods.csv', schema_overrides={'Non-Column': pxt.StringType()}
             )
         assert '`Non-Column` specified in `schema_overrides` does not exist' in str(exc_info.value)
 

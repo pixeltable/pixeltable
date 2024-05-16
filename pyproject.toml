@@ -144,4 +144,4 @@ preview = true
 known-first-party = ["pixeltable"]
 
 [tool.ruff.format]
-quote-style = "preserve"
+quote-style = "single"  # can be "single", "double", or "preserve"

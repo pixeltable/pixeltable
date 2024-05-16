@@ -9,7 +9,6 @@ from ..utils import skip_test_if_not_installed
 
 
 class TestHfDatasets:
-
     def test_import_huggingface_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -29,18 +28,19 @@ class TestHfDatasets:
             # },
             {  # includes an embedding (array type), common in a few RAG datasets.
                 'dataset_name': 'cohere_wikipedia',
-                'dataset': datasets.load_dataset("Cohere/wikipedia-2023-11-embed-multilingual-v3",
-                                                 data_dir='cr').select_columns(['url', 'title', 'text', 'emb']),
+                'dataset': datasets.load_dataset(
+                    'Cohere/wikipedia-2023-11-embed-multilingual-v3', data_dir='cr'
+                ).select_columns(['url', 'title', 'text', 'emb']),
                 # column with name `_id`` is not currently allowed by pixeltable rules,
                 # so filter out that column.
                 # cr subdir has a small number of rows, avoid running out of space in CI runner
                 # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
-                'schema_override': {'emb': pxt.ArrayType((1024,), dtype=pxt.FloatType(), nullable=False)}
+                'schema_override': {'emb': pxt.ArrayType((1024,), dtype=pxt.FloatType(), nullable=False)},
             },
             # example of dataset dictionary with multiple splits
             {
                 'dataset_name': 'rotten_tomatoes',
-                'dataset': datasets.load_dataset("rotten_tomatoes"),
+                'dataset': datasets.load_dataset('rotten_tomatoes'),
             },
         ]
 
@@ -73,8 +73,11 @@ class TestHfDatasets:
         assert 'type(dataset)' in str(exc_info.value)
 
     @classmethod
-    def _assert_hf_dataset_equal(cls, hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, split_column_name: str) -> None:
+    def _assert_hf_dataset_equal(
+        cls, hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, split_column_name: str
+    ) -> None:
         import datasets
+
         assert df.count() == hf_dataset.num_rows
         assert set(df.get_column_names()) == (set(hf_dataset.features.keys()) | {split_column_name})
 

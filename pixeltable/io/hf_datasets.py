@@ -33,6 +33,7 @@ _hf_to_pxt: dict[str, ts.ColumnType] = {
     'timestamp[ms]': ts.TimestampType(nullable=True),  # HF dataset iterator converts timestamps to datetime.datetime
 }
 
+
 def _to_pixeltable_type(
     feature_type: Union[datasets.ClassLabel, datasets.Value, datasets.Sequence],
 ) -> Optional[ts.ColumnType]:
@@ -53,12 +54,14 @@ def _to_pixeltable_type(
     else:
         return None
 
+
 def _get_hf_schema(dataset: Union[datasets.Dataset, datasets.DatasetDict]) -> datasets.Features:
     """Get the schema of a huggingface dataset as a dictionary."""
     import datasets
 
     first_dataset = dataset if isinstance(dataset, datasets.Dataset) else next(iter(dataset.values()))
     return first_dataset.features
+
 
 def huggingface_schema_to_pixeltable_schema(
     hf_dataset: Union[datasets.Dataset, datasets.DatasetDict],
@@ -71,6 +74,7 @@ def huggingface_schema_to_pixeltable_schema(
         column_name: _to_pixeltable_type(feature_type) for column_name, feature_type in hf_schema.items()
     }
     return pixeltable_schema
+
 
 def import_huggingface_dataset(
     table_path: str,

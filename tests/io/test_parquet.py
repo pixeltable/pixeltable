@@ -5,7 +5,6 @@ from ..utils import skip_test_if_not_installed, make_test_arrow_table
 
 
 class TestParquet:
-
     def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa

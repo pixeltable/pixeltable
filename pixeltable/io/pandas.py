@@ -9,10 +9,7 @@ import pixeltable.type_system as ts
 
 
 def import_pandas(
-        tbl_name: str,
-        df: pd.DataFrame,
-        *,
-        schema_overrides: Optional[dict[str, pxt.ColumnType]] = None
+    tbl_name: str, df: pd.DataFrame, *, schema_overrides: Optional[dict[str, pxt.ColumnType]] = None
 ) -> pxt.catalog.InsertableTable:
     """Creates a new `Table` from a Pandas `DataFrame`, with the specified name. The schema of the table
     will be inferred from the `DataFrame`, unless `schema` is specified.
@@ -33,20 +30,14 @@ def import_pandas(
             Pixeltable identifiers).
     """
     schema = _df_to_pxt_schema(df, schema_overrides)
-    tbl_rows = (
-        dict(_df_row_to_pxt_row(row, schema))
-        for row in df.itertuples()
-    )
+    tbl_rows = (dict(_df_row_to_pxt_row(row, schema)) for row in df.itertuples())
     table = pxt.create_table(tbl_name, schema)
     table.insert(tbl_rows)
     return table
 
 
 def import_csv(
-        table_path: str,
-        filepath_or_buffer,
-        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
-        **kwargs
+    table_path: str, filepath_or_buffer, schema_overrides: Optional[dict[str, ts.ColumnType]] = None, **kwargs
 ) -> pxt.catalog.InsertableTable:
     """
     Creates a new `Table` from a csv file. This is a convenience method and is equivalent
@@ -58,11 +49,7 @@ def import_csv(
 
 
 def import_excel(
-        table_path: str,
-        io,
-        *args,
-        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
-        **kwargs
+    table_path: str, io, *args, schema_overrides: Optional[dict[str, ts.ColumnType]] = None, **kwargs
 ) -> pxt.catalog.InsertableTable:
     """
     Creates a new `Table` from an excel (.xlsx) file. This is a convenience method and is equivalent
@@ -74,8 +61,7 @@ def import_excel(
 
 
 def _df_to_pxt_schema(
-        df: pd.DataFrame,
-        schema_overrides: Optional[dict[str, pxt.ColumnType]]
+    df: pd.DataFrame, schema_overrides: Optional[dict[str, pxt.ColumnType]]
 ) -> dict[str, pxt.ColumnType]:
     if schema_overrides is not None:
         for pd_name in schema_overrides:
@@ -107,10 +93,7 @@ def _normalize_pxt_col_name(pd_name: str) -> str:
     - replacing any non-ascii or non-alphanumeric characters with an underscore _
     - prefixing the result with the letter 'c' if it starts with an underscore or a number
     """
-    id = ''.join(
-        ch if ch.isascii() and ch.isalnum() else '_'
-        for ch in pd_name
-    )
+    id = ''.join(ch if ch.isascii() and ch.isalnum() else '_' for ch in pd_name)
     if id[0].isnumeric():
         id = f'c_{id}'
     elif id[0] == '_':

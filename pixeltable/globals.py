@@ -23,8 +23,12 @@ def init() -> None:
 
 
 def create_table(
-        path_str: str, schema: dict[str, Any], *, primary_key: Optional[Union[str, list[str]]] = None,
-        num_retained_versions: int = 10, comment: str = ''
+    path_str: str,
+    schema: dict[str, Any],
+    *,
+    primary_key: Optional[Union[str, list[str]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
 ) -> catalog.InsertableTable:
     """Create a new `InsertableTable`.
 
@@ -60,18 +64,30 @@ def create_table(
             raise excs.Error('primary_key must be a single column name or a list of column names')
 
     tbl = catalog.InsertableTable.create(
-        dir._id, path.name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions,
-        comment=comment)
+        dir._id,
+        path.name,
+        schema,
+        primary_key=primary_key,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+    )
     Catalog.get().paths[path] = tbl
     _logger.info(f'Created table `{path_str}`.')
     return tbl
 
+
 def create_view(
-        path_str: str, base: catalog.Table, *, schema: Optional[dict[str, Any]] = None,
-        filter: Optional[Predicate] = None, is_snapshot: bool = False,
-        iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
-        num_retained_versions: int = 10, comment: str = '',
-        ignore_errors: bool = False) -> catalog.View:
+    path_str: str,
+    base: catalog.Table,
+    *,
+    schema: Optional[dict[str, Any]] = None,
+    filter: Optional[Predicate] = None,
+    is_snapshot: bool = False,
+    iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    ignore_errors: bool = False,
+) -> catalog.View:
     """Create a new `View`.
 
     Args:
@@ -124,9 +140,17 @@ def create_view(
     else:
         iterator_class, iterator_args = iterator
     view = catalog.View.create(
-        dir._id, path.name, base=base, schema=schema, predicate=filter, is_snapshot=is_snapshot,
-        iterator_cls=iterator_class, iterator_args=iterator_args, num_retained_versions=num_retained_versions,
-        comment=comment)
+        dir._id,
+        path.name,
+        base=base,
+        schema=schema,
+        predicate=filter,
+        is_snapshot=is_snapshot,
+        iterator_cls=iterator_class,
+        iterator_args=iterator_args,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+    )
     Catalog.get().paths[path] = view
     _logger.info(f'Created view `{path_str}`.')
     return view
@@ -362,18 +386,20 @@ def list_functions() -> pd.DataFrame:
     paths = ['.'.join(f.self_path.split('.')[:-1]) for f in functions]
     names = [f.name for f in functions]
     params = [
-        ', '.join(
-            [param_name + ': ' + str(param_type) for param_name, param_type in f.signature.parameters.items()])
+        ', '.join([param_name + ': ' + str(param_type) for param_name, param_type in f.signature.parameters.items()])
         for f in functions
     ]
-    pd_df = pd.DataFrame({
-        'Path': paths,
-        'Function Name': names,
-        'Parameters': params,
-        'Return Type': [str(f.signature.get_return_type()) for f in functions],
-    })
-    pd_df = pd_df.style.set_properties(**{'text-align': 'left'}) \
-        .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])  # center-align headings
+    pd_df = pd.DataFrame(
+        {
+            'Path': paths,
+            'Function Name': names,
+            'Parameters': params,
+            'Return Type': [str(f.signature.get_return_type()) for f in functions],
+        }
+    )
+    pd_df = pd_df.style.set_properties(**{'text-align': 'left'}).set_table_styles(
+        [dict(selector='th', props=[('text-align', 'center')])]
+    )  # center-align headings
     return pd_df.hide(axis='index')
 
 

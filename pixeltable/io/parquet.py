@@ -23,7 +23,7 @@ if typing.TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-def _write_batch(value_batch : Dict[str, deque], schema : pa.Schema, output_path : Path) -> None:
+def _write_batch(value_batch: Dict[str, deque], schema: pa.Schema, output_path: Path) -> None:
     import pyarrow as pa
 
     pydict = {}
@@ -37,20 +37,21 @@ def _write_batch(value_batch : Dict[str, deque], schema : pa.Schema, output_path
     tab = pa.Table.from_pydict(pydict, schema=schema)
     pa.parquet.write_table(tab, output_path)
 
+
 def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int = 100_000_000) -> None:
     """
-        Internal method to stream dataframe data to parquet format.
-        Does not materialize the dataset to memory.
+    Internal method to stream dataframe data to parquet format.
+    Does not materialize the dataset to memory.
 
-        It preserves pixeltable type metadata in a json file, which would otherwise
-        not be available in the parquet format.
+    It preserves pixeltable type metadata in a json file, which would otherwise
+    not be available in the parquet format.
 
-        Images are stored inline in a compressed format in their parquet file.
+    Images are stored inline in a compressed format in their parquet file.
 
-        Args:
-            df : dataframe to save.
-            dest_path : path to directory to save the parquet files to.
-            partition_size_bytes : maximum target size for each chunk. Default 100_000_000 bytes.
+    Args:
+        df : dataframe to save.
+        dest_path : path to directory to save the parquet files to.
+        partition_size_bytes : maximum target size for each chunk. Default 100_000_000 bytes.
     """
     from pixeltable.utils.arrow import to_arrow_schema
 
@@ -62,15 +63,15 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
     # store the changes atomically
     with transactional_directory(dest_path) as temp_path:
         # dump metadata json file so we can inspect what was the source of the parquet file later on.
-        json.dump(df._as_dict(), (temp_path / '.pixeltable.json').open('w')) # pylint: disable=protected-access
-        json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w')) # keep type metadata
+        json.dump(df._as_dict(), (temp_path / '.pixeltable.json').open('w'))  # pylint: disable=protected-access
+        json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
         batch_num = 0
-        current_value_batch : Dict[str, deque] = {k:deque() for k in column_names}
+        current_value_batch: Dict[str, deque] = {k: deque() for k in column_names}
         current_byte_estimate = 0
 
-        for data_row in df._exec(): # pylint: disable=protected-access
-            for (col_name, col_type, e) in zip(column_names, column_types, df._select_list_exprs): # pylint: disable=protected-access
+        for data_row in df._exec():  # pylint: disable=protected-access
+            for col_name, col_type, e in zip(column_names, column_types, df._select_list_exprs):  # pylint: disable=protected-access
                 val = data_row[e.slot_idx]
                 if val is None:
                     current_value_batch[col_name].append(val)
@@ -119,9 +120,9 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
                 current_byte_estimate += length
             if current_byte_estimate > partition_size_bytes:
                 assert batch_num < 100_000, 'wrote too many parquet files, unclear ordering'
-                _write_batch(current_value_batch, arrow_schema,  temp_path / f'part-{batch_num:05d}.parquet')
+                _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
                 batch_num += 1
-                current_value_batch = {k:deque() for k in column_names}
+                current_value_batch = {k: deque() for k in column_names}
                 current_byte_estimate = 0
 
         _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
