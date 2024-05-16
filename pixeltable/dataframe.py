@@ -29,11 +29,10 @@ from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.http_server import get_file_uri
 
-__all__ = [
-    'DataFrame'
-]
+__all__ = ['DataFrame']
 
 _logger = logging.getLogger('pixeltable')
+
 
 def _create_source_tag(file_path: str) -> str:
     src_url = get_file_uri(Env.get().http_address, file_path)
@@ -42,8 +41,8 @@ def _create_source_tag(file_path: str) -> str:
     mime_attr = f'type="{mime}"' if mime is not None else ''
     return f'<source src="{src_url}" {mime_attr} />'
 
-class DataFrameResultSet:
 
+class DataFrameResultSet:
     def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
         self._rows = rows
         self._col_names = col_names
@@ -104,14 +103,14 @@ class DataFrameResultSet:
         with io.BytesIO() as buffer:
             img.save(buffer, 'jpeg')
             img_base64 = base64.b64encode(buffer.getvalue()).decode()
-            return f'''
+            return f"""
             <div class="pxt_image" style="width:{width}px;">
                 <img src="data:image/jpeg;base64,{img_base64}" width="{width}" />
             </div>
-            '''
+            """
 
     def _format_video(self, file_path: str) -> str:
-        thumb_tag = ""
+        thumb_tag = ''
         # Attempt to extract the first frame of the video to use as a thumbnail,
         # so that the notebook can be exported as HTML and viewed in contexts where
         # the video itself is not accessible.
@@ -134,13 +133,13 @@ class DataFrameResultSet:
             width = 480
         else:
             width = 800
-        return f'''
+        return f"""
         <div class="pxt_video" style="width:{width}px;">
             <video controls width="{width}" {thumb_tag}>
                 {_create_source_tag(file_path)}
             </video>
         </div>
-        '''
+        """
 
     def _format_document(self, file_path: str) -> str:
         max_width = max_height = 320
@@ -150,6 +149,7 @@ class DataFrameResultSet:
         if file_path.lower().endswith('.pdf'):
             try:
                 import fitz
+
                 doc = fitz.open(file_path)
                 p = doc.get_page_pixmap(0)
                 while p.width > max_width or p.height > max_height:
@@ -157,29 +157,29 @@ class DataFrameResultSet:
                     p.shrink(1)
                 data = p.tobytes(output='jpeg')
                 thumb_base64 = base64.b64encode(data).decode()
-                img_src = f"data:image/jpeg;base64,{thumb_base64}"
-                inner_element = f'''
+                img_src = f'data:image/jpeg;base64,{thumb_base64}'
+                inner_element = f"""
                     <img style="object-fit: contain; border: 1px solid black;" src="{img_src}" />
-                '''
+                """
             except:
                 logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
 
-        return f'''
+        return f"""
         <div class="pxt_document" style="width:{max_width}px;">
             <a href="{get_file_uri(Env.get().http_address, file_path)}">
                 {inner_element}
             </a>
         </div>
-        '''
+        """
 
     def _format_audio(self, file_path: str) -> str:
-        return f'''
+        return f"""
         <div class="pxt_audio">
             <audio controls>
                 {_create_source_tag(file_path)}
             </audio>
         </div>
-        '''
+        """
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
@@ -254,17 +254,19 @@ class DataFrameResultSetIterator:
 
 class DataFrame:
     def __init__(
-            self, tbl: catalog.TableVersionPath,
-            select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]] = None,
-            where_clause: Optional[exprs.Predicate] = None,
-            group_by_clause: Optional[List[exprs.Expr]] = None,
-            grouping_tbl: Optional[catalog.TableVersion] = None,
-            order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None,  # List[(expr, asc)]
-            limit: Optional[int] = None):
+        self,
+        tbl: catalog.TableVersionPath,
+        select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]] = None,
+        where_clause: Optional[exprs.Predicate] = None,
+        group_by_clause: Optional[List[exprs.Expr]] = None,
+        grouping_tbl: Optional[catalog.TableVersion] = None,
+        order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None,  # List[(expr, asc)]
+        limit: Optional[int] = None,
+    ):
         self.tbl = tbl
 
         # select list logic
-        DataFrame._select_list_check_rep(select_list) # check select list without expansion
+        DataFrame._select_list_check_rep(select_list)  # check select list without expansion
         # exprs contain execution state and therefore cannot be shared
         select_list = copy.deepcopy(select_list)
         select_list_exprs, column_names = DataFrame._normalize_select_list(tbl, select_list)
@@ -283,12 +285,12 @@ class DataFrame:
         self.limit_val = limit
 
     @classmethod
-    def _select_list_check_rep(cls,
+    def _select_list_check_rep(
+        cls,
         select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]],
     ) -> None:
-        """Validate basic select list types.
-        """
-        if select_list is None: # basic check for valid select list
+        """Validate basic select list types."""
+        if select_list is None:  # basic check for valid select list
             return
 
         assert len(select_list) > 0
@@ -301,7 +303,8 @@ class DataFrame:
                 assert is_valid_identifier(ent[1])
 
     @classmethod
-    def _normalize_select_list(cls,
+    def _normalize_select_list(
+        cls,
         tbl: catalog.TableVersionPath,
         select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]],
     ) -> Tuple[List[exprs.Expr], List[str]]:
@@ -315,9 +318,9 @@ class DataFrame:
         else:
             expanded_list = select_list
 
-        out_exprs : List[exprs.Expr] = []
-        out_names : List[str] = [] # keep track of order
-        seen_out_names : set[str] = set() # use to check for duplicates in loop, avoid square complexity
+        out_exprs: List[exprs.Expr] = []
+        out_names: List[str] = []  # keep track of order
+        seen_out_names: set[str] = set()  # use to check for duplicates in loop, avoid square complexity
         for i, (expr, name) in enumerate(expanded_list):
             if name is None:
                 # use default, add suffix if needed so default adds no duplicates
@@ -326,13 +329,13 @@ class DataFrame:
                     column_name = default_name
                     if default_name in seen_out_names:
                         # already used, then add suffix until unique name is found
-                        for j in range(1, len(out_names)+1):
+                        for j in range(1, len(out_names) + 1):
                             column_name = f'{default_name}_{j}'
                             if column_name not in seen_out_names:
                                 break
-                else: # no default name, eg some expressions
+                else:  # no default name, eg some expressions
                     column_name = f'col_{i}'
-            else: # user provided name, no attempt to rename
+            else:  # user provided name, no attempt to rename
                 column_name = name
 
             out_exprs.append(expr)
@@ -391,9 +394,13 @@ class DataFrame:
             item.bind_rel_paths(None)
 
         plan = Planner.create_query_plan(
-            self.tbl, self._select_list_exprs, where_clause=self.where_clause, group_by_clause=group_by_clause,
+            self.tbl,
+            self._select_list_exprs,
+            where_clause=self.where_clause,
+            group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause if self.order_by_clause is not None else [],
-            limit=self.limit_val if self.limit_val is not None else 0)  # limit_val == 0: no limit_val
+            limit=self.limit_val if self.limit_val is not None else 0,
+        )  # limit_val == 0: no limit_val
 
         def exec_plan(conn: sql.engine.Connection) -> Generator[exprs.DataRow, None, None]:
             plan.ctx.set_conn(conn)
@@ -484,12 +491,10 @@ class DataFrame:
                 result_row = [data_row[e.slot_idx] for e in self._select_list_exprs]
                 result_rows.append(result_row)
         except excs.ExprEvalError as e:
-            msg = (f'In row {e.row_num} the {e.expr_msg} encountered exception '
-                   f'{type(e.exc).__name__}:\n{str(e.exc)}')
+            msg = f'In row {e.row_num} the {e.expr_msg} encountered exception ' f'{type(e.exc).__name__}:\n{str(e.exc)}'
             if len(e.input_vals) > 0:
                 input_msgs = [
-                    f"'{d}' = {d.col_type.print_value(e.input_vals[i])}"
-                    for i, d in enumerate(e.expr.dependencies())
+                    f"'{d}' = {d.col_type.print_value(e.input_vals[i])}" for i, d in enumerate(e.expr.dependencies())
                 ]
                 msg += f'\nwith {", ".join(input_msgs)}'
             assert e.exc_tb is not None
@@ -509,6 +514,7 @@ class DataFrame:
 
     def count(self) -> int:
         from pixeltable.plan import Planner
+
         stmt = Planner.create_count_stmt(self.tbl, self.where_clause)
         with Env.get().engine.connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
@@ -534,9 +540,9 @@ class DataFrame:
         if self.order_by_clause is not None:
             heading_vals.append('Order By')
             heading_vals.extend([''] * (len(self.order_by_clause) - 1))
-            info_vals.extend([
-                f'{e[0].display_str(inline=False)} {"asc" if e[1] else "desc"}' for e in self.order_by_clause
-            ])
+            info_vals.extend(
+                [f'{e[0].display_str(inline=False)} {"asc" if e[1] else "desc"}' for e in self.order_by_clause]
+            )
         if self.limit_val is not None:
             heading_vals.append('Limit')
             info_vals.append(str(self.limit_val))
@@ -550,9 +556,12 @@ class DataFrame:
         pd_df = self._description()
         # white-space: pre-wrap: print \n as newline
         # th: center-align headings
-        return pd_df.style.set_properties(**{'white-space': 'pre-wrap', 'text-align': 'left'}) \
-            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])]) \
-            .hide(axis='index').hide(axis='columns')
+        return (
+            pd_df.style.set_properties(**{'white-space': 'pre-wrap', 'text-align': 'left'})
+            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
+            .hide(axis='index')
+            .hide(axis='columns')
+        )
 
     def describe(self) -> None:
         """
@@ -563,6 +572,7 @@ class DataFrame:
         try:
             __IPYTHON__
             from IPython.display import display
+
             display(self._description_html())
         except NameError:
             print(self.__repr__())
@@ -573,10 +583,10 @@ class DataFrame:
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()
 
-    def select(self, *items: Any, **named_items : Any) -> DataFrame:
+    def select(self, *items: Any, **named_items: Any) -> DataFrame:
         if self.select_list is not None:
             raise excs.Error(f'Select list already specified')
-        for (name, _) in named_items.items():
+        for name, _ in named_items.items():
             if not isinstance(name, str) or not is_valid_identifier(name):
                 raise excs.Error(f'Invalid name: {name}')
         base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
@@ -611,13 +621,25 @@ class DataFrame:
             seen.add(name)
 
         return DataFrame(
-            self.tbl, select_list=select_list, where_clause=self.where_clause, group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl, order_by_clause=self.order_by_clause, limit=self.limit_val)
+            self.tbl,
+            select_list=select_list,
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=self.limit_val,
+        )
 
     def where(self, pred: exprs.Predicate) -> DataFrame:
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=pred, group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl, order_by_clause=self.order_by_clause, limit=self.limit_val)
+            self.tbl,
+            select_list=self.select_list,
+            where_clause=pred,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=self.limit_val,
+        )
 
     def group_by(self, *grouping_items: Any) -> DataFrame:
         """Add a group-by clause to this DataFrame.
@@ -644,8 +666,14 @@ class DataFrame:
         if grouping_tbl is None:
             group_by_clause = list(grouping_items)
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=self.where_clause, group_by_clause=group_by_clause,
-            grouping_tbl=grouping_tbl, order_by_clause=self.order_by_clause, limit=self.limit_val)
+            self.tbl,
+            select_list=self.select_list,
+            where_clause=self.where_clause,
+            group_by_clause=group_by_clause,
+            grouping_tbl=grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=self.limit_val,
+        )
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
         for e in expr_list:
@@ -654,16 +682,26 @@ class DataFrame:
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend([(e.copy(), asc) for e in expr_list])
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=self.where_clause,
-            group_by_clause=self.group_by_clause, grouping_tbl=self.grouping_tbl, order_by_clause=order_by_clause,
-            limit=self.limit_val)
+            self.tbl,
+            select_list=self.select_list,
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=order_by_clause,
+            limit=self.limit_val,
+        )
 
     def limit(self, n: int) -> DataFrame:
         assert n is not None and isinstance(n, int)
         return DataFrame(
-            self.tbl, select_list=self.select_list, where_clause=self.where_clause,
-            group_by_clause=self.group_by_clause, grouping_tbl=self.grouping_tbl, order_by_clause=self.order_by_clause,
-            limit=n)
+            self.tbl,
+            select_list=self.select_list,
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=n,
+        )
 
     def __getitem__(self, index: object) -> DataFrame:
         """
@@ -684,8 +722,8 @@ class DataFrame:
 
     def as_dict(self) -> Dict[str, Any]:
         """
-            Returns:
-                Dictionary representing this dataframe.
+        Returns:
+            Dictionary representing this dataframe.
         """
         tbl_versions = self.tbl.get_tbl_versions()
         d = {
@@ -743,7 +781,7 @@ class DataFrame:
         summary_string = json.dumps(self.as_dict())
         cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
 
-        dest_path = (Env.get().dataset_cache_dir / f'coco_{cache_key}')
+        dest_path = Env.get().dataset_cache_dir / f'coco_{cache_key}'
         if dest_path.exists():
             assert dest_path.is_dir()
             data_file_path = dest_path / 'data.json'
@@ -788,8 +826,8 @@ class DataFrame:
         Env.get().require_package('torch')
         Env.get().require_package('torchvision')
 
-        from pixeltable.utils.parquet import save_parquet # pylint: disable=import-outside-toplevel
-        from pixeltable.utils.pytorch import PixeltablePytorchDataset # pylint: disable=import-outside-toplevel
+        from pixeltable.io.parquet import save_parquet  # pylint: disable=import-outside-toplevel
+        from pixeltable.utils.pytorch import PixeltablePytorchDataset  # pylint: disable=import-outside-toplevel
 
         # for caching purposes, create a checksum of the specific query that this dataframe represents;
         # we also need to include the actual ids of the tables referenced by the query (TableVersionPath.as_dict()
@@ -800,8 +838,8 @@ class DataFrame:
         summary_string = json.dumps(checksum_dict)
         cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
 
-        dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet') # pylint: disable = protected-access
-        if dest_path.exists(): # fast path: use cache
+        dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet')  # pylint: disable = protected-access
+        if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
             save_parquet(self, dest_path)

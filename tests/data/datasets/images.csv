@@ -1,0 +1,5 @@
+name,image
+beer,s3://open-images-dataset/validation/3ba5380490084697.jpg
+starfish,s3://open-images-dataset/validation/3afeb4b34f90c0cf.jpg
+leaves,s3://open-images-dataset/validation/3b07a2c0d5c0c789.jpg
+empty,
