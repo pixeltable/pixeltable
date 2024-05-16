@@ -17,6 +17,7 @@ exclude = [
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
+setuptools = "69.1.1"  # setuptools >= 69.2 has known issues with Github Actions
 numpy = ">=1.25"
 pandas = ">=2.0,<3.0"
 pillow = ">=9.3.0"
@@ -44,8 +45,6 @@ ftfy = "^6.2.0"
 optional = true
 
 [tool.poetry.group.dev.dependencies]
-# setuptools >= 69.2 has known issues with Github Actions
-setuptools = "69.1.1"
 # pytest-related
 pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
