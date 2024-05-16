@@ -120,8 +120,8 @@ class TestDocument:
             for limit in chunk_limits:
                 chunks_t = pxt.create_view(
                     'chunks', doc_t,
-                    iterator=DocumentSplitter.create(document=
-                        doc_t.doc,
+                    iterator=DocumentSplitter.create(
+                        document=doc_t.doc,
                         separators=','.join([sep1, sep2]),
                         metadata='title,heading,sourceline,page,bounding_box',
                         limit=limit if sep2 else None,
