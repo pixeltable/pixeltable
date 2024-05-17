@@ -174,6 +174,10 @@ class Env:
         if self._initialized:
             return
 
+        # Disable spurious warnings
+        warnings.simplefilter('ignore', category=TqdmWarning)
+        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+
         self._initialized = True
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
@@ -283,9 +287,6 @@ class Env:
         # we now have a home directory and db; start other services
         self._set_up_runtime()
         self.log_to_stdout(False)
-
-        # Disable spurious warnings
-        warnings.simplefilter('ignore', category=TqdmWarning)
 
     def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
