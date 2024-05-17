@@ -175,7 +175,8 @@ class Env:
             return
 
         # Disable spurious warnings
-        warnings.simplefilter("ignore", category=TqdmWarning)
+        warnings.simplefilter('ignore', category=TqdmWarning)
+        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
         self._initialized = True
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
