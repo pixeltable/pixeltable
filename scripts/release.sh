@@ -1,9 +1,7 @@
-#!/bin/bash
+#!/bin/bash -e
 
 # Pixeltable release script
 # This MUST be run in the home repo (pixeltable/pixeltable), not a fork!
-
-set -e
 
 if [ -z "$2" ]; then
   echo "Usage: release.sh <version> <pypi-api-key>"
