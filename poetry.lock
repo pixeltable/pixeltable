@@ -1124,6 +1124,17 @@ type = "url"
 url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
 
 [[package]]
+name = "et-xmlfile"
+version = "1.1.0"
+description = "An implementation of lxml.xmlfile for the standard library"
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "et_xmlfile-1.1.0-py3-none-any.whl", hash = "sha256:a2ba85d1d6a74ef63837eed693bcb89c3f752169b0e3e7ae5b16ca5e1b3deada"},
+    {file = "et_xmlfile-1.1.0.tar.gz", hash = "sha256:8eb9e2bc2f8c97e37a2dc85a09ecdcdec9d8a396530a6d5a33b30b9a92da0c5c"},
+]
+
+[[package]]
 name = "eval-type-backport"
 version = "0.1.3"
 description = "Like `typing._eval_type`, but lets older Python versions use newer typing features."
@@ -3510,6 +3521,20 @@ numpy = [
     {version = ">=1.23.5", markers = "python_version >= \"3.11\" and python_version < \"3.12\""},
     {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
 ]
+
+[[package]]
+name = "openpyxl"
+version = "3.1.2"
+description = "A Python library to read/write Excel 2010 xlsx/xlsm files"
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "openpyxl-3.1.2-py2.py3-none-any.whl", hash = "sha256:f91456ead12ab3c6c2e9491cf33ba6d08357d802192379bb482f1033ade496f5"},
+    {file = "openpyxl-3.1.2.tar.gz", hash = "sha256:a6f5977418eff3b2d5500d54d9db50c8277a368436f4e4f8ddb1be3422870184"},
+]
+
+[package.dependencies]
+et-xmlfile = "*"
 
 [[package]]
 name = "overrides"
@@ -5908,19 +5933,19 @@ test = ["flake8", "isort", "pytest"]
 
 [[package]]
 name = "together"
-version = "1.1.1"
+version = "1.1.5"
 description = "Python client for Together's Cloud Platform!"
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "together-1.1.1-py3-none-any.whl", hash = "sha256:d89620e59fd1fc165d8b0b0e8b84f5cfa917c158359892f0c9b1e173b6b462ae"},
-    {file = "together-1.1.1.tar.gz", hash = "sha256:3e10e30fe892c8c26da4ac0e356dd7c2fb018d1535b9d25797fe45199892ffdf"},
+    {file = "together-1.1.5-py3-none-any.whl", hash = "sha256:4313174c2448d762db4047b3685213b9a23d8f20b0a51440f5aa11e2dcbc7789"},
+    {file = "together-1.1.5.tar.gz", hash = "sha256:12f9b756b4d38feeffce684d358cc92b86ffa792269be5cfeaf42b9e1c8baec6"},
 ]
 
 [package.dependencies]
 aiohttp = ">=3.9.3,<4.0.0"
 click = ">=8.1.7,<9.0.0"
-eval-type-backport = ">=0.1.3,<0.2.0"
+eval-type-backport = ">=0.1.3,<0.3.0"
 filelock = ">=3.13.1,<4.0.0"
 numpy = [
     {version = ">=1.23.5", markers = "python_version < \"3.12\""},
@@ -6829,4 +6854,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "dd7204cd6a66f485d88e3313b0bb1684e5754804502ed20f4402b8ee353ccd05"
+content-hash = "ff2bc19db4350f8ebfe26aab7a4822797a3a2aab34ccf95deb3dfb9235f3e7e2"
