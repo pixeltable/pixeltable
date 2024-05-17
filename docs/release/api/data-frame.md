@@ -13,17 +13,17 @@ Another difference to pandas is that query execution needs to be initiated expli
 | [`order_by`][pixeltable.DataFrame.order_by] | Order output rows                                      |
 | [`limit`][pixeltable.DataFrame.limit]       | Limit the number of output rows                        |
 
-| Query Execution| |
-|------------|-----------------------------------------------------|
-| [`collect`][pixeltable.DataFrame.collect] | Return all output rows |
-| [`show`][pixeltable.DataFrame.show] | Return a number of output rows |
-| [`head`][pixeltable.DataFrame.head] | Return the oldest rows |
-| [`tail`][pixeltable.DataFrame.tail] | Return the most recently added rows |
+| Query Execution                           |                                     |
+|-------------------------------------------|-------------------------------------|
+| [`collect`][pixeltable.DataFrame.collect] | Return all output rows              |
+| [`show`][pixeltable.DataFrame.show]       | Return a number of output rows      |
+| [`head`][pixeltable.DataFrame.head]       | Return the oldest rows              |
+| [`tail`][pixeltable.DataFrame.tail]       | Return the most recently added rows |
 
-| Data Export | |
-|------------|-----------------------------------------------------|
+| Data Export                                                     |                                                                                                                                      |
+|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | [`to_pytorch_dataset`][pixeltable.DataFrame.to_pytorch_dataset] | Return the query result as a pytorch [`IterableDataset`](https://pytorch.org/docs/stable/data.html#torch.utils.data.IterableDataset) |
-| [`to_coco_dataset`][pixeltable.DataFrame.to_coco_dataset] | Return the query result as a COCO dataset |
+| [`to_coco_dataset`][pixeltable.DataFrame.to_coco_dataset]       | Return the query result as a COCO dataset                                                                                            |
 
 ## ::: pixeltable.DataFrame
     options:

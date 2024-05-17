@@ -8,20 +8,20 @@ Use this handle to query and update the table and to add and drop columns.
 or [`pxt.get_table`][pixeltable.get_table].
 
 ## Overview
-| Column Operations | |
-|------------|-----------------------------------------------------|
-| [`add_column`][pixeltable.InsertableTable.add_column] | Adds a column to the table |
-| [`drop_column`][pixeltable.InsertableTable.drop_column] | Remove a column from the table |
-| [`rename_column`][pixeltable.InsertableTable.rename_column] | Rename a column |
+| Column Operations                                           |                               |
+|-------------------------------------------------------------|-------------------------------|
+| [`add_column`][pixeltable.InsertableTable.add_column]       | Adds a column to the table    |
+| [`drop_column`][pixeltable.InsertableTable.drop_column]     | Remove a column from the table |
+| [`rename_column`][pixeltable.InsertableTable.rename_column] | Rename a column               |
 
-| Data Operations | |
-|------------|-----------------------------------------------------|
+| Data Operations                               |                        |
+|-----------------------------------------------|------------------------|
 | [`insert`][pixeltable.InsertableTable.insert] | Insert rows into table |
-| [`update`][pixeltable.InsertableTable.update] | Upate rows in table |
+| [`update`][pixeltable.InsertableTable.update] | Upate rows in table    |
 | [`delete`][pixeltable.InsertableTable.delete] | Delete rows from table |
 
-| Versioning | |
-|------------|-----------------------------------------------------|
+| Versioning                                    |                         |
+|-----------------------------------------------|-------------------------|
 | [`revert`][pixeltable.InsertableTable.revert] | Reverts the last change |
 
 ## ::: pixeltable.InsertableTable
@@ -35,4 +35,3 @@ or [`pxt.get_table`][pixeltable.get_table].
         - update
         - delete
         - revert
-

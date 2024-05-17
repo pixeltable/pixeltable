@@ -9,18 +9,18 @@ Use this handle to query and update the view and to add and drop columns.
 or [`pxt.get_table`][pixeltable.get_table].
 
 ## Overview
-| Column Operations | |
-|------------|-----------------------------------------------------|
-| [`add_column`][pixeltable.View.add_column] | Adds a column to the view |
-| [`drop_column`][pixeltable.View.drop_column] | Removes a column from the view |
-| [`rename_column`][pixeltable.View.rename_column] | Renames a column |
+| Column Operations                                |                                |
+|--------------------------------------------------|--------------------------------|
+| [`add_column`][pixeltable.View.add_column]       | Adds a column to the view      |
+| [`drop_column`][pixeltable.View.drop_column]     | Removes a column from the view |
+| [`rename_column`][pixeltable.View.rename_column] | Renames a column               |
 
-| Data Operations | |
-|------------|-----------------------------------------------------|
+| Data Operations                    |                         |
+|------------------------------------|-------------------------|
 | [`update`][pixeltable.View.update] | Update rows in the view |
 
-| Versioning | |
-|------------|-----------------------------------------------------|
+| Versioning                         |                                    |
+|------------------------------------|------------------------------------|
 | [`revert`][pixeltable.View.update] | Revert the last change to the view |
 
 ## ::: pixeltable.View
