@@ -117,10 +117,10 @@ class DocumentSplitter(ComponentIterator):
         self._metadata_fields = _parse_metadata(metadata)
         if self._doc_handle.bs_doc is not None:
             title = self._doc_handle.bs_doc.title
-            if title is not None:
-                self._doc_title = ftfy.fix_text(title.get_text().strip())
-            else:
+            if title is None:
                 self._doc_title = ''
+            else:
+                self._doc_title = ftfy.fix_text(title.get_text().strip())
         else:
             self._doc_title = ''
         self._limit = 0 if limit is None else limit
