@@ -4,24 +4,24 @@ Instances of class `InsertableTable` are handles to Pixeltable tables.
 
 Use this handle to query and update the table and to add and drop columns.
 
-`InsertableTable` instances are created by calling [`Client.create_table`][pixeltable.Client.create_table]
-or [`Client.get_table`][pixeltable.Client.get_table].
+`InsertableTable` instances are created by calling [`pxt.create_table`][pixeltable.create_table]
+or [`pxt.get_table`][pixeltable.get_table].
 
 ## Overview
-| Column Operations | |
-|------------|-----------------------------------------------------|
-| [`add_column`][pixeltable.InsertableTable.add_column] | Adds a column to the table |
-| [`drop_column`][pixeltable.InsertableTable.drop_column] | Remove a column from the table |
-| [`rename_column`][pixeltable.InsertableTable.rename_column] | Rename a column |
+| Column Operations                                           |                               |
+|-------------------------------------------------------------|-------------------------------|
+| [`add_column`][pixeltable.InsertableTable.add_column]       | Adds a column to the table    |
+| [`drop_column`][pixeltable.InsertableTable.drop_column]     | Remove a column from the table |
+| [`rename_column`][pixeltable.InsertableTable.rename_column] | Rename a column               |
 
-| Data Operations | |
-|------------|-----------------------------------------------------|
+| Data Operations                               |                        |
+|-----------------------------------------------|------------------------|
 | [`insert`][pixeltable.InsertableTable.insert] | Insert rows into table |
-| [`update`][pixeltable.InsertableTable.update] | Upate rows in table |
+| [`update`][pixeltable.InsertableTable.update] | Upate rows in table    |
 | [`delete`][pixeltable.InsertableTable.delete] | Delete rows from table |
 
-| Versioning | |
-|------------|-----------------------------------------------------|
+| Versioning                                    |                         |
+|-----------------------------------------------|-------------------------|
 | [`revert`][pixeltable.InsertableTable.revert] | Reverts the last change |
 
 ## ::: pixeltable.InsertableTable
@@ -35,4 +35,3 @@ or [`Client.get_table`][pixeltable.Client.get_table].
         - update
         - delete
         - revert
-

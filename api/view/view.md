@@ -5,22 +5,22 @@ creating the view).
 
 Use this handle to query and update the view and to add and drop columns.
 
-`View` instances are created by calling [`Client.create_view`][pixeltable.Client.create_view]
-or [`Client.get_table`][pixeltable.Client.get_table].
+`View` instances are created by calling [`pxt.create_view`][pixeltable.create_view]
+or [`pxt.get_table`][pixeltable.get_table].
 
 ## Overview
-| Column Operations | |
-|------------|-----------------------------------------------------|
-| [`add_column`][pixeltable.View.add_column] | Adds a column to the view |
-| [`drop_column`][pixeltable.View.drop_column] | Removes a column from the view |
-| [`rename_column`][pixeltable.View.rename_column] | Renames a column |
+| Column Operations                                |                                |
+|--------------------------------------------------|--------------------------------|
+| [`add_column`][pixeltable.View.add_column]       | Adds a column to the view      |
+| [`drop_column`][pixeltable.View.drop_column]     | Removes a column from the view |
+| [`rename_column`][pixeltable.View.rename_column] | Renames a column               |
 
-| Data Operations | |
-|------------|-----------------------------------------------------|
+| Data Operations                    |                         |
+|------------------------------------|-------------------------|
 | [`update`][pixeltable.View.update] | Update rows in the view |
 
-| Versioning | |
-|------------|-----------------------------------------------------|
+| Versioning                         |                                    |
+|------------------------------------|------------------------------------|
 | [`revert`][pixeltable.View.update] | Revert the last change to the view |
 
 ## ::: pixeltable.View
