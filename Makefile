@@ -15,6 +15,7 @@ help:
 	@echo "  format     Format changed files with ruff (updates .py files in place)"
 	@echo "  notebooks  Execute notebooks (updates .ipynb files in place)"
 	@echo "  mkdocs     Build and deploy mkdocs documentation"
+	@echo "  release    Create a pypi release and post to github"
 	@echo "  clean      Remove generated files and temp files"
 
 .PHONY: install

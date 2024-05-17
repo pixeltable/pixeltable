@@ -38,10 +38,6 @@ make clean
 poetry build
 poetry publish --username __token__ --password "$PYPI_API_KEY"
 
-echo "Updating mkdocs ..."
-mkdocs build
-mkdocs gh-deploy
-
 echo "Creating release on github ..."
 gh release create v$VERSION --generate-notes
 open https://github.com/pixeltable/pixeltable/releases/tag/v$VERSION
