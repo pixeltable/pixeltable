@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/pixeltable-banner.png" alt="Pixeltable" width="45%" />
+<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/release/pixeltable-banner.png" alt="Pixeltable" width="45%" />
 
 # Unifying Data, Models, and Orchestration for AI Products
 
@@ -41,7 +41,7 @@ To verify that it's working:
 
 ```
 import pixeltable as pxt
-cl = pxt.Client()
+pxt.init()
 ```
 
 For more detailed installation instructions, see the
