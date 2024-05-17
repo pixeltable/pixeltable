@@ -1,7 +1,6 @@
 import datetime
 import math
 import os
-import pathlib
 import random
 from typing import List, Tuple
 
@@ -16,15 +15,34 @@ import pixeltable.functions as ptf
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.type_system import \
-    StringType, IntType, FloatType, TimestampType, ImageType, VideoType, JsonType, BoolType, ArrayType, AudioType, \
-    DocumentType
+from pixeltable.type_system import (
+    StringType,
+    IntType,
+    FloatType,
+    TimestampType,
+    ImageType,
+    VideoType,
+    JsonType,
+    BoolType,
+    ArrayType,
+    AudioType,
+    DocumentType,
+)
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
-from .utils import \
-    make_tbl, create_table_data, read_data_file, get_video_files, get_audio_files, get_image_files, get_documents, \
-    assert_resultset_eq, assert_hf_dataset_equal, make_test_arrow_table, validate_update_status
-from .utils import skip_test_if_not_installed, reload_catalog
+from .utils import (
+    make_tbl,
+    create_table_data,
+    read_data_file,
+    get_video_files,
+    get_audio_files,
+    get_image_files,
+    get_documents,
+    assert_resultset_eq,
+    validate_update_status,
+    skip_test_if_not_installed,
+    reload_catalog,
+)
 
 
 class TestTable:
@@ -42,14 +60,14 @@ class TestTable:
     def add1(a: int) -> int:
         return a + 1
 
-    @pxt.uda(
-        update_types=[IntType()], value_type=IntType(), requires_order_by=True,
-        allows_window=True)
+    @pxt.uda(update_types=[IntType()], value_type=IntType(), requires_order_by=True, allows_window=True)
     class window_fn:
         def __init__(self):
             pass
+
         def update(self, i: int) -> None:
             pass
+
         def value(self) -> int:
             return 1
 
@@ -122,12 +140,12 @@ class TestTable:
     def test_table_attrs(self, reset_db) -> None:
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20
-        comment = "This is a table."
+        comment = 'This is a table.'
         tbl = pxt.create_table('test_table_attrs', schema, num_retained_versions=num_retained_versions, comment=comment)
         assert tbl.num_retained_versions == num_retained_versions
         assert tbl.comment == comment
         new_num_retained_versions = 30
-        new_comment = "This is an updated table."
+        new_comment = 'This is an updated table.'
         tbl.num_retained_versions = new_num_retained_versions
         assert tbl.num_retained_versions == new_num_retained_versions
         tbl.comment = new_comment
@@ -136,100 +154,6 @@ class TestTable:
         assert tbl.comment == comment
         tbl.revert()
         assert tbl.num_retained_versions == num_retained_versions
-
-    def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
-        skip_test_if_not_installed('pyarrow')
-        import pyarrow as pa
-        from pixeltable.utils.arrow import iter_tuples
-
-        parquet_dir = tmp_path / 'test_data'
-        parquet_dir.mkdir()
-        make_test_arrow_table(parquet_dir)
-
-        tab = pxt.import_parquet('test_parquet', parquet_path=str(parquet_dir))
-        assert 'test_parquet' in pxt.list_tables()
-        assert tab is not None
-        num_elts = tab.count()
-        arrow_tab: pa.Table = pa.parquet.read_table(str(parquet_dir))
-        assert num_elts == arrow_tab.num_rows
-        assert set(tab.column_names()) == set(arrow_tab.column_names)
-
-        result_set = tab.order_by(tab.c_id).collect()
-        column_types = tab.column_types()
-
-        for tup, arrow_tup in zip(result_set, iter_tuples(arrow_tab)):
-            assert tup['c_id'] == arrow_tup['c_id']
-            for col, val in tup.items():
-                if val is None:
-                    assert arrow_tup[col] is None
-                    continue
-
-                if column_types[col].is_array_type():
-                    assert (val == arrow_tup[col]).all()
-                else:
-                    assert val == arrow_tup[col]
-
-    def test_import_huggingface_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
-        skip_test_if_not_installed('datasets')
-        import datasets
-
-        test_cases = [
-            # { # includes a timestamp. 20MB for specific slice
-            # Disbled this test case because download is failing, and its not critical.
-            #     'dataset_name': 'c4',
-            #     # see https://huggingface.co/datasets/allenai/c4/blob/main/realnewslike/c4-train.00000-of-00512.json.gz
-            #     'dataset': datasets.load_dataset(
-            #         "allenai/c4",
-            #         data_dir="realnewslike",
-            #         data_files="c4-train.00000-of-00512.json.gz",
-            #         split='train[:1000]',
-            #         cache_dir=tmp_path
-            #     ),
-            # },
-            {  # includes an embedding (array type), common in a few RAG datasets.
-                'dataset_name': 'cohere_wikipedia',
-                'dataset': datasets.load_dataset("Cohere/wikipedia-2023-11-embed-multilingual-v3",
-                                                 data_dir='cr').select_columns(['url', 'title', 'text', 'emb']),
-                # column with name `_id`` is not currently allowed by pixeltable rules,
-                # so filter out that column.
-                # cr subdir has a small number of rows, avoid running out of space in CI runner
-                # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
-                'schema_override': {'emb': ArrayType((1024,), dtype=FloatType(), nullable=False)}
-            },
-            # example of dataset dictionary with multiple splits
-            {
-                'dataset_name': 'rotten_tomatoes',
-                'dataset': datasets.load_dataset("rotten_tomatoes"),
-            },
-        ]
-
-        # test a column name for splits other than the default of 'split'
-        split_column_name = 'my_split_col'
-        for rec in test_cases:
-            dataset_name = rec['dataset_name']
-            hf_dataset = rec['dataset']
-
-            tab = pxt.import_huggingface_dataset(
-                dataset_name,
-                hf_dataset,
-                column_name_for_split=split_column_name,
-                schema_override=rec.get('schema_override', None),
-            )
-            if isinstance(hf_dataset, datasets.Dataset):
-                assert_hf_dataset_equal(hf_dataset, tab.df(), split_column_name)
-            elif isinstance(hf_dataset, datasets.DatasetDict):
-                assert tab.count() == sum(hf_dataset.num_rows.values())
-                assert split_column_name in tab.column_names()
-
-                for dataset_name in hf_dataset:
-                    df = tab.where(tab.my_split_col == dataset_name)
-                    assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
-            else:
-                assert False
-
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.import_huggingface_dataset('test', {})
-        assert 'type(dataset)' in str(exc_info.value)
 
     def test_image_table(self, reset_db) -> None:
         n_sample_rows = 20
@@ -240,7 +164,7 @@ class TestTable:
             'img_literal': ImageType(nullable=False),
         }
         tbl = pxt.create_table('test', schema)
-        assert(MediaStore.count(tbl.get_id()) == 0)
+        assert MediaStore.count(tbl.get_id()) == 0
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -251,7 +175,7 @@ class TestTable:
                 r['img_literal'] = f.read()
 
         tbl.insert(sample_rows)
-        assert(MediaStore.count(tbl.get_id()) == n_sample_rows)
+        assert MediaStore.count(tbl.get_id()) == n_sample_rows
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -262,24 +186,23 @@ class TestTable:
 
         # Test adding stored image transformation
         tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
-        assert(MediaStore.count(tbl.get_id()) == 2 * n_sample_rows)
+        assert MediaStore.count(tbl.get_id()) == 2 * n_sample_rows
 
         # Test MediaStore.stats()
         stats = list(filter(lambda x: x[0] == tbl.get_id(), MediaStore.stats()))
-        assert len(stats) == 2                 # Two columns
-        assert stats[0][2] == n_sample_rows    # Each column has n_sample_rows associated images
+        assert len(stats) == 2  # Two columns
+        assert stats[0][2] == n_sample_rows  # Each column has n_sample_rows associated images
         assert stats[1][2] == n_sample_rows
 
         # Test that version-specific images are cleared when table is reverted
         tbl.revert()
-        assert(MediaStore.count(tbl.get_id()) == n_sample_rows)
+        assert MediaStore.count(tbl.get_id()) == n_sample_rows
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table('test')
-        assert(MediaStore.count(tbl.get_id()) == 0)
+        assert MediaStore.count(tbl.get_id()) == 0
 
     def test_schema_spec(self, reset_db) -> None:
-
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c 1': IntType()})
         assert 'invalid column name' in str(exc_info.value).lower()
@@ -309,8 +232,10 @@ class TestTable:
         assert 'value needs to be either' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
+
             def f() -> float:
                 return 1.0
+
             pxt.create_table('test', {'c1': {'value': f}})
         assert '"type" is required' in str(exc_info.value)
 
@@ -339,8 +264,7 @@ class TestTable:
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
     def check_bad_media(
-            self, rows: List[Tuple[str, bool]], col_type: pxt.ColumnType,
-            validate_local_path: bool = True
+        self, rows: List[Tuple[str, bool]], col_type: pxt.ColumnType, validate_local_path: bool = True
     ) -> None:
         schema = {
             'media': col_type,
@@ -369,8 +293,9 @@ class TestTable:
 
         # check error type is set correctly
         assert tbl.where((tbl.is_bad_media == True) & (tbl.media.errortype == None)).count() == 0
-        assert tbl.where((tbl.is_bad_media == False) & (tbl.media.errortype == None)).count() \
-            == len(rows) - total_bad_rows
+        assert (
+            tbl.where((tbl.is_bad_media == False) & (tbl.media.errortype == None)).count() == len(rows) - total_bad_rows
+        )
 
         # check fileurl is set for valid images, and check no file url is set for bad images
         assert tbl.where((tbl.is_bad_media == False) & (tbl.media.fileurl == None)).count() == 0
@@ -414,14 +339,13 @@ class TestTable:
             # test s3 url
             {
                 'media': 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4',
-                'is_bad_media': False
+                'is_bad_media': False,
             },
             # test http url
             {
                 'media': 'https://raw.githubusercontent.com/pixeltable/pixeltable/d8b91c5/tests/data/videos/bangkok_half_res.mp4',
-                'is_bad_media': False
+                'is_bad_media': False,
             },
-
         ]
         self.check_bad_media(rows, VideoType(nullable=True))
 
@@ -502,11 +426,9 @@ class TestTable:
 
     def test_create_video_table(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
-        tbl = pxt.create_table(
-            'test_tbl',
-            {'payload': IntType(nullable=False), 'video': VideoType(nullable=True)})
+        tbl = pxt.create_table('test_tbl', {'payload': IntType(nullable=False), 'video': VideoType(nullable=True)})
         args = {'video': tbl.video, 'fps': 0}
-        view = pxt.create_view('test_view', tbl, iterator_class=FrameIterator, iterator_args=args)
+        view = pxt.create_view('test_view', tbl, iterator=FrameIterator.create(video=tbl.video, fps=0))
         view.add_column(c1=view.frame.rotate(30), stored=True)
         view.add_column(c2=view.c1.rotate(40), stored=False)
         view.add_column(c3=view.c2.rotate(50), stored=True)
@@ -531,8 +453,8 @@ class TestTable:
         assert MediaStore.count(view.get_id()) == view.count() * 2
 
         # TODO: test inserting Nulls
-        #status = tbl.insert(payload=1, video=None)
-        #assert status.num_excs == 0
+        # status = tbl.insert(payload=1, video=None)
+        # assert status.num_excs == 0
 
         # revert() clears stored images
         tbl.revert()
@@ -597,7 +519,7 @@ class TestTable:
             c5=np.ones((2, 3), dtype=np.dtype(np.int64)),
             c6={'key': 'val'},
             c7=get_image_files()[0],
-            c8=get_video_files()[0]
+            c8=get_video_files()[0],
         )
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -616,7 +538,9 @@ class TestTable:
         assert 'Missing' in str(exc_info.value)
 
         # incompatible schema
-        for (col_name, col_type), value_col_name in zip(schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c7', 'c2', 'c2']):
+        for (col_name, col_type), value_col_name in zip(
+            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c7', 'c2', 'c2']
+        ):
             pxt.drop_table('test1', ignore_errors=True)
             t = pxt.create_table('test1', {col_name: col_type})
             with pytest.raises(excs.Error) as exc_info:
@@ -663,18 +587,16 @@ class TestTable:
         # test querying existing table
         reload_catalog()
         t2 = pxt.get_table('test')
-        _  = t2.show(n=0)
+        _ = t2.show(n=0)
 
     def test_batch_update(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
-        validate_update_status(
-            t.batch_update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]),
-            expected_rows=2)
+        validate_update_status(t.batch_update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]), expected_rows=2)
         assert t.where(t.c2 == 1).collect()[0]['c1'] == '1'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == '2'
         validate_update_status(
-            t.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]),
-            expected_rows=2)
+            t.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
+        )
         assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
 
@@ -685,8 +607,8 @@ class TestTable:
         validate_update_status(t.insert(rows), expected_rows=10)
 
         validate_update_status(
-            t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}, {'c1': '2', 'c2': 2, 'c3': 3.0}]),
-            expected_rows=2)
+            t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}, {'c1': '2', 'c2': 2, 'c3': 3.0}]), expected_rows=2
+        )
 
         with pytest.raises(excs.Error) as exc_info:
             # can't mix _rowid with primary key
@@ -712,8 +634,8 @@ class TestTable:
 
         # updating with _rowid still works
         validate_update_status(
-            t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]),
-            expected_rows=2)
+            t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
+        )
         assert t2.where(t2.c2 == 1).collect()[0]['c1'] == 'one'
         assert t2.where(t2.c2 == 2).collect()[0]['c1'] == 'two'
         with pytest.raises(AssertionError):
@@ -782,8 +704,9 @@ class TestTable:
         # cascade=True
         status = t.update({'c3': 0.0}, where=t.c3 < 10.0, cascade=True)
         assert status.num_rows == 10
-        assert set(status.updated_cols) == \
-               set(['test_tbl.c3', 'test_tbl.computed1', 'test_tbl.computed2', 'test_tbl.computed3'])
+        assert set(status.updated_cols) == set(
+            ['test_tbl.c3', 'test_tbl.computed1', 'test_tbl.computed2', 'test_tbl.computed3']
+        )
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 0.0).count() == 10
         assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'][:10] == pd.Series([1.0] * 10))
@@ -886,7 +809,7 @@ class TestTable:
             'c2': FloatType(nullable=False),
             'c3': JsonType(nullable=False),
         }
-        t : pxt.InsertableTable = pxt.create_table('test', schema)
+        t: pxt.InsertableTable = pxt.create_table('test', schema)
         status = t.add_column(c4=t.c1 + 1)
         assert status.num_excs == 0
         status = t.add_column(c5=t.c4 + 1)
@@ -964,12 +887,8 @@ class TestTable:
         assert 'add1' in describe_output
 
         def check(t: pxt.Table) -> None:
-            assert_resultset_eq(
-                t.select(t.c1 + 1).order_by(t.c1).collect(),
-                t.select(t.c2).order_by(t.c1).collect())
-            assert_resultset_eq(
-                t.select(t.c1 + 1).order_by(t.c1).collect(),
-                t.select(t.c3).order_by(t.c1).collect())
+            assert_resultset_eq(t.select(t.c1 + 1).order_by(t.c1).collect(), t.select(t.c2).order_by(t.c1).collect())
+            assert_resultset_eq(t.select(t.c1 + 1).order_by(t.c1).collect(), t.select(t.c3).order_by(t.c1).collect())
 
         check(t)
         # test loading from store
@@ -983,7 +902,6 @@ class TestTable:
         check(t)
 
     def test_computed_col_exceptions(self, reset_db, test_tbl: catalog.Table) -> None:
-
         # exception during insert()
         schema = {'c2': IntType(nullable=False)}
         rows = list(test_tbl.select(test_tbl.c2).collect())
@@ -1265,7 +1183,7 @@ class TestTable:
         _ = t.select(t.c1_renamed).collect()
         t.revert()
         _ = t.select(t.c1).collect()
-        #check_rename(t, 'c1', 'c1_renamed')
+        # check_rename(t, 'c1', 'c1_renamed')
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()

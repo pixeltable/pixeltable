@@ -6,7 +6,6 @@ from typing import List, Callable, Optional, overload, Any
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from .batched_function import BatchedFunction
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
 from .function import Function
@@ -78,8 +77,8 @@ def make_function(
     force_stored: bool = False
 ) -> Function:
     """
-    Constructs a `CallableFunction` or `BatchedFunction`, depending on the
-    supplied parameters. If `substitute_fn` is specified, then `decorated_fn`
+    Constructs a `CallableFunction` from the specified parameters.
+    If `substitute_fn` is specified, then `decorated_fn`
     will be used only for its signature, with execution delegated to
     `substitute_fn`.
     """
@@ -117,10 +116,8 @@ def make_function(
             raise excs.Error(f'{errmsg_name}(): @udf decorator with a `substitute_fn` can only be used in a module')
         py_fn = substitute_fn
 
-    if batch_size is None:
-        result = CallableFunction(signature=sig, py_fn=py_fn, self_path=function_path, self_name=function_name)
-    else:
-        result = BatchedFunction(signature=sig, batch_size=batch_size, invoker_fn=py_fn, self_path=function_path)
+    result = CallableFunction(
+        signature=sig, py_fn=py_fn, self_path=function_path, self_name=function_name, batch_size=batch_size)
 
     # If this function is part of a module, register it
     if function_path is not None:

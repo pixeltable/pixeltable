@@ -330,7 +330,7 @@ class FunctionCall(Expr):
             # TODO: can we get rid of this extra copy?
             fn_expr = self.components[self.fn_expr_idx]
             data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
-        elif isinstance(self.fn, func.CallableFunction):
+        elif isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
             data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:

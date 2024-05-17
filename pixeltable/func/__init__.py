@@ -1,5 +1,4 @@
 from .aggregate_function import Aggregator, AggregateFunction, uda
-from .batched_function import BatchedFunction
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
 from .function import Function

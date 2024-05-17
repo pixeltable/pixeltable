@@ -399,8 +399,7 @@ class TestDataFrame:
         from pycocotools.coco import COCO
         from pixeltable.ext.functions.yolox import yolox, yolo_to_coco
         base_t = pxt.create_table('videos', {'video': pxt.VideoType()})
-        args = {'video': base_t.video, 'fps': 1}
-        view_t = pxt.create_view('frames', base_t, iterator_class=FrameIterator, iterator_args=args)
+        view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         view_t.add_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])
 

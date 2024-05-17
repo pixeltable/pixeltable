@@ -17,6 +17,7 @@ exclude = [
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
+setuptools = "69.1.1"  # setuptools >= 69.2 has known issues with Github Actions
 numpy = ">=1.25"
 pandas = ">=2.0,<3.0"
 pillow = ">=9.3.0"
@@ -72,7 +73,7 @@ torch = "^2.2"
 torchvision = "^0.17"
 pyarrow = ">=13.0.0"
 openai = "^1.10.0"
-together = "^1.0.1"
+together = "^1.1"
 fireworks-ai = "^0.13.0"
 boto3 = "^1.17"
 spacy = "^3.0"
@@ -81,8 +82,7 @@ tiktoken = ">=0.3"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 datasets = ">=2.15.0"
-# setuptools >= 69.2 has known issues with Github Actions
-setuptools = "~69.1"
+openpyxl = ">=3.1"  # Excel (.xlsx) support
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -143,4 +143,4 @@ preview = true
 known-first-party = ["pixeltable"]
 
 [tool.ruff.format]
-quote-style = "preserve"
+quote-style = "single"  # can be "single", "double", or "preserve"
