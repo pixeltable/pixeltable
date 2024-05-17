@@ -2,7 +2,7 @@ from typing import Optional, Dict
 import dataclasses
 
 import pixeltable.type_system as ts
-
+import bs4
 
 @dataclasses.dataclass
 class DocumentHandle:
@@ -24,16 +24,32 @@ def get_document_handle(path: str) -> Optional[DocumentHandle]:
     except UnicodeDecodeError:
         # not pdf, and also not valid text file
         return None
-    md_ast = get_markdown_handle(contents)
-    if md_ast is not None:
-        return DocumentHandle(format=ts.DocumentType.DocumentFormat.MD, md_ast=md_ast)
-    # get_html_handle must happen after markdown, because bs4 will appear to succeed
-    # for md files as well.
-    bs_doc = get_html_handle(contents)
-    if bs_doc is not None:
-        return DocumentHandle(format=ts.DocumentType.DocumentFormat.HTML, bs_doc=bs_doc)
 
-    return None
+    bs_doc = get_html_handle(contents)
+    md_ast = get_markdown_handle(contents)
+    if bs_doc is None and md_ast is None:
+        return None
+    elif bs_doc is not None and md_ast is None:
+        return DocumentHandle(format=ts.DocumentType.DocumentFormat.HTML, bs_doc=bs_doc)
+    elif bs_doc is None and md_ast is not None:
+        return DocumentHandle(format=ts.DocumentType.DocumentFormat.MD, md_ast=md_ast)
+
+    # ambiguity: many docs are parsed to a non-None value by both bs4 and mistune
+    # 1. <!DOCTYPE html ...> at the top of the document
+    # 2. theres a <html></html> element at the top level of the document
+    return_html = False
+    for child in bs_doc.children:
+        if isinstance(child, bs4.element.Doctype) and child.split()[0].lower() == 'html':
+            return_html = True
+            break
+        if isinstance(child, bs4.element.Tag) and child.name == 'html':
+            return_html = True
+            break
+    if return_html:
+        return DocumentHandle(format=ts.DocumentType.DocumentFormat.HTML, bs_doc=bs_doc)
+    else:
+        return DocumentHandle(format=ts.DocumentType.DocumentFormat.MD, md_ast=md_ast)
+
 
 def get_html_handle(text: str) -> Optional['bs4.BeautifulSoup']:
     import bs4
