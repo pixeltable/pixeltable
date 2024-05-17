@@ -2,9 +2,8 @@ import datetime
 import glob
 import json
 import os
-from collections import namedtuple
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 import PIL.Image
 import numpy as np
@@ -55,46 +54,50 @@ def make_tbl(name: str = 'test', col_names: Optional[List[str]] = None) -> catal
     return pxt.create_table(name, schema)
 
 
-def create_table_data(t: catalog.Table, col_names: Optional[List[str]] = None, num_rows: int = 10) -> List[
-    Dict[str, Any]]:
+def create_table_data(
+    t: catalog.Table, col_names: Optional[List[str]] = None, num_rows: int = 10
+) -> List[Dict[str, Any]]:
     if col_names is None:
         col_names = []
     data: Dict[str, Any] = {}
 
     sample_dict = {
-        'detections': [{
-            'id': '637e8e073b28441a453564cf',
-            'attributes': {},
-            'tags': [],
-            'label': 'potted plant',
-            'bounding_box': [
-                0.37028125,
-                0.3345305164319249,
-                0.038593749999999996,
-                0.16314553990610328,
-            ],
-            'mask': None,
-            'confidence': None,
-            'index': None,
-            'supercategory': 'furniture',
-            'iscrowd': 0,
-        }, {
-            'id': '637e8e073b28441a453564cf',
-            'attributes': {},
-            'tags': [],
-            'label': 'potted plant',
-            'bounding_box': [
-                0.37028125,
-                0.3345305164319249,
-                0.038593749999999996,
-                0.16314553990610328,
-            ],
-            'mask': None,
-            'confidence': None,
-            'index': None,
-            'supercategory': 'furniture',
-            'iscrowd': 0,
-        }]
+        'detections': [
+            {
+                'id': '637e8e073b28441a453564cf',
+                'attributes': {},
+                'tags': [],
+                'label': 'potted plant',
+                'bounding_box': [
+                    0.37028125,
+                    0.3345305164319249,
+                    0.038593749999999996,
+                    0.16314553990610328,
+                ],
+                'mask': None,
+                'confidence': None,
+                'index': None,
+                'supercategory': 'furniture',
+                'iscrowd': 0,
+            },
+            {
+                'id': '637e8e073b28441a453564cf',
+                'attributes': {},
+                'tags': [],
+                'label': 'potted plant',
+                'bounding_box': [
+                    0.37028125,
+                    0.3345305164319249,
+                    0.038593749999999996,
+                    0.16314553990610328,
+                ],
+                'mask': None,
+                'confidence': None,
+                'index': None,
+                'supercategory': 'furniture',
+                'iscrowd': 0,
+            },
+        ]
     }
 
     if len(col_names) == 0:
@@ -215,8 +218,7 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Tab
 
 
 def create_all_datatypes_tbl() -> catalog.Table:
-    """ Creates a table with all supported datatypes.
-    """
+    """Creates a table with all supported datatypes."""
     schema = {
         'row_id': IntType(nullable=False),  # used for row selection
         'c_array': ArrayType(shape=(10,), dtype=FloatType(), nullable=True),
@@ -393,51 +395,12 @@ def make_test_arrow_table(output_path: Path) -> None:
     test_table = pa.Table.from_pydict(value_dict, schema=schema)
     pa.parquet.write_table(test_table, str(output_path / 'test.parquet'))
 
+
 def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:
     assert img1.mode == img2.mode
     assert img1.size == img2.size
     diff = PIL.ImageChops.difference(img1, img2)
     assert diff.getbbox() is None
-
-def assert_hf_dataset_equal(hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, split_column_name: str) -> None:
-    import datasets
-    assert df.count() == hf_dataset.num_rows
-    assert set(df.get_column_names()) == (set(hf_dataset.features.keys()) | {split_column_name})
-
-    # immutable so we can use it as in a set
-    DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))
-    acc_dataset: Set[DatasetTuple] = set()
-    for tup in hf_dataset:
-        immutable_tup = {}
-        for k in tup:
-            if isinstance(tup[k], list):
-                immutable_tup[k] = tuple(tup[k])
-            else:
-                immutable_tup[k] = tup[k]
-
-        acc_dataset.add(DatasetTuple(**immutable_tup))
-
-    for tup in df.collect():
-        assert tup[split_column_name] in hf_dataset.split._name
-
-        encoded_tup = {}
-        for column_name, value in tup.items():
-            if column_name == split_column_name:
-                continue
-            feature_type = hf_dataset.features[column_name]
-            if isinstance(feature_type, datasets.ClassLabel):
-                assert value in feature_type.names
-                # must use the index of the class label as the value to
-                # compare with dataset iteration output.
-                value = feature_type.encode_example(value)
-            elif isinstance(feature_type, datasets.Sequence):
-                assert feature_type.feature.dtype == 'float32', 'may need to add more types'
-                value = tuple([float(x) for x in value])
-
-            encoded_tup[column_name] = value
-
-        check_tup = DatasetTuple(**encoded_tup)
-        assert check_tup in acc_dataset
 
 
 def reload_catalog() -> None:
@@ -449,14 +412,17 @@ def reload_catalog() -> None:
 def clip_img_embed(img: PIL.Image.Image) -> np.ndarray:
     return clip_image(img, model_id='openai/clip-vit-base-patch32')
 
+
 @pxt.expr_udf
 def e5_embed(text: str) -> np.ndarray:
     return sentence_transformer(text, model_id='intfloat/e5-large-v2')
+
 
 @pxt.expr_udf
 def clip_text_embed(txt: str) -> np.ndarray:
     return clip_text(txt, model_id='openai/clip-vit-base-patch32')
 
-SAMPLE_IMAGE_URL = \
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
 
+SAMPLE_IMAGE_URL = (
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
+)
