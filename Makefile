@@ -67,6 +67,10 @@ notebooks: install
 mkdocs: install
 	@scripts/mkdocs.sh
 
+.PHONY: release
+release: install
+	@scripts/release.sh
+
 .PHONY: clean
 clean:
 	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
