@@ -27,6 +27,7 @@ from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.http_server import get_file_uri
+import numpy as np
 
 __all__ = ['DataFrame']
 
@@ -51,6 +52,8 @@ class DataFrameResultSet:
             ts.VideoType: self._format_video,
             ts.AudioType: self._format_audio,
             ts.DocumentType: self._format_document,
+            ts.ArrayType: self._format_array,
+            ts.StringType: self._format_string,
         }
 
     def __len__(self) -> int:
@@ -139,6 +142,15 @@ class DataFrameResultSet:
             </video>
         </div>
         """
+
+    def _format_array(self, arr: List[Any]) -> str:
+        arr = np.array(arr)
+        return np.array2string(arr, precision=3, threshold=8, separator=',', edgeitems=3)
+
+    def _format_string(self, string: str) -> str:
+        if len(string) > 250:
+            return f'{string[:120]}...{string[-120:]}'
+        return string
 
     def _format_document(self, file_path: str) -> str:
         max_width = max_height = 320
