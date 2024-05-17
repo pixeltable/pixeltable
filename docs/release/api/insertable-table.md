@@ -1,5 +1,10 @@
 # InsertableTable
 
+Import conventions:
+```python
+import pixeltable as pxt
+```
+
 Instances of class `InsertableTable` are handles to Pixeltable tables.
 
 Use this handle to query and update the table and to add and drop columns.

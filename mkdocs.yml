@@ -10,46 +10,43 @@ site_dir: site
 repo_url: https://github.com/pixeltable/pixeltable
 repo_name: pixeltable/pixeltable
 
-nav:
-- Home: overview.md
-- API Reference:
-  - Client: api/client.md
-  - DataFrame: api/data-frame.md
-  - InsertableTable: api/insertable-table.md
-  - Table: api/table.md
-  - View: api/view.md
-
 theme:
   name: material
   custom_dir: docs/overrides
 
-plugins:
-- search
-- autorefs
-- mkdocstrings:
-    default_handler: python
-    handlers:
-      python:
-        paths: [.]
-        options:
-            annotations_path: brief
-            members_order: source
-            line_length: 80
-            docstring_options:
-              ignore_init_summary: false
-            merge_init_into_class: false
-            docstring_style: google
-            docstring_section_style: list
-            show_docstring_description: true
-            show_source: false
-            show_root_heading: true
-            show_bases: false
-            show_signature_annotations: true
-            show_signature_crossrefs: true
-            show_symbol_type_heading: true
-            show_symbol_type_toc: true
-            separate_signature: true
-            signature_crossrefs: true
-- mkdocs-jupyter:
-    include_source: true
+nav:
+  - Home: index.md
+  - 'API Reference':
+    - Pixeltable: api/pixeltable.md
+    - DataFrame: api/data-frame.md
+    - InsertableTable: api/insertable-table.md
+    - Table: api/table.md
+    - View: api/view.md
 
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [.]
+          options:
+              annotations_path: brief
+              members_order: source
+              line_length: 80
+              docstring_options:
+                ignore_init_summary: false
+              merge_init_into_class: false
+              docstring_style: google
+              docstring_section_style: list
+              show_docstring_description: true
+              show_source: false
+              show_root_heading: true
+              show_bases: false
+              show_signature_annotations: true
+              show_signature_crossrefs: true
+              show_symbol_type_heading: true
+              show_symbol_type_toc: true
+              separate_signature: true
+              signature_crossrefs: true
