@@ -83,7 +83,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       - name: Run the documentation notebooks
-        run: poetry run pytest -v --nbmake ./docs/**/*ipynb
+        run: make notebooks
         continue-on-error: true # Continue even if the notebooks fail
         env:
           # In a PR, these secrets will be empty, and the relevant tests will be skipped

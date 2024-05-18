@@ -10,6 +10,7 @@ help:
 	@echo "  install    Install the development environment"
 	@echo "  test       Run pytests"
 	@echo "  notebook   Run notebooks (updates output cells in place)"
+	@echo "  %.ipynb  Run the notebook/notebooks (updates output cells in place)"
 	@echo "  typecheck  Run type checks"
 	@echo "  clean      Clean up re-generatable files, as well as temp files"
 
@@ -19,13 +20,13 @@ poetry.lock: pyproject.toml
 	@touch poetry.lock
 
 # use a file to track whether the install has been run
-# avoid re-running the install if install has been done and deps 
+# avoid re-running the install if install has been done and deps
 # haven't changed
 .make-install: poetry.lock
 	@echo "Installing dependencies ..."
 	@poetry run python -m pip install --upgrade pip
 	@poetry install --with dev
-	# YOLOX cannot be installed via poetry, sadly
+# YOLOX cannot be installed via poetry, sadly
 	@poetry run python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
 	@echo "Installing Jupyter kernel ..."
 	@poetry run python -m ipykernel install --user --name=$(KERNEL_NAME)
@@ -40,10 +41,14 @@ test: install
 # on my Mac at least, the default ulimit is too low for the number of open files
 	@ulimit -n 4000; poetry run pytest
 
+%.ipynb: install
+	@echo "Running notebook $@..."
+	@poetry run pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) $@
+
 .PHONY: notebooks
 notebooks: install
 	@echo "Running notebooks and overwriting outputs..."
-	@poetry run pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) docs/source/tutorials/*.ipynb
+	@poetry run pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) docs/release/**/*.ipynb
 
 .PHONY: typecheck
 typecheck: install
@@ -61,7 +66,7 @@ clean:
 .PHONY: build-docs
 build-docs: install
 	@echo "Building docs..."
-	@poetry run mkdocs build  
+	@poetry run mkdocs build
 
 .PHONY: deploy-docs
 deploy-docs: install
