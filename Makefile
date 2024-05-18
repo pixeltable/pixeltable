@@ -22,11 +22,11 @@ poetry.lock: pyproject.toml
 # avoid re-running the install if install has been done and deps 
 # haven't changed
 .make-install: poetry.lock
-	@echo "Installing dependencies ..."
 	@poetry run python -m pip install --upgrade pip
+	@echo "Installing dependencies in poetry.lock ..."
 	@poetry install --with dev
-	# YOLOX cannot be installed via poetry, sadly
-	@poetry run python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
+	@echo "Installing yolox ..."
+	@poetry run python -m pip install -q git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
 	@echo "Installing Jupyter kernel ..."
 	@poetry run python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@touch .make-install

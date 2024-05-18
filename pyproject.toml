@@ -64,6 +64,7 @@ mkdocs = "^1.5.3"
 mkdocstrings = {extras = ["python"], version = "^0.24.0"}
 mkdocs-material = "^9.5.3"
 mkdocs-jupyter = "^0.24"
+black = ">=24.4"  # Needed for mkdocs
 # other
 pycocotools = "^2.0.7"
 ipykernel = "^6.27.1"
