@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="../..">
+        <link rel="prev" href="../../api-cheat-sheet/">
       
       
         <link rel="next" href="../data-frame/">
@@ -22,7 +22,7 @@
     
     
       
-        <title>Pixeltable - Pixeltable</title>
+        <title>Pixeltable - Pixeltable API</title>
       
     
     
@@ -82,7 +82,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="Pixeltable" class="md-header__button md-logo" aria-label="Pixeltable" data-md-component="logo">
+    <a href="../.." title="Pixeltable API" class="md-header__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -96,7 +96,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            Pixeltable
+            Pixeltable API
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -189,13 +189,13 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="Pixeltable" class="md-nav__button md-logo" aria-label="Pixeltable" data-md-component="logo">
+    <a href="../.." title="Pixeltable API" class="md-nav__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
 
     </a>
-    Pixeltable
+    Pixeltable API
   </label>
   
     <div class="md-nav__source">
@@ -236,6 +236,26 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api-cheat-sheet/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    API Cheat Sheet
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -250,10 +270,10 @@
         
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   <span class="md-ellipsis">
@@ -264,8 +284,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_2">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             API Reference
           </label>
@@ -409,6 +429,15 @@
   <a href="#pixeltable.rm_dir" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;rm_dir
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.configure_logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;configure_logging
     </span>
   </a>
   
@@ -655,6 +684,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.configure_logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;configure_logging
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.init" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;init
@@ -766,7 +804,7 @@ below.</p>
 </thead>
 <tbody>
 <tr>
-<td>[<code>pxt.configure_logging</code>][pixeltable.configure_logging]</td>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.configure_logging"><code>pxt.configure_logging</code></a></td>
 <td>Configure logging</td>
 </tr>
 <tr>
@@ -1471,6 +1509,73 @@ below.</p>
     <p>Remove a subdirectory:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">rm_dir</span><span class="p">(</span><span class="s1">&#39;my_dir.sub_dir&#39;</span><span class="p">)</span>
 </code></pre></div>
+
+  </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<h3 id="pixeltable.configure_logging" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>          <span class="doc doc-object-name doc-function-name">configure_logging</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">configure_logging</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">to_stdout</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">level</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">add</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">remove</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+  <div class="doc doc-contents ">
+  
+      <p>Configure logging.</p>
+
+
+
+  <p>Parameters:</p>
+  <ul>
+      <li class="field-body">
+        <b><code>to_stdout</code></b>
+            (<code><span title="typing.Optional">Optional</span>[bool]</code>, default:
+                <code>None</code>
+)
+        –
+        <div class="doc-md-description">
+          <p>if True, also log to stdout</p>
+        </div>
+      </li>
+      <li class="field-body">
+        <b><code>level</code></b>
+            (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+                <code>None</code>
+)
+        –
+        <div class="doc-md-description">
+          <p>default log level</p>
+        </div>
+      </li>
+      <li class="field-body">
+        <b><code>add</code></b>
+            (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+                <code>None</code>
+)
+        –
+        <div class="doc-md-description">
+          <p>comma-separated list of 'module name:log level' pairs; ex.: add='video:10'</p>
+        </div>
+      </li>
+      <li class="field-body">
+        <b><code>remove</code></b>
+            (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+                <code>None</code>
+)
+        –
+        <div class="doc-md-description">
+          <p>comma-separated list of module names</p>
+        </div>
+      </li>
+  </ul>
 
   </div>
 

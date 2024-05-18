@@ -11,6 +11,10 @@
       
       
       
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../api/pixeltable/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -18,7 +22,7 @@
     
     
       
-        <title>API Cheat Sheet - Pixeltable</title>
+        <title>API Cheat Sheet - Pixeltable API</title>
       
     
     
@@ -78,7 +82,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="Pixeltable" class="md-header__button md-logo" aria-label="Pixeltable" data-md-component="logo">
+    <a href=".." title="Pixeltable API" class="md-header__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -92,7 +96,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            Pixeltable
+            Pixeltable API
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -185,13 +189,13 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="Pixeltable" class="md-nav__button md-logo" aria-label="Pixeltable" data-md-component="logo">
+    <a href=".." title="Pixeltable API" class="md-nav__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
 
     </a>
-    Pixeltable
+    Pixeltable API
   </label>
   
     <div class="md-nav__source">
@@ -232,6 +236,162 @@
       
   
   
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    API Cheat Sheet
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    API Cheat Sheet
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#operations-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Operations summary
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Operations summary">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#directories" class="md-nav__link">
+    <span class="md-ellipsis">
+      Directories
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frame-extraction-for-video-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      Frame extraction for video data
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pixeltable-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pixeltable types
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#table-operations-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Table operations summary
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#querying-a-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      Querying a table
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#selecting-and-transforming-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Selecting and transforming columns
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#computed-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Computed columns
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inserting-data-into-a-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      Inserting data into a table
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attributes-and-methods-on-image-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      Attributes and methods on image data
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
   
   
     
@@ -244,10 +404,10 @@
         
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   <span class="md-ellipsis">
@@ -258,8 +418,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             API Reference
           </label>
@@ -422,15 +582,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#functions" class="md-nav__link">
-    <span class="md-ellipsis">
-      Functions
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -508,15 +659,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#functions_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      Functions
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -554,15 +696,19 @@ import pixeltable.functions as pxtf
 <tbody>
 <tr>
 <td>Create a (mutable) table</td>
-<td>t = pxt.[create_table][pxt.create_table]('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})</td>
+<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_table"><code>pxt.create_table</code></a>('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})</td>
 </tr>
 <tr>
 <td>Create a view</td>
-<td>t = pxt.[create_view][pxt.create_view]('view_name', base_tbl, schema={'col_1': pxt.StringType, ...}, filter=base_tbl.col &gt; 10)</td>
+<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>('view_name', base_tbl, filter=base_tbl.col &gt; 10)</td>
+</tr>
+<tr>
+<td>Create a view with iterator</td>
+<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>('view_name', base_tbl, iterator=FrameIterator.create(video=base_tbl.col, fps=0))</td>
 </tr>
 <tr>
 <td>Create a snapshot</td>
-<td>t = pxt.[create_view][pxt.create_view]('snapshot_name', t, is_snapshot=True)</td>
+<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>('snapshot_name', t, is_snapshot=True)</td>
 </tr>
 </tbody>
 </table>
@@ -577,23 +723,23 @@ import pixeltable.functions as pxtf
 <tbody>
 <tr>
 <td>Use an existing table</td>
-<td>t = pxt.[get_table][pxt.get_table]('video_data')</td>
+<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.get_table"><code>pxt.get_table</code></a>('video_data')</td>
 </tr>
 <tr>
 <td>Rename a table</td>
-<td>pxt.[move][pxt.move]('video_data', 'vd')</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.move"><code>pxt.move</code></a>('video_data', 'vd')</td>
 </tr>
 <tr>
 <td>Move a table</td>
-<td>pxt.[move][pxt.move]('video_data', 'experiments.video_data')</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.move"><code>pxt.move</code></a>('video_data', 'experiments.video_data')</td>
 </tr>
 <tr>
 <td>List tables</td>
-<td>pxt.[list_tables][pxt.list_tables]()</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.list_tables"><code>pxt.list_tables</code></a>()</td>
 </tr>
 <tr>
 <td>Delete a table</td>
-<td>pxt.[drop_table][pxt.drop_table]('video_data')</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.drop_table"><code>pxt.drop_table</code></a>('video_data')</td>
 </tr>
 </tbody>
 </table>
@@ -608,65 +754,30 @@ import pixeltable.functions as pxtf
 <tbody>
 <tr>
 <td>Create a directory</td>
-<td>pxt.[create_dir][pxt.create_dir]('experiments')</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_dir"><code>pxt.create_dir</code></a>('experiments')</td>
 </tr>
 <tr>
 <td>Rename or move a directory</td>
-<td>pxt.[move][pxt.move]('experiments', 'project_x.experiments')</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.move"><code>pxt.move</code></a>('experiments', 'project_x.experiments')</td>
 </tr>
 <tr>
 <td>Delete a directory</td>
-<td>f = pxt.[rm_dir][pxt.rm_dir]('experiments')</td>
+<td>f = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.rm_dir"><code>pxt.rm_dir</code></a>('experiments')</td>
 </tr>
 <tr>
 <td>List directories</td>
-<td>pxt.[list_dirs][pxt.list_dirs]('project_x')</td>
-</tr>
-</tbody>
-</table>
-<h3 id="functions">Functions</h3>
-<table>
-<thead>
-<tr>
-<th>Task</th>
-<th>Code</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Create a stored function</td>
-<td>pxt.[create_function][pxt.create_function]('func_name', ...)</td>
-</tr>
-<tr>
-<td>Load a stored function</td>
-<td>f = pxt.[get_function][pxt.get_function]('func_name')</td>
-</tr>
-<tr>
-<td>Rename a stored function</td>
-<td>pxt.[move][pxt.move]('func_name', 'better_name')</td>
-</tr>
-<tr>
-<td>Move a stored function</td>
-<td>pxt.[move][pxt.move]('func_name', 'experiments.func_name')</td>
-</tr>
-<tr>
-<td>Update a stored function</td>
-<td>pxt.[update_function][pxt.update_function]('func_name', ...)</td>
-</tr>
-<tr>
-<td>Delete a stored function</td>
-<td>pxt.[drop_function][pxt.drop_function]('func_name')</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.list_dirs"><code>pxt.list_dirs</code></a>('project_x')</td>
 </tr>
 </tbody>
 </table>
 <h2 id="frame-extraction-for-video-data">Frame extraction for video data</h2>
 <p>Create a table with video data and view for the frames:</p>
-<pre><code class="language-python">v = pxt.create_table('tbl_name', [pxt.Column('video', pxt.VideoType())])
+<pre><code class="language-python">import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
-args = {'video': v.video, 'fps': 0}
-f = pxt.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_args=args)
+t = pxt.create_table('tbl_name', {'video': pxt.VideoType()})
+f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(videos=t, fps=0))
 </code></pre>
-<p><code>fps: 0</code> extracts frames at the original frame rate.</p>
+<p><code>fps=0</code> extracts frames at the original frame rate.</p>
 <h2 id="pixeltable-types">Pixeltable types</h2>
 <table>
 <thead>
@@ -698,7 +809,7 @@ f = pxt.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator
 </tr>
 <tr>
 <td><code>pxt.JsonType()</code></td>
-<td>lists and dicts that can be converted to JSON</td>
+<td><code>list</code> or <code>dict</code></td>
 </tr>
 <tr>
 <td><code>pxt.ArrayType()</code></td>
@@ -710,11 +821,11 @@ f = pxt.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator
 </tr>
 <tr>
 <td><code>pxt.VideoType()</code></td>
-<td><code>str</code> (the file path)</td>
+<td><code>str</code> (the file path or URL)</td>
 </tr>
 <tr>
 <td><code>pxt.AudioType()</code></td>
-<td><code>str</code> (the file path)</td>
+<td><code>str</code> (the file path or URL)</td>
 </tr>
 </tbody>
 </table>
@@ -729,35 +840,39 @@ f = pxt.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator
 <tbody>
 <tr>
 <td>Print table schema</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.describe">describe</a>()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.describe"><code>describe</code></a>()</td>
 </tr>
 <tr>
 <td>Query a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(t.col2, t.col3 + 5).where(t.col1 == 'green').show()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select"><code>select</code></a>(t.col2, t.col3 + 5).where(t.col1 == 'green').show()</td>
 </tr>
 <tr>
 <td>Insert a single row into a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.insert">insert</a>(col1='green', ...)</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.insert"><code>insert</code></a>(col1='green', ...)</td>
 </tr>
 <tr>
 <td>Insert multiple rows into a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.insert">insert</a>([{'col1': 'green', ...}, {'col1': 'red', ...}, ...])</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.insert"><code>insert</code></a>([{'col1': 'green', ...}, {'col1': 'red', ...}, ...])</td>
 </tr>
 <tr>
 <td>Add a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.add_column">add_column</a>(new_col_name=pxt.IntType())</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.add_column"><code>add_column</code></a>(new_col_name=pxt.IntType())</td>
+</tr>
+<tr>
+<td>Add a column (alternate form)</td>
+<td>t[new_col_name] = pxt.IntType()</td>
 </tr>
 <tr>
 <td>Rename a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.rename_column">rename_column</a>('col_name', 'new_col_name')</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.rename_column"><code>rename_column</code></a>('col_name', 'new_col_name')</td>
 </tr>
 <tr>
 <td>Drop a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.drop_column">drop_column</a>('col_name')</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.drop_column"><code>drop_column</code></a>('col_name')</td>
 </tr>
 <tr>
 <td>Undo the last update operation (add/rename/drop column or insert)</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.revert">revert</a>()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.revert"><code>revert</code></a>()</td>
 </tr>
 </tbody>
 </table>
@@ -772,35 +887,35 @@ f = pxt.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator
 <tbody>
 <tr>
 <td>Look at 10 rows</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.show">show</a>(10)</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.show"><code>show</code></a>(10)</td>
 </tr>
 <tr>
 <td>Look at the oldest 10 rows</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.head">head</a>(n=10)</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.head"><code>head</code></a>(10)</td>
 </tr>
 <tr>
 <td>Look at the most recently added 10 rows</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.tail">tail</a>(n=10)</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.tail"><code>tail</code></a>(10)</td>
 </tr>
 <tr>
 <td>Look at all rows</td>
-<td>t.collect()</td>
+<td>t.[<code>collect</code>][pixeltable.Table.collect]()</td>
 </tr>
 <tr>
 <td>Iterate over all rows as dictionaries</td>
-<td>for row in t.collect(): ...</td>
+<td>for row in t.[<code>collect</code>][pixeltable.Table.collect](): ...</td>
 </tr>
 <tr>
 <td>Look at row for frame 15</td>
-<td>t.[where][pixeltable.Table.where}(t.pos  == 15).show()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.where"><code>where</code></a>(t.pos  == 15).show()</td>
 </tr>
 <tr>
 <td>Look at rows before index 15</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.where">where</a>(t.pos &lt; 15).show(0)</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.where"><code>where</code></a>(t.pos &lt; 15).show()</td>
 </tr>
 <tr>
 <td>Look at rows before index 15 with RGB frames</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.where">where</a>((t.pos &lt; 15) &amp; (t.frame.mode == 'RGB')).collect()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.where"><code>where</code></a>((t.pos &lt; 15) &amp; (t.frame.mode == 'RGB')).collect()</td>
 </tr>
 </tbody>
 </table>
@@ -820,15 +935,15 @@ or <code>~(t.frame.mode == 'RGB')</code>.</p>
 <tbody>
 <tr>
 <td>Only retrieve the frame index and frame</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(t.frame_idx, t.frame).collect()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select"><code>select</code></a>(t.frame_idx, t.frame).collect()</td>
 </tr>
 <tr>
 <td>Look at frames rotated 90 degrees</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(t.frame.rotate(90)).collect()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select"><code>select</code></a>(t.frame.rotate(90)).collect()</td>
 </tr>
 <tr>
 <td>Overlay frame with itself rotated 90 degrees</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select">select</a>(pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).collect()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select"><code>select</code></a>(pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).collect()</td>
 </tr>
 </tbody>
 </table>
@@ -852,7 +967,7 @@ in rows where the computation expression or media type validation results in an 
 </code></pre>
 <p>Each row is a dictionary mapping column names to column values (do not provide values for computed columns).</p>
 <h2 id="attributes-and-methods-on-image-data">Attributes and methods on image data</h2>
-<p>Images are currently represented as <code>PIL.Image.Image</code> instances in memory and support a lot of the
+<p>Images are represented as <code>PIL.Image.Image</code> instances in memory and support a lot of the
 attributes and methods documented
 <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image">here</a>.</p>
 <p>Available attributes are: <code>mode</code>, <code>height</code>, <code>width</code>.</p>
@@ -860,30 +975,6 @@ attributes and methods documented
 <code>getchannel</code>, <code>getcolors</code>, <code>getextrema</code>, <code>getpalette</code>, <code>getpixel</code>, <code>getprojection</code>, <code>histogram</code>,
 <code>point</code>, <code>quantize</code>, <code>reduce</code>, <code>remap_palette</code>, <code>resize</code>, <code>rotate</code>, <code>transform</code>, <code>transpose</code>.</p>
 <p>Methods can be chained, for example: <code>t.frame.resize((224, 224)).rotate(90).convert('L')</code></p>
-<h2 id="functions_1">Functions</h2>
-<p>Functions can be used to transform data, both during querying as well as when data is added to a table.</p>
-<pre><code class="language-python">@pxt.udf(return_type=pxt.IntType(), param_types=[pxt.IntType()])
-def add1(x):
-    return x + 1
-</code></pre>
-<p>For querying: <code>t.select(t.frame_idx, add1(t.frame_idx)).show()</code></p>
-<p>As a computed column: <code>t.add_column(c=add1(t.frame_idx))</code></p>
-<!---
-## Image similarity search
-
-In order to enable similarity on specific image columns, create those columns with `indexed=True`.
-This will compute an embedding for every image and store it in a vector index.
-
-<pre><code class="language-python">c3 = pxt.Column('frame', pxt.ImageType(), indexed=True)
-</code></pre>
-
-
-Assuming `img = PIL.Image.open(...)`
-
-Similarity search: `t.where(t.frame.nearest(img)).show(10)`
-
-Keyword search: `t.where(t.frame.matches('car')).show(10)`
--->
 
 
 
