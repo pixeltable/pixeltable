@@ -60,10 +60,10 @@ class InsertableTable(Table):
             return tbl
 
     @overload
-    def insert(self, rows: Iterable[Dict[str, Any]], /, print_stats: bool = False, fail_on_exception: bool = True): ...
+    def insert(self, rows: Iterable[Dict[str, Any]], /, print_stats: bool = False, fail_on_exception: bool = True) -> UpdateStatus: ...
 
     @overload
-    def insert(self, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any): ...
+    def insert(self, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
 
     def insert(self, *args, **kwargs) -> UpdateStatus:
         """Insert rows into table.
@@ -78,7 +78,7 @@ class InsertableTable(Table):
         Args:
             rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
                 names to values.
-            kwargs: (if inserting a single row) keyword-argument pairs representing column names and values.
+            kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
             print_stats: If ``True``, print statistics about the cost of computed columns.
             fail_on_exception:
                 Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)

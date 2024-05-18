@@ -60,10 +60,9 @@ ruff = "^0.3.1"
 # jupyter
 notebook = "^7.1.0"
 # mkdocs-related
-mkdocs = "^1.5.3"
-mkdocstrings = {extras = ["python"], version = "^0.24.0"}
-mkdocs-material = "^9.5.3"
-mkdocs-jupyter = "^0.24"
+mkdocs = "^1.6.0"
+mkdocs-material = "^9.5.23"
+mkdocstrings-python = "^1.10.2"
 black = ">=24.4"  # Needed for mkdocs
 # other
 pycocotools = "^2.0.7"

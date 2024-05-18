@@ -96,8 +96,8 @@ def create_view(
         schema: dictionary mapping column names to column types, value expressions, or to column specifications.
         filter: Predicate to filter rows of the base table.
         is_snapshot: Whether the view is a snapshot.
-        iterator_class: Class of the iterator to use for the view.
-        iterator_args: Arguments to pass to the iterator class.
+        iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
+            the base table.
         num_retained_versions: Number of versions of the view to retain.
         ignore_errors: if True, fail silently if the path already exists or is invalid.
 
