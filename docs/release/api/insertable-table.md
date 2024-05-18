@@ -34,9 +34,9 @@ or [`pxt.get_table`][pixeltable.get_table].
       inherited_members: true
       members:
         - add_column
-        - drop_column
-        - rename_column
-        - insert
-        - update
         - delete
+        - drop_column
+        - insert
+        - rename_column
         - revert
+        - update

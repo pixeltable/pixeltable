@@ -33,14 +33,14 @@ below.
     options:
       members:
       - __init__
+      - configure_logging
+      - create_dir
       - create_table
       - create_view
       - drop_table
       - get_table
-      - list_tables
-      - create_dir
-      - list_dirs
-      - rm_dir
-      - configure_logging
       - init
+      - list_tables
+      - list_dirs
       - move
+      - rm_dir

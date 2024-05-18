@@ -35,5 +35,5 @@ or [`pxt.get_table`][pixeltable.get_table].
         - add_column
         - drop_column
         - rename_column
-        - update
         - revert
+        - update

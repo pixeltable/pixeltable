@@ -8,11 +8,12 @@ without having to construct [`DataFrame`][pixeltable.DataFrame] instances explic
       members:
       - __getattr__
       - __getitem__
-      - df
-      - select
-      - where
-      - show
-      - head
-      - tail
+      - collect
       - count
       - describe
+      - df
+      - head
+      - select
+      - show
+      - where
+      - tail
