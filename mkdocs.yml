@@ -1,4 +1,4 @@
-site_name: Pixeltable
+site_name: Pixeltable API
 site_author: Pixeltable, Inc.
 
 copyright: |
@@ -16,6 +16,7 @@ theme:
 
 nav:
   - Home: index.md
+  - 'API Cheat Sheet': api-cheat-sheet.md
   - 'API Reference':
     - Pixeltable: api/pixeltable.md
     - DataFrame: api/data-frame.md

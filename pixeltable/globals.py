@@ -423,3 +423,21 @@ def get_path(schema_obj: catalog.SchemaObject) -> str:
         dir_id = dir._dir_id
     path_elements.append(schema_obj._name)
     return '.'.join(path_elements)
+
+
+def configure_logging(
+    *,
+    to_stdout: Optional[bool] = None,
+    level: Optional[int] = None,
+    add: Optional[str] = None,
+    remove: Optional[str] = None,
+) -> None:
+    """Configure logging.
+
+    Args:
+        to_stdout: if True, also log to stdout
+        level: default log level
+        add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
+        remove: comma-separated list of module names
+    """
+    return Env.get().configure_logging(to_stdout=to_stdout, level=level, add=add, remove=remove)
