@@ -21,7 +21,7 @@ from .type_system import (
 from .utils.help import help
 
 # noinspection PyUnresolvedReferences
-from . import functions, io
+from . import functions, io, iterators
 from .__version__ import __version__, __version_tuple__
 
 __all__ = [
