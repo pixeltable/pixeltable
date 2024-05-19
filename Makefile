@@ -9,14 +9,14 @@ help:
 	@echo "See: https://www.notion.so/Setting-up-a-dev-environment-83a1ca32de034f94bd7fee0ddb46fed8"
 	@echo ""
 	@echo "Targets:"
-	@echo "  install    Install the development environment"
-	@echo "  test       Run pytest"
-	@echo "  lint       Run linting tools against changed files"
-	@echo "  format     Format changed files with ruff (updates .py files in place)"
-	@echo "  notebooks  Execute notebooks (updates .ipynb files in place)"
-	@echo "  mkdocs     Build and deploy mkdocs documentation"
-	@echo "  release    Create a pypi release and post to github"
-	@echo "  clean      Remove generated files and temp files"
+	@echo "  install       Install the development environment"
+	@echo "  test          Run pytest"
+	@echo "  lint          Run linting tools against changed files"
+	@echo "  format        Format changed files with ruff (updates .py files in place)"
+	@echo "  notebooks     Execute notebooks (updates .ipynb files in place)"
+	@echo "  release       Create a pypi release and post to github"
+	@echo "  release-docs  Build and deploy API documentation"
+	@echo "  clean         Remove generated files and temp files"
 
 .PHONY: install
 install: check-conda .make-install
@@ -70,13 +70,13 @@ notebooks: install
 	@echo "Running notebooks and overwriting outputs ..."
 	@pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) docs/release/tutorials/*.ipynb
 
-.PHONY: mkdocs
-mkdocs: install
-	@scripts/mkdocs.sh
-
 .PHONY: release
 release: install
 	@scripts/release.sh
+
+.PHONY: release-docs
+release-docs: install
+	@mkdocs gh-deploy
 
 .PHONY: clean
 clean:
