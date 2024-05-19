@@ -44,7 +44,7 @@ YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info
 ifeq ($(YOLOX_OK), True)
 	# YOLOX only works on python <= 3.10 and cannot be installed via poetry
 	@echo "Installing YOLOX ..."
-	@python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
+	@python -m pip install -q git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
 else
 	@echo "Python version is >= 3.11; skipping YOLOX installation."
 endif

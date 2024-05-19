@@ -13,12 +13,14 @@ from .base import ComponentIterator
 
 _logger = logging.getLogger('pixeltable')
 
+
 class ChunkMetadata(enum.Enum):
     TITLE = 1
     HEADING = 2
     SOURCELINE = 3
     PAGE = 4
     BOUNDING_BOX = 5
+
 
 class Separator(enum.Enum):
     HEADING = 1
@@ -27,6 +29,7 @@ class Separator(enum.Enum):
     TOKEN_LIMIT = 4
     CHAR_LIMIT = 5
     PAGE = 6
+
 
 @dataclasses.dataclass
 class DocumentSectionMetadata:
@@ -41,6 +44,7 @@ class DocumentSectionMetadata:
     page: Optional[int] = None
     # bounding box as an {x1, y1, x2, y2} dictionary
     bounding_box: Optional[Dict[str, float]] = None
+
 
 @dataclasses.dataclass
 class DocumentSection:
@@ -79,20 +83,14 @@ def _parse_metadata(metadata: str) -> List[ChunkMetadata]:
 
 _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 
-class DocumentSplitter(ComponentIterator):
-    """Iterator over pieces of a document. The document is split into chunks based on the specified separators.
-    The iterator output tuples are of schema {'text': StringType()}, but can include additional metadata fields if specified
-    in the `metadata` argument as explained below.
-    All chunk text is passed through `ftfy.fix_text` to fix up common problems with unicode sequences.
 
-    Args:
-        `metadata`: which additional metadata fields to include in the output schema:
-             'title', 'heading' (HTML and Markdown), 'sourceline' (HTML), 'page' (PDF), 'bounding_box' (PDF).
-             The input can be a comma-separated string of these values eg. 'title,heading,sourceline'.
-        `separators`: which separators to use to split the document into rows. Options are:
-             'heading', 'paragraph', 'sentence', 'token_limit', 'char_limit', 'page'. As with metadata, this is can be a
-                comma-separated string eg. 'heading, token_limit'.
-        `limit`: the maximum number of tokens or characters in each chunk if 'token_limit' or 'char_limit' is specified.
+class DocumentSplitter(ComponentIterator):
+    """Iterator over chunks of a document. The document is chunked according to the specified `separators`.
+
+    The iterator yields a `text` field containing the text of the chunk, and it may also
+    include additional metadata fields if specified in the `metadata` parameter, as explained below.
+
+    Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
     """
     METADATA_COLUMN_TYPES = {
         ChunkMetadata.TITLE: StringType(nullable=True),
@@ -103,10 +101,23 @@ class DocumentSplitter(ComponentIterator):
     }
 
     def __init__(
-            self, document: str, *, separators: str, limit: Optional[int] = None, overlap: Optional[int] = None, metadata: str = '',
-            html_skip_tags: Optional[List[str]] = None, tiktoken_encoding: Optional[str] = 'cl100k_base',
+            self, document: str, *, separators: str, limit: Optional[int] = None, overlap: Optional[int] = None,
+            metadata: str = '',
+            html_skip_tags: Optional[list[str]] = None, tiktoken_encoding: Optional[str] = 'cl100k_base',
             tiktoken_target_model: Optional[str] = None
     ):
+        """Init method for `DocumentSplitter` class.
+
+        Args:
+            separators: separators to use to chunk the document. Options are:
+                 `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
+                 This may be a comma-separated string, e.g., `'heading,token_limit'`.
+            limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
+                 or `'char_limit'` is specified.
+            metadata: additional metadata fields to include in the output. Options are:
+                 `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
+                 (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
+        """
         if html_skip_tags is None:
             html_skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)

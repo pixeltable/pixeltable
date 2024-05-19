@@ -28,14 +28,14 @@ Another difference to pandas is that query execution needs to be initiated expli
 ## ::: pixeltable.DataFrame
     options:
       members:
-      - select
-      - where
-      - group_by
-      - order_by
-      - limit
       - collect
-      - show
+      - group_by
       - head
+      - limit
+      - order_by
+      - select
+      - show
       - tail
       - to_pytorch_dataset
       - to_coco_dataset
+      - where
