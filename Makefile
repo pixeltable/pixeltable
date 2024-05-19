@@ -31,6 +31,8 @@ else
 	$(error Pixeltable must be installed from a conda environment)
 endif
 
+YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info[1] <= 10))")
+
 # Use the placeholder `.make-install` to track whether the installation is up-to-date
 .make-install: poetry.lock
 	@echo "Installing poetry ..."
@@ -39,9 +41,13 @@ endif
 	@poetry self add "poetry-dynamic-versioning[plugin]"
 	@echo "Installing dependencies from poetry ..."
 	@poetry install --with dev
-	# YOLOX cannot be installed via poetry, sadly
+ifeq ($(YOLOX_OK), True)
+	# YOLOX only works on python <= 3.10 and cannot be installed via poetry
 	@echo "Installing YOLOX ..."
 	@python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
+else
+	@echo "Python version is >= 3.11; skipping YOLOX installation."
+endif
 	@echo "Installing Jupyter kernel ..."
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@touch .make-install

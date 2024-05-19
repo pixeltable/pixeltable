@@ -8,5 +8,4 @@ if [ "$(git remote get-url origin)" != 'https://github.com/pixeltable/pixeltable
   exit 1
 fi
 
-mkdocs build
 mkdocs gh-deploy
