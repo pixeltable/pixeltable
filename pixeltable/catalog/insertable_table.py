@@ -75,7 +75,7 @@ class InsertableTable(Table):
         ``insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
 
         Args:
-            rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
+            rowss: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
                 names to values.
             kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
             print_stats: If ``True``, print statistics about the cost of computed columns.
