@@ -18,11 +18,18 @@ nav:
   - Home: index.md
   - 'API Cheat Sheet': api-cheat-sheet.md
   - 'API Reference':
-    - Pixeltable: api/pixeltable.md
+    - pixeltable: api/pixeltable.md
+    - pixeltable.io: api/io.md
+    - pixeltable.iterators:
+      - ComponentIterator: api/iterators/component-iterator.md
+      - DocumentSplitter: api/iterators/document-splitter.md
+      - FrameIterator: api/iterators/frame-iterator.md
     - DataFrame: api/data-frame.md
     - InsertableTable: api/insertable-table.md
     - Table: api/table.md
     - View: api/view.md
+  - Pixeltable Functions:
+    - Huggingface: api/functions/huggingface.md
 
 plugins:
   - search
@@ -34,11 +41,11 @@ plugins:
           paths: [.]
           options:
               annotations_path: brief
-              members_order: source
+              members_order: alphabetical
               line_length: 80
               docstring_options:
-                ignore_init_summary: false
-              merge_init_into_class: false
+                ignore_init_summary: true
+              merge_init_into_class: true
               docstring_style: google
               docstring_section_style: list
               show_docstring_description: true

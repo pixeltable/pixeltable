@@ -65,15 +65,14 @@ class InsertableTable(Table):
     @overload
     def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
 
-    def insert(self, rows: Optional[Iterable[Dict[str, Any]]] = None, /, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus:
-        """Insert rows into table.
+    def insert(self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus:
+        """Inserts rows into this table. There are two mutually exclusive call patterns:
 
         To insert multiple rows at a time:
-
-        ``insert(rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception: bool = True)``
+        ``insert(rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True)``
 
         To insert just a single row, you can use the more convenient syntax:
-        ``insert(print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
+        ``insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
 
         Args:
             rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
