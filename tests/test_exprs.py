@@ -553,6 +553,22 @@ class TestExprs:
         result = t[t.img, t.img.height, t.img.rotate(90)].show(n=100)
         _ = result._repr_html_()
 
+    def test_img_expressions(self, img_tbl) -> None:
+        t = img_tbl
+        _ = (t.img.entropy() > 1) & (t.split == 'train')
+        _ = (t.img.entropy() > 1) & (t.split == 'train') & (t.split == 'val')
+        _ = (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
+        result = t[(t.split == 'train') & (t.category == 'n03445777')][t.img].show()
+        print(result)
+        result = t[t.img.width > 1].show()
+        print(result)
+        result = t[(t.split == 'val') & (t.img.entropy() > 1) & (t.category == 'n03445777')].show()
+        print(result)
+        result = t[
+            (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
+        ][t.img, t.split].show()
+        print(result)
+
     @pytest.mark.skip(reason='temporarily disabled')
     def test_similarity(self, small_img_tbl) -> None:
         t = small_img_tbl
