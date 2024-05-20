@@ -1,5 +1,10 @@
 # InsertableTable
 
+Import conventions:
+```python
+import pixeltable as pxt
+```
+
 Instances of class `InsertableTable` are handles to Pixeltable tables.
 
 Use this handle to query and update the table and to add and drop columns.
@@ -8,11 +13,11 @@ Use this handle to query and update the table and to add and drop columns.
 or [`pxt.get_table`][pixeltable.get_table].
 
 ## Overview
-| Column Operations                                           |                               |
-|-------------------------------------------------------------|-------------------------------|
-| [`add_column`][pixeltable.InsertableTable.add_column]       | Adds a column to the table    |
+| Column Operations                                           |                                |
+|-------------------------------------------------------------|--------------------------------|
+| [`add_column`][pixeltable.InsertableTable.add_column]       | Add a column to the table      |
 | [`drop_column`][pixeltable.InsertableTable.drop_column]     | Remove a column from the table |
-| [`rename_column`][pixeltable.InsertableTable.rename_column] | Rename a column               |
+| [`rename_column`][pixeltable.InsertableTable.rename_column] | Rename a column                |
 
 | Data Operations                               |                        |
 |-----------------------------------------------|------------------------|
@@ -20,18 +25,18 @@ or [`pxt.get_table`][pixeltable.get_table].
 | [`update`][pixeltable.InsertableTable.update] | Upate rows in table    |
 | [`delete`][pixeltable.InsertableTable.delete] | Delete rows from table |
 
-| Versioning                                    |                         |
-|-----------------------------------------------|-------------------------|
-| [`revert`][pixeltable.InsertableTable.revert] | Reverts the last change |
+| Versioning                                    |                        |
+|-----------------------------------------------|------------------------|
+| [`revert`][pixeltable.InsertableTable.revert] | Revert the last change |
 
 ## ::: pixeltable.InsertableTable
     options:
       inherited_members: true
       members:
         - add_column
-        - drop_column
-        - rename_column
-        - insert
-        - update
         - delete
+        - drop_column
+        - insert
+        - rename_column
         - revert
+        - update
