@@ -49,6 +49,7 @@ optional = true
 pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 coverage = "^7.4"
+toml = "^0.10.2"
 # mypy-related
 mypy = "^1.8.0"
 types-pillow = ">=10.0"
@@ -60,10 +61,10 @@ ruff = "^0.3.1"
 # jupyter
 notebook = "^7.1.0"
 # mkdocs-related
-mkdocs = "^1.5.3"
-mkdocstrings = {extras = ["python"], version = "^0.24.0"}
-mkdocs-material = "^9.5.3"
-mkdocs-jupyter = "^0.24"
+mkdocs = "^1.6.0"
+mkdocs-material = "^9.5.23"
+mkdocstrings-python = "^1.10.2"
+black = ">=24.4"  # Needed for mkdocs
 # other
 pycocotools = "^2.0.7"
 ipykernel = "^6.27.1"

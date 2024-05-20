@@ -102,27 +102,26 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self.tbl_version_path).group_by(*items)
 
-    def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
-        """Return rows from this table.
-        """
+    def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':
+        """Return rows from this table."""
         return self.df().collect()
 
     def show(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+    ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
         return self.df().show(*args, **kwargs)
 
     def head(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+    ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return the first n rows inserted into this table."""
         return self.df().head(*args, **kwargs)
 
     def tail(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+    ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return the last n rows inserted into this table."""
         return self.df().tail(*args, **kwargs)
 

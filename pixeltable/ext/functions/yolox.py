@@ -56,6 +56,22 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
     return results
 
 
+@pxt.udf
+def yolo_to_coco(detections: dict) -> list:
+    bboxes, labels = detections['bboxes'], detections['labels']
+    num_annotations = len(detections['bboxes'])
+    assert num_annotations == len(detections['labels'])
+    result = []
+    for i in range(num_annotations):
+        bbox = bboxes[i]
+        ann = {
+            'bbox': [round(bbox[0]), round(bbox[1]), round(bbox[2] - bbox[0]), round(bbox[3] - bbox[1])],
+            'category': labels[i],
+        }
+        result.append(ann)
+    return result
+
+
 def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: Exp) -> Iterator[torch.Tensor]:
     for image in images:
         image_transform, _ = _val_transform(np.array(image), None, exp.test_size)
