@@ -969,12 +969,12 @@ class TableVersion:
     def get_required_col_names(self) -> List[str]:
         """Return the names of all columns for which values must be specified in insert()"""
         assert not self.is_view()
-        names = [c.name for c in self.cols if not c.is_computed and not c.col_type.nullable]
+        names = [c.name for c in self.cols_by_name.values() if not c.is_computed and not c.col_type.nullable]
         return names
 
     def get_computed_col_names(self) -> List[str]:
         """Return the names of all computed columns"""
-        names = [c.name for c in self.cols if c.is_computed]
+        names = [c.name for c in self.cols_by_name.values() if c.is_computed]
         return names
 
     @classmethod
