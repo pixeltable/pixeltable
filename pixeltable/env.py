@@ -60,7 +60,6 @@ class Env:
         # info about installed packages that are utilized by some parts of the code;
         # package name -> version; version == []: package is installed, but we haven't determined the version yet
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
-        self._nos_client: Optional[Any] = None
         self._label_studio_client: Optional['label_studio_sdk.client.Client'] = None
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
         self._httpd: Optional[http.server.ThreadingHTTPServer] = None
@@ -297,28 +296,6 @@ class Env:
     def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
 
-    def _create_nos_client(self) -> None:
-        import nos
-
-        self._logger.info('connecting to NOS')
-        nos.init(logging_level=logging.DEBUG)
-        self._nos_client = nos.client.InferenceClient()
-        self._logger.info('waiting for NOS')
-        self._nos_client.WaitForServer()
-
-        # now that we have a client, we can create the module
-        import importlib
-
-        try:
-            importlib.import_module('pixeltable.functions.nos')
-            # it's already been created
-            return
-        except ImportError:
-            pass
-        from pixeltable.functions.util import create_nos_modules
-
-        _ = create_nos_modules()
-
     def get_client(self, name: str, init: Callable, environ: Optional[str] = None) -> Any:
         """
         Gets the client with the specified name, using `init` to construct one if necessary.
@@ -413,9 +390,6 @@ class Env:
         check('together')
         check('fireworks')
         check('label_studio_sdk')
-        check('nos')
-        if self.is_installed_package('nos'):
-            self._create_nos_client()
         check('openpyxl')
 
     def require_package(self, package: str, min_version: Optional[List[int]] = None) -> None:
@@ -476,10 +450,6 @@ class Env:
     def engine(self) -> sql.engine.base.Engine:
         assert self._sa_engine is not None
         return self._sa_engine
-
-    @property
-    def nos_client(self) -> Any:
-        return self._nos_client
 
     @property
     def spacy_nlp(self) -> Any:
