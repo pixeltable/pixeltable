@@ -54,6 +54,7 @@ class DataFrameResultSet:
             ts.DocumentType: self._format_document,
             ts.ArrayType: self._format_array,
             ts.StringType: self._format_string,
+#            ts.JsonType: self._format_json,
         }
 
     def __len__(self) -> int:
@@ -74,7 +75,7 @@ class DataFrameResultSet:
             for col_name, col_type in zip(self._col_names, self._col_types)
             if col_type.__class__ in self._formatters
         }
-        return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)
+        return self.to_pandas().to_html(formatters=formatters, escape=True, index=False)
 
     def __str__(self) -> str:
         return self.to_pandas().to_string()
@@ -145,12 +146,22 @@ class DataFrameResultSet:
 
     def _format_array(self, arr: List[Any]) -> str:
         arr = np.array(arr)
-        return np.array2string(arr, precision=3, threshold=8, separator=',', edgeitems=3)
+        return np.array2string(arr, precision=3, threshold=16, separator=',', edgeitems=6)
 
     def _format_string(self, string: str) -> str:
         if len(string) > 250:
-            return f'{string[:120]}...{string[-120:]}'
+            return f'{string[:120]} ...... {string[-120:]}'
         return string
+
+    def _format_json(self, obj : Any) -> str:
+        if isinstance(obj, list):
+            return self._format_array(obj)
+        elif isinstance(obj, dict):
+            for key, value in obj.items():
+                fmt_value = _format_json(value)
+
+                obj[key] = self._format_json(value)
+            return json.dumps(obj, indent=4)
 
     def _format_document(self, file_path: str) -> str:
         max_width = max_height = 320
