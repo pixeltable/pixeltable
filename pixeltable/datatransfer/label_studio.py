@@ -30,6 +30,21 @@ def _label_studio_client() -> label_studio_sdk.Client:
 
 
 class LabelStudioProject(Remote):
+    """
+    A [`Remote`][pixeltable.datatransfer.Remote] that represents a Label Studio project, providing functionality
+    for synchronizing between a Pixeltable table and a Label Studio project.
+
+    Typically, applications will call [`create`][pixeltable.datatransfer.label_studio.LabelStudioProject.create]`()`
+    to create a new project, then
+    `Table.link_remote()` to establish a link between a Pixeltable table and
+    the new project.
+
+    The API key and URL for a valid Label Studio server must be specified in Pixeltable config. Either:
+
+    * Set the `LABEL_STUDIO_API_KEY` and `LABEL_STUDIO_URL` environment variables; or
+    * Specify `api_key` and `url` fields in the `label-studio` section of `$PIXELTABLE_HOME/config.yaml`.
+    """
+    # TODO(aaron-siegel): Add link in docstring to a Label Studio howto
 
     ANNOTATIONS_COLUMN = 'annotations'
 
@@ -37,8 +52,26 @@ class LabelStudioProject(Remote):
         self.project_id = project_id
         self._project: Optional[label_studio_sdk.project.Project] = None
 
+    @classmethod
+    def create(cls, title: str, label_config: str, **kwargs: Any) -> 'LabelStudioProject':
+        """
+        Creates a new Label Studio project, using the Label Studio client configured in Pixeltable.
+
+        Args:
+            title: The title of the project.
+            label_config: The Label Studio project configuration, in XML.
+            **kwargs: Additional keyword arguments for the new project; these will be passed to `start_project`
+                in the Label Studio SDK.
+        """
+        # Check that the config is valid before creating the project
+        cls._parse_project_config(label_config)
+        project = _label_studio_client().start_project(title=title, label_config=label_config, **kwargs)
+        project_id = project.get_params()['id']
+        return LabelStudioProject(project_id)
+
     @property
     def project(self) -> label_studio_sdk.project.Project:
+        """The `Project` object corresponding to this Label Studio project."""
         if self._project is None:
             try:
                 self._project = _label_studio_client().get_project(self.project_id)
@@ -49,28 +82,32 @@ class LabelStudioProject(Remote):
 
     @property
     def project_params(self) -> dict[str, Any]:
+        """The parameters of this Label Studio project."""
         return self.project.get_params()
 
     @property
     def project_title(self) -> str:
+        """The title of this Label Studio project."""
         return self.project_params['title']
 
     @property
     def _project_config(self) -> '_LabelStudioConfig':
         return self._parse_project_config(self.project_params['label_config'])
 
-    @classmethod
-    def create(cls, title: str, label_config: str, **kwargs) -> 'LabelStudioProject':
-        # Check that the config is valid before creating the project
-        cls._parse_project_config(label_config)
-        project = _label_studio_client().start_project(title=title, label_config=label_config, **kwargs)
-        project_id = project.get_params()['id']
-        return LabelStudioProject(project_id)
-
     def get_push_columns(self) -> dict[str, pxt.ColumnType]:
+        """
+        The data keys and preannotation fields specified in this Label Studio project.
+        """
         return self._project_config.push_columns
 
     def get_pull_columns(self) -> dict[str, pxt.ColumnType]:
+        """
+        Always contains a single entry:
+
+        ```
+        {"annotations": pxt.JsonType(nullable=True)}
+        ```
+        """
         return {self.ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}
 
     def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:

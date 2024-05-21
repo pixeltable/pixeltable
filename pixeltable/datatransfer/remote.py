@@ -7,16 +7,43 @@ import pixeltable.type_system as ts
 from pixeltable import Table
 
 
-class Remote:
+class Remote(abc.ABC):
+    """
+    Abstract base class that represents a remote data store. Subclasses of `Remote` provide
+    functionality for synchronizing between Pixeltable tables and stateful remote stores.
+    """
 
     @abc.abstractmethod
-    def get_push_columns(self) -> dict[str, ts.ColumnType]: ...
+    def get_push_columns(self) -> dict[str, ts.ColumnType]:
+        """
+        Returns the names and Pixeltable types that this `Remote` expects to see in a data push.
+
+        Returns:
+            A `dict` mapping names of expected columns to their Pixeltable types.
+        """
 
     @abc.abstractmethod
-    def get_pull_columns(self) -> dict[str, ts.ColumnType]: ...
+    def get_pull_columns(self) -> dict[str, ts.ColumnType]:
+        """
+        Returns the names and Pixeltable types that this `Remote` provides in a data pull.
+
+        Returns:
+            A `dict` mapping names of provided columns to their Pixeltable types.
+        """
 
     @abc.abstractmethod
-    def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None: ...
+    def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
+        """
+        Synchronizes the given [`Table`][pixeltable.Table] with this `Remote`. This method
+        should generally not be called directly; instead, call `t.sync_remote()`.
+
+        Args:
+            t: The table to synchronize with this remote.
+            col_mapping: A `dict` mapping columns in the Pixeltable table to push and/or pull columns in the remote
+                store.
+            push: If `True`, data from this table will be pushed to the remote during synchronization.
+            pull: If `True`, data from this table will be pulled from the remote during synchronization.
+        """
 
     @abc.abstractmethod
     def to_dict(self) -> dict[str, Any]: ...

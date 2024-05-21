@@ -699,6 +699,13 @@ class Table(SchemaObject):
             remote: 'pixeltable.datatransfer.Remote',
             col_mapping: Optional[dict[str, str]] = None
     ) -> None:
+        """
+        Links the specified `Remote` to this table.
+
+        Args:
+            remote (pixeltable.datatransfer.Remote): The `Remote` to link to this table.
+            col_mapping: An optional mapping of columns from this `Table` to columns in the `Remote`.
+        """
         self._check_is_dropped()
         push_cols = remote.get_push_columns()
         pull_cols = remote.get_pull_columns()
@@ -714,6 +721,14 @@ class Table(SchemaObject):
             *,
             ignore_errors: bool = False
     ) -> None:
+        """
+        Unlinks the specified `Remote` from this table.
+
+        Args:
+            remote (pixeltable.datatransfer.Remote): The `Remote` to unlink from this table.
+            ignore_errors (bool): If `True`, no exception will be thrown if the specified `Remote` is not linked
+                to this table.
+        """
         self._check_is_dropped()
         if remote not in self.get_remotes():
             if ignore_errors:
@@ -760,6 +775,9 @@ class Table(SchemaObject):
                     )
 
     def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
+        """
+        Gets a `dict` of all `Remote`s linked to this table.
+        """
         return self.tbl_version_path.tbl_version.get_remotes()
 
     def sync_remotes(
@@ -768,6 +786,13 @@ class Table(SchemaObject):
             push: bool = True,
             pull: bool = True
     ) -> None:
+        """
+        Synchronizes this table with all of its `Remote`s.
+
+        Args:
+            push: If `True`, data from this table will be pushed to the remotes during synchronization.
+            pull: If `True`, data from this table will be pulled from the remotes during synchronization.
+        """
         for remote in self.get_remotes():
             self.sync_remote(remote, push=push, pull=pull)
 
@@ -778,6 +803,14 @@ class Table(SchemaObject):
             push: bool = True,
             pull: bool = True
     ):
+        """
+        Synchronizes this table with the specified `Remote`.
+
+        Args:
+            remote (pixeltable.datatransfer.Remote): The `Remote` to synchronize with this table.
+            push: If `True`, data from this table will be pushed to the remotes during synchronization.
+            pull: If `True`, data from this table will be pulled from the remotes during synchronization.
+        """
         if remote not in self.get_remotes():
             raise excs.Error(f'Remote is not linked to table `{self.get_name()}`')
         col_mapping = self.get_remotes()[remote]

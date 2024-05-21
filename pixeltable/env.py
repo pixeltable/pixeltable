@@ -351,7 +351,7 @@ class Env:
                 raise excs.Error(
                     f'`{name}` client not initialized: parameter `{param}` is not configured.\n'
                     f'To fix this, specify the `{environ}` environment variable, or put `{param.lower()}` in '
-                    f'the `{name.lower()}` section of ~/.pixeltable/config.yaml.'
+                    f'the `{name.lower()}` section of $PIXELTABLE_HOME/config.yaml.'
                 )
 
         cl.client_obj = cl.init_fn(**init_kwargs)
