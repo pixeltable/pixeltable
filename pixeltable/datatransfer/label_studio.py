@@ -388,36 +388,6 @@ class LabelStudioProject(Remote):
             return {'result': result}
 
 
-@pxt.udf
-def detr_to_rectangle_labels(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str, Any]:
-    bboxes = detr_info['boxes']
-    scores = detr_info['scores']
-    labels = detr_info['labels']
-    result = [
-        {
-            'id': f'result{i}',
-            'type': 'rectanglelabels',
-            'image_rotation': 0,
-            'original_width': image.width,
-            'original_height': image.height,
-            'value': {
-                'rotation': 0,
-                # Label Studio expects image coordinates as % of image dimensions
-                'x': bboxes[i][0] * 100.0 / image.width,
-                'y': bboxes[i][1] * 100.0 / image.height,
-                'width': (bboxes[i][2] - bboxes[i][0]) * 100.0 / image.width,
-                'height': (bboxes[i][3] - bboxes[i][1]) * 100.0 / image.height,
-                'rectanglelabels': [coco.COCO_2017_CATEGORIES[labels[i]]]
-            }
-        }
-        for i in range(len(bboxes))
-    ]
-    return {
-        'score': min(scores) if len(scores) > 0 else 0.0,
-        'result': result
-    }
-
-
 @dataclass(frozen=True)
 class _RectangleLabel:
     to_name: str
