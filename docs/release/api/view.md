@@ -1,5 +1,10 @@
 # View
 
+Import conventions:
+```python
+import pixeltable as pxt
+```
+
 Instances of class `View` are handles to Pixeltable views and snapshots (the latter require `is_snapshot=True` when
 creating the view).
 
@@ -30,6 +35,5 @@ or [`pxt.get_table`][pixeltable.get_table].
         - add_column
         - drop_column
         - rename_column
-        - update
         - revert
-
+        - update

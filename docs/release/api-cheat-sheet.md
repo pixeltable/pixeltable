@@ -8,91 +8,84 @@ import pixeltable.functions as pxtf
 
 ## Operations summary
 
-| Task                   | Code                                                                                                                                        |
-|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| Create a (mutable) table           | t = pxt.[create_table][pxt.create_table]('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})               |
-| Create a view           | t = pxt.[create_view][pxt.create_view]('view_name', base_tbl, schema={'col_1': pxt.StringType, ...}, filter=base_tbl.col > 10) |
-| Create a snapshot           | t = pxt.[create_view][pxt.create_view]('snapshot_name', t, is_snapshot=True)                                                   |
+| Task                        | Code                                                                                                                             |
+|-----------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| Create a (mutable) table    | t = [`pxt.create_table`][pixeltable.create_table]('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})        |
+| Create a view               | t = [`pxt.create_view`][pixeltable.create_view]('view_name', base_tbl, filter=base_tbl.col > 10)                                 |
+| Create a view with iterator | t = [`pxt.create_view`][pixeltable.create_view]('view_name', base_tbl, iterator=FrameIterator.create(video=base_tbl.col, fps=0)) |
+| Create a snapshot           | t = [`pxt.create_view`][pixeltable.create_view]('snapshot_name', t, is_snapshot=True)                                            |
 
 The following functions apply to tables, views, and snapshots.
 
-| Task                   | Code                                                                                                  |
-|--------------------------|-------------------------------------------------------------------------------------------------------|
-| Use an existing table | t = pxt.[get_table][pxt.get_table]('video_data')                                         |
-| Rename a table | pxt.[move][pxt.move]('video_data', 'vd')                                 |
-| Move a table | pxt.[move][pxt.move]('video_data', 'experiments.video_data')                                 |
-| List tables              | pxt.[list_tables][pxt.list_tables]()                                                     |
-| Delete a table           | pxt.[drop_table][pxt.drop_table]('video_data')                                           |
+| Task                  | Code                                                                  |
+|-----------------------|-----------------------------------------------------------------------|
+| Use an existing table | t = [`pxt.get_table`][pixeltable.get_table]('video_data')             |
+| Rename a table        | [`pxt.move`][pixeltable.move]('video_data', 'vd')                     |
+| Move a table          | [`pxt.move`][pixeltable.move]('video_data', 'experiments.video_data') |
+| List tables           | [`pxt.list_tables`][pixeltable.list_tables]()                         |
+| Delete a table        | [`pxt.drop_table`][pixeltable.drop_table]('video_data')               |
 
 
 ### Directories
-| Task                   | Code                                                                                                  |
-|--------------------------|-------------------------------------------------------------------------------------------------------|
-| Create a directory           | pxt.[create_dir][pxt.create_dir]('experiments')                                           |
-| Rename or move a directory | pxt.[move][pxt.move]('experiments', 'project_x.experiments')                             |
-| Delete a directory | f = pxt.[rm_dir][pxt.rm_dir]('experiments')                                    |
-| List directories | pxt.[list_dirs][pxt.list_dirs]('project_x')                   |
-
-### Functions
-| Task                   | Code                                                                                                  |
-|--------------------------|-------------------------------------------------------------------------------------------------------|
-| Create a stored function | pxt.[create_function][pxt.create_function]('func_name', ...)                             |
-| Load a stored function   | f = pxt.[get_function][pxt.get_function]('func_name')                                    |
-| Rename a stored function | pxt.[move][pxt.move]('func_name', 'better_name')                   |
-| Move a stored function | pxt.[move][pxt.move]('func_name', 'experiments.func_name')                   |
-| Update a stored function | pxt.[update_function][pxt.update_function]('func_name', ...)                             |
-| Delete a stored function | pxt.[drop_function][pxt.drop_function]('func_name')                                      |
+| Task                       | Code                                                                  |
+|----------------------------|-----------------------------------------------------------------------|
+| Create a directory         | [`pxt.create_dir`][pixeltable.create_dir]('experiments')              |
+| Rename or move a directory | [`pxt.move`][pixeltable.move]('experiments', 'project_x.experiments') |
+| Delete a directory         | f = [`pxt.rm_dir`][pixeltable.rm_dir]('experiments')                  |
+| List directories           | [`pxt.list_dirs`][pixeltable.list_dirs]('project_x')                  |
 
 ## Frame extraction for video data
 Create a table with video data and view for the frames:
 ```python
-v = pxt.create_table('tbl_name', [pxt.Column('video', pxt.VideoType())])
+import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
-args = {'video': v.video, 'fps': 0}
-f = pxt.create_view('frame_view_name', v, iterator_class=FrameIterator, iterator_args=args)
+t = pxt.create_table('tbl_name', {'video': pxt.VideoType()})
+f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(videos=t, fps=0))
 ```
 
-`fps: 0` extracts frames at the original frame rate.
+`fps=0` extracts frames at the original frame rate.
 
 ## Pixeltable types
-|Pixeltable type|Python type|
-|----|----|
-| `pxt.StringType()`| `str` |
-| `pxt.IntType()`| `int` |
-| `pxt.FloatType()`| `float` |
-| `pxt.BoolType()`| `bool` |
-| `pxt.TimestampType()`| `datetime.datetime` |
-| `pxt.JsonType()`| lists and dicts that can be converted to JSON|
-| `pxt.ArrayType()`| `numpy.ndarray`|
-| `pxt.ImageType()`| `PIL.Image.Image`|
-| `pxt.VideoType()`| `str` (the file path)|
-| `pxt.AudioType()`| `str` (the file path)|
+| Pixeltable type       | Python type                  |
+|-----------------------|------------------------------|
+| `pxt.StringType()`    | `str`                        |
+| `pxt.IntType()`       | `int`                        |
+| `pxt.FloatType()`     | `float`                      |
+| `pxt.BoolType()`      | `bool`                       |
+| `pxt.TimestampType()` | `datetime.datetime`          |
+| `pxt.JsonType()`      | `list` or `dict`             |
+| `pxt.ArrayType()`     | `numpy.ndarray`              |
+| `pxt.ImageType()`     | `PIL.Image.Image`            |
+| `pxt.VideoType()`     | `str` (the file path or URL) |
+| `pxt.AudioType()`     | `str` (the file path or URL) |
 
 
 ## Table operations summary
-|Action| Code                                                                                             |
-|----|--------------------------------------------------------------------------------------------------|
-| Print table schema | t.[describe][pixeltable.Table.describe]()                                                                                   |
-| Query a table | t.[select][pixeltable.Table.select](t.col2, t.col3 + 5).where(t.col1 == 'green').show()                                |
-| Insert a single row into a table | t.[insert][pixeltable.InsertableTable.insert](col1='green', ...) |
-| Insert multiple rows into a table| t.[insert][pixeltable.InsertableTable.insert]([{'col1': 'green', ...}, {'col1': 'red', ...}, ...]) |
-| Add a column| t.[add_column][pixeltable.Table.add_column](new_col_name=pxt.IntType())                                                       |
-| Rename a column| t.[rename_column][pixeltable.Table.rename_column]('col_name', 'new_col_name')                                                    |
-| Drop a column| t.[drop_column][pixeltable.Table.drop_column]('col_name')                                                                      |
-| Undo the last update operation (add/rename/drop column or insert)| t.[revert][pixeltable.Table.revert]()                                                                                     |
+
+| Action                                                            | Code                                                                                                 |
+|-------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| Print table schema                                                | t.[`describe`][pixeltable.Table.describe]()                                                          |
+| Query a table                                                     | t.[`select`][pixeltable.Table.select](t.col2, t.col3 + 5).where(t.col1 == 'green').show()            |
+| Insert a single row into a table                                  | t.[`insert`][pixeltable.InsertableTable.insert](col1='green', ...)                                   |
+| Insert multiple rows into a table                                 | t.[`insert`][pixeltable.InsertableTable.insert]([{'col1': 'green', ...}, {'col1': 'red', ...}, ...]) |
+| Add a column                                                      | t.[`add_column`][pixeltable.Table.add_column](new_col_name=pxt.IntType())                            |
+| Add a column (alternate form)                                     | t[new_col_name] = pxt.IntType()                                                                      |
+| Rename a column                                                   | t.[`rename_column`][pixeltable.Table.rename_column]('col_name', 'new_col_name')                      |
+| Drop a column                                                     | t.[`drop_column`][pixeltable.Table.drop_column]('col_name')                                          |
+| Undo the last update operation (add/rename/drop column or insert) | t.[`revert`][pixeltable.Table.revert]()                                                              |
 
 ## Querying a table
 
-| Action                                       | Code                                                      |
-|----------------------------------------------|-----------------------------------------------------------|
-| Look at 10 rows                              | t.[show][pixeltable.Table.show](10)                                              |
-| Look at the oldest 10 rows                   | t.[head][pixeltable.Table.head](n=10)                                            |
-| Look at the most recently added 10 rows      | t.[tail][pixeltable.Table.tail](n=10)                                            |
-| Look at all rows                             | t.collect()                                             |
-| Iterate over all rows as dictionaries        | for row in t.collect(): ...                             |
-| Look at row for frame 15                     | t.[where][pixeltable.Table.where}(t.pos  == 15).show()                            |
-| Look at rows before index 15                 | t.[where][pixeltable.Table.where](t.pos < 15).show(0)                             |
-| Look at rows before index 15 with RGB frames | t.[where][pixeltable.Table.where]((t.pos < 15) & (t.frame.mode == 'RGB')).collect() |
+| Action                                       | Code                                                                                  |
+|----------------------------------------------|---------------------------------------------------------------------------------------|
+| Look at 10 rows                              | t.[`show`][pixeltable.Table.show](10)                                                 |
+| Look at the oldest 10 rows                   | t.[`head`][pixeltable.Table.head](10)                                                 |
+| Look at the most recently added 10 rows      | t.[`tail`][pixeltable.Table.tail](10)                                                 |
+| Look at all rows                             | t.[`collect`][pixeltable.Table.collect]()                                             |
+| Iterate over all rows as dictionaries        | for row in t.[`collect`][pixeltable.Table.collect](): ...                             |
+| Look at row for frame 15                     | t.[`where`][pixeltable.Table.where](t.pos  == 15).show()                              |
+| Look at rows before index 15                 | t.[`where`][pixeltable.Table.where](t.pos < 15).show()                                |
+| Look at rows before index 15 with RGB frames | t.[`where`][pixeltable.Table.where]((t.pos < 15) & (t.frame.mode == 'RGB')).collect() |
 
 Pixeltable supports the standard comparison operators (`>=`, `>`, `==`, `<=`, `<`).
 `== None` is the equivalent of `isna()/isnull()` in Pandas.
@@ -103,11 +96,11 @@ or `~(t.frame.mode == 'RGB')`.
 
 ## Selecting and transforming columns
 
-|Action|Code|
-|----|----|
-| Only retrieve the frame index and frame | t.[select][pixeltable.Table.select](t.frame_idx, t.frame).collect() |
-| Look at frames rotated 90 degrees | t.[select][pixeltable.Table.select](t.frame.rotate(90)).collect() |
-| Overlay frame with itself rotated 90 degrees | t.[select][pixeltable.Table.select](pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).collect() |
+| Action                                       | Code                                                                                                        |
+|----------------------------------------------|-------------------------------------------------------------------------------------------------------------|
+| Only retrieve the frame index and frame      | t.[`select`][pixeltable.Table.select](t.frame_idx, t.frame).collect()                                       |
+| Look at frames rotated 90 degrees            | t.[`select`][pixeltable.Table.select](t.frame.rotate(90)).collect()                                         |
+| Overlay frame with itself rotated 90 degrees | t.[`select`][pixeltable.Table.select](pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).collect() |
 
 ## Computed columns
 
@@ -139,7 +132,7 @@ Each row is a dictionary mapping column names to column values (do not provide v
 
 ## Attributes and methods on image data
 
-Images are currently represented as `PIL.Image.Image` instances in memory and support a lot of the
+Images are represented as `PIL.Image.Image` instances in memory and support a lot of the
 attributes and methods documented
 [here](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image).
 
@@ -150,33 +143,3 @@ Available methods are: `convert`, `crop`, `effect_spread`, `entropy`, `filter`, 
 `point`, `quantize`, `reduce`, `remap_palette`, `resize`, `rotate`, `transform`, `transpose`.
 
 Methods can be chained, for example: `t.frame.resize((224, 224)).rotate(90).convert('L')`
-
-## Functions
-
-Functions can be used to transform data, both during querying as well as when data is added to a table.
-
-```python
-@pxt.udf(return_type=pxt.IntType(), param_types=[pxt.IntType()])
-def add1(x):
-    return x + 1
-```
-
-For querying: `t.select(t.frame_idx, add1(t.frame_idx)).show()`
-
-As a computed column: `t.add_column(c=add1(t.frame_idx))`
-
-<!---
-## Image similarity search
-
-In order to enable similarity on specific image columns, create those columns with `indexed=True`.
-This will compute an embedding for every image and store it in a vector index.
-```python
-c3 = pxt.Column('frame', pxt.ImageType(), indexed=True)
-```
-
-Assuming `img = PIL.Image.open(...)`
-
-Similarity search: `t.where(t.frame.nearest(img)).show(10)`
-
-Keyword search: `t.where(t.frame.matches('car')).show(10)`
--->
