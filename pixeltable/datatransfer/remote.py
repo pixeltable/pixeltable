@@ -35,7 +35,8 @@ class Remote(abc.ABC):
     def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
         """
         Synchronizes the given [`Table`][pixeltable.Table] with this `Remote`. This method
-        should generally not be called directly; instead, call `t.sync_remote()`.
+        should generally not be called directly; instead, call
+        [`t.sync_remotes()`][pixeltable.Table.sync_remotes].
 
         Args:
             t: The table to synchronize with this remote.

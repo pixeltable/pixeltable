@@ -36,7 +36,7 @@ class LabelStudioProject(Remote):
 
     Typically, applications will call [`create`][pixeltable.datatransfer.label_studio.LabelStudioProject.create]`()`
     to create a new project, then
-    `Table.link_remote()` to establish a link between a Pixeltable table and
+    [`Table.link_remote`][pixeltable.Table.link_remote]`()` to establish a link between a Pixeltable table and
     the new project.
 
     The API key and URL for a valid Label Studio server must be specified in Pixeltable config. Either:

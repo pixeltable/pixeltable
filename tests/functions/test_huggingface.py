@@ -150,6 +150,9 @@ class TestHuggingface:
         assert status.num_rows == 1
         assert status.num_excs == 0
         result = t.select(t.detect).collect()[0]['detect']
+        assert 'orange' in result['label_text']
+        assert 'bowl' in result['label_text']
+        assert 'broccoli' in result['label_text']
         label_text = {coco.COCO_2017_CATEGORIES[i] for i in result['labels']}
         assert 'orange' in label_text
         assert 'bowl' in label_text

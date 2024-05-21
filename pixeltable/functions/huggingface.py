@@ -138,6 +138,7 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
         {
             'scores': [score.item() for score in result['scores']],
             'labels': [label.item() for label in result['labels']],
+            'label_text': [model.config.id2label[label.item()] for label in result['labels']],
             'boxes': [box.tolist() for box in result['boxes']]
         }
         for result in results

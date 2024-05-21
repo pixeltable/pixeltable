@@ -700,7 +700,9 @@ class Table(SchemaObject):
             col_mapping: Optional[dict[str, str]] = None
     ) -> None:
         """
-        Links the specified `Remote` to this table.
+        Links the specified `Remote` to this table. Once a remote is linked, it can be synchronized with
+        this `Table` by calling [`Table.sync_remotes()`]. A record of the link
+        is stored in table metadata and will persist across sessions.
 
         Args:
             remote (pixeltable.datatransfer.Remote): The `Remote` to link to this table.
@@ -710,6 +712,7 @@ class Table(SchemaObject):
         push_cols = remote.get_push_columns()
         pull_cols = remote.get_pull_columns()
         if col_mapping is None:
+            # Use the identity mapping by default if `col_mapping` is not specified
             col_mapping = {col: col for col in itertools.chain(push_cols.keys(), pull_cols.keys())}
         self._validate_remote(push_cols, pull_cols, col_mapping)
         self.tbl_version_path.tbl_version.link_remote(remote, col_mapping)
@@ -736,7 +739,7 @@ class Table(SchemaObject):
             else:
                 raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
         self.tbl_version_path.tbl_version.unlink_remote(remote)
-        # TODO: Do we want to auto-delete tasks/projects/etc?
+        # TODO: Provide an option to auto-delete the project
         print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
 
     def _validate_remote(

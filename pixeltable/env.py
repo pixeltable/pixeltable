@@ -234,10 +234,6 @@ class Env:
         sql_logger.setLevel(logging.INFO)
         sql_logger.addHandler(fh)
         sql_logger.propagate = False
-        if self.config.get('sql-logging', False):
-            sql_logger.setLevel(logging.INFO)
-        else:
-            sql_logger.setLevel(logging.WARNING)
 
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')
