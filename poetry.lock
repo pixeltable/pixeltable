@@ -3716,27 +3716,27 @@ ptyprocess = ">=0.5"
 
 [[package]]
 name = "pgserver"
-version = "0.1.2"
+version = "0.1.3"
 description = "Self-contained postgres server for your python applications"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "pgserver-0.1.2-cp310-cp310-macosx_12_0_x86_64.whl", hash = "sha256:e84ef56b5a8a33b4b6e721cda2ec41e2c9ca0b6581b736642fcbd7a8cefda594"},
-    {file = "pgserver-0.1.2-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:101dbec84e334f25a699c1a98bf9473a7d643830d2b0f96483d219b7b19992d0"},
-    {file = "pgserver-0.1.2-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f6938b4c8a6d17ceee6743786db8ea66aa27844512299bf86e38d25d28952762"},
-    {file = "pgserver-0.1.2-cp310-cp310-win_amd64.whl", hash = "sha256:68fbbed09604f8bae0b7a89f7d3113637429b40b95b01de651a58bf68064bf1e"},
-    {file = "pgserver-0.1.2-cp311-cp311-macosx_12_0_x86_64.whl", hash = "sha256:84054c23716a121b3ad02ce029fa3fe6b8f9aec6e33163964d82327e73d13497"},
-    {file = "pgserver-0.1.2-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:de432ece5a4b0cc35003598738084a268533e914d5ecb449af8bb0e74575eb27"},
-    {file = "pgserver-0.1.2-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c70ef4d0b6b7696f95892add40cabe8504bfb9a88d709493930937cff1a383e5"},
-    {file = "pgserver-0.1.2-cp311-cp311-win_amd64.whl", hash = "sha256:c553af72c4481b137c0d9ca7ab6674bba9bdf4435c772b5cc00342d421fafe10"},
-    {file = "pgserver-0.1.2-cp312-cp312-macosx_12_0_x86_64.whl", hash = "sha256:8589cf55d1748ca291a3b15a8f4316faea836014c489cc8fefa36ee7a40f7b5a"},
-    {file = "pgserver-0.1.2-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:b49b91353e199a9d7674823b2f0e4b44d9c7df2c79873ffc443bef076bf18034"},
-    {file = "pgserver-0.1.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:789fbdffd583b1f8c89a257280e58618d43e7ee1077127659cc33b8ddc16268b"},
-    {file = "pgserver-0.1.2-cp312-cp312-win_amd64.whl", hash = "sha256:a99d3be74f7e576a917f0a5159990ea5ee717d356d478bcb4b462043101d8120"},
-    {file = "pgserver-0.1.2-cp39-cp39-macosx_12_0_x86_64.whl", hash = "sha256:2e628728f9acf79d5310b7ce331841d012262fe39c9b33f69c3a0b617580d8a5"},
-    {file = "pgserver-0.1.2-cp39-cp39-macosx_14_0_arm64.whl", hash = "sha256:1ee4b2cee5be9411535a9ad32634b4e3266bbed33b2e4037b68101a57fddbd84"},
-    {file = "pgserver-0.1.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5fb638925f79f550de3184424e3cdb65a7f33677be0dfc7fc3496c89438d5372"},
-    {file = "pgserver-0.1.2-cp39-cp39-win_amd64.whl", hash = "sha256:07f29d803f960798b2a5a43ac412bee2b40761099253bfcc83bd4ab1a9062a0e"},
+    {file = "pgserver-0.1.3-cp310-cp310-macosx_12_0_x86_64.whl", hash = "sha256:45e6e74d5ed4cba7802bb1a47aebe89e84be79dd55581a61f956aa7c0ae61078"},
+    {file = "pgserver-0.1.3-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:37b8c9334a30997bfc52f5ae897b774784f00553606baa20dfefb94c4ae106f4"},
+    {file = "pgserver-0.1.3-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f738ec686e9395c5857fcb465d482a6199f0c9b9f61f4c013e91d2bab2427f47"},
+    {file = "pgserver-0.1.3-cp310-cp310-win_amd64.whl", hash = "sha256:cd35bb3d7796d017a669c5a934748068983bdfe1dd87d5a5061d2aaebbfdb462"},
+    {file = "pgserver-0.1.3-cp311-cp311-macosx_12_0_x86_64.whl", hash = "sha256:c0968750a53f950a668685615f571477ea332eeeb56295125ab65f0f401c9c7b"},
+    {file = "pgserver-0.1.3-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:bb39f35f277fb73ef8a74e4f9311abfbafac5e6c8093c639e7d0ad0b7a310b8d"},
+    {file = "pgserver-0.1.3-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8eca775f47b12ac36aea126deeaa8b5019c7fe5f1e7f43ac016647c4986c2ca0"},
+    {file = "pgserver-0.1.3-cp311-cp311-win_amd64.whl", hash = "sha256:d07b17602cbad486184512bc25e101aa306b53f5bfee75b2537acfb6a4abe986"},
+    {file = "pgserver-0.1.3-cp312-cp312-macosx_12_0_x86_64.whl", hash = "sha256:d3324f53dcb2a5e6fb43e79f002946f3be6f385294005303d6dd4074b44f4c89"},
+    {file = "pgserver-0.1.3-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:9d1f4abf1e8b3c3549dd653b0bb24e75346130a7a6cb4d7c705ce8f3a56fd4df"},
+    {file = "pgserver-0.1.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3c5ece5d17b78581cc12d46ef71331b35617c022f3c17b2fc4708060f13dd30d"},
+    {file = "pgserver-0.1.3-cp312-cp312-win_amd64.whl", hash = "sha256:205a040d923c123ee99b7ce2af0075618b89978efe1c0027efda28b841d8eae8"},
+    {file = "pgserver-0.1.3-cp39-cp39-macosx_12_0_x86_64.whl", hash = "sha256:ad73781afedb8f1f419b6adf0dc39f2fc5b2193b27a431478150d6cdee2b52bf"},
+    {file = "pgserver-0.1.3-cp39-cp39-macosx_14_0_arm64.whl", hash = "sha256:8f7bfda5628b95625eacfb5d43b9da29277fa0a8158b69435ccb76b49e69e27c"},
+    {file = "pgserver-0.1.3-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cbe23c7be3b7b077c198eec6aef193bab25f88a86b9176e80189ffe97f1741d4"},
+    {file = "pgserver-0.1.3-cp39-cp39-win_amd64.whl", hash = "sha256:a5b61ea2989be970356b4fcd65ffdaaba678185c6777deb368f3a75cc4a873b2"},
 ]
 
 [package.dependencies]
@@ -6876,4 +6876,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "48d9762f949d3d08a4a9712f9ea3d8788455f5a1730546d49f147b537f9b1d46"
+content-hash = "bcc651fea014f982e3e4dbe2834ce223001ee90262b8d9224e066c1b5fb28dab"
