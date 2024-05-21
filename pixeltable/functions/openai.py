@@ -16,8 +16,13 @@ from pixeltable import env
 from pixeltable.func import Batch
 
 
-def openai_client() -> openai.OpenAI:
-    return env.Env.get().get_client('openai', lambda api_key: openai.OpenAI(api_key=api_key))
+@env.Env.get().register_client('openai')
+def _(api_key: str) -> openai.OpenAI:
+    return openai.OpenAI(api_key=api_key)
+
+
+def _openai_client() -> openai.OpenAI:
+    return env.Env.get().get_clientt('openai')
 
 
 # Exponential backoff decorator using tenacity.
@@ -44,7 +49,7 @@ def speech(
         response_format: Optional[str] = None,
         speed: Optional[float] = None
 ) -> str:
-    content = openai_client().audio.speech.create(
+    content = _openai_client().audio.speech.create(
         input=input,
         model=model,
         voice=voice,
@@ -71,7 +76,7 @@ def transcriptions(
         temperature: Optional[float] = None
 ) -> dict:
     file = pathlib.Path(audio)
-    transcription = openai_client().audio.transcriptions.create(
+    transcription = _openai_client().audio.transcriptions.create(
         file=file,
         model=model,
         language=_opt(language),
@@ -93,7 +98,7 @@ def translations(
         temperature: Optional[float] = None
 ) -> dict:
     file = pathlib.Path(audio)
-    translation = openai_client().audio.translations.create(
+    translation = _openai_client().audio.translations.create(
         file=file,
         model=model,
         prompt=_opt(prompt),
@@ -127,7 +132,7 @@ def chat_completions(
         tool_choice: Optional[dict] = None,
         user: Optional[str] = None
 ) -> dict:
-    result = openai_client().chat.completions.create(
+    result = _openai_client().chat.completions.create(
         messages=messages,
         model=model,
         frequency_penalty=_opt(frequency_penalty),
@@ -171,7 +176,7 @@ def vision(
              }}
          ]}
     ]
-    result = openai_client().chat.completions.create(
+    result = _openai_client().chat.completions.create(
         messages=messages,
         model=model
     )
@@ -197,7 +202,7 @@ def embeddings(
         dimensions: Optional[int] = None,
         user: Optional[str] = None
 ) -> Batch[np.ndarray]:
-    result = openai_client().embeddings.create(
+    result = _openai_client().embeddings.create(
         input=input,
         model=model,
         dimensions=_opt(dimensions),
@@ -235,7 +240,7 @@ def image_generations(
         user: Optional[str] = None
 ) -> PIL.Image.Image:
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    result = openai_client().images.generate(
+    result = _openai_client().images.generate(
         prompt=prompt,
         model=_opt(model),
         quality=_opt(quality),
@@ -275,7 +280,7 @@ def moderations(
         *,
         model: Optional[str] = None
 ) -> dict:
-    result = openai_client().moderations.create(
+    result = _openai_client().moderations.create(
         input=input,
         model=_opt(model)
     )

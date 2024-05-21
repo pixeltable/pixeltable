@@ -5,14 +5,16 @@ import glob
 import http.server
 import importlib
 import importlib.util
+import inspect
 import logging
 import os
 import sys
 import threading
 import uuid
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Dict, Any, List, TYPE_CHECKING
+from typing import Callable, Optional, Dict, Any, List
 
 import pgserver
 import sqlalchemy as sql
@@ -24,8 +26,6 @@ import pixeltable.exceptions as excs
 from pixeltable import metadata
 from pixeltable.utils.http_server import make_server
 
-if TYPE_CHECKING:
-    import label_studio_sdk
 
 class Env:
     """
@@ -60,7 +60,6 @@ class Env:
         # info about installed packages that are utilized by some parts of the code;
         # package name -> version; version == []: package is installed, but we haven't determined the version yet
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
-        self._label_studio_client: Optional['label_studio_sdk.client.Client'] = None
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
         self._httpd: Optional[http.server.ThreadingHTTPServer] = None
         self._http_address: Optional[str] = None
@@ -296,46 +295,68 @@ class Env:
     def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
 
-    def get_client(self, name: str, init: Callable, environ: Optional[str] = None) -> Any:
+    def register_client(self, name: str) -> Callable:
+        """Decorator that registers a third-party API client for use by Pixeltable.
+
+        The decorated function is an initialization wrapper for the client, and can have
+        any number of string parameters, with a signature such as:
+
+        ```
+        def my_client(api_key: str, url: str) -> my_client_sdk.Client:
+            return my_client_sdk.Client(api_key=api_key, url=url)
+        ```
+
+        The initialization wrapper will not be called immediately; initialization will
+        be deferred until the first time the client is used. At initialization time,
+        Pixeltable will attempt to load the client parameters from config. For each
+        config parameter:
+        - If an environment variable named MY_CLIENT_API_KEY (for example) is set, use it;
+        - Otherwise, look for 'api_key' in the 'my_client' section of config.yaml.
+
+        If all config parameters are found, Pixeltable calls the initialization function;
+        otherwise it throws an exception.
+
+        Args:
+            - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
         """
-        Gets the client with the specified name, using `init` to construct one if necessary.
+        def decorator(fn: Callable) -> None:
+            sig = inspect.signature(fn)
+            param_names = list(sig.parameters.keys())
+            self._registered_clients[name] = ApiClient(init_fn=fn, param_names=param_names)
 
-        - name: The name of the client
-        - init: A `Callable` with signature `fn(api_key: str) -> Any` that constructs a client object
-        - environ: The name of the environment variable to use for the API key, if no API key is found in config
-            (defaults to f'{name.upper()}_API_KEY')
+        return decorator
+
+    def get_clientt(self, name: str) -> Any:
         """
-        if name in self._registered_clients:
-            return self._registered_clients[name]
+        Gets the client with the specified name, initializing it if necessary.
 
-        if environ is None:
-            environ = f'{name.upper()}_API_KEY'
+        Args:
+            - name: The name of the client
+        """
+        cl: ApiClient = self._registered_clients[name]
+        if cl.client_obj is not None:
+            return cl.client_obj  # Already initialized
 
-        if name in self._config and 'api_key' in self._config[name]:
-            api_key = self._config[name]['api_key']
-        else:
-            api_key = os.environ.get(environ)
-        if api_key is None or api_key == '':
-            raise excs.Error(f'`{name}` client not initialized (no API key configured).')
+        # Construct a client. For each client parameter, first check if the parameter is in the environment;
+        # if not, look in Pixeltable config from `config.yaml`.
 
-        client = init(api_key)
-        self._registered_clients[name] = client
+        init_kwargs = {}
+        for param in cl.param_names:
+            environ = f'{name.upper()}_{param.upper()}'
+            if environ in os.environ:
+                init_kwargs[param] = os.environ[environ]
+            elif name.lower() in self._config and param in self._config[name.lower()]:
+                init_kwargs[param] = self._config[name.lower()][param.lower()]
+            else:
+                raise excs.Error(
+                    f'`{name}` client not initialized: parameter `{param}` is not configured.\n'
+                    f'To fix this, specify the `{environ}` environment variable, or put `{param.lower()}` in '
+                    f'the `{name.lower()}` section of ~/.pixeltable/config.yaml.'
+                )
+
+        cl.client_obj = cl.init_fn(**init_kwargs)
         self._logger.info(f'Initialized `{name}` client.')
-        return client
-
-    def _create_label_studio_client(self) -> None:
-        api_key = os.environ.get('LABEL_STUDIO_API_KEY')
-        if api_key is None and 'label_studio' in self._config and 'api_key' in self._config['label_studio']:
-            api_key = self._config['label_studio']['api_key']
-        url = os.environ.get('LABEL_STUDIO_URL')
-        if url is None and 'label_studio' in self._config and 'url' in self._config['label_studio']:
-            url = self._config['label_studio']['url']
-        if api_key is None or api_key == '' or url is None or url == '':
-            self._logger.info('Label Studio client not initialized (URL and/or access token not configured).')
-            return
-        import label_studio_sdk.client
-        self._logger.info('Initializing Label Studio client.')
-        self._label_studio_client = label_studio_sdk.client.Client(url=url, api_key=api_key)
+        return cl.client_obj
 
     def _start_web_server(self) -> None:
         """
@@ -456,9 +477,9 @@ class Env:
         assert self._spacy_nlp is not None
         return self._spacy_nlp
 
-    @property
-    def label_studio_client(self) -> 'label_studio_sdk.Client':
-        if self._label_studio_client is None:
-            self._create_label_studio_client()
-        assert self._label_studio_client is not None
-        return self._label_studio_client
+
+@dataclass
+class ApiClient:
+    init_fn: Callable
+    param_names: list[str]
+    client_obj: Optional[Any] = None

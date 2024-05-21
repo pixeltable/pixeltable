@@ -20,6 +20,15 @@ from pixeltable.utils import coco
 _logger = logging.getLogger('pixeltable')
 
 
+@env.Env.get().register_client('label_studio')
+def _(api_key: str, url: str) -> label_studio_sdk.Client:
+    return label_studio_sdk.Client(api_key=api_key, url=url)
+
+
+def _label_studio_client() -> label_studio_sdk.Client:
+    return env.Env.get().get_clientt('label_studio')
+
+
 class LabelStudioProject(Remote):
 
     ANNOTATIONS_COLUMN = 'annotations'
@@ -32,7 +41,7 @@ class LabelStudioProject(Remote):
     def project(self) -> label_studio_sdk.project.Project:
         if self._project is None:
             try:
-                self._project = env.Env.get().label_studio_client.get_project(self.project_id)
+                self._project = _label_studio_client().get_project(self.project_id)
             except HTTPError as exc:
                 raise excs.Error(f'Could not locate Label Studio project: {self.project_id} '
                                  '(cannot connect to server or project no longer exists)') from exc
@@ -54,8 +63,7 @@ class LabelStudioProject(Remote):
     def create(cls, title: str, label_config: str, **kwargs) -> 'LabelStudioProject':
         # Check that the config is valid before creating the project
         cls._parse_project_config(label_config)
-        ls_client = env.Env.get().label_studio_client
-        project = ls_client.start_project(title=title, label_config=label_config, **kwargs)
+        project = _label_studio_client().start_project(title=title, label_config=label_config, **kwargs)
         project_id = project.get_params()['id']
         return LabelStudioProject(project_id)
 

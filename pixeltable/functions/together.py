@@ -11,8 +11,13 @@ from pixeltable import env
 from pixeltable.func import Batch
 
 
-def together_client() -> together.Together:
-    return env.Env.get().get_client('together', lambda api_key: together.Together(api_key=api_key))
+@env.Env.get().register_client('together')
+def _(api_key: str) -> together.Together:
+    return together.Together(api_key=api_key)
+
+
+def _together_client() -> together.Together:
+    return env.Env.get().get_clientt('together')
 
 
 @pxt.udf
@@ -31,7 +36,7 @@ def completions(
         n: Optional[int] = None,
         safety_model: Optional[str] = None
 ) -> dict:
-    return together_client().completions.create(
+    return _together_client().completions.create(
         prompt=prompt,
         model=model,
         max_tokens=max_tokens,
@@ -66,7 +71,7 @@ def chat_completions(
         tools: Optional[dict] = None,
         tool_choice: Optional[dict] = None
 ) -> dict:
-    return together_client().chat.completions.create(
+    return _together_client().chat.completions.create(
         messages=messages,
         model=model,
         max_tokens=max_tokens,
@@ -99,7 +104,7 @@ _embedding_dimensions_cache = {
 
 @pxt.udf(batch_size=32, return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()))
 def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
-    result = together_client().embeddings.create(input=input, model=model)
+    result = _together_client().embeddings.create(input=input, model=model)
     return [
         np.array(data.embedding, dtype=np.float64)
         for data in result.data
@@ -127,7 +132,7 @@ def image_generations(
         negative_prompt: Optional[str] = None,
 ) -> PIL.Image.Image:
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    result = together_client().images.generate(
+    result = _together_client().images.generate(
         prompt=prompt,
         model=model,
         steps=steps,

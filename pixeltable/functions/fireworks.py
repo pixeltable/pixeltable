@@ -6,8 +6,13 @@ import pixeltable as pxt
 from pixeltable import env
 
 
-def fireworks_client() -> fireworks.client.Fireworks:
-    return env.Env.get().get_client('fireworks', lambda api_key: fireworks.client.Fireworks(api_key=api_key))
+@env.Env.get().register_client('fireworks')
+def _(api_key: str) -> fireworks.client.Fireworks:
+    return fireworks.client.Fireworks(api_key=api_key)
+
+
+def _fireworks_client() -> fireworks.client.Fireworks:
+    return env.Env.get().get_clientt('fireworks')
 
 
 @pxt.udf
@@ -26,8 +31,8 @@ def chat_completions(
         'top_p': top_p,
         'temperature': temperature
     }
-    kwargs_not_none = dict(filter(lambda x: x[1] is not None, kwargs.items()))
-    return fireworks_client().chat.completions.create(
+    kwargs_not_none = {k: v for k, v in kwargs.items() if v is not None}
+    return _fireworks_client().chat.completions.create(
         model=model,
         messages=messages,
         **kwargs_not_none
