@@ -22,7 +22,7 @@ def _(api_key: str) -> openai.OpenAI:
 
 
 def _openai_client() -> openai.OpenAI:
-    return env.Env.get().get_clientt('openai')
+    return env.Env.get().get_client('openai')
 
 
 # Exponential backoff decorator using tenacity.

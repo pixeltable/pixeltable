@@ -17,7 +17,7 @@ def _(api_key: str) -> together.Together:
 
 
 def _together_client() -> together.Together:
-    return env.Env.get().get_clientt('together')
+    return env.Env.get().get_client('together')
 
 
 @pxt.udf

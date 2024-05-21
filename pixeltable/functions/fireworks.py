@@ -12,7 +12,7 @@ def _(api_key: str) -> fireworks.client.Fireworks:
 
 
 def _fireworks_client() -> fireworks.client.Fireworks:
-    return env.Env.get().get_clientt('fireworks')
+    return env.Env.get().get_client('fireworks')
 
 
 @pxt.udf

@@ -326,7 +326,7 @@ class Env:
 
         return decorator
 
-    def get_clientt(self, name: str) -> Any:
+    def get_client(self, name: str) -> Any:
         """
         Gets the client with the specified name, initializing it if necessary.
 
@@ -347,7 +347,7 @@ class Env:
                 init_kwargs[param] = os.environ[environ]
             elif name.lower() in self._config and param in self._config[name.lower()]:
                 init_kwargs[param] = self._config[name.lower()][param.lower()]
-            else:
+            if param not in init_kwargs or init_kwargs[param] == '':
                 raise excs.Error(
                     f'`{name}` client not initialized: parameter `{param}` is not configured.\n'
                     f'To fix this, specify the `{environ}` environment variable, or put `{param.lower()}` in '
