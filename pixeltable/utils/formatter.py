@@ -10,6 +10,7 @@ from pixeltable.utils.http_server import get_file_uri
 import logging
 import html
 
+
 _logger = logging.getLogger('pixeltable')
 
 FLOAT_PRECISION = 3
@@ -19,6 +20,7 @@ STRING_THRESHOLD = 250
 STRING_EDGEITEMS = 120
 INDENT = 1
 
+
 def _create_source_tag(http_address: str, file_path: str) -> str:
     src_url = get_file_uri(http_address, file_path)
     mime = mimetypes.guess_type(src_url)[0]
@@ -27,24 +29,12 @@ def _create_source_tag(http_address: str, file_path: str) -> str:
     return f'<source src="{src_url}" {mime_attr} />'
 
 
-def escape_string_for_json(input_string: str) -> str:
-    """ the output here can be printed to screen, and copy-pasted, to get the same string value """
-    # Use encode to escape special characters
-    escaped_string = input_string.encode('unicode_escape').decode('utf-8')
-    # Escape double quotes
-    escaped_string = escaped_string.replace('"', '\\"')
-    return escaped_string
-
-def convert_newlines_to_br(input_string):
-    # Escape HTML special characters
-    escaped_string = html.escape(input_string)
-    # Replace newline characters with <br>
-    html_string = escaped_string.replace('\n', '<br>')
-    return html_string
-
-
-def as_simple_ndarray(val: list[Any]) -> Optional[np.ndarray]:
-    """attempts to parse list as a numerical np.ndarray, if not possible returns None"""
+def as_numeric_ndarray(val: list[Any]) -> Optional[np.ndarray]:
+    """
+        Attempts to parse list as a numerical np.ndarray, if not,
+        either because the shape is not consistent or because the elements are not numerical,
+        returns None
+    """
     arr = None
     try:
         arr = np.array(val)
@@ -54,14 +44,14 @@ def as_simple_ndarray(val: list[Any]) -> Optional[np.ndarray]:
         arr = None
     return arr
 
+from typing import Union
+def contains_only_simple_elements(values: Union[list[Any], dict[Any]]) -> bool:
+    """ whether all values of this array or dict are themselves elementary (no nested lists or dicts)
+    """
+    if isinstance(values, dict):
+        values = values.values()
 
-def is_simple_array(val: list[Any]) -> bool:
-    for v in val:
-        if isinstance(v,list) or isinstance(v,dict):
-            return False
-    return True
-
-
+    return not any(isinstance(v, (list, dict)) for v in values)
 
 class PixeltableFormatter:
     def __init__(self, num_rows: int, num_cols: int, http_address: str):
@@ -73,20 +63,29 @@ class PixeltableFormatter:
         # stay consistent with numpy formatting (0-D array has no brackets)
         return np.array2string(np.array(val), precision=FLOAT_PRECISION)
 
-    def _format_array(self, arr: list[Any]) -> str:
-        return np.array2string(arr, precision=FLOAT_PRECISION, threshold=NP_THRESHOLD, separator=',', edgeitems=NP_EDGEITEMS)
+    def _format_array(self, arr: list[Any], html_newlines=True) -> str:
+        """ for numerical arrays only """
+        rep = np.array2string(arr, precision=FLOAT_PRECISION, threshold=NP_THRESHOLD, separator=',', edgeitems=NP_EDGEITEMS)
+        if html_newlines:
+            return rep.replace('\n', '<br>')
+        return rep
 
     def _format_string(self, val: str) -> str:
+        # user html.escape on string contents, so that string contents are displayed as texst and do not affect markup
+        # (NB escape=False in our call DataFrame.to_html() so that we can insert our own HTML for images etc.)
         if len(val) > STRING_THRESHOLD:
-            return f'"{escape_string_for_json(val[:STRING_EDGEITEMS])} ...... {escape_string_for_json(val[-STRING_EDGEITEMS:])}"'
-        return f'"{escape_string_for_json(val)}"'.replace('\n', '<br>')
+            return f'{html.escape(val[:STRING_EDGEITEMS])} ...... {html.escape(val[-STRING_EDGEITEMS:])}'
+        return f'{html.escape(val)}'
 
-    def _format_json_helper(self, obj: Any, level: int) -> str:
+    def _format_json_helper(self, obj: Any, level: int, html_newlines: bool) -> str:
         def get_prefix(level):
             return ' ' * (level * INDENT)
 
+        NEWLINE = '<br>' if html_newlines else '\n'
+
         if obj is None:
             return f'{get_prefix(level)}null'
+
         elif isinstance(obj, list):
             # we will distinguish 3 separate cases:
             # 1. numerical arrays (potentially multiple levels of nesting, often seen as model outputs)
@@ -95,32 +94,40 @@ class PixeltableFormatter:
             #   => (eg category names) print in one line (ie, avoid line per element)
             # 3. list with some complex types, eg list of dicts.
             #   => insert newlines between elements to help read them.
-            arr = as_simple_ndarray(obj)
+            arr = as_numeric_ndarray(obj)
             if arr is not None:
-                arrstr = self._format_array(arr)
-                return '\n'.join([f'{get_prefix(level)}{line}' for line in arrstr.splitlines()])
+                arrstr = self._format_array(arr, html_newlines=html_newlines)
+                return NEWLINE.join([f'{get_prefix(level)}{line}' for line in arrstr.split(NEWLINE)])
             out_pieces = []
-            if is_simple_array(obj):
+            if contains_only_simple_elements(obj):
                 for elt in obj:
-                    fmt_elt = self._format_json_helper(elt, level=0)
+                    fmt_elt = self._format_json_helper(elt, level=0, html_newlines=html_newlines)
                     out_pieces.append(fmt_elt)
                 contents = ','.join(out_pieces)
                 return f'{get_prefix(level)}[{contents}]'
             else:
                 for elt in obj:
-                    fmt_elt = self._format_json_helper(elt, level=level+1)
+                    fmt_elt = self._format_json_helper(elt, level=level+1, html_newlines=html_newlines)
                     out_pieces.append(fmt_elt)
-                joiner = ',\n'
+                joiner = f',{NEWLINE}'
                 contents = joiner.join(out_pieces)
-                return f'{get_prefix(level)}[\n{contents}\n{get_prefix(level)}]'
+                return f'{get_prefix(level)}[{NEWLINE}{contents}{NEWLINE}{get_prefix(level)}]'
         elif isinstance(obj, dict):
             out_pieces = []
-            for key, value in obj.items():
-                fmt_value = self._format_json_helper(value, level=level+1)
-                fmt_key = self._format_string(key)
-                out_pieces.append(f'{get_prefix(level+1)}{fmt_key}: {fmt_value.lstrip()}')
-            contents = ',\n'.join(out_pieces)
-            return f'{get_prefix(level)}{{\n{contents}\n{get_prefix(level)}}}'
+            if contains_only_simple_elements(obj):
+                for key, value in obj.items():
+                    fmt_value = self._format_json_helper(value, level=0, html_newlines=html_newlines)
+                    fmt_key = self._format_string(key)
+                    out_pieces.append(f'{fmt_key}: {fmt_value}')
+                contents = ', '.join(out_pieces)
+                return f'{get_prefix(level)}{{{contents}}}'
+            else:
+                for key, value in obj.items():
+                    fmt_value = self._format_json_helper(value, level=level + 1, html_newlines=html_newlines)
+                    fmt_key = self._format_string(key)
+                    out_pieces.append(f'{get_prefix(level + 1)}{fmt_key}: {fmt_value.lstrip()}')
+                contents = f',{NEWLINE}'.join(out_pieces)
+                return f'{get_prefix(level)}{{{NEWLINE}{contents}{NEWLINE}{get_prefix(level)}}}'
         elif isinstance(obj, float):
             return self._format_float(obj)
         elif isinstance(obj, str):
@@ -131,7 +138,7 @@ class PixeltableFormatter:
             assert False, f'Unexpected type: {type(obj)}'
 
     def _format_json(self, obj: Any) -> str:
-        return self._format_json_helper(obj, level=0).replace('\n', '<br>')
+        return self._format_json_helper(obj, level=0, html_newlines=True)
 
     def _format_img(self, img: Image.Image) -> str:
         """
