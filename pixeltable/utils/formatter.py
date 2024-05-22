@@ -129,16 +129,16 @@ class PixeltableFormatter:
                 contents = f',{NEWLINE}'.join(out_pieces)
                 return f'{get_prefix(level)}{{{NEWLINE}{contents}{NEWLINE}{get_prefix(level)}}}'
         elif isinstance(obj, float):
-            return self._format_float(obj)
+            return f'{get_prefix(level)}{self._format_float(obj)}'
         elif isinstance(obj, str):
-            return self._format_string(obj)
+            return f'{get_prefix(level)}{self._format_string(obj)}'
         elif isinstance(obj, int):
-            return str(obj)
+            return f'{get_prefix(level)}{str(obj)}'
         else:
-            assert False, f'Unexpected type: {type(obj)}'
+            assert False, f'Unexpected type within json: {type(obj)}'
 
     def _format_json(self, obj: Any) -> str:
-        return self._format_json_helper(obj, level=0, html_newlines=True)
+        return f'''<pre style="text-align:left; background-color:transparent; margin:0;">{self._format_json_helper(obj, level=0, html_newlines=False)}</pre>'''
 
     def _format_img(self, img: Image.Image) -> str:
         """
