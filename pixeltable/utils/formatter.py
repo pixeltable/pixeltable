@@ -8,6 +8,7 @@ import mimetypes
 from typing import Any, Optional
 from pixeltable.utils.http_server import get_file_uri
 import logging
+import html
 
 _logger = logging.getLogger('pixeltable')
 
@@ -17,7 +18,6 @@ NP_EDGEITEMS = 6
 STRING_THRESHOLD = 250
 STRING_EDGEITEMS = 120
 INDENT = 1
-
 
 def _create_source_tag(http_address: str, file_path: str) -> str:
     src_url = get_file_uri(http_address, file_path)
@@ -34,6 +34,13 @@ def escape_string_for_json(input_string: str) -> str:
     # Escape double quotes
     escaped_string = escaped_string.replace('"', '\\"')
     return escaped_string
+
+def convert_newlines_to_br(input_string):
+    # Escape HTML special characters
+    escaped_string = html.escape(input_string)
+    # Replace newline characters with <br>
+    html_string = escaped_string.replace('\n', '<br>')
+    return html_string
 
 
 def as_simple_ndarray(val: list[Any]) -> Optional[np.ndarray]:
@@ -55,14 +62,6 @@ def is_simple_array(val: list[Any]) -> bool:
     return True
 
 
-def escape_string_for_json(input_string):
-    """ the output here can be printed to screen, and copy-pasted, to get the same string value """
-    # Use encode to escape special characters
-    escaped_string = input_string.encode('unicode_escape').decode('utf-8')
-    # Escape double quotes
-    escaped_string = escaped_string.replace('"', '\\"')
-    return escaped_string
-
 
 class PixeltableFormatter:
     def __init__(self, num_rows: int, num_cols: int, http_address: str):
@@ -80,13 +79,15 @@ class PixeltableFormatter:
     def _format_string(self, val: str) -> str:
         if len(val) > STRING_THRESHOLD:
             return f'"{escape_string_for_json(val[:STRING_EDGEITEMS])} ...... {escape_string_for_json(val[-STRING_EDGEITEMS:])}"'
-        return f'"{escape_string_for_json(val)}"'
+        return f'"{escape_string_for_json(val)}"'.replace('\n', '<br>')
 
     def _format_json_helper(self, obj: Any, level: int) -> str:
         def get_prefix(level):
             return ' ' * (level * INDENT)
 
-        if isinstance(obj, list):
+        if obj is None:
+            return f'{get_prefix(level)}null'
+        elif isinstance(obj, list):
             # we will distinguish 3 separate cases:
             # 1. numerical arrays (potentially multiple levels of nesting, often seen as model outputs)
             #   => treat just like array columns for consistency.
@@ -125,14 +126,12 @@ class PixeltableFormatter:
         elif isinstance(obj, str):
             return self._format_string(obj)
         elif isinstance(obj, int):
-            return str(int)
-        elif isinstance(obj, None):
-            return 'null'
+            return str(obj)
         else:
             assert False, f'Unexpected type: {type(obj)}'
 
     def _format_json(self, obj: Any) -> str:
-        return self._format_json_helper(obj, level=0)
+        return self._format_json_helper(obj, level=0).replace('\n', '<br>')
 
     def _format_img(self, img: Image.Image) -> str:
         """
