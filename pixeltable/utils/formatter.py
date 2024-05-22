@@ -99,6 +99,8 @@ class PixeltableFormatter:
         if obj is None:
             return f'{get_prefix(level)}null'
 
+        if isinstance(obj, np.ndarray):  # sometimes we get a numpy array, which is technically not a list
+            return self._format_json_helper(obj.tolist(), level=level)
         elif isinstance(obj, list):
             # we will distinguish 3 separate cases:
             # 1. numerical arrays (potentially multiple levels of nesting, often seen as model outputs)
