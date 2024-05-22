@@ -63,12 +63,12 @@ class PixeltableFormatter:
         self.num_cols = num_cols
         self.http_address = http_address
 
-    def _format_float(self, val: float) -> str:
+    def format_float(self, val: float) -> str:
         # stay consistent with numpy formatting (0-D array has no brackets)
         return np.array2string(np.array(val), precision=FLOAT_PRECISION)
 
     def _format_array(self, arr: list[Any]) -> str:
-        """for numerical arrays only"""
+        """for numerical arrays only. to format an array type, use format_json, which also includes styling"""
         return np.array2string(
             arr, precision=FLOAT_PRECISION, threshold=NP_THRESHOLD, separator=',', edgeitems=NP_EDGEITEMS
         )
@@ -143,7 +143,7 @@ class PixeltableFormatter:
                 contents = ',\n'.join(out_pieces)
                 return f'{get_prefix(level)}{{\n{contents}\n{get_prefix(level)}}}'
         elif isinstance(obj, float):
-            return f'{get_prefix(level)}{self._format_float(obj)}'
+            return f'{get_prefix(level)}{self.format_float(obj)}'
         elif isinstance(obj, str):
             return f'{get_prefix(level)}{self._format_string(obj)}'
         elif isinstance(obj, int):
@@ -151,7 +151,7 @@ class PixeltableFormatter:
         else:
             raise AssertionError(f'Unexpected type within json: {type(obj)}')
 
-    def _format_json(self, obj: Any) -> str:
+    def format_json(self, obj: Any) -> str:
         """ Formats a json object for display in a notebook cell so that it is easier to read, and
         so that sub-objects are consistent with the top-level elementary types like int, float and arrays.
 
@@ -169,7 +169,7 @@ class PixeltableFormatter:
         """
         return f"""<pre style="text-align:left; background-color:transparent; margin:0;">{self._format_json_helper(obj, level=0, html_newlines=False)}</pre>"""
 
-    def _format_img(self, img: Image.Image) -> str:
+    def format_img(self, img: Image.Image) -> str:
         """
         Create <img> tag for Image object.
         """
@@ -190,7 +190,7 @@ class PixeltableFormatter:
             </div>
             """
 
-    def _format_video(self, file_path: str) -> str:
+    def format_video(self, file_path: str) -> str:
         thumb_tag = ''
         # Attempt to extract the first frame of the video to use as a thumbnail,
         # so that the notebook can be exported as HTML and viewed in contexts where
@@ -222,7 +222,7 @@ class PixeltableFormatter:
         </div>
         """
 
-    def _format_document(self, file_path: str) -> str:
+    def format_document(self, file_path: str) -> str:
         max_width = max_height = 320
         # by default, file path will be shown as a link
         inner_element = file_path
@@ -254,7 +254,7 @@ class PixeltableFormatter:
         </div>
         """
 
-    def _format_audio(self, file_path: str) -> str:
+    def format_audio(self, file_path: str) -> str:
         return f"""
         <div class="pxt_audio">
             <audio controls>

@@ -34,14 +34,16 @@ class DataFrameResultSet:
         self._col_types = col_types
         self._formatter = PixeltableFormatter(len(self._rows), len(self._col_names), Env.get().http_address)
         self._formatters = {
-            ts.ImageType: self._formatter._format_img,
-            ts.VideoType: self._formatter._format_video,
-            ts.AudioType: self._formatter._format_audio,
-            ts.DocumentType: self._formatter._format_document,
-            ts.ArrayType: self._formatter._format_array,
-            ts.StringType: self._formatter._format_string,
-            ts.JsonType: self._formatter._format_json,
-            ts.FloatType: self._formatter._format_float,
+            ts.ImageType: self._formatter.format_img,
+            ts.VideoType: self._formatter.format_video,
+            ts.AudioType: self._formatter.format_audio,
+            ts.DocumentType: self._formatter.format_document,
+
+            # all other types are formatted as JSON
+            ts.FloatType: self._formatter.format_json,
+            ts.ArrayType: self._formatter.format_json,
+            ts.StringType: self._formatter.format_json,
+            ts.JsonType: self._formatter.format_json,
         }
 
     def __len__(self) -> int:
