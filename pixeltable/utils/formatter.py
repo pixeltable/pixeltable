@@ -167,7 +167,7 @@ class PixeltableFormatter:
             Also unlike json.dumps, we will not print one item per line for lists of elementary types (eg strings),
             to avoid excessive vertical space.
         """
-        return f"""<pre style="text-align:left; background-color:transparent; margin:0;">{self._format_json_helper(obj, level=0, html_newlines=False)}</pre>"""
+        return f"""<pre style="text-align:left; background-color:transparent; margin:0;">{self._format_json_helper(obj, level=0)}</pre>"""
 
     def format_img(self, img: Image.Image) -> str:
         """
