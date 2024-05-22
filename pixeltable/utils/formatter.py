@@ -6,8 +6,6 @@ import io
 import cv2
 import mimetypes
 from typing import Any, Optional
-import json
-
 from pixeltable.utils.http_server import get_file_uri
 import logging
 
@@ -19,6 +17,7 @@ NP_EDGEITEMS = 6
 STRING_THRESHOLD = 250
 STRING_EDGEITEMS = 120
 INDENT = 1
+
 
 def _create_source_tag(http_address: str, file_path: str) -> str:
     src_url = get_file_uri(http_address, file_path)
@@ -44,10 +43,8 @@ def as_simple_ndarray(val: list[Any]) -> Optional[np.ndarray]:
         arr = np.array(val)
     except TypeError:
         return None
-
     if not np.issubdtype(arr.dtype, np.number):
         arr = None
-
     return arr
 
 
@@ -57,12 +54,6 @@ def is_simple_array(val: list[Any]) -> bool:
             return False
     return True
 
-FLOAT_PRECISION = 3
-NP_THRESHOLD = 16
-NP_EDGEITEMS = 6
-STRING_THRESHOLD = 250
-STRING_EDGEITEMS = 120
-INDENT = 1
 
 def escape_string_for_json(input_string):
     """ the output here can be printed to screen, and copy-pasted, to get the same string value """
@@ -121,7 +112,6 @@ class PixeltableFormatter:
                 joiner = ',\n'
                 contents = joiner.join(out_pieces)
                 return f'{get_prefix(level)}[\n{contents}\n{get_prefix(level)}]'
-
         elif isinstance(obj, dict):
             out_pieces = []
             for key, value in obj.items():
@@ -134,10 +124,12 @@ class PixeltableFormatter:
             return self._format_float(obj)
         elif isinstance(obj, str):
             return self._format_string(obj)
+        elif isinstance(obj, int):
+            return str(int)
+        elif isinstance(obj, None):
+            return 'null'
         else:
-            # follow same convention as json.dumps for other elementary types
-            # eg. int, None
-            return json.dumps(obj)
+            assert False, f'Unexpected type: {type(obj)}'
 
     def _format_json(self, obj: Any) -> str:
         return self._format_json_helper(obj, level=0)

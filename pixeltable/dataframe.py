@@ -40,7 +40,8 @@ class DataFrameResultSet:
             ts.DocumentType: self._formatter._format_document,
             ts.ArrayType: self._formatter._format_array,
             ts.StringType: self._formatter._format_string,
-#            ts.JsonType: self._format_json,
+            ts.JsonType: self._formatter._format_json,
+            ts.FloatType: self._formatter._format_float,
         }
 
     def __len__(self) -> int:
