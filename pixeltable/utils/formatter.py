@@ -67,37 +67,34 @@ class PixeltableFormatter:
         # stay consistent with numpy formatting (0-D array has no brackets)
         return np.array2string(np.array(val), precision=FLOAT_PRECISION)
 
-    def _format_array(self, arr: list[Any], html_newlines=True) -> str:
+    def _format_array(self, arr: list[Any]) -> str:
         """for numerical arrays only"""
-        rep = np.array2string(
+        return np.array2string(
             arr, precision=FLOAT_PRECISION, threshold=NP_THRESHOLD, separator=',', edgeitems=NP_EDGEITEMS
         )
-        if html_newlines:
-            return rep.replace('\n', '<br>')
-        return rep
 
     def _format_string(self, val: str) -> str:
-        # Main consideration:
-        # escape special characters like <, >, &, etc. using html.escape()
-        # this avoids rendering artifacts, or worse, corrupting the html, or worse,
-        # some kind of injection attack.
-        # (NB escape=False in our call DataFrame.to_html() so that we can insert our own HTML for other types,
-        # hence we must escape the strings ourselves)
+        """
+            Main goal:
+            escape special characters like <, >, &, etc. using html.escape()
+            this avoids rendering artifacts, or worse, corrupting the html, or worse,
+            some kind of injection attack.
+            (NB escape=False in our call DataFrame.to_html() so that we can insert our own HTML for other types,
+            hence we must escape the strings ourselves)
 
-        # Secondary consideration:
-        # If the string is too long, show only the first and last STRING_EDGEITEMS characters.
+            Secondary goal:
+            If the string is too long, show only the first and last STRING_EDGEITEMS characters.
 
-        # TODO: render enclosing quotes also? but need to escape inner quotes
-        # TODO: enable user to somehow see the full string if they want to and eg copy it
+            TODO: render enclosing quotes also? but need to escape inner quotes
+            TODO: enable user to somehow see the full string if they want to and eg copy it
+        """
         if len(val) > STRING_THRESHOLD:
             return f'{html.escape(val[:STRING_EDGEITEMS])} ...... {html.escape(val[-STRING_EDGEITEMS:])}'
         return f'{html.escape(val)}'
 
-    def _format_json_helper(self, obj: Any, level: int, html_newlines: bool) -> str:
+    def _format_json_helper(self, obj: Any, level: int) -> str:
         def get_prefix(level):
             return ' ' * (level * INDENT)
-
-        NEWLINE = '<br>' if html_newlines else '\n'
 
         if obj is None:
             return f'{get_prefix(level)}null'
@@ -112,40 +109,39 @@ class PixeltableFormatter:
             #   => insert newlines between elements to help read them.
             arr = as_numeric_ndarray(obj)
             if arr is not None:
-                arrstr = self._format_array(arr, html_newlines=html_newlines)
-                return NEWLINE.join([f'{get_prefix(level)}{line}' for line in arrstr.split(NEWLINE)])
+                arrstr = self._format_array(arr)
+                return '\n'.join([f'{get_prefix(level)}{line}' for line in arrstr.splitlines()])
             out_pieces = []
             if contains_only_simple_elements(obj):
                 for elt in obj:
-                    fmt_elt = self._format_json_helper(elt, level=0, html_newlines=html_newlines)
+                    fmt_elt = self._format_json_helper(elt, level=0)
                     out_pieces.append(fmt_elt)
-                contents = ','.join(out_pieces)
+                contents = ', '.join(out_pieces)
                 return f'{get_prefix(level)}[{contents}]'
             else:
                 for elt in obj:
-                    fmt_elt = self._format_json_helper(elt, level=level + 1, html_newlines=html_newlines)
+                    fmt_elt = self._format_json_helper(elt, level=level + 1)
                     out_pieces.append(fmt_elt)
-                joiner = f',{NEWLINE}'
-                contents = joiner.join(out_pieces)
-                return f'{get_prefix(level)}[{NEWLINE}{contents}{NEWLINE}{get_prefix(level)}]'
+                contents = ',\n'.join(out_pieces)
+                return f'{get_prefix(level)}[\n{contents}\n{get_prefix(level)}]'
         elif isinstance(obj, dict):
-            # similar to lists, but there is no case 1 (numerical arrays)
+            # similar consideration to lists, but there is no case 1 (numerical arrays)
             # we will distinguish 2 separate cases, based on the complexity of the values
             out_pieces = []
             if contains_only_simple_elements(obj):
                 for key, value in obj.items():
-                    fmt_value = self._format_json_helper(value, level=0, html_newlines=html_newlines)
+                    fmt_value = self._format_json_helper(value, level=0)
                     fmt_key = self._format_string(key)
                     out_pieces.append(f'{fmt_key}: {fmt_value}')
                 contents = ', '.join(out_pieces)
                 return f'{get_prefix(level)}{{{contents}}}'
             else:
                 for key, value in obj.items():
-                    fmt_value = self._format_json_helper(value, level=level + 1, html_newlines=html_newlines)
+                    fmt_value = self._format_json_helper(value, level=level + 1)
                     fmt_key = self._format_string(key)
                     out_pieces.append(f'{get_prefix(level + 1)}{fmt_key}: {fmt_value.lstrip()}')
-                contents = f',{NEWLINE}'.join(out_pieces)
-                return f'{get_prefix(level)}{{{NEWLINE}{contents}{NEWLINE}{get_prefix(level)}}}'
+                contents = ',\n'.join(out_pieces)
+                return f'{get_prefix(level)}{{\n{contents}\n{get_prefix(level)}}}'
         elif isinstance(obj, float):
             return f'{get_prefix(level)}{self._format_float(obj)}'
         elif isinstance(obj, str):
@@ -156,12 +152,21 @@ class PixeltableFormatter:
             raise AssertionError(f'Unexpected type within json: {type(obj)}')
 
     def _format_json(self, obj: Any) -> str:
-        # use <pre> so that :
-        # 1) json is displayed in a monospace font
-        # 2) whitespace is respected (newlines and spaces)
-        # set style so that:
-        # 1) json is left-aligned  (overrides jupyter default to right-aligned)
-        # 2) background is transparent (so that jupyter alternate row coloring remains the same)
+        """ Formats a json object for display in a notebook cell so that it is easier to read, and
+        so that sub-objects are consistent with the top-level elementary types like int, float and arrays.
+
+        Implementation notes:
+            Uses <pre> tag so that :
+                1) json is displayed in a monospace font
+                2) whitespace is respected (newlines and spaces)
+            Set style so that:
+                1) json is left-aligned  (overrides jupyter default to right-aligned)
+                2) background is transparent (so that jupyter alternate row coloring remains the same)
+            Unlike json.dumps, this function will treat numerical arrays like numpy arrays, and render them using
+            the same formatting as an array column.
+            Also unlike json.dumps, we will not print one item per line for lists of elementary types (eg strings),
+            to avoid excessive vertical space.
+        """
         return f"""<pre style="text-align:left; background-color:transparent; margin:0;">{self._format_json_helper(obj, level=0, html_newlines=False)}</pre>"""
 
     def _format_img(self, img: Image.Image) -> str:
@@ -221,6 +226,7 @@ class PixeltableFormatter:
         max_width = max_height = 320
         # by default, file path will be shown as a link
         inner_element = file_path
+        inner_element = html.escape(inner_element)
         # try generating a thumbnail for different types and use that if successful
         if file_path.lower().endswith('.pdf'):
             try:
