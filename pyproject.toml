@@ -50,8 +50,9 @@ pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 coverage = "^7.4"
 toml = "^0.10.2"
-# mypy-related
-mypy = "^1.8.0"
+# type checking
+mypy = "^1.10.0"
+pytype = [{version = ">=2024.4", platform = "linux"}, {version = ">=2024.4", platform = "darwin"}]
 types-pillow = ">=10.0"
 types-pyyaml = "^6.0.1"
 pyarrow-stubs = "^10.0.1.7"
@@ -95,9 +96,8 @@ files = ["pixeltable/__version__.py"]
 
 [tool.mypy]
 plugins = "sqlalchemy.ext.mypy.plugin"
-disallow_untyped_defs = true
+allow_redefinition = true
 disallow_any_unimported = true
-no_implicit_optional = true
 check_untyped_defs = true
 warn_return_any = true
 warn_unused_ignores = true
