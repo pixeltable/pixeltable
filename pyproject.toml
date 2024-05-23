@@ -98,7 +98,6 @@ dirty = true
 files = ["pixeltable/__version__.py"]
 
 [tool.mypy]
-plugins = "sqlalchemy.ext.mypy.plugin"
 allow_redefinition = true
 disallow_any_unimported = true
 check_untyped_defs = true
