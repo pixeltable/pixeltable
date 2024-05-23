@@ -97,7 +97,7 @@ class PixeltableFormatter:
             return ' ' * (level * INDENT)
 
         if obj is None:
-            return f'{get_prefix(level)}null'
+            return f'{get_prefix(level)}None'
 
         if isinstance(obj, np.ndarray):  # sometimes we get a numpy array, which is technically not a list
             return self._format_json_helper(obj.tolist(), level=level)
@@ -133,7 +133,11 @@ class PixeltableFormatter:
             if contains_only_simple_elements(obj):
                 for key, value in obj.items():
                     fmt_value = self._format_json_helper(value, level=0)
-                    fmt_key = self._format_string(key)
+                    # NB. json keys are always strings
+                    # but we will accept any type for the value, as this does seem to happen
+                    # (eg int keys in some demos), though it is not clear if this can be stored
+                    # in the backend.
+                    fmt_key = self._format_string(str(key))
                     out_pieces.append(f'{fmt_key}: {fmt_value}')
                 contents = ', '.join(out_pieces)
                 return f'{get_prefix(level)}{{{contents}}}'
@@ -144,6 +148,8 @@ class PixeltableFormatter:
                     out_pieces.append(f'{get_prefix(level + 1)}{fmt_key}: {fmt_value.lstrip()}')
                 contents = ',\n'.join(out_pieces)
                 return f'{get_prefix(level)}{{\n{contents}\n{get_prefix(level)}}}'
+        elif isinstance(obj, bool):
+            return f'{get_prefix(level)}{str(obj)}'
         elif isinstance(obj, float):
             return f'{get_prefix(level)}{self.format_float(obj)}'
         elif isinstance(obj, str):
