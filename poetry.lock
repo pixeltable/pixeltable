@@ -3596,6 +3596,21 @@ test = ["hypothesis (>=6.46.1)", "pytest (>=7.3.2)", "pytest-xdist (>=2.2.0)"]
 xml = ["lxml (>=4.9.2)"]
 
 [[package]]
+name = "pandas-stubs"
+version = "2.2.2.240514"
+description = "Type annotations for pandas"
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "pandas_stubs-2.2.2.240514-py3-none-any.whl", hash = "sha256:5d6f64d45a98bc94152a0f76fa648e598cd2b9ba72302fd34602479f0c391a53"},
+    {file = "pandas_stubs-2.2.2.240514.tar.gz", hash = "sha256:85b20da44a62c80eb8389bcf4cbfe31cce1cafa8cca4bf1fc75ec45892e72ce8"},
+]
+
+[package.dependencies]
+numpy = {version = ">=1.26.0", markers = "python_version < \"3.13\""}
+types-pytz = ">=2022.1.1"
+
+[[package]]
 name = "pandocfilters"
 version = "1.5.0"
 description = "Utilities for writing pandoc filters in python"
@@ -6430,6 +6445,17 @@ files = [
 ]
 
 [[package]]
+name = "types-pytz"
+version = "2024.1.0.20240417"
+description = "Typing stubs for pytz"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-pytz-2024.1.0.20240417.tar.gz", hash = "sha256:6810c8a1f68f21fdf0f4f374a432487c77645a0ac0b31de4bf4690cf21ad3981"},
+    {file = "types_pytz-2024.1.0.20240417-py3-none-any.whl", hash = "sha256:8335d443310e2db7b74e007414e74c4f53b67452c0cb0d228ca359ccfba59659"},
+]
+
+[[package]]
 name = "types-pyyaml"
 version = "6.0.12.12"
 description = "Typing stubs for PyYAML"
@@ -6438,6 +6464,31 @@ python-versions = "*"
 files = [
     {file = "types-PyYAML-6.0.12.12.tar.gz", hash = "sha256:334373d392fde0fdf95af5c3f1661885fa10c52167b14593eb856289e1855062"},
     {file = "types_PyYAML-6.0.12.12-py3-none-any.whl", hash = "sha256:c05bc6c158facb0676674b7f11fe3960db4f389718e19e62bd2b84d6205cfd24"},
+]
+
+[[package]]
+name = "types-sqlalchemy-utils"
+version = "1.1.0"
+description = "Type Stubs for sqlalchemy-utils"
+optional = false
+python-versions = "<4,>=3.7"
+files = [
+    {file = "types_sqlalchemy_utils-1.1.0-py3-none-any.whl", hash = "sha256:60b28fe3453f67fc90bb0a106063025cffc1efa6eedb59a7ea5b043644c3d16a"},
+    {file = "types_sqlalchemy_utils-1.1.0.tar.gz", hash = "sha256:af9d92992687c9e7c920b9a1b814fd10915b9b3a7b1f731b7fd2fff8ce2f3bfb"},
+]
+
+[package.extras]
+dev = ["mypy (==1.10.0)", "pipenv-setup (==3.2.0)", "sqlalchemy-utils (==0.41.2)", "sqlalchemy2-stubs (==0.0.2a38)", "twine (==5.0.0)"]
+
+[[package]]
+name = "types-tqdm"
+version = "4.66.0.20240417"
+description = "Typing stubs for tqdm"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-tqdm-4.66.0.20240417.tar.gz", hash = "sha256:16dce9ef522ea8d40e4f5b8d84dd8a1166eefc13ceee7a7e158bf0f1a1421a31"},
+    {file = "types_tqdm-4.66.0.20240417-py3-none-any.whl", hash = "sha256:248aef1f9986b7b8c2c12b3cb4399fc17dba0a29e7e3f3f9cd704babb879383d"},
 ]
 
 [[package]]
@@ -6875,4 +6926,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "fe08e88e0719acb99efe443a17e6cdd60d144778a241d58200c3ae2245b0f277"
+content-hash = "df6c1be3f0e163f864a7d1bb077aa4de99c0d6f42c6af251cfe7a69f31a7d360"
