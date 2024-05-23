@@ -52,10 +52,7 @@ coverage = "^7.4"
 toml = "^0.10.2"
 # type checking
 mypy = "^1.10.0"
-pytype = [
-    {version = ">=2024.4", platform = "linux"},
-    {version = ">=2024.4", platform = "darwin"}
-]
+pytype = [{version = ">=2024.4", platform = "linux"}, {version = ">=2024.4", platform = "darwin"}]
 types-pillow = ">=10.0"
 types-pyyaml = "^6.0.1"
 pyarrow-stubs = "^10.0.1.7"
