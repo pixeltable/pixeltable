@@ -22,7 +22,7 @@ numpy = ">=1.25"
 pandas = ">=2.0,<3.0"
 pillow = ">=9.3.0"
 opencv-python-headless = "^4.7.0.68"
-tqdm = "^4.64.1"
+tqdm = ">=4.64"
 jmespath = "^1.0.1"
 cloudpickle = "^2.2.1"
 psycopg2-binary = "^2.9.5"
@@ -52,10 +52,13 @@ coverage = "^7.4"
 toml = "^0.10.2"
 # type checking
 mypy = "^1.10.0"
+pandas-stubs = ">=2.0"
 pytype = [{version = ">=2024.4", platform = "linux"}, {version = ">=2024.4", platform = "darwin"}]
+pyarrow-stubs = "^10.0.1.7"
 types-pillow = ">=10.0"
 types-pyyaml = "^6.0.1"
-pyarrow-stubs = "^10.0.1.7"
+types-sqlalchemy-utils = "^1.1"
+types-tqdm = "^4.64"
 # linting
 pylint = "^3.1.0"
 ruff = "^0.3.1"
@@ -102,6 +105,7 @@ check_untyped_defs = true
 warn_return_any = true
 warn_unused_ignores = true
 show_error_codes = true
+strict_optional = false
 
 [tool.pylint.main]
 max-line-length = 120
