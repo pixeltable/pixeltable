@@ -60,25 +60,24 @@ class InsertableTable(Table):
             return tbl
 
     @overload
-    def insert(self, rows: Iterable[Dict[str, Any]], /, print_stats: bool = False, fail_on_exception: bool = True): ...
+    def insert(self, rows: Iterable[Dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True) -> UpdateStatus: ...
 
     @overload
-    def insert(self, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any): ...
+    def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
 
-    def insert(self, *args, **kwargs) -> UpdateStatus:
-        """Insert rows into table.
+    def insert(self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus:
+        """Inserts rows into this table. There are two mutually exclusive call patterns:
 
         To insert multiple rows at a time:
-
-        ``insert(rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception: bool = True)``
+        ``insert(rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True)``
 
         To insert just a single row, you can use the more convenient syntax:
-        ``insert(print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
+        ``insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
 
         Args:
             rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
                 names to values.
-            kwargs: (if inserting a single row) keyword-argument pairs representing column names and values.
+            kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
             print_stats: If ``True``, print statistics about the cost of computed columns.
             fail_on_exception:
                 Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
@@ -102,16 +101,27 @@ class InsertableTable(Table):
 
             >>> tbl.insert(a=1, b=1, c=1)
         """
-        print_stats = kwargs.pop('print_stats', False)
-        fail_on_exception = kwargs.pop('fail_on_exception', True)
-        if len(args) > 0:
-            # There's a positional argument; this means `rows` is expressed as a
-            # list of dicts (multi-insert)
-            rows = list(args[0])
-        else:
-            # No positional argument; this means we're inserting a single row
-            # using kwargs syntax
+        # The commented code is the intended implementation, with signature (*args, **kwargs).
+        # That signature cannot be used currently, due to a present limitation in mkdocs.
+        # See: https://github.com/mkdocstrings/mkdocstrings/issues/669
+
+        # print_stats = kwargs.pop('print_stats', False)
+        # fail_on_exception = kwargs.pop('fail_on_exception', True)
+        # if len(args) > 0:
+        #     # There's a positional argument; this means `rows` is expressed as a
+        #     # list of dicts (multi-insert)
+        #     rows = list(args[0])
+        # else:
+        #     # No positional argument; this means we're inserting a single row
+        #     # using kwargs syntax
+        #     rows = [kwargs]
+
+        if rows is None:
             rows = [kwargs]
+        else:
+            rows = list(rows)
+            if len(kwargs) > 0:
+                raise excs.Error('`kwargs` cannot be specified unless `rows is None`.')
 
         if not isinstance(rows, list):
             raise excs.Error('rows must be a list of dictionaries')

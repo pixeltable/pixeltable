@@ -14,6 +14,7 @@ from pixeltable.functions.util import resolve_torch_device
 def sentence_transformer(
         sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False
 ) -> Batch[np.ndarray]:
+    """Runs the specified sentence transformer model."""
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import SentenceTransformer
 
@@ -46,6 +47,7 @@ def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embed
 
 @pxt.udf(batch_size=32)
 def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
+    """Runs the specified cross-encoder model."""
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import CrossEncoder
 
@@ -68,6 +70,7 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
+    """Runs the specified CLIP model on text."""
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
@@ -85,6 +88,7 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
+    """Runs the specified CLIP model on images."""
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
@@ -113,6 +117,7 @@ def _(model_id: str) -> ts.ArrayType:
 
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
+    """Runs the specified DETR model."""
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch

@@ -96,8 +96,8 @@ def create_view(
         schema: dictionary mapping column names to column types, value expressions, or to column specifications.
         filter: Predicate to filter rows of the base table.
         is_snapshot: Whether the view is a snapshot.
-        iterator_class: Class of the iterator to use for the view.
-        iterator_args: Arguments to pass to the iterator class.
+        iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
+            the base table.
         num_retained_versions: Number of versions of the view to retain.
         ignore_errors: if True, fail silently if the path already exists or is invalid.
 
@@ -423,3 +423,21 @@ def get_path(schema_obj: catalog.SchemaObject) -> str:
         dir_id = dir._dir_id
     path_elements.append(schema_obj._name)
     return '.'.join(path_elements)
+
+
+def configure_logging(
+    *,
+    to_stdout: Optional[bool] = None,
+    level: Optional[int] = None,
+    add: Optional[str] = None,
+    remove: Optional[str] = None,
+) -> None:
+    """Configure logging.
+
+    Args:
+        to_stdout: if True, also log to stdout
+        level: default log level
+        add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
+        remove: comma-separated list of module names
+    """
+    return Env.get().configure_logging(to_stdout=to_stdout, level=level, add=add, remove=remove)
