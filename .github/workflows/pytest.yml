@@ -96,7 +96,7 @@ jobs:
           else
               NOTEBOOKS=$(ls docs/release/**/*ipynb)
           fi
-          pytest --overwrite --nbmake --nbmake-timeout=3600 --nbmake-kernel=$(KERNEL_NAME) $NOTEBOOKS
+          pytest --overwrite --nbmake --nbmake-timeout=3600 $NOTEBOOKS
       - name: Generate code coverage report
         run: coverage report -m
       - name: Print utilization info
