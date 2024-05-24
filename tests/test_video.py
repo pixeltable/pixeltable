@@ -6,13 +6,15 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
+from pixeltable.functions.video import get_metadata
 from pixeltable.iterators import FrameIterator
 from pixeltable.type_system import VideoType, ImageType
 from pixeltable.utils.media_store import MediaStore
-from .utils import get_video_files, skip_test_if_not_installed, reload_catalog
+from .utils import get_video_files, skip_test_if_not_installed, reload_catalog, validate_update_status
 
 
 class TestVideo:
+
     def create_tbls(
             self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
@@ -100,6 +102,32 @@ class TestVideo:
             assert not view_t.tbl_version_path.tbl_version.cols_by_name[name].is_stored
         base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].show(0)
+
+    def test_get_metadata(self, reset_db) -> None:
+        video_filepaths = get_video_files()
+        base_t = pxt.create_table('video_tbl', {'video': VideoType()})
+        base_t['metadata'] = get_metadata(base_t.video)
+        validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
+        result = base_t.where(base_t.metadata.size == 2234371).select(base_t.metadata).collect()['metadata'][0]
+        assert result == {
+            'size': 2234371,
+            'bit_rate': 967260,
+            'metadata': {
+                'encoder': 'Lavf60.16.100',
+                'major_brand': 'isom',
+                'minor_version': '512',
+                'compatible_brands': 'isomiso2avc1mp41'},
+            'bit_exact': False,
+            'video_streams': [{
+                'width': 640,
+                'frames': 462,
+                'height': 360,
+                'pix_fmt': 'yuv420p',
+                'duration': 236544,
+                'language': 'und',
+                'base_rate': 25.0,
+                'average_rate': 25.0,
+                'guessed_rate': 25.0}]}
 
     # window function that simply passes through the frame
     @pxt.uda(
