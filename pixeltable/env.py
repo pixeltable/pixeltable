@@ -61,7 +61,7 @@ class Env:
         # package name -> version; version == []: package is installed, but we haven't determined the version yet
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
-        self._httpd: Optional[http.server.ThreadingHTTPServer] = None
+        self._httpd: Optional[http.server.HTTPServer] = None
         self._http_address: Optional[str] = None
 
         self._registered_clients: dict[str, Any] = {}
@@ -120,8 +120,8 @@ class Env:
         if level is not None:
             self.set_log_level(level)
         if add is not None:
-            for module, level in [t.split(':') for t in add.split(',')]:
-                self.set_module_log_level(module, int(level))
+            for module, level_str in [t.split(':') for t in add.split(',')]:
+                self.set_module_log_level(module, int(level_str))
         if remove is not None:
             for module in remove.split(','):
                 self.set_module_log_level(module, None)
@@ -427,8 +427,8 @@ class Env:
         if any([a < b for a, b in zip(installed_version, normalized_min_version)]):
             raise excs.Error(
                 (
-                    f'The installed version of package {package} is {".".join([str[v] for v in installed_version])}, '
-                    f'but version  >={".".join([str[v] for v in min_version])} is required'
+                    f'The installed version of package {package} is {".".join(str(v) for v in installed_version)}, '
+                    f'but version  >={".".join(str(v) for v in min_version)} is required'
                 )
             )
 
