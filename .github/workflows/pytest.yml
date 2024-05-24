@@ -88,7 +88,6 @@ jobs:
         continue-on-error: true  # For now, continue even if the notebooks fail
         env:
           GITHUB_REF: ${{ github.ref }}
-        shell: bash -x {0}  # show the commands being run
         run: |
           if [[ $GITHUB_REF == refs/pull/* ]]; then
               # This is a PR. Only run notebooks without getpass
