@@ -68,10 +68,15 @@ format: install
 
 %.ipynb: install
 	@echo "Running and over-writing notebook $@ ..."
-	@pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) $@
+	@pytest --overwrite --nbmake --nbmake-timeout=3600 --nbmake-kernel=$(KERNEL_NAME) $@
 
 .PHONY: notebooks
 notebooks: docs/release/**/*.ipynb
+
+AUTH_FREE_NBS := $(shell grep -L "getpass"  docs/release/**/*ipynb)
+.PHONY: auth-free-notebooks
+auth-free-notebooks: $(AUTH_FREE_NBS)
+
 
 .PHONY: release
 release: install

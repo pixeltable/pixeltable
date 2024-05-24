@@ -82,14 +82,18 @@ jobs:
           FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-      - name: Run released notebooks
+      - name: Run all released notebooks
+        if: ${{ !startsWith(github.ref, '/refs/pull/') }}
         run: make notebooks
         continue-on-error: true # For now, continue even if the notebooks fail
         env:
-          # In a PR, these secrets will be empty, the relevant notebooks fail for now
           FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+      - name: Run noteooks without Auth keys
+        if: ${{ startsWith(github.ref, '/refs/pull/') }}
+        run: make auth-free-notebooks
+        continue-on-error: true # For now, continue even if the notebooks fail
       - name: Generate code coverage report
         run: coverage report -m
       - name: Print utilization info
