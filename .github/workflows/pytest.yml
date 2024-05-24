@@ -83,7 +83,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       - name: Run all released notebooks
-        if: ${{ !startsWith(github.ref, '/refs/pull/') }}
+        if: ${{ !startsWith(github.ref, 'refs/pull/') }}
         run: make notebooks
         continue-on-error: true # For now, continue even if the notebooks fail
         env:
@@ -91,7 +91,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       - name: Run all notebooks that do not require secret keys
-        if: ${{ startsWith(github.ref, '/refs/pull/') }}
+        if: ${{ startsWith(github.ref, 'refs/pull/') }}
         run: make auth-free-notebooks
         continue-on-error: true # For now, continue even if the notebooks fail
       - name: Generate code coverage report
