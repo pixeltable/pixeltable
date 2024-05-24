@@ -19,11 +19,6 @@ help:
 	@echo "  clean         Remove generated files and temp files"
 	@echo "  *.ipynb       Run the notebook/notebooks (updates output cells in place)"
 
-poetry.lock: pyproject.toml
-	@echo "Updating poetry.lock ..."
-	@poetry lock --no-update
-	@touch poetry.lock
-
 .PHONY: check-conda
 check-conda:
 ifdef CONDA_DEFAULT_ENV
@@ -76,9 +71,7 @@ format: install
 	@pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) $@
 
 .PHONY: notebooks
-notebooks: install
-	@echo "Running and over-writing all release notebooks ..."
-	@pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) docs/release/**/*.ipynb
+notebooks: docs/release/**/*.ipynb
 
 .PHONY: release
 release: install
