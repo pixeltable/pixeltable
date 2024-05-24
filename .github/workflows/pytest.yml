@@ -81,8 +81,8 @@ jobs:
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}
         run: pip install pytest coverage
-      # - name: Run the unit tests
-      #   run: coverage run -m --source=pixeltable pytest -v -m ''
+      - name: Run the unit tests
+        run: coverage run -m --source=pixeltable pytest -v -m ''
       - name: Run documentation notebooks
         if: ${{ matrix.poetry-options != '' }}
         continue-on-error: true  # For now, continue even if the notebooks fail
