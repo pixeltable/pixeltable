@@ -90,7 +90,7 @@ jobs:
           FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-      - name: Run noteooks without Auth keys
+      - name: Run all notebooks that do not require secret keys
         if: ${{ startsWith(github.ref, '/refs/pull/') }}
         run: make auth-free-notebooks
         continue-on-error: true # For now, continue even if the notebooks fail
