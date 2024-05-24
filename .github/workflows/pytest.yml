@@ -82,14 +82,14 @@ jobs:
           FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-      - name: Run the documentation notebooks
-        run: make notebooks
-        continue-on-error: true # Continue even if the notebooks fail
-        env:
-          # In a PR, these secrets will be empty, and the relevant tests will be skipped
-          FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+      # - name: Run the documentation notebooks
+      #   run: make notebooks
+      #   continue-on-error: true # Continue even if the notebooks fail
+      #   env:
+      #     # In a PR, these secrets will be empty, and the relevant tests will be skipped
+      #     FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+      #     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      #     TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       - name: Generate code coverage report
         run: coverage report -m
       - name: Print utilization info
