@@ -4,7 +4,7 @@ from typing import Optional
 
 import PIL.Image
 import numpy as np
-import together
+import together  # type: ignore
 
 import pixeltable as pxt
 from pixeltable import env

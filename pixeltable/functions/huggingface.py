@@ -1,4 +1,4 @@
-from typing import Callable, TypeVar, Optional
+from typing import Callable, TypeVar, Optional, Any
 
 import PIL.Image
 import numpy as np
@@ -16,7 +16,7 @@ def sentence_transformer(
 ) -> Batch[np.ndarray]:
     """Runs the specified sentence transformer model."""
     env.Env.get().require_package('sentence_transformers')
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import SentenceTransformer  # type: ignore
 
     model = _lookup_model(model_id, SentenceTransformer)
 
@@ -74,7 +74,7 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import CLIPModel, CLIPProcessor
+    from transformers import CLIPModel, CLIPProcessor  # type: ignore
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
@@ -153,9 +153,9 @@ def _lookup_model(model_id: str, create: Callable[[str], T], device: Optional[st
     key = (model_id, create, device)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
         model = create(model_id)
-        if device is not None:
-            model.to(device)
         if isinstance(model, nn.Module):
+            if device is not None:
+                model.to(device)
             model.eval()
         _model_cache[key] = model
     return _model_cache[key]
@@ -168,5 +168,5 @@ def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
     return _processor_cache[key]
 
 
-_model_cache = {}
-_processor_cache = {}
+_model_cache: dict = {}
+_processor_cache: dict = {}

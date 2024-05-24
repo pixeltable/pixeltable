@@ -2,7 +2,6 @@ import base64
 
 import PIL.Image
 
-from pixeltable.type_system import ImageType, StringType
 import pixeltable.func as func
 
 

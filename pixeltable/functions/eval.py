@@ -158,7 +158,7 @@ def calculate_image_tpfp(
 def eval_detections(
         pred_bboxes: List[List[int]], pred_labels: List[int], pred_scores: List[float],
         gt_bboxes: List[List[int]], gt_labels: List[int]
-) -> Dict:
+) -> list[dict]:
     class_idxs = list(set(pred_labels + gt_labels))
     result: List[Dict] = []
     pred_bboxes_arr = np.asarray(pred_bboxes)
@@ -171,7 +171,7 @@ def eval_detections(
         gt_filter = gt_classes_arr == class_idx
         class_pred_scores = pred_scores_arr[pred_filter]
         tp, fp = calculate_image_tpfp(
-            pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], [0.5])
+            pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], 0.5)
         ordered_class_pred_scores = -np.sort(-class_pred_scores)
         result.append({
             'min_iou': 0.5, 'class': class_idx, 'tp': tp.tolist(), 'fp': fp.tolist(),

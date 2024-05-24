@@ -1,3 +1,5 @@
+# type: ignore
+
 import base64
 import io
 import pathlib
@@ -285,5 +287,5 @@ def moderations(
 _T = TypeVar('_T')
 
 
-def _opt(arg: _T) -> Union[_T, NotGiven]:
+def _opt(arg: Optional[_T]) -> Union[_T, NotGiven]:
     return arg if arg is not None else NOT_GIVEN

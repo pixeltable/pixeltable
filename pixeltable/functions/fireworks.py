@@ -1,6 +1,6 @@
 from typing import Optional
 
-import fireworks.client
+import fireworks.client  # type: ignore
 
 import pixeltable as pxt
 from pixeltable import env

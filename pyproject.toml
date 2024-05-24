@@ -98,6 +98,7 @@ dirty = true
 files = ["pixeltable/__version__.py"]
 
 [tool.mypy]
+plugins = "pydantic.mypy"
 allow_redefinition = true
 disallow_any_unimported = true
 check_untyped_defs = true
@@ -105,6 +106,7 @@ warn_return_any = true
 warn_unused_ignores = true
 show_error_codes = true
 strict_optional = false
+disable_error_code = "no-any-unimported, no-any-return"
 
 [tool.pylint.main]
 max-line-length = 120

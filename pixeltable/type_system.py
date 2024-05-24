@@ -165,7 +165,6 @@ class ColumnType:
             return True
         return self._is_supertype_of(other)
 
-    @abc.abstractmethod
     def _is_supertype_of(self, other: ColumnType) -> bool:
         return False
 
@@ -205,13 +204,12 @@ class ColumnType:
         return None
 
     @classmethod
-    @abc.abstractmethod
     def _supertype(cls, type1: ColumnType, type2: ColumnType) -> Optional[ColumnType]:
         """
         Class-specific implementation of determining the supertype. type1 and type2 are from the same subclass of
         ColumnType.
         """
-        pass
+        return None
 
     @classmethod
     def infer_literal_type(cls, val: Any) -> Optional[ColumnType]:
