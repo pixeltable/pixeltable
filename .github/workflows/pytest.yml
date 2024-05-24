@@ -85,7 +85,7 @@ jobs:
         run: coverage run -m --source=pixeltable pytest -v -m ''
       - name: Run documentation notebooks
         if: ${{ matrix.poetry-options != '' }}
-        continue-on-error: true # For now, continue even if the notebooks fail
+        continue-on-error: true  # For now, continue even if the notebooks fail
         env:
           GITHUB_REF: ${{ github.ref }}
         run: |
