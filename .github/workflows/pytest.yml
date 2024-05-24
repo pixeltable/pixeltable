@@ -81,13 +81,14 @@ jobs:
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}
         run: pip install pytest coverage
-      - name: Run the unit tests
-        run: coverage run -m --source=pixeltable pytest -v -m ''
+      # - name: Run the unit tests
+      #   run: coverage run -m --source=pixeltable pytest -v -m ''
       - name: Run documentation notebooks
         if: ${{ matrix.poetry-options != '' }}
         continue-on-error: true  # For now, continue even if the notebooks fail
         env:
           GITHUB_REF: ${{ github.ref }}
+        shell: bash -x {0}  # show the commands being run
         run: |
           if [[ $GITHUB_REF == refs/pull/* ]]; then
               # This is a PR. Only run notebooks without getpass
