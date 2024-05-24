@@ -95,6 +95,6 @@ def get_metadata(video: str) -> dict:
             'bit_rate': container.bit_rate,
             'size': container.size,
             'metadata': container.metadata,
-            'video_streams': video_streams_info,  # TODO: Audio streams?
+            'streams': video_streams_info,  # TODO: Audio streams?
         }
     return result

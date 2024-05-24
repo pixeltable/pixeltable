@@ -117,7 +117,7 @@ class TestVideo:
                 'compatible_brands': 'isomiso2avc1mp41',
             },
             'bit_exact': False,
-            'video_streams': [
+            'streams': [
                 {
                     'width': 640,
                     'frames': 462,
