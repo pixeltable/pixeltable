@@ -14,9 +14,8 @@ from .utils import get_video_files, skip_test_if_not_installed, reload_catalog, 
 
 
 class TestVideo:
-
     def create_tbls(
-            self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
+        self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         pxt.drop_table(view_name, ignore_errors=True)
         pxt.drop_table(base_name, ignore_errors=True)
@@ -25,7 +24,7 @@ class TestVideo:
         return base_t, view_t
 
     def create_and_insert(
-            self, stored: Optional[bool], paths: List[str]
+        self, stored: Optional[bool], paths: List[str]
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         base_t, view_t = self.create_tbls()
 
@@ -80,12 +79,11 @@ class TestVideo:
     def test_fps(self, reset_db) -> None:
         path = get_video_files()[0]
         videos = pxt.create_table('videos', {'video': VideoType()})
-        frames_1_0 = pxt.create_view(
-            'frames_1_0', videos, iterator=FrameIterator.create(video=videos.video, fps=1))
-        frames_0_5 = pxt.create_view(
-            'frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1/2))
+        frames_1_0 = pxt.create_view('frames_1_0', videos, iterator=FrameIterator.create(video=videos.video, fps=1))
+        frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2))
         frames_0_33 = pxt.create_view(
-            'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1/3))
+            'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 3)
+        )
         videos.insert(video=path)
         assert frames_0_5.count() == frames_1_0.count() // 2 or frames_0_5.count() == frames_1_0.count() // 2 + 1
         assert frames_0_33.count() == frames_1_0.count() // 3 or frames_0_33.count() == frames_1_0.count() // 3 + 1
@@ -116,28 +114,39 @@ class TestVideo:
                 'encoder': 'Lavf60.16.100',
                 'major_brand': 'isom',
                 'minor_version': '512',
-                'compatible_brands': 'isomiso2avc1mp41'},
+                'compatible_brands': 'isomiso2avc1mp41',
+            },
             'bit_exact': False,
-            'video_streams': [{
-                'width': 640,
-                'frames': 462,
-                'height': 360,
-                'pix_fmt': 'yuv420p',
-                'duration': 236544,
-                'language': 'und',
-                'base_rate': 25.0,
-                'average_rate': 25.0,
-                'guessed_rate': 25.0}]}
+            'video_streams': [
+                {
+                    'width': 640,
+                    'frames': 462,
+                    'height': 360,
+                    'pix_fmt': 'yuv420p',
+                    'duration': 236544,
+                    'language': 'und',
+                    'base_rate': 25.0,
+                    'average_rate': 25.0,
+                    'guessed_rate': 25.0,
+                }
+            ],
+        }
 
     # window function that simply passes through the frame
     @pxt.uda(
-        update_types=[ImageType()], value_type=ImageType(),
-        requires_order_by=True, allows_std_agg=False, allows_window=True)
+        update_types=[ImageType()],
+        value_type=ImageType(),
+        requires_order_by=True,
+        allows_std_agg=False,
+        allows_window=True,
+    )
     class agg_fn:
         def __init__(self):
             self.img = None
+
         def update(self, frame: PIL.Image.Image) -> None:
             self.img = frame
+
         def value(self) -> PIL.Image.Image:
             return self.img
 
@@ -147,6 +156,7 @@ class TestVideo:
         base_t.insert({'video': p} for p in video_filepaths)
         # reference to the frame col requires ordering by base, pos
         from pixeltable.functions import make_video
+
         _ = view_t.select(make_video(view_t.pos, view_t.frame)).group_by(base_t).show()
         # the same without frame col
         view_t.add_column(transformed=view_t.frame.rotate(30), stored=True)
@@ -160,9 +170,11 @@ class TestVideo:
             _ = view_t.select(make_video(view_t.frame, order_by=view_t.pos)).show()
         with pytest.raises(excs.Error):
             # incompatible ordering requirements
-            _ = view_t.select(
-                make_video(view_t.pos, view_t.frame),
-                make_video(view_t.pos - 1, view_t.transformed)).group_by(base_t).show()
+            _ = (
+                view_t.select(make_video(view_t.pos, view_t.frame), make_video(view_t.pos - 1, view_t.transformed))
+                .group_by(base_t)
+                .show()
+            )
 
         # make sure it works
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
