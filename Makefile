@@ -66,9 +66,15 @@ lint: install
 format: install
 	@scripts/format-changed-files.sh
 
+NB_CELL_TIMEOUT := 3600
+# for non-interactive running and rendering of notebooks
+# we ensure the tqdm progress bar is updated exactly once per cell execution by setting the refresh rate to the timeout
+# if it is executed more than once, every update gets its own line (due to ignored \r characters)
+# see: https://github.com/tqdm/tqdm?tab=readme-ov-file#faq-and-known-issues
+%.ipynb: export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
 %.ipynb: install
 	@echo "Running and over-writing notebook $@ ..."
-	@pytest --overwrite --nbmake --nbmake-timeout=3600 --nbmake-kernel=$(KERNEL_NAME) $@
+	@pytest --overwrite --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) $@
 
 .PHONY: notebooks
 notebooks: docs/release/**/*.ipynb
