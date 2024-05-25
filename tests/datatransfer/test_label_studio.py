@@ -66,6 +66,21 @@ class TestLabelStudio:
                 label_config="""
                 <View>
                   <Image name="frame_obj" value="$frame"/>
+                  <RectangleLabels name="obj_label" toName="walnut">
+                    <Label value="knife" background="green"/>
+                    <Label value="person" background="blue"/>
+                  </RectangleLabels>
+                </View>
+                """
+            )
+        assert '`toName` attribute of RectangleLabels `obj_label` references an unknown data key: `walnut`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = LabelStudioProject.create(
+                title='test_remote_errors_project',
+                label_config="""
+                <View>
+                  <Image name="frame_obj" value="$frame"/>
                   <RectangleLabels name="obj_label" toName="frame_obj">
                     <Label value="car" background="green"/>
                     <Label value="green gorilla" background="blue"/>
@@ -75,7 +90,7 @@ class TestLabelStudio:
             )
         assert 'not a valid COCO object name' in str(exc_info.value)
 
-    def test_label_studio_sync(self, init_ls, ls_image_table: pxt.Table) -> None:
+    def test_label_studio_sync(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
         from pixeltable.datatransfer.label_studio import LabelStudioProject
@@ -83,12 +98,14 @@ class TestLabelStudio:
         remote = LabelStudioProject.create(title='test_sync_project', label_config=self.test_config)
         t.link_remote(remote, {'image_col': 'image', 'annotations_col': 'annotations'})
         t.sync_remotes()
+
         # Check that the tasks were properly created
         tasks = remote.project.get_tasks()
-        assert len(tasks) == 5
+        assert len(tasks) == 30
         assert all(task['data']['image'] for task in tasks)
+
         # Programmatically add annotations by calling the Label Studio API directly
-        for task in tasks[:2]:
+        for task in tasks[:10]:
             task_id = task['id']
             assert len(remote.project.get_task(task_id)['annotations']) == 0
             remote.project.create_annotation(
@@ -97,18 +114,28 @@ class TestLabelStudio:
                 result=[{'image_class': 'Cat'}]
             )
             assert len(remote.project.get_task(task_id)['annotations']) == 1
+
         # Pull the annotations back to Pixeltable
         reload_catalog()
         t = pxt.get_table('test_ls_sync')
         t.sync_remotes()
         annotations = t.collect()['annotations_col']
-        assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(2)), annotations
-        assert all(annotations[i] is None for i in range(2, 5)), annotations
+        assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(10)), annotations
+        assert all(annotations[i] is None for i in range(10, 30)), annotations
 
-    def test_label_studio_sync_preannotations(self, init_ls, ls_image_table: pxt.Table) -> None:
+        # Delete some random rows in Pixeltable and sync remotes again
+        validate_update_status(t.delete(where=t.id.isin(range(0, 20, 3))), expected_rows=7)
+        t.sync_remotes()
+
+        # Verify that the tasks were deleted by calling the Label Studio API directly
+        tasks = remote.project.get_tasks()
+        assert len(tasks) == 23
+
+    def test_label_studio_sync_preannotations(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         skip_test_if_not_installed('transformers')
         t = ls_image_table
+        t.delete(where=(t.id >= 5))  # Delete all but 5 rows so that the test isn't too slow
         t['rot_image_col'] = t.image_col.rotate(90)
         from pixeltable.datatransfer.label_studio import LabelStudioProject
         from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
@@ -125,6 +152,7 @@ class TestLabelStudio:
 
         # Check that the preannotations sent to Label Studio are what we expect
         tasks = remote.project.get_tasks()
+        assert len(tasks) == 5
 
         def extract_labels() -> Iterator[str]:
             for task in tasks:
@@ -140,7 +168,7 @@ class TestLabelStudio:
         # 'person' should be present ('knife' sometimes is too, but it's nondeterministic)
         assert 'person' in found_labels
 
-    def test_label_studio_sync_errors(self, init_ls, ls_image_table: pxt.Table) -> None:
+    def test_label_studio_sync_errors(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
         from pixeltable.datatransfer.label_studio import LabelStudioProject
@@ -186,14 +214,15 @@ class TestLabelStudio:
 
 
 @pytest.fixture(scope='function')
-def ls_image_table(reset_db) -> pxt.Table:
+def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table(
         'test_ls_sync',
-        {'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
+        {'id': pxt.IntType(), 'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
     )
-    images = get_image_files()[:5]
-    validate_update_status(t.insert({'image_col': image} for image in images), expected_rows=len(images))
+    images = get_image_files()[:30]
+    status = t.insert({'id': n, 'image_col': image} for n, image in enumerate(images))
+    validate_update_status(status, expected_rows=len(images))
     return t
 
 

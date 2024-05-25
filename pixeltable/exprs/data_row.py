@@ -200,3 +200,7 @@ class DataRow:
     @property
     def rowid(self) -> Tuple[int]:
         return self.pk[:-1]
+
+    @property
+    def vmin(self) -> int:
+        return self.pk[-1]

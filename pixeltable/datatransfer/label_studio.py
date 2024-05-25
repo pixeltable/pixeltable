@@ -113,13 +113,14 @@ class LabelStudioProject(Remote):
     def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
         _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
                      f' (push: {push}, pull: {pull}).')
-        tasks = list(self._get_all_tasks())
-        if pull:
-            self._update_table_from_tasks(t, col_mapping, tasks)
+        # Collect all existing tasks into a dict with entries `rowid: task`
+        tasks = {tuple(task['meta']['rowid']): task for task in self._fetch_all_tasks()}
         if push:
             self._create_tasks_from_table(t, col_mapping, tasks)
+        if pull:
+            self._update_table_from_tasks(t, col_mapping, tasks)
 
-    def _get_all_tasks(self) -> Iterator[dict]:
+    def _fetch_all_tasks(self) -> Iterator[dict]:
         page = 1
         unknown_task_count = 0
         while True:
@@ -138,7 +139,7 @@ class LabelStudioProject(Remote):
                 f'Skipped {unknown_task_count} unrecognized task(s) when syncing Label Studio project "{self.project_title}".'
             )
 
-    def _update_table_from_tasks(self, t: Table, col_mapping: dict[str, str], tasks: list[dict]) -> None:
+    def _update_table_from_tasks(self, t: Table, col_mapping: dict[str, str], tasks: dict[tuple, dict]) -> None:
         # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
         # of `get_pull_columns`
         assert self.ANNOTATIONS_COLUMN in col_mapping.values()
@@ -151,69 +152,71 @@ class LabelStudioProject(Remote):
                 # Label Studio.
                 annotations_column: task[self.ANNOTATIONS_COLUMN] if len(task[self.ANNOTATIONS_COLUMN]) > 0 else None
             }
-            for task in tasks
+            for task in tasks.values()
         ]
         if len(updates) > 0:
             _logger.info(
                 f'Updating table `{t.get_name()}`, column `{annotations_column}` with {len(updates)} total annotations.'
             )
             t.batch_update(updates)
-            annotations_count = sum(len(task[self.ANNOTATIONS_COLUMN]) for task in tasks)
+            annotations_count = sum(len(task[self.ANNOTATIONS_COLUMN]) for task in tasks.values())
             print(f'Synced {annotations_count} annotation(s) from {len(updates)} existing task(s) in {self}.')
 
-    def _create_tasks_from_table(self, t: Table, col_mapping: dict[str, str], existing_tasks: list[dict]) -> None:
-        row_ids_in_ls = {tuple(task['meta']['rowid']) for task in existing_tasks}
+    def _create_tasks_from_table(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
         t_col_types = t.column_types()
         config = self._project_config
+
         # Columns in `t` that map to Label Studio data keys
         t_data_cols = [
             t_col_name for t_col_name, r_col_name in col_mapping.items()
             if r_col_name in config.data_keys
         ]
+
         # Columns in `t` that map to `rectanglelabels` preannotations
         t_rl_cols = [
             t_col_name for t_col_name, r_col_name in col_mapping.items()
             if r_col_name in config.rectangle_labels
         ]
-        # Destinations for `rectanglelabels` annotations
+
+        # Destinations for `rectanglelabels` preannotations
         rl_info = list(config.rectangle_labels.values())
 
         _logger.debug('`t_data_cols`: %s', t_data_cols)
         _logger.debug('`t_rl_cols`: %s', t_rl_cols)
         _logger.debug('`rl_info`: %s', rl_info)
 
-        # TODO Validate that `rl_info.to_name`s are in the config!
-
         if len(t_data_cols) == 1 and t_col_types[t_data_cols[0]].is_media_type():
             # With a single media column, we can post local files to Label Studio using
             # the file transfer API.
-            self._create_tasks_by_post(t, col_mapping, row_ids_in_ls, t_rl_cols, rl_info, t_data_cols[0])
+            self._create_tasks_by_post(t, col_mapping, existing_tasks, t_rl_cols, rl_info, t_data_cols[0])
         else:
             # Either a single non-media column or multiple columns. Either way, we can't
             # use the file upload API and need to rely on externally accessible URLs for
             # media columns.
-            self._create_tasks_by_urls(t, col_mapping, row_ids_in_ls, t_data_cols, t_col_types, t_rl_cols, rl_info)
+            self._create_tasks_by_urls(t, col_mapping, existing_tasks, t_data_cols, t_col_types, t_rl_cols, rl_info)
 
     def _create_tasks_by_post(
             self,
             t: Table,
             col_mapping: dict[str, str],
-            row_ids_in_ls: set[tuple],
+            existing_tasks: dict[tuple, dict],
             t_rl_cols: list[str],
             rl_info: list['_RectangleLabel'],
             media_col_name: str
-    ):
+    ) -> None:
         is_stored = t[media_col_name].col.is_stored
         # If it's a stored column, we can use `localpath`
         localpath_col_opt = [t[media_col_name].localpath] if is_stored else []
         # Select the media column, rectanglelabels columns, and localpath (if appropriate)
         rows = t.select(t[media_col_name], *[t[col] for col in t_rl_cols], *localpath_col_opt)
         tasks_created = 0
+        row_ids_in_pxt: set[tuple] = set()
 
         for row in rows._exec():
             media_col_idx = rows._select_list_exprs[0].slot_idx
             rl_col_idxs = [expr.slot_idx for expr in rows._select_list_exprs[1: 1 + len(t_rl_cols)]]
-            if row.rowid not in row_ids_in_ls:
+            row_ids_in_pxt.add(row.rowid)
+            if row.rowid not in existing_tasks:
                 # Upload the media file to Label Studio
                 if is_stored:
                     # There is an existing localpath; use it!
@@ -246,11 +249,13 @@ class LabelStudioProject(Remote):
 
         print(f'Created {tasks_created} new task(s) in {self}.')
 
+        self._delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
+
     def _create_tasks_by_urls(
             self,
             t: Table,
             col_mapping: dict[str, str],
-            row_ids_in_ls: set[tuple],
+            existing_tasks: dict[tuple, dict],
             t_data_cols: list[str],
             t_col_types: dict[str, pxt.ColumnType],
             t_rl_cols: list[str],
@@ -262,8 +267,9 @@ class LabelStudioProject(Remote):
         ]
         r_data_cols = [col_mapping[col_name] for col_name in t_data_cols]
         rows = t.select(*selection, *[t[col] for col in t_rl_cols])
-        new_rows = filter(lambda row: row.rowid not in row_ids_in_ls, rows._exec())
+        new_rows = filter(lambda row: row.rowid not in existing_tasks, rows._exec())
         tasks_created = 0
+        row_ids_in_pxt: set[tuple] = set()
 
         for page in more_itertools.batched(new_rows, n=_PAGE_SIZE):
             data_col_idxs = [expr.slot_idx for expr in rows._select_list_exprs[:len(t_data_cols)]]
@@ -271,6 +277,7 @@ class LabelStudioProject(Remote):
             tasks = []
 
             for row in page:
+                row_ids_in_pxt.add(row.rowid)
                 data_vals = [row.vals[i] for i in data_col_idxs]
                 coco_annotations = [row.vals[i] for i in rl_col_idxs]
                 predictions = [
@@ -299,6 +306,20 @@ class LabelStudioProject(Remote):
 
         print(f'Created {tasks_created} new task(s) in {self}.')
 
+        self._delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
+
+    def _delete_stale_tasks(self, existing_tasks: dict[tuple, dict], row_ids_in_pxt: set[tuple], tasks_created: int):
+        tasks_to_delete = [
+            task['id'] for rowid, task in existing_tasks.items()
+            if rowid not in row_ids_in_pxt
+        ]
+        # Sanity check the math
+        assert len(tasks_to_delete) == len(existing_tasks) + tasks_created - len(row_ids_in_pxt)
+
+        if len(tasks_to_delete) > 0:
+            self.project.delete_tasks(tasks_to_delete)
+            print(f'Deleted {len(tasks_to_delete)} tasks(s) in {self} that are no longer present in Pixeltable.')
+
     def to_dict(self) -> dict[str, Any]:
         return {'project_id': self.project_id}
 
@@ -316,23 +337,29 @@ class LabelStudioProject(Remote):
         Parses a Label Studio XML config, extracting the names and Pixeltable types of
         all input variables.
         """
-        # xml_config: str = self.project.get_params()['label_config']
         root: ElementTree.Element = ElementTree.fromstring(xml_config)
         if root.tag.lower() != 'view':
             raise excs.Error('Root of Label Studio config must be a `View`')
-        return _LabelStudioConfig(
+        config = _LabelStudioConfig(
             data_keys=dict(cls._parse_data_keys_config(root)),
             rectangle_labels=dict(cls._parse_rectangle_labels_config(root))
         )
+        config.validate()
+        return config
 
     @classmethod
-    def _parse_data_keys_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, pxt.ColumnType]]:
+    def _parse_data_keys_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, '_DataKey']]:
         for element in root:
             if 'value' in element.attrib and element.attrib['value'][0] == '$':
+                remote_col_name = element.attrib['value'][1:]
+                if 'name' not in element.attrib:
+                    raise excs.Error(f'Data key is missing `name` attribute: `{remote_col_name}`')
                 element_type = _LS_TAG_MAP.get(element.tag.lower())
                 if element_type is None:
-                    raise excs.Error(f'Unsupported Label Studio data type: `{element.tag}`')
-                yield element.attrib['value'][1:], element_type
+                    raise excs.Error(
+                        f'Unsupported Label Studio data type: `{element.tag}` (in data key `{remote_col_name}`)'
+                    )
+                yield remote_col_name, _DataKey(element.attrib['name'], element_type)
 
     @classmethod
     def _parse_rectangle_labels_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, '_RectangleLabel']]:
@@ -389,6 +416,12 @@ class LabelStudioProject(Remote):
 
 
 @dataclass(frozen=True)
+class _DataKey:
+    name: str  # The 'name' attribute of the data key; may differ from the field name
+    column_type: pxt.ColumnType
+
+
+@dataclass(frozen=True)
 class _RectangleLabel:
     to_name: str
     labels: list[str]
@@ -396,12 +429,23 @@ class _RectangleLabel:
 
 @dataclass(frozen=True)
 class _LabelStudioConfig:
-    data_keys: dict[str, pxt.ColumnType]
+    data_keys: dict[str, _DataKey]
     rectangle_labels: dict[str, _RectangleLabel]
+
+    def validate(self) -> None:
+        data_key_names = set(key.name for key in self.data_keys.values())
+        for name, rl in self.rectangle_labels.items():
+            if rl.to_name not in data_key_names:
+                raise excs.Error(
+                    f'Invalid Label Studio configuration: `toName` attribute of RectangleLabels `{name}` '
+                    f'references an unknown data key: `{rl.to_name}`'
+                )
 
     @property
     def push_columns(self) -> dict[str, pxt.ColumnType]:
-        return {**self.data_keys, **{name: pxt.JsonType() for name in self.rectangle_labels.keys()}}
+        data_key_cols = {key_name: key_info.column_type for key_name, key_info in self.data_keys.items()}
+        rl_cols = {name: pxt.JsonType() for name in self.rectangle_labels.keys()}
+        return {**data_key_cols, **rl_cols}
 
 
 _PAGE_SIZE = 100  # This is the default used in the LS SDK
