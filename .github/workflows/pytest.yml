@@ -7,6 +7,12 @@ on:
     branches: [master]
   workflow_dispatch:
 
+env:
+  # in a PR, the secrets will be empty
+  FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+
 jobs:
   pytest:
     strategy:
@@ -77,11 +83,20 @@ jobs:
         run: pip install pytest coverage
       - name: Run the unit tests
         run: coverage run -m --source=pixeltable pytest -v -m ''
+      - name: Run documentation notebooks
+        if: ${{ matrix.poetry-options != '' }}
+        continue-on-error: true  # For now, continue even if the notebooks fail
         env:
-          # In a PR, these secrets will be empty, and the relevant tests will be skipped
-          FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          set -x  # print commands for debugging
+          if [[ "$GITHUB_REF" == "refs/pull/"* ]]; then
+              # This is a PR. Only run notebooks without getpass
+              NOTEBOOKS=$(grep -L "getpass"  docs/release/**/*ipynb)
+          else
+              NOTEBOOKS=$(ls docs/release/**/*ipynb)
+          fi
+          pytest --overwrite --nbmake --nbmake-timeout=3600 $NOTEBOOKS
       - name: Generate code coverage report
         run: coverage report -m
       - name: Print utilization info
