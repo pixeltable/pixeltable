@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  # in a PR the secrets will be empty
+  # in a PR, the secrets will be empty
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
@@ -89,7 +89,8 @@ jobs:
         env:
           GITHUB_REF: ${{ github.ref }}
         run: |
-          if [[ $GITHUB_REF == refs/pull/* ]]; then
+          set -x  # print commands for debugging
+          if [[ "$GITHUB_REF" == "refs/pull/"* ]]; then
               # This is a PR. Only run notebooks without getpass
               NOTEBOOKS=$(grep -L "getpass"  docs/release/**/*ipynb)
           else
