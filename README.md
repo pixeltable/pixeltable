@@ -16,39 +16,36 @@ Pixeltable is a Python library that lets AI engineers and data scientists focus 
 
 ## What problems does Pixeltable solve?
 
-Today’s solutions for AI app development require extensive custom coding and infrastructure
-plumbing. Tracking lineage and versions between and across data transformations, models, and
-deployment is cumbersome. Pixeltable is a replacement for traditional data plumbing, providing
-a unified plane for data, models, and orchestration. It removes the data plumbing overhead in
-building and productionizing AI applications.
-
-## ⚡Quick Start
-Learn the basics of Pixeltable through interactive examples. View the notebooks on Google Colab or Kaggle, for free.
-
-### Pixeltable Basics
-In this tutorial, we'll survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations.
-
-[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/master/docs/tutorials/pixeltable-basics.ipynb)&nbsp;&nbsp;
-<a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/tutorials/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a>
-
+Today’s solutions for AI app development require extensive custom coding and infrastructure plumbing. Tracking lineage and versions between and across data transformations, models, and deployment is cumbersome. With Pixeltable you can store, transform, index, and iterate on your data within the same table interface, whether it's text, images, embeddings, or even video. Built-in lineage and versioning ensure transparency and reproducibility, while the development-to-production mirror streamlines deployment.
 
 ## 💾 Installation
 Pixeltable works with Python 3.9, 3.10, 3.11, or 3.12 running on Linux, MacOS, or Windows.
 
-```
-pip install pixeltable
+```python
+%pip install pixeltable
 ```
 
 To verify that it's working:
 
-```
+```python
 import pixeltable as pxt
 pxt.init()
 ```
+> [!NOTE]
+> Check out the [Pixeltable Basics](https://pixeltable.readme.io/docs/pixeltable-basics) tutorial for a tour of its most important features.
 
-Check out the [Pixeltable Basics](https://pixeltable.readme.io/docs/pixeltable-basics) tutorial for a tour of its most important features.
+## 💡 Get Started
+Learn how to create tables, populate them with data, and enhance them with built-in or user-defined transformations and AI operations.
 
-## FAQ
+| Topic      |                                                                                Notebook                                                                                |                                                                                API                                                                                |
+|:--------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------:|
+| Get Started    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/tutorials/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |                 [![API](https://img.shields.io/badge/api-reference-blue.svg)](https://pixeltable.github.io/pixeltable/api/pixeltable/)                 |
+| User-Defined Functions (UDFs)    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/howto/udfs-in-pixeltable.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |                 [![API](https://img.shields.io/badge/api-reference-blue.svg)](https://pixeltable.github.io/pixeltable/api/iterators/document-splitter/)                 |
+| Comparing Object Detection Models | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/tutorials/rag-operations.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a>            | [![API](https://img.shields.io/badge/api-reference-blue.svg)](https://pixeltable.github.io/pixeltable/api-cheat-sheet/#frame-extraction-for-video-data) |
+| Experimenting with Chunking (RAG) | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/tutorials/object-detection-in-videos.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>            | [![API](https://img.shields.io/badge/api-reference-blue.svg)](https://pixeltable.github.io/pixeltable/api/iterators/document-splitter/) |
+| Working with External Files    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/howto/working-with-external-files.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |                 [![API](https://img.shields.io/badge/api-reference-blue.svg)](https://pixeltable.github.io/pixeltable/api-cheat-sheet/#inserting-data-into-a-table)                 |
+
+## ❓ FAQ
 
 ### What does Pixeltable provide me with? Pixeltable provides:
 
@@ -76,7 +73,10 @@ Check out the [Pixeltable Basics](https://pixeltable.readme.io/docs/pixeltable-b
 - Pixeltable is not a low-code, prescriptive AI solution. We empower you to use the best frameworks and techniques for your specific needs.
 - We do not aim to replace your existing AI toolkit, but rather enhance it by streamlining the underlying data infrastructure and orchestration.
 
-### Example of Use Cases
+> [!TIP]
+> Check out the [Integrations](https://pixeltable.readme.io/docs/working-with-openai) section, and feel free to submit a request for additional ones.
+
+## 📙 Example of Use Cases
 
 - **Interact with video data at the frame level** without having to think about frame extraction, intermediate file storage, or storage space explosion.
 - **Augment your data incrementally and interactively with built-in functions and UDFs**, such as image transformations, model inference, and visualizations, without having to think about data pipelines, incremental updates, or capturing function output.
@@ -90,7 +90,7 @@ Check out the [Pixeltable Basics](https://pixeltable.readme.io/docs/pixeltable-b
 - **Understand the compute and storage costs of your data at the granularity** of individual augmentations and get cost projections before adding new data and new augmentations.
 - **Rely on Pixeltable's automatic versioning and snapshot functionality** to protect against regressions and to ensure reproducibility.
 
-## Contributions & Feedback
+## 🐛 Contributions & Feedback
 
 Are you experiencing issues or bugs with Pixeltable? File an [Issue](https://github.com/pixeltable/pixeltable/issues).
 </br>Do you want to contribute? Feel free to open a [PR](https://github.com/pixeltable/pixeltable/pulls).
