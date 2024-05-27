@@ -27,7 +27,7 @@ class IndexBase(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def index_sa_type(self) -> sql.sqltypes.TypeEngine:
+    def index_sa_type(self) -> sql.types.TypeEngine:
         """Return the sqlalchemy type of the index value column"""
         pass
 

@@ -38,7 +38,7 @@ class TestIndex:
                 .order_by(t.img.similarity('parachute'), asc=is_asc) \
                 .limit(1).collect()
 
-            t.drop_index(column_name='img')
+            t.drop_embedding_index(column_name='img')
 
     def test_search_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
@@ -70,8 +70,8 @@ class TestIndex:
             _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
         assert 'column img has multiple indices' in str(exc_info.value).lower()
 
-        t.drop_index(idx_name='idx0')
-        t.drop_index(idx_name='idx1')
+        t.drop_embedding_index(idx_name='idx0')
+        t.drop_embedding_index(idx_name='idx1')
         t.add_embedding_index('split', text_embed=clip_text_embed)
         sample_img = t.select(t.img).head(1)[0, 'img']
         with pytest.raises(pxt.Error) as exc_info:
@@ -104,7 +104,7 @@ class TestIndex:
         # revert() removes the index
         img_t.revert()
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_index(column_name='category')
+            img_t.drop_embedding_index(column_name='category')
         assert 'does not have an index' in str(exc_info.value).lower()
 
         rows = list(img_t.collect())
@@ -136,9 +136,9 @@ class TestIndex:
         # revert update()
         img_t.revert()
 
-        img_t.drop_index(idx_name='idx0')
+        img_t.drop_embedding_index(column_name='img')
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_index(column_name='img')
+            img_t.drop_embedding_index(column_name='img')
         assert 'does not have an index' in str(exc_info.value).lower()
 
         # revert() makes the index reappear
@@ -150,7 +150,7 @@ class TestIndex:
         # dropping the indexed column also drops indices
         img_t.drop_column('img')
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_index(idx_name='idx0')
+            img_t.drop_embedding_index(idx_name='idx0')
         assert 'does not exist' in str(exc_info.value).lower()
 
     def test_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
@@ -200,24 +200,24 @@ class TestIndex:
         assert 'must return a 1d array of a specific length' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_index()
+            img_t.drop_embedding_index()
         assert 'exactly one of column_name or idx_name must be provided' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_index(idx_name='doesnotexist')
+            img_t.drop_embedding_index(idx_name='doesnotexist')
         assert 'index doesnotexist does not exist' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_index(column_name='doesnotexist')
+            img_t.drop_embedding_index(column_name='doesnotexist')
         assert 'column doesnotexist unknown' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_index(column_name='img')
+            img_t.drop_embedding_index(column_name='img')
         assert 'column img does not have an index' in str(exc_info.value).lower()
 
         img_t.add_embedding_index('img', img_embed=clip_img_embed)
         img_t.add_embedding_index('img', img_embed=clip_img_embed)
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_index(column_name='img')
+            img_t.drop_embedding_index(column_name='img')
         assert 'column img has multiple indices' in str(exc_info.value).lower()

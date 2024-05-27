@@ -7,7 +7,7 @@ import json
 import typing
 import urllib.parse
 import urllib.request
-from copy import copy
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
 
@@ -90,6 +90,12 @@ class ColumnType:
 
     def serialize(self) -> str:
         return json.dumps(self.as_dict())
+
+    def copy(self, nullable: Optional[bool] = None) -> ColumnType:
+        result = deepcopy(self)
+        if nullable is not None:
+            result.nullable = nullable
+        return result
 
     @classmethod
     def serialize_list(cls, type_list: List[ColumnType]) -> str:

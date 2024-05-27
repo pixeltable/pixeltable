@@ -251,7 +251,7 @@ class Planner:
         Returns:
             - root node of the plan
             - list of qualified column names that are getting updated
-            - list of columns that are being recomputed
+            - list of user-visible columns that are being recomputed
         """
         # retrieve all stored cols and all target exprs
         assert isinstance(tbl, catalog.TableVersionPath)
@@ -260,7 +260,10 @@ class Planner:
         if len(recompute_targets) > 0:
             recomputed_cols = recompute_targets.copy()
         else:
-            recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else {}
+            recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
+            # regardless of cascade, we need to update all indices on any updated column
+            idx_val_cols = target.get_idx_val_columns(updated_cols)
+            recomputed_cols.update(idx_val_cols)
             # we only need to recompute stored columns (unstored ones are substituted away)
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
@@ -273,8 +276,8 @@ class Planner:
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
         # recomputed cols reference the new values of the updated cols
-        for col, e in update_targets.items():
-            exprs.Expr.list_substitute(recomputed_exprs, exprs.ColumnRef(col), e)
+        spec = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
+        exprs.Expr.list_substitute(recomputed_exprs, spec)
         select_list.extend(recomputed_exprs)
 
         # we need to retrieve the PK columns of the existing rows
@@ -282,7 +285,12 @@ class Planner:
         all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
         [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
-        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + list(recomputed_cols)], list(recomputed_cols)
+        recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
+        return (
+            plan,
+            [f'{c.tbl.name}.{c.name}' for c in updated_cols + list(recomputed_user_cols)],
+            list(recomputed_user_cols),
+        )
 
     @classmethod
     def create_view_update_plan(

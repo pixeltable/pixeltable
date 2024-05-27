@@ -169,15 +169,21 @@ class Expr(abc.ABC):
         memo[id(self)] = result
         return result
 
-    def substitute(self, old: Expr, new: Expr) -> Expr:
+    def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
         Replace 'old' with 'new' recursively.
         """
-        if self.equals(old):
-            return new.copy()
+        for old, new in spec.items():
+            if self.equals(old):
+                return new.copy()
         for i in range(len(self.components)):
-            self.components[i] = self.components[i].substitute(old, new)
+            self.components[i] = self.components[i].substitute(spec)
         return self
+
+    @classmethod
+    def list_substitute(cls, expr_list: List[Expr], spec: dict[Expr, Expr]) -> None:
+        for i in range(len(expr_list)):
+            expr_list[i] = expr_list[i].substitute(spec)
 
     def resolve_computed_cols(self, resolve_cols: Optional[Set[catalog.Column]] = None) -> Expr:
         """
@@ -196,9 +202,7 @@ class Expr(abc.ABC):
             ])
             if len(target_col_refs) == 0:
                 return result
-            for ref in target_col_refs:
-                assert ref.col.value_expr is not None
-                result = result.substitute(ref, ref.col.value_expr)
+            result = result.substitute({ref: ref.col.value_expr for ref in target_col_refs})
 
     def is_bound_by(self, tbl: catalog.TableVersionPath) -> bool:
         """Returns True if this expr can be evaluated in the context of tbl."""
@@ -224,11 +228,6 @@ class Expr(abc.ABC):
         for i in range (len(self.components)):
             self.components[i] = self.components[i]._retarget(tbl_versions)
         return self
-
-    @classmethod
-    def list_substitute(cls, expr_list: List[Expr], old: Expr, new: Expr) -> None:
-        for i in range(len(expr_list)):
-            expr_list[i] = expr_list[i].substitute(old, new)
 
     @abc.abstractmethod
     def __str__(self) -> str:
