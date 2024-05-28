@@ -3,11 +3,11 @@
 
 # Unifying Data, Models, and Orchestration for AI Products
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-&nbsp;&nbsp;
+[![License](https://img.shields.io/badge/License-Apache%202.0-darkblue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white)
-&nbsp;&nbsp;
+  [![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-8A2BE2)]()
 [![pytest status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions)
+[![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=darkorange)](https://pypi.org/project/pixeltable/)
 
 [Installation](https://pixeltable.github.io/pixeltable/getting-started/) | [Documentation](https://pixeltable.readme.io/) | [API Reference](https://pixeltable.github.io/pixeltable/) | [Code Samples](https://pixeltable.readme.io/recipes) | [Examples](https://github.com/pixeltable/pixeltable/tree/master/docs/release/tutorials)
 </div>
@@ -19,7 +19,6 @@ Pixeltable is a Python library that lets AI engineers and data scientists focus 
 Today’s solutions for AI app development require extensive custom coding and infrastructure plumbing. Tracking lineage and versions between and across data transformations, models, and deployment is cumbersome. With Pixeltable you can store, transform, index, and iterate on your data within the same table interface, whether it's text, images, embeddings, or even video. Built-in lineage and versioning ensure transparency and reproducibility, while the development-to-production mirror streamlines deployment.
 
 ## 💾 Installation
-Pixeltable works with Python 3.9, 3.10, 3.11, or 3.12 running on Linux, MacOS, or Windows.
 
 ```python
 %pip install pixeltable
