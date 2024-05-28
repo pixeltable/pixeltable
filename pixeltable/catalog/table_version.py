@@ -1005,14 +1005,11 @@ class TableVersion:
         for refd_col in refd_cols:
             refd_col.dependent_cols.add(col)
 
-    def get_idx_val_columns(self, cols: Iterable[Column]) -> Set[Column]:
-        result: set[Column] = set()
-        for col in cols:
-            val_cols = {info.val_col for info in col.get_idx_info().values()}
-            result.update(val_cols)
+    def get_idx_val_columns(self, cols: Iterable[Column]) -> set[Column]:
+        result = {info.val_col for col in cols for info in col.get_idx_info().values()}
         return result
 
-    def get_dependent_columns(self, cols: List[Column]) -> Set[Column]:
+    def get_dependent_columns(self, cols: list[Column]) -> set[Column]:
         """
         Return the set of columns that transitively depend on any of the given ones.
         """

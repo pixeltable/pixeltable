@@ -13,15 +13,13 @@ class BtreeIndex(IndexBase):
     """
     Interface to B-tree indices in Postgres.
     """
-    MAX_STRING_LEN = 64
+    MAX_STRING_LEN = 256
 
     @func.udf
     def str_filter(s: Optional[str]) -> Optional[str]:
         if s is None:
             return None
-        if len(s) > BtreeIndex.MAX_STRING_LEN:
-            return None
-        return s
+        return s[:BtreeIndex.MAX_STRING_LEN]
 
     def __init__(self, c: 'catalog.Column'):
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():

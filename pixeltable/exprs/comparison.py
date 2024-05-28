@@ -31,7 +31,9 @@ class Comparison(Predicate):
             self.is_search_arg_comparison = False
             self.components = [op1, op2]
 
-        if self.is_search_arg_comparison and self._op2.col_type.is_string_type() and len(self._op2.val) > 64:
+        import pixeltable.index as index
+        if self.is_search_arg_comparison and self._op2.col_type.is_string_type() \
+                and len(self._op2.val) > index.BtreeIndex.MAX_STRING_LEN:
             # we can't use an index for this after all
             self.is_search_arg_comparison = False
 

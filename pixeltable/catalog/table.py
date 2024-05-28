@@ -530,12 +530,9 @@ class Table(SchemaObject):
 
             >>> tbl.drop_embedding_index(column_name='img')
         """
-        self.drop_index(column_name=column_name, idx_name=idx_name, _idx_class=index.EmbeddingIndex)
+        self._drop_index(column_name=column_name, idx_name=idx_name, _idx_class=index.EmbeddingIndex)
 
-    def drop_index(
-            self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None,
-            _idx_class: Optional[Type[index.IndexBase]] = None
-    ) -> None:
+    def drop_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
         """Drop an index from the table.
 
         Args:
@@ -550,6 +547,12 @@ class Table(SchemaObject):
 
             >>> tbl.drop_index(column_name='img')
         """
+        self._drop_index(column_name=column_name, idx_name=idx_name)
+
+    def _drop_index(
+            self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None,
+            _idx_class: Optional[Type[index.IndexBase]] = None
+    ) -> None:
         if self.tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
         self._check_is_dropped()
