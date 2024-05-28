@@ -261,6 +261,7 @@ class LabelStudioProject(Remote):
             t_rl_cols: list[str],
             rl_info: list['_RectangleLabel']
     ):
+        # TODO(aaron-siegel): This is just a placeholder (implementation is not complete or tested!)
         selection = [
             t[col_name].fileurl if t_col_types[col_name].is_media_type() else t[col_name]
             for col_name in t_data_cols
