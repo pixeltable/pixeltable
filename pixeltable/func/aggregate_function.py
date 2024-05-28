@@ -142,7 +142,7 @@ def uda(
         update_types: List[ts.ColumnType],
         init_types: Optional[List[ts.ColumnType]] = None,
         requires_order_by: bool = False, allows_std_agg: bool = True, allows_window: bool = False,
-) -> Callable:
+) -> Callable[[Type[Aggregator]], AggregateFunction]:
     """Decorator for user-defined aggregate functions.
 
     The decorated class must inherit from Aggregator and implement the following methods:
@@ -164,7 +164,7 @@ def uda(
     if init_types is None:
         init_types = []
 
-    def decorator(cls: Type[Aggregator]) -> Type[Function]:
+    def decorator(cls: Type[Aggregator]) -> AggregateFunction:
         # validate type parameters
         num_init_params = len(inspect.signature(cls.__init__).parameters) - 1
         if num_init_params > 0:

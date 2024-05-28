@@ -28,7 +28,7 @@ def udf(
         batch_size: Optional[int] = None,
         substitute_fn: Optional[Callable] = None,
         _force_stored: bool = False
-) -> Callable: ...
+) -> Callable[[Callable], Function]: ...
 
 
 def udf(*args, **kwargs):
@@ -131,7 +131,7 @@ def make_function(
 def expr_udf(py_fn: Callable) -> ExprTemplateFunction: ...
 
 @overload
-def expr_udf(*, param_types: Optional[List[ts.ColumnType]] = None) -> Callable: ...
+def expr_udf(*, param_types: Optional[List[ts.ColumnType]] = None) -> Callable[[Callable], ExprTemplateFunction]: ...
 
 def expr_udf(*args: Any, **kwargs: Any) -> Any:
     def decorator(py_fn: Callable, param_types: Optional[List[ts.ColumnType]]) -> ExprTemplateFunction:
