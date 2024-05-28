@@ -919,20 +919,75 @@ class TableVersion:
         return remote, col_mapping
 
     def link_remote(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
-        # TODO Need lots of validation here
-        timestamp = time.time()
-        self.version += 1
-        self.remotes[remote] = col_mapping
+        # All of the columns being linked need to either be stored columns or have stored proxies.
+        # First determine which columns (if any) need stored proxies, but don't have one yet.
+        _logger.info(f'Linking remote {remote} to table `{self.name}`.')
+        stored_proxies_needed = [
+            self.cols_by_name[col_name]
+            for col_name in col_mapping.keys()
+            if not (self.cols_by_name[col_name].is_stored or self.cols_by_name[col_name].stored_proxy)
+        ]
         with Env.get().engine.begin() as conn:
-            self._update_md(timestamp, None, conn)
+            self.version += 1
+            self.remotes[remote] = col_mapping
+            if len(stored_proxies_needed) > 0:
+                _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
+                # Create stored proxies for columns that need one. Increment the schema version
+                # accordingly.
+                preceding_schema_version = self.schema_version
+                self.schema_version = self.version
+                proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
+                # Add the columns; this will also update table metadata.
+                self._add_columns(proxy_cols, conn, preceding_schema_version=preceding_schema_version)
+                # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
+                # invisible to the user.
+            else:
+                # No columns to add; just update the table metadata directly.
+                self._update_md(time.time(), None, conn)
+
+    def create_stored_proxy(self, col: Column) -> Column:
+        from pixeltable import exprs
+
+        assert not (col.is_stored or col.stored_proxy)
+        proxy_col = Column(
+            name=None,
+            computed_with=exprs.ColumnRef(col),
+            stored=True,
+            col_id=self.next_col_id,
+            sa_col_type=col.col_type.to_sa_type(),
+            schema_version_add=self.schema_version
+        )
+        proxy_col.tbl = self
+        self.next_col_id += 1
+        col.stored_proxy = proxy_col
+        return proxy_col
 
     def unlink_remote(self, remote: pixeltable.datatransfer.Remote) -> None:
         assert remote in self.remotes
         timestamp = time.time()
-        self.version += 1
-        del self.remotes[remote]
+        this_remote_col_names = list(self.remotes[remote].keys())
+        other_remote_col_names = {
+            col_name
+            for other_remote, col_mapping in self.remotes.items() if other_remote != remote
+            for col_name in col_mapping.keys()
+        }
+        stored_proxy_deletions_needed = [
+            self.cols_by_name[col_name]
+            for col_name in this_remote_col_names
+            if col_name not in other_remote_col_names and self.cols_by_name[col_name].stored_proxy
+        ]
         with Env.get().engine.begin() as conn:
-            self._update_md(timestamp, None, conn)
+            self.version += 1
+            del self.remotes[remote]
+            if len(stored_proxy_deletions_needed) > 0:
+                preceding_schema_version = self.schema_version
+                self.schema_version = self.version
+                proxy_cols = [col.stored_proxy for col in stored_proxy_deletions_needed]
+                for col in stored_proxy_deletions_needed:
+                    col.stored_proxy = None
+                self._drop_columns(proxy_cols, conn, preceding_schema_version)
+            else:
+                self._update_md(timestamp, None, conn)
 
     def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
         return self.remotes
@@ -1034,7 +1089,8 @@ class TableVersion:
             column_md[col.id] = schema.ColumnMd(
                 id=col.id, col_type=col.col_type.as_dict(), is_pk=col.is_pk,
                 schema_version_add=col.schema_version_add, schema_version_drop=col.schema_version_drop,
-                value_expr=value_expr_dict, stored=col.stored)
+                value_expr=value_expr_dict, stored=col.stored,
+                stored_proxy=col.stored_proxy.id if col.stored_proxy is not None else None)
         return column_md
 
     @classmethod

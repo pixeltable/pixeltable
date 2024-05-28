@@ -86,6 +86,9 @@ class Column:
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
 
+        # stored proxy may be set later if this is a non-stored column
+        self.stored_proxy: Optional[Column] = None
+
         # column in the stored table for the values of this Column
         self.sa_col: Optional[sql.schema.Column] = None
         self.sa_col_type = sa_col_type
@@ -93,6 +96,7 @@ class Column:
         # computed cols also have storage columns for the exception string and type
         self.sa_errormsg_col: Optional[sql.schema.Column] = None
         self.sa_errortype_col: Optional[sql.schema.Column] = None
+
         from .table_version import TableVersion
         self.tbl: Optional[TableVersion] = None  # set by owning TableVersion
 

@@ -93,6 +93,9 @@ class ColumnMd:
     # if True, the column is present in the stored table
     stored: Optional[bool]
 
+    # if specified, the column has a stored proxy column
+    stored_proxy: Optional[int]
+
 
 @dataclasses.dataclass
 class IndexMd:
