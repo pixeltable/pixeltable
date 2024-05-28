@@ -919,7 +919,6 @@ class TableVersion:
         return remote, col_mapping
 
     def link_remote(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
-        # TODO Need lots of validation here
         timestamp = time.time()
         self.version += 1
         self.remotes[remote] = col_mapping

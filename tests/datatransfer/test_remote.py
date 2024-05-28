@@ -9,7 +9,7 @@ from pixeltable.datatransfer.remote import MockRemote
 _logger = logging.getLogger('pixeltable')
 
 
-class TestLabelStudio:
+class TestRemote:
 
     def test_remote_validation(self, reset_db):
         schema = {'col1': pxt.StringType(), 'col2': pxt.ImageType(), 'col3': pxt.StringType(), 'col4': pxt.VideoType()}
@@ -72,3 +72,11 @@ class TestLabelStudio:
         with pytest.raises(excs.Error) as exc_info:
             t3.link_remote(remote2, {'spec_img': 'pull_img'})
         assert 'Column `spec_img` cannot be pulled from remote column `pull_img`' in str(exc_info.value)
+
+        t3['computed_img'] = t3.img.rotate(180)
+        with pytest.raises(excs.Error) as exc_info:
+            t3.link_remote(remote2, {'computed_img': 'pull_img'})
+        assert (
+            'Column `computed_img` is a computed column, which cannot be populated from a remote column'
+            in str(exc_info.value)
+        )

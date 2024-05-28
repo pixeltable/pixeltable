@@ -758,7 +758,7 @@ class Table(SchemaObject):
                 )
             if r_col not in push_cols and r_col not in pull_cols:
                 raise excs.Error(f'Remote configuration has no column `{r_col}`. (Specify `col_mapping` explicitly?)')
-        # Validate types
+        # Validate column specs
         t_col_types = self.column_types()
         for t_col, r_col in col_mapping.items():
             t_col_type = t_col_types[t_col]
@@ -771,6 +771,10 @@ class Table(SchemaObject):
                     )
             if r_col in pull_cols:
                 # Validate that the remote column can be assigned to the table column
+                if self.tbl_version_path.get_column(t_col).is_computed:
+                    raise excs.Error(
+                        f'Column `{t_col}` is a computed column, which cannot be populated from a remote column'
+                    )
                 r_col_type = pull_cols[r_col]
                 if not t_col_type.is_supertype_of(r_col_type):
                     raise excs.Error(
