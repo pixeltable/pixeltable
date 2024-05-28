@@ -47,6 +47,5 @@ class TestTypes:
         }
         for py_type, pxt_type in test_cases.items():
             assert ColumnType.from_python_type(py_type) == pxt_type
-            opt_pxt_type = copy(pxt_type)
-            opt_pxt_type.nullable = True
+            opt_pxt_type = pxt_type.copy(nullable=True)
             assert ColumnType.from_python_type(Optional[py_type]) == opt_pxt_type
