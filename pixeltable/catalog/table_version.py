@@ -119,7 +119,7 @@ class TableVersion:
         # init schema after we determined whether we're a component view, and before we create the store table
         self.cols: List[Column] = []  # contains complete history of columns, incl dropped ones
         self.cols_by_name: dict[str, Column] = {}  # contains only user-facing (named) columns visible in this version
-        self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version
+        self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
         self._init_schema(tbl_md, schema_version_md)
@@ -922,10 +922,11 @@ class TableVersion:
         # All of the columns being linked need to either be stored columns or have stored proxies.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
         _logger.info(f'Linking remote {remote} to table `{self.name}`.')
+        cols_by_name = self.path.cols_by_name()  # Includes base columns
         stored_proxies_needed = [
-            self.cols_by_name[col_name]
+            cols_by_name[col_name]
             for col_name in col_mapping.keys()
-            if not (self.cols_by_name[col_name].is_stored or self.cols_by_name[col_name].stored_proxy)
+            if not (cols_by_name[col_name].is_stored or cols_by_name[col_name].stored_proxy)
         ]
         with Env.get().engine.begin() as conn:
             self.version += 1
@@ -938,6 +939,7 @@ class TableVersion:
                 self.schema_version = self.version
                 proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
                 # Add the columns; this will also update table metadata.
+                # TODO Add to base tables
                 self._add_columns(proxy_cols, conn, preceding_schema_version=preceding_schema_version)
                 # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
                 # invisible to the user.
@@ -971,10 +973,11 @@ class TableVersion:
             for other_remote, col_mapping in self.remotes.items() if other_remote != remote
             for col_name in col_mapping.keys()
         }
+        cols_by_name = self.path.cols_by_name()  # Includes base columns
         stored_proxy_deletions_needed = [
-            self.cols_by_name[col_name]
+            cols_by_name[col_name]
             for col_name in this_remote_col_names
-            if col_name not in other_remote_col_names and self.cols_by_name[col_name].stored_proxy
+            if col_name not in other_remote_col_names and cols_by_name[col_name].stored_proxy
         ]
         with Env.get().engine.begin() as conn:
             self.version += 1
@@ -985,6 +988,7 @@ class TableVersion:
                 proxy_cols = [col.stored_proxy for col in stored_proxy_deletions_needed]
                 for col in stored_proxy_deletions_needed:
                     col.stored_proxy = None
+                # TODO Drop from base tables
                 self._drop_columns(proxy_cols, conn, preceding_schema_version)
             else:
                 self._update_md(timestamp, None, conn)

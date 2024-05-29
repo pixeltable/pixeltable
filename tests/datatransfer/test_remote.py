@@ -1,10 +1,13 @@
 import logging
+import os.path
 
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.datatransfer.remote import MockRemote
+from pixeltable.exprs import ColumnRef
 from tests.utils import get_image_files
 
 _logger = logging.getLogger('pixeltable')
@@ -89,9 +92,16 @@ class TestRemote:
             {'push_img': pxt.ImageType(), 'push_other_img': pxt.ImageType()},
             {'pull_str': pxt.StringType()}
         )
-        image_files = get_image_files()[:5]
-        other_image_files = get_image_files()[-5:]
-        t.insert({'img': img, 'other_img': other_img} for img, other_img in zip(image_files, other_image_files))
+        remote2 = MockRemote(
+            {'push_img': pxt.ImageType()},
+            {'pull_str': pxt.StringType()}
+        )
+        image_files = get_image_files()[:10]
+        other_image_files = get_image_files()[-10:]
+        t.insert(
+            {'img': img, 'other_img': other_img}
+            for img, other_img in zip(image_files[:5], other_image_files[:5])
+        )
         t.add_column(rot_img=t.img.rotate(180), stored=False)
         t.add_column(rot_other_img=t.other_img.rotate(180), stored=False)
         rot_img_col = t.tbl_version_path.get_column('rot_img')
@@ -100,6 +110,27 @@ class TestRemote:
         assert not rot_other_img_col.is_stored
         assert rot_img_col.stored_proxy is None  # No stored proxy yet
         assert rot_other_img_col.stored_proxy is None
+
+        num_cols_before_linking = len(t.tbl_version_path.tbl_version.cols_by_id)
         t.link_remote(remote1, {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'})
+        assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
         assert rot_img_col.stored_proxy is not None  # Stored proxy
         assert rot_other_img_col.stored_proxy is not None
+        # Verify that the stored proxies properly materialized, and we can query them
+        ref = ColumnRef(rot_img_col.stored_proxy)
+        proxies = t.select(img=ref, path=ref.localpath).collect()
+        assert all(os.path.isfile(proxies['path'][i]) for i in range(len(proxies)))
+        proxies['img'][0].load()
+
+        t.link_remote(remote2, {'rot_img': 'push_img'})
+        # Ensure the stored proxy is created just once (for both remotes)
+        assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
+        t.unlink_remote(remote1)
+        # Now rot_img_col is still linked through remote2, but rot_other_img_col
+        # is not linked to any remote. So just rot_img_col should have a proxy
+        assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 1
+        assert rot_img_col.stored_proxy is not None
+        assert rot_other_img_col.stored_proxy is None
+        t.unlink_remote(remote2)
+        assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking
+        assert rot_img_col.stored_proxy is None
