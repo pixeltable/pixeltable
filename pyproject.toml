@@ -135,6 +135,7 @@ markers = [
 filterwarnings = [
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
     "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning",
+    # These four warnings are all from WhisperX:
     "ignore:Deprecated call to `pkg_resources:DeprecationWarning",
     "ignore:The get_cmap function was deprecated in Matplotlib 3.7:DeprecationWarning",
     "ignore:pkg_resources is deprecated as an API:",
