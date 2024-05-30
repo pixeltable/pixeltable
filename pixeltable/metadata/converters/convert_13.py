@@ -9,7 +9,8 @@ from pixeltable.metadata.schema import Table
 _logger = logging.getLogger('pixeltable')
 
 
-def convert_13(engine: sql.engine.Engine) -> None:
+@register_converter(version=13)
+def _(engine: sql.engine.Engine) -> None:
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Table)):
             id = row[0]
@@ -36,6 +37,3 @@ def _update_md(md: Any) -> Any:
         return [_update_md(v) for v in md]
     else:
         return md
-
-
-register_converter(13, convert_13)
