@@ -95,7 +95,7 @@ class TestLabelStudio:
         t = ls_image_table
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
-        remote = LabelStudioProject.create(title='test_sync_project', label_config=self.test_config)
+        remote = LabelStudioProject.create(title='test_sync_project', label_config=self.test_config, media_import_method='post')
         t.link_remote(remote, {'image_col': 'image', 'annotations_col': 'annotations'})
         t.sync_remotes()
 
@@ -140,7 +140,7 @@ class TestLabelStudio:
         from pixeltable.datatransfer.label_studio import LabelStudioProject
         from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
 
-        remote = LabelStudioProject.create(title='test_client_project', label_config=self.test_config_3)
+        remote = LabelStudioProject.create(title='test_client_project', label_config=self.test_config_3, media_import_method='post')
         t['detect'] = detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50')
         t['preannotations'] = detr_to_coco(t.image_col, t.detect)
         t.link_remote(remote, {
@@ -173,7 +173,7 @@ class TestLabelStudio:
         t = ls_image_table
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
-        remote = LabelStudioProject.create('test_sync_errors_project', self.test_config)
+        remote = LabelStudioProject.create('test_sync_errors_project', self.test_config, media_import_method='post')
         # Validate that syncing a remote with pull=True must have an `annotations` column mapping
         t.link_remote(remote, {'image_col': 'image'})
         with pytest.raises(excs.Error) as exc_info:
@@ -192,20 +192,18 @@ class TestLabelStudio:
         t.sync_remotes(push=False)
         t.unlink_remote(remote)
 
-        # Validate that stored columns with local files cannot be pushed to a remote
-        # if other columns exist in the LS configuration
-        t['text_col'] = pxt.StringType(nullable=True)
-        remote_2 = LabelStudioProject.create('test_sync_errors_project_2', self.test_config_2)
-        t.link_remote(remote_2, {'image_col': 'image', 'text_col': 'text', 'annotations_col': 'annotations'})
         with pytest.raises(excs.Error) as exc_info:
-            t.sync_remotes()
-        assert 'Cannot use locally stored media files' in str(exc_info.value)
-        t.unlink_remote(remote_2)
+            _ = LabelStudioProject.create(
+                'test_sync_errors_project_2',
+                self.test_config_2,
+                media_import_method='post'
+            )
+        assert '`media_import_method` cannot be `post` if there is more than one data key' in str(exc_info.value)
 
         # Check that we can create a LabelStudioProject on a non-existent project id
         # (this will happen if, for example, a DB reload happens after a synced project has
         # been deleted externally)
-        false_project = LabelStudioProject(4171780)
+        false_project = LabelStudioProject(4171780, media_import_method='post')
 
         # But trying to do anything with it raises an exception.
         with pytest.raises(excs.Error) as exc_info:

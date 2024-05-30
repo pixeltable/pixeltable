@@ -2,7 +2,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Optional, Literal
 from xml.etree import ElementTree
 
 import PIL.Image
@@ -15,6 +15,7 @@ import pixeltable.env as env
 import pixeltable.exceptions as excs
 from pixeltable import Table
 from pixeltable.datatransfer.remote import Remote
+from pixeltable.exprs import ColumnRef
 from pixeltable.utils import coco
 
 _logger = logging.getLogger('pixeltable')
@@ -48,26 +49,36 @@ class LabelStudioProject(Remote):
 
     ANNOTATIONS_COLUMN = 'annotations'
 
-    def __init__(self, project_id: int):
+    def __init__(self, project_id: int, media_import_method: Literal['post', 'file']):
         self.project_id = project_id
+        self.media_import_method = media_import_method
         self._project: Optional[label_studio_sdk.project.Project] = None
 
     @classmethod
-    def create(cls, title: str, label_config: str, **kwargs: Any) -> 'LabelStudioProject':
+    def create(cls, title: str, label_config: str, media_import_method: Literal['post', 'file'] = 'file', **kwargs: Any) -> 'LabelStudioProject':
         """
         Creates a new Label Studio project, using the Label Studio client configured in Pixeltable.
 
         Args:
             title: The title of the project.
             label_config: The Label Studio project configuration, in XML.
+            media_import_method: The method to use when importing media columns to Label Studio:
+                - `file`: Media will be sent to Label Studio as a file on the local filesystem. This method can be
+                    used if Pixeltable and Label Studio are running on the same host.
+                - `post`: Media will be sent to Label Studio via HTTP post. This should generally only be used for
+                    prototyping; due to restrictions in Label Studio, it can only be used with projects that have
+                    just one data field.
             **kwargs: Additional keyword arguments for the new project; these will be passed to `start_project`
                 in the Label Studio SDK.
         """
+        # TODO(aaron-siegel): Add media_import_method = 'server' as an option
         # Check that the config is valid before creating the project
-        cls._parse_project_config(label_config)
+        config = cls._parse_project_config(label_config)
+        if media_import_method == 'post' and len(config.data_keys) > 1:
+            raise excs.Error('`media_import_method` cannot be `post` if there is more than one data key')
         project = _label_studio_client().start_project(title=title, label_config=label_config, **kwargs)
         project_id = project.get_params()['id']
-        return LabelStudioProject(project_id)
+        return LabelStudioProject(project_id, media_import_method)
 
     @property
     def project(self) -> label_studio_sdk.project.Project:
@@ -185,15 +196,14 @@ class LabelStudioProject(Remote):
         _logger.debug('`t_rl_cols`: %s', t_rl_cols)
         _logger.debug('`rl_info`: %s', rl_info)
 
-        if len(t_data_cols) == 1 and t_col_types[t_data_cols[0]].is_media_type():
-            # With a single media column, we can post local files to Label Studio using
-            # the file transfer API.
+        if self.media_import_method == 'post':
+            # Send media to Label Studio by HTTP post.
             self._create_tasks_by_post(t, col_mapping, existing_tasks, t_rl_cols, rl_info, t_data_cols[0])
+        elif self.media_import_method == 'file':
+            # Send media to Label Studio by local file transfer.
+            self._create_tasks_by_files(t, col_mapping, existing_tasks, t_data_cols, t_col_types, t_rl_cols, rl_info)
         else:
-            # Either a single non-media column or multiple columns. Either way, we can't
-            # use the file upload API and need to rely on externally accessible URLs for
-            # media columns.
-            self._create_tasks_by_urls(t, col_mapping, existing_tasks, t_data_cols, t_col_types, t_rl_cols, rl_info)
+            assert False
 
     def _create_tasks_by_post(
             self,
@@ -204,11 +214,14 @@ class LabelStudioProject(Remote):
             rl_info: list['_RectangleLabel'],
             media_col_name: str
     ) -> None:
-        is_stored = t[media_col_name].col.is_stored
-        # If it's a stored column, we can use `localpath`
-        localpath_col_opt = [t[media_col_name].localpath] if is_stored else []
+        media_col = t[media_col_name].col
+        if media_col.is_stored:
+            path_col_ref = t[media_col_name].localpath
+        else:
+            assert media_col.stored_proxy is not None
+            path_col_ref = ColumnRef(media_col.stored_proxy).localpath
         # Select the media column, rectanglelabels columns, and localpath (if appropriate)
-        rows = t.select(t[media_col_name], *[t[col] for col in t_rl_cols], *localpath_col_opt)
+        rows = t.select(t[media_col_name], *[t[col] for col in t_rl_cols], path=path_col_ref)
         tasks_created = 0
         row_ids_in_pxt: set[tuple] = set()
 
@@ -218,18 +231,9 @@ class LabelStudioProject(Remote):
             row_ids_in_pxt.add(row.rowid)
             if row.rowid not in existing_tasks:
                 # Upload the media file to Label Studio
-                if is_stored:
-                    # There is an existing localpath; use it!
-                    localpath_col_idx = rows._select_list_exprs[-1].slot_idx
-                    file = Path(row.vals[localpath_col_idx])
-                    task_id: int = self.project.import_tasks(file)[0]
-                else:
-                    # No localpath; create a temp file and upload it
-                    assert isinstance(row.vals[media_col_idx], PIL.Image.Image)
-                    file = env.Env.get().create_tmp_path(extension='.png')
-                    row.vals[media_col_idx].save(file, format='png')
-                    task_id: int = self.project.import_tasks(file)[0]
-                    os.remove(file)
+                localpath_col_idx = rows._select_list_exprs[-1].slot_idx
+                file = Path(row.vals[localpath_col_idx])
+                task_id: int = self.project.import_tasks(file)[0]
 
                 # Update the task with `rowid` metadata
                 self.project.update_task(task_id, meta={'rowid': row.rowid})
@@ -251,7 +255,7 @@ class LabelStudioProject(Remote):
 
         self._delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
 
-    def _create_tasks_by_urls(
+    def _create_tasks_by_files(
             self,
             t: Table,
             col_mapping: dict[str, str],
@@ -322,11 +326,11 @@ class LabelStudioProject(Remote):
             print(f'Deleted {len(tasks_to_delete)} tasks(s) in {self} that are no longer present in Pixeltable.')
 
     def to_dict(self) -> dict[str, Any]:
-        return {'project_id': self.project_id}
+        return {'project_id': self.project_id, 'media_import_method': self.media_import_method}
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> 'LabelStudioProject':
-        return LabelStudioProject(md['project_id'])
+        return LabelStudioProject(md['project_id'], md['media_import_method'])
 
     def __repr__(self) -> str:
         name = self.project.get_params()['title']
