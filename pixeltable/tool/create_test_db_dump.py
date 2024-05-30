@@ -166,7 +166,14 @@ class Dumper:
         from pixeltable.datatransfer.remote import MockRemote
         v.link_remote(
             MockRemote({'int_field': pxt.IntType()}, {'str_field': pxt.StringType()}),
-            col_mapping={'test_udf': 'int_field', 'str_format': 'str_field'}
+            col_mapping={'test_udf': 'int_field', 'c1': 'str_field'}
+        )
+        # We're just trying to test metadata here, so reach "under the covers" and link a fake
+        # Label Studio project without validation (so we don't need a real Label Studio server)
+        from pixeltable.datatransfer.label_studio import LabelStudioProject
+        v.tbl_version_path.tbl_version.link_remote(
+            LabelStudioProject(4171780),
+            col_mapping={'str_format': 'str_format'}
         )
 
 
