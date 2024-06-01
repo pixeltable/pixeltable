@@ -715,6 +715,7 @@ class Table(SchemaObject):
             # Use the identity mapping by default if `col_mapping` is not specified
             col_mapping = {col: col for col in itertools.chain(push_cols.keys(), pull_cols.keys())}
         self._validate_remote(push_cols, pull_cols, col_mapping)
+        _logger.info(f'Linking remote {remote} to table `{self.get_name()}`.')
         self.tbl_version_path.tbl_version.link_remote(remote, col_mapping)
         print(f'Linked remote {remote} to table `{self.get_name()}`.')
 

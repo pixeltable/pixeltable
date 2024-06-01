@@ -921,7 +921,6 @@ class TableVersion:
     def link_remote(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
         # All of the columns being linked need to either be stored columns or have stored proxies.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
-        _logger.info(f'Linking remote {remote} to table `{self.name}`.')
         cols_by_name = self.path.cols_by_name()  # Includes base columns
         stored_proxies_needed = [
             cols_by_name[col_name]
