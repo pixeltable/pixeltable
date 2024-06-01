@@ -424,6 +424,21 @@ class LabelStudioProject(Remote):
         else:
             return {'result': result}
 
+    def delete(self) -> None:
+        """
+        Deletes this Label Studio project. This will remove all data and annotations
+        associated with this project in Label Studio.
+        """
+        title = self.project_title
+        _label_studio_client().delete_project(self.project_id)
+        print(f'Deleted Label Studio project: {title}')
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, LabelStudioProject) and self.project_id == other.project_id
+
+    def __hash__(self) -> int:
+        return hash(self.project_id)
+
 
 @dataclass(frozen=True)
 class _DataKey:

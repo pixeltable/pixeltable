@@ -131,6 +131,12 @@ class TestLabelStudio:
         tasks = remote.project.get_tasks()
         assert len(tasks) == 23
 
+        # Unlink the project and verify it no longer exists
+        t.unlink_remote(remote, delete_remote_data=True)
+        with pytest.raises(requests.exceptions.HTTPError) as exc_info:
+            print(remote.project_title)
+        assert 'Not Found for url' in str(exc_info.value)
+
     def test_label_studio_sync_preannotations(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         skip_test_if_not_installed('transformers')

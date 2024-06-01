@@ -723,7 +723,8 @@ class Table(SchemaObject):
             self,
             remote: 'pixeltable.datatransfer.Remote',
             *,
-            ignore_errors: bool = False
+            ignore_errors: bool = False,
+            delete_remote_data: bool = False
     ) -> None:
         """
         Unlinks the specified `Remote` from this table.
@@ -732,6 +733,8 @@ class Table(SchemaObject):
             remote (pixeltable.datatransfer.Remote): The `Remote` to unlink from this table.
             ignore_errors (bool): If `True`, no exception will be thrown if the specified `Remote` is not linked
                 to this table.
+            delete_remote_data (bool): If `True`, then the remote data source will also be deleted. WARNING: This
+                is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
         """
         self._check_is_dropped()
         if remote not in self.get_remotes():
@@ -740,8 +743,9 @@ class Table(SchemaObject):
             else:
                 raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
         self.tbl_version_path.tbl_version.unlink_remote(remote)
-        # TODO: Provide an option to auto-delete the project
         print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
+        if delete_remote_data:
+            remote.delete()
 
     def _validate_remote(
             self,

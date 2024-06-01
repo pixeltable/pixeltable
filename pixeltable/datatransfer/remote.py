@@ -47,6 +47,12 @@ class Remote(abc.ABC):
         """
 
     @abc.abstractmethod
+    def delete(self) -> None:
+        """
+        Deletes this `Remote`.
+        """
+
+    @abc.abstractmethod
     def to_dict(self) -> dict[str, Any]: ...
 
     @classmethod
