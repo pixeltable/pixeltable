@@ -4,7 +4,7 @@ import platform
 import subprocess
 import time
 import uuid
-from typing import Iterator
+from typing import Iterator, Literal
 
 import pytest
 import requests.exceptions
@@ -90,12 +90,21 @@ class TestLabelStudio:
             )
         assert 'not a valid COCO object name' in str(exc_info.value)
 
-    def test_label_studio_sync(self, ls_image_table: pxt.InsertableTable) -> None:
+    @pytest.mark.parametrize('media_import_method', ['post', 'file'])
+    def test_label_studio_sync(
+            self,
+            ls_image_table: pxt.InsertableTable,
+            media_import_method: Literal['post', 'file']
+    ) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
-        remote = LabelStudioProject.create(title='test_sync_project', label_config=self.test_config, media_import_method='post')
+        remote = LabelStudioProject.create(
+            title='test_sync_project',
+            label_config=self.test_config,
+            media_import_method=media_import_method
+        )
         t.link_remote(remote, {'image_col': 'image', 'annotations_col': 'annotations'})
         t.sync_remotes()
 

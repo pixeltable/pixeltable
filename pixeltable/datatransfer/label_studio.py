@@ -306,7 +306,7 @@ class LabelStudioProject(Remote):
                 ]
 
                 tasks.append({
-                    'data': zip(r_data_cols, data_vals),
+                    'data': dict(zip(r_data_cols, data_vals)),
                     'meta': {'rowid': row.rowid},
                     'predictions': predictions
                 })
