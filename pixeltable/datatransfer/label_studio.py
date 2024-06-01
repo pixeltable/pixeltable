@@ -198,10 +198,10 @@ class LabelStudioProject(Remote):
 
         if self.media_import_method == 'post':
             # Send media to Label Studio by HTTP post.
-            self._create_tasks_by_post(t, col_mapping, existing_tasks, t_rl_cols, rl_info, t_data_cols[0])
+            self._create_tasks_by_post(t, col_mapping, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
         elif self.media_import_method == 'file':
             # Send media to Label Studio by local file transfer.
-            self._create_tasks_by_files(t, col_mapping, existing_tasks, t_data_cols, t_col_types, t_rl_cols, rl_info)
+            self._create_tasks_by_files(t, col_mapping, existing_tasks, t_data_cols, t_rl_cols, rl_info)
         else:
             assert False
 
@@ -210,18 +210,15 @@ class LabelStudioProject(Remote):
             t: Table,
             col_mapping: dict[str, str],
             existing_tasks: dict[tuple, dict],
+            media_col_name: str,
             t_rl_cols: list[str],
-            rl_info: list['_RectangleLabel'],
-            media_col_name: str
+            rl_info: list['_RectangleLabel']
     ) -> None:
-        media_col = t[media_col_name].col
-        if media_col.is_stored:
-            path_col_ref = t[media_col_name].localpath
-        else:
-            assert media_col.stored_proxy is not None
-            path_col_ref = ColumnRef(media_col.stored_proxy).localpath
+        is_stored = t[media_col_name].col.is_stored
+        # If it's a stored column, we can use `localpath`
+        localpath_col_opt = [t[media_col_name].localpath] if is_stored else []
         # Select the media column, rectanglelabels columns, and localpath (if appropriate)
-        rows = t.select(t[media_col_name], *[t[col] for col in t_rl_cols], path=path_col_ref)
+        rows = t.select(t[media_col_name], *[t[col] for col in t_rl_cols], *localpath_col_opt)
         tasks_created = 0
         row_ids_in_pxt: set[tuple] = set()
 
@@ -231,9 +228,18 @@ class LabelStudioProject(Remote):
             row_ids_in_pxt.add(row.rowid)
             if row.rowid not in existing_tasks:
                 # Upload the media file to Label Studio
-                localpath_col_idx = rows._select_list_exprs[-1].slot_idx
-                file = Path(row.vals[localpath_col_idx])
-                task_id: int = self.project.import_tasks(file)[0]
+                if is_stored:
+                    # There is an existing localpath; use it!
+                    localpath_col_idx = rows._select_list_exprs[-1].slot_idx
+                    file = Path(row.vals[localpath_col_idx])
+                    task_id: int = self.project.import_tasks(file)[0]
+                else:
+                    # No localpath; create a temp file and upload it
+                    assert isinstance(row.vals[media_col_idx], PIL.Image.Image)
+                    file = env.Env.get().create_tmp_path(extension='.png')
+                    row.vals[media_col_idx].save(file, format='png')
+                    task_id: int = self.project.import_tasks(file)[0]
+                    os.remove(file)
 
                 # Update the task with `rowid` metadata
                 self.project.update_task(task_id, meta={'rowid': row.rowid})
@@ -261,24 +267,33 @@ class LabelStudioProject(Remote):
             col_mapping: dict[str, str],
             existing_tasks: dict[tuple, dict],
             t_data_cols: list[str],
-            t_col_types: dict[str, pxt.ColumnType],
             t_rl_cols: list[str],
             rl_info: list['_RectangleLabel']
     ):
-        # TODO(aaron-siegel): This is just a placeholder (implementation is not complete or tested!)
-        selection = [
-            t[col_name].fileurl if t_col_types[col_name].is_media_type() else t[col_name]
-            for col_name in t_data_cols
-        ]
         r_data_cols = [col_mapping[col_name] for col_name in t_data_cols]
-        rows = t.select(*selection, *[t[col] for col in t_rl_cols])
-        new_rows = filter(lambda row: row.rowid not in existing_tasks, rows._exec())
+        col_refs = {}
+        for col_name in t_data_cols:
+            if not t[col_name].col_type.is_media_type():
+                # Not a media column; query the data directly
+                col_refs[col_name] = t[col_name]
+            elif t[col_name].col.is_stored:
+                # Stored media column; reference the localpath directly
+                col_refs[col_name] = t[col_name].localpath
+            else:
+                # Non-stored media column. A stored proxy must exist (it's created transactionally
+                # any time a column is linked to a remote); use that. We have to give it a name,
+                # since it's an anonymous column
+                assert t[col_name].col.stored_proxy
+                col_refs[f'_{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).localpath
+        df = t.select(*[t[col] for col in t_rl_cols], **col_refs)
+        new_rows = filter(lambda row: row.rowid not in existing_tasks, df._exec())
+
         tasks_created = 0
         row_ids_in_pxt: set[tuple] = set()
 
         for page in more_itertools.batched(new_rows, n=_PAGE_SIZE):
-            data_col_idxs = [expr.slot_idx for expr in rows._select_list_exprs[:len(t_data_cols)]]
-            rl_col_idxs = [expr.slot_idx for expr in rows._select_list_exprs[len(t_data_cols):]]
+            rl_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[:len(t_rl_cols)]]
+            data_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[len(t_rl_cols):]]
             tasks = []
 
             for row in page:
@@ -289,16 +304,6 @@ class LabelStudioProject(Remote):
                     self._coco_to_predictions(coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i])
                     for i in range(len(coco_annotations))
                 ]
-
-                # Validate media columns
-                # TODO Support this if label studio is running on localhost?
-                for i in range(len(data_vals)):
-                    if t[t_data_cols[i]].col_type.is_media_type() and data_vals[i].startswith("file://"):
-                        raise excs.Error(
-                            'Cannot use locally stored media files in a `LabelStudioProject` with more than one '
-                            'data key. (This is a limitation of Label Studio; see warning here: '
-                            'https://labelstud.io/guide/tasks.html)'
-                        )
 
                 tasks.append({
                     'data': zip(r_data_cols, data_vals),
