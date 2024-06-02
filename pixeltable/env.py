@@ -17,7 +17,6 @@ from typing import Callable, Optional, Dict, Any, List
 import pgserver
 import sqlalchemy as sql
 import yaml
-from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
@@ -261,30 +260,90 @@ class Env:
         self._db_url = self._db_server.get_uri(database=self._db_name)
 
         if reinit_db:
-            if database_exists(self.db_url):
-                drop_database(self.db_url)
+            if self._store_db_exists():
+                self._drop_store_db()
 
-        if not database_exists(self.db_url):
+        if not self._store_db_exists():
             self._logger.info(f'creating database at {self.db_url}')
-            create_database(self.db_url)
-            self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
+            self._create_store_db()
+            self._create_engine(echo=echo)
             from pixeltable.metadata import schema
-
             schema.Base.metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
-            # enable pgvector
-            with self._sa_engine.begin() as conn:
-                conn.execute(sql.text('CREATE EXTENSION vector'))
         else:
             self._logger.info(f'found database {self.db_url}')
-            if self._sa_engine is None:
-                self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
+            self._create_engine(echo=echo)
 
         print(f'Connected to Pixeltable database at: {self.db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
         self.log_to_stdout(False)
+
+    def _create_engine(self, echo: bool = False) -> None:
+        self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True, isolation_level='AUTOCOMMIT')
+
+    def _store_db_exists(self) -> bool:
+        assert self._db_name is not None
+        # don't try to connect to self.db_name, it may not exist
+        db_url = self._db_server.get_uri(database='postgres')
+        engine = sql.create_engine(db_url, future=True)
+        try:
+            with engine.begin() as conn:
+                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{self._db_name}'"
+                result = conn.scalar(sql.text(stmt))
+                assert result <= 1
+                return result == 1
+        finally:
+            engine.dispose()
+
+
+    def _create_store_db(self) -> None:
+        assert self._db_name is not None
+        # create the db
+        db_url = self._db_server.get_uri(database='postgres')
+        engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
+        preparer = engine.dialect.identifier_preparer
+        try:
+            with engine.begin() as conn:
+                # use C collation to get standard C/Python-style sorting
+                stmt = (
+                    f"CREATE DATABASE {preparer.quote(self._db_name)} "
+                    "ENCODING 'utf-8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0"
+                )
+                conn.execute(sql.text(stmt))
+        finally:
+            engine.dispose()
+
+        # enable pgvector
+        db_url = self._db_server.get_uri(database=self._db_name)
+        engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
+        try:
+            with engine.begin() as conn:
+                conn.execute(sql.text('CREATE EXTENSION vector'))
+        finally:
+            engine.dispose()
+
+    def _drop_store_db(self) -> None:
+        assert self._db_name is not None
+        db_url = self._db_server.get_uri(database='postgres')
+        engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
+        preparer = engine.dialect.identifier_preparer
+        try:
+            with engine.begin() as conn:
+                # terminate active connections
+                stmt = (f"""
+                    SELECT pg_terminate_backend(pg_stat_activity.pid)
+                    FROM pg_stat_activity
+                    WHERE pg_stat_activity.datname = '{self._db_name}'
+                    AND pid <> pg_backend_pid()
+                """)
+                conn.execute(sql.text(stmt))
+                # drop db
+                stmt = f'DROP DATABASE {preparer.quote(self._db_name)}'
+                conn.execute(sql.text(stmt))
+        finally:
+            engine.dispose()
 
     def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)

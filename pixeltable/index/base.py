@@ -27,6 +27,11 @@ class IndexBase(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def records_value_errors(self) -> bool:
+        """True if index_value_expr() can raise errors"""
+        pass
+
+    @abc.abstractmethod
     def index_sa_type(self) -> sql.types.TypeEngine:
         """Return the sqlalchemy type of the index value column"""
         pass

@@ -344,9 +344,15 @@ class TableVersion:
             return status
 
     def _add_default_index(self, col: Column, conn: sql.engine.Connection) -> Optional[UpdateStatus]:
+        """Add a B-tree index on this column if it has a compatible type"""
         if not col.stored:
+            # if the column is intentionally not stored, we want to avoid the overhead of an index
             return None
         if not col.col_type.is_scalar_type() and not (col.col_type.is_media_type() and not col.is_computed):
+            # wrong type for a B-tree
+            return None
+        if col.col_type.is_bool_type():
+            # B-trees on bools aren't useful
             return None
         status = self._add_index(col, idx_name=None, idx=index.BtreeIndex(col), conn=conn)
         return status
@@ -368,7 +374,7 @@ class TableVersion:
             col_id=self.next_col_id, name=None, computed_with=idx.index_value_expr(),
             sa_col_type=idx.index_sa_type(), stored=True,
             schema_version_add=self.schema_version, schema_version_drop=None,
-            records_errors=False)
+            records_errors=idx.records_value_errors())
         val_col.tbl = self
         val_col.col_type = val_col.col_type.copy(nullable=True)
         self.next_col_id += 1

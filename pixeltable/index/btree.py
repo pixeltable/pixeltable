@@ -30,6 +30,9 @@ class BtreeIndex(IndexBase):
     def index_value_expr(self) -> 'pixeltable.exprs.Expr':
         return self.value_expr
 
+    def records_value_errors(self) -> bool:
+        return False
+
     def index_sa_type(self) -> sql.types.TypeEngine:
         """Return the sqlalchemy type of the index value column"""
         return self.value_expr.col_type.to_sa_type()

@@ -1,9 +1,15 @@
+import sys
+from datetime import datetime, timedelta
+
 import numpy as np
+import string
+import random
 import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
-from .utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed, reload_catalog
+from .utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed, \
+    reload_catalog, validate_update_status
 
 
 class TestIndex:
@@ -18,7 +24,7 @@ class TestIndex:
     def bad_embed2(x: str) -> np.ndarray:
         return np.zeros(10)
 
-    def test_search(self, small_img_tbl: pxt.Table) -> None:
+    def test_similarity(self, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
@@ -40,7 +46,7 @@ class TestIndex:
 
             t.drop_embedding_index(column_name='img')
 
-    def test_search_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
+    def test_similarity_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
         t = indexed_img_tbl
         with pytest.raises(pxt.Error) as exc_info:
@@ -153,7 +159,7 @@ class TestIndex:
             img_t.drop_embedding_index(idx_name='idx0')
         assert 'does not exist' in str(exc_info.value).lower()
 
-    def test_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
+    def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
         img_t = small_img_tbl
 
@@ -221,3 +227,53 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index(column_name='img')
         assert 'column img has multiple indices' in str(exc_info.value).lower()
+
+    def run_btree_test(self, data: list, data_type: pxt.ColumnType) -> pxt.Table:
+        t = pxt.create_table('btree_test', schema={'data': data_type})
+        num_rows = len(data)
+        rows = [{'data': value} for value in data]
+        validate_update_status(t.insert(rows), expected_rows=num_rows)
+        median_value = sorted(data)[num_rows // 2]
+
+        assert t.where(t.data == median_value).count() == 1
+        assert t.where(t.data < median_value).count() == num_rows // 2
+        assert t.where(t.data <= median_value).count() == num_rows // 2 + 1
+        assert t.where(t.data > median_value).count() == num_rows // 2
+        assert t.where(t.data >= median_value).count() == num_rows // 2 + 1
+
+        return t
+
+    BTREE_TEST_NUM_ROWS = 10001  # ~10k rows: incentivize Postgres to use the index
+
+    def test_int_btree(self, reset_db) -> None:
+        random.seed(1)
+        data = [random.randint(0, 2 ** 63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
+        self.run_btree_test(data, pxt.IntType())
+
+    def test_float_btree(self, reset_db) -> None:
+        random.seed(1)
+        data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
+        self.run_btree_test(data, pxt.FloatType())
+
+    def test_string_btree(self, reset_db) -> None:
+        def create_random_str(n: int) -> str:
+            chars = string.ascii_letters + string.digits
+            return ''.join(random.choice(chars) for _ in range(n))
+
+        random.seed(1)
+        n = 255
+        data = [create_random_str(n) for _ in range(self.BTREE_TEST_NUM_ROWS)]
+        t = self.run_btree_test(data, pxt.StringType())
+
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.where(t.data == data[0] + 'a').count()
+        assert 'String literal too long' in str(exc_info.value)
+
+    def test_timestamp_btree(self, reset_db) -> None:
+        random.seed(1)
+        start = datetime(2000, 1, 1)
+        end = datetime(2020, 1, 1)
+        delta = end - start
+        delta_secs = int(delta.total_seconds())
+        data = [start + timedelta(seconds=random.randint(0, int(delta_secs))) for _ in range(self.BTREE_TEST_NUM_ROWS)]
+        t = self.run_btree_test(data, pxt.TimestampType())
