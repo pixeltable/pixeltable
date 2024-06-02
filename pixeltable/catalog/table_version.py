@@ -1093,7 +1093,7 @@ class TableVersion:
                 id=col.id, col_type=col.col_type.as_dict(), is_pk=col.is_pk,
                 schema_version_add=col.schema_version_add, schema_version_drop=col.schema_version_drop,
                 value_expr=value_expr_dict, stored=col.stored,
-                stored_proxy=col.stored_proxy.id if col.stored_proxy is not None else None)
+                stored_proxy=col.stored_proxy.id if col.stored_proxy else None)
         return column_md
 
     @classmethod

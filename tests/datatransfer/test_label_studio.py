@@ -11,7 +11,8 @@ import requests.exceptions
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from ..utils import skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog
+from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
+                     SAMPLE_IMAGE_URL)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -90,11 +91,17 @@ class TestLabelStudio:
             )
         assert 'not a valid COCO object name' in str(exc_info.value)
 
-    @pytest.mark.parametrize('media_import_method', ['post', 'file'])
+    # Run the basic sync test four ways: with 'post' and 'file' import methods, and with
+    # a stored and non-stored media column, in all combinations.
+    @pytest.mark.parametrize(
+        'media_import_method,sync_col',
+        [('post', 'image_col'), ('file', 'image_col'), ('post', 'rot_image_col'), ('file', 'rot_image_col')]
+    )
     def test_label_studio_sync(
             self,
             ls_image_table: pxt.InsertableTable,
-            media_import_method: Literal['post', 'file']
+            media_import_method: Literal['post', 'file'],
+            sync_col: str
     ) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
@@ -105,7 +112,7 @@ class TestLabelStudio:
             label_config=self.test_config,
             media_import_method=media_import_method
         )
-        t.link_remote(remote, {'image_col': 'image', 'annotations_col': 'annotations'})
+        t.link_remote(remote, {sync_col: 'image', 'annotations_col': 'annotations'})
         t.sync_remotes()
 
         # Check that the tasks were properly created
@@ -233,7 +240,9 @@ def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
         'test_ls_sync',
         {'id': pxt.IntType(), 'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
     )
-    images = get_image_files()[:30]
+    t.add_column(rot_image_col=t.image_col.rotate(180), stored=False)
+    # 30 rows, a mix of URLs and locally stored image files
+    images = [SAMPLE_IMAGE_URL, *get_image_files()[:29]]
     status = t.insert({'id': n, 'image_col': image} for n, image in enumerate(images))
     validate_update_status(status, expected_rows=len(images))
     return t

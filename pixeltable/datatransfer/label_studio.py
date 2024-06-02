@@ -284,7 +284,7 @@ class LabelStudioProject(Remote):
                 # any time a column is linked to a remote); use that. We have to give it a name,
                 # since it's an anonymous column
                 assert t[col_name].col.stored_proxy
-                col_refs[f'_{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).localpath
+                col_refs[f'{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).localpath
         df = t.select(*[t[col] for col in t_rl_cols], **col_refs)
         new_rows = filter(lambda row: row.rowid not in existing_tasks, df._exec())
 
