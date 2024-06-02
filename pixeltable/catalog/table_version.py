@@ -256,7 +256,6 @@ class TableVersion:
 
             # if this is a stored proxy column, resolve the relationships with its proxy base.
             if col_md.proxy_base is not None:
-                # TODO(aaron-siegel): Make sure we're dropping proxy columns when we drop a column
                 # proxy_base must have a strictly smaller id, so we must already have encountered it
                 # in traversal order; and if the proxy column is active at this version, then the
                 # proxy base must necessarily be active as well. This motivates the following assertion.
@@ -506,8 +505,16 @@ class TableVersion:
         dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
-                f'Cannot drop column {name} because the following columns depend on it:\n',
-                f'{", ".join([c.name for c in dependent_user_cols])}')
+                f'Cannot drop column `{name}` because the following columns depend on it:\n'
+                f'{", ".join(c.name for c in dependent_user_cols)}'
+            )
+        dependent_remotes = [remote for remote, col_mapping in self.remotes.items() if name in col_mapping]
+        if len(dependent_remotes) > 0:
+            raise excs.Error(
+                f'Cannot drop column `{name}` because the following remotes depend on it:\n'
+                f'{", ".join(str(r) for r in dependent_remotes)}'
+            )
+        assert col.stored_proxy is None  # since there are no dependent remotes
 
         # we're creating a new schema version
         self.version += 1

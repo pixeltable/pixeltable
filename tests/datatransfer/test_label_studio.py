@@ -158,7 +158,6 @@ class TestLabelStudio:
         skip_test_if_not_installed('transformers')
         t = ls_image_table
         t.delete(where=(t.id >= 5))  # Delete all but 5 rows so that the test isn't too slow
-        t['rot_image_col'] = t.image_col.rotate(90)
         from pixeltable.datatransfer.label_studio import LabelStudioProject
         from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
 

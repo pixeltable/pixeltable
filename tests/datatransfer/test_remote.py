@@ -85,6 +85,11 @@ class TestRemote:
             in str(exc_info.value)
         )
 
+        # Cannot drop a linked column
+        with pytest.raises(excs.Error) as exc_info:
+            t3.drop_column('spec_img')
+        assert 'Cannot drop column `spec_img` because the following remotes depend on it' in str(exc_info.value)
+
     def test_remote_stored_proxies(self, reset_db) -> None:
         schema = {'img': pxt.ImageType(), 'other_img': pxt.ImageType()}
         t = pxt.create_table('test_remote', schema)
@@ -117,7 +122,7 @@ class TestRemote:
         assert rot_img_col.stored_proxy is not None  # Stored proxy
         assert rot_img_col.stored_proxy.proxy_base == rot_img_col
         assert rot_other_img_col.stored_proxy is not None
-        assert rot_other_img_col.stored_proxy.proxy_base == rot_img_col
+        assert rot_other_img_col.stored_proxy.proxy_base == rot_other_img_col
         # Verify that the stored proxies properly materialized, and we can query them
         ref = ColumnRef(rot_img_col.stored_proxy)
         proxies = t.select(img=ref, path=ref.localpath).collect()

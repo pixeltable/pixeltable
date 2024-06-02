@@ -66,6 +66,7 @@ class MockRemote(Remote):
     def __init__(self, push_cols: dict[str, ts.ColumnType], pull_cols: dict[str, ts.ColumnType]):
         self.push_cols = push_cols
         self.pull_cols = pull_cols
+        self.__is_deleted = False
 
     def get_push_columns(self) -> dict[str, ts.ColumnType]:
         return self.push_cols
@@ -75,6 +76,13 @@ class MockRemote(Remote):
 
     def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> NotImplemented:
         raise NotImplementedError()
+
+    def delete(self) -> None:
+        self.__is_deleted = True
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.__is_deleted
 
     def to_dict(self) -> dict[str, Any]:
         return {
