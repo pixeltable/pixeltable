@@ -11,7 +11,7 @@ def convert_15(engine: sql.engine.Engine) -> None:
 
 
 def update_column_md(column_md: dict) -> None:
-    column_md['stored_proxy'] = None
+    column_md['proxy_base'] = None
 
 
 def update_remote_md(remote_md: dict) -> None:

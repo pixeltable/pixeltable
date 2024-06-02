@@ -115,7 +115,9 @@ class TestRemote:
         t.link_remote(remote1, {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'})
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
         assert rot_img_col.stored_proxy is not None  # Stored proxy
+        assert rot_img_col.stored_proxy.proxy_base == rot_img_col
         assert rot_other_img_col.stored_proxy is not None
+        assert rot_other_img_col.stored_proxy.proxy_base == rot_img_col
         # Verify that the stored proxies properly materialized, and we can query them
         ref = ColumnRef(rot_img_col.stored_proxy)
         proxies = t.select(img=ref, path=ref.localpath).collect()

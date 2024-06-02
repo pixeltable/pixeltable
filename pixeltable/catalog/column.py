@@ -86,8 +86,10 @@ class Column:
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
 
-        # stored proxy may be set later if this is a non-stored column
+        # stored_proxy may be set later if this is a non-stored column.
+        # if col1.stored_proxy == col2, then also col1 == col2.proxy_base.
         self.stored_proxy: Optional[Column] = None
+        self.proxy_base: Optional[Column] = None
 
         # column in the stored table for the values of this Column
         self.sa_col: Optional[sql.schema.Column] = None

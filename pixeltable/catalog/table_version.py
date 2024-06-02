@@ -254,6 +254,17 @@ class TableVersion:
                 col.value_expr = exprs.Expr.from_dict(col_md.value_expr)
                 self._record_value_expr(col)
 
+            # if this is a stored proxy column, resolve the relationships with its proxy base.
+            if col_md.proxy_base is not None:
+                # TODO(aaron-siegel): Make sure we're dropping proxy columns when we drop a column
+                # proxy_base must have a strictly smaller id, so we must already have encountered it
+                # in traversal order; and if the proxy column is active at this version, then the
+                # proxy base must necessarily be active as well. This motivates the following assertion.
+                assert col_md.proxy_base in self.cols_by_id
+                base_col = self.cols_by_id[col_md.proxy_base]
+                base_col.stored_proxy = col
+                col.proxy_base = base_col
+
     def _init_idxs(self, tbl_md: schema.TableMd) -> None:
         self.idx_md = tbl_md.index_md
         self.idxs_by_name = {}
@@ -961,6 +972,7 @@ class TableVersion:
         proxy_col.tbl = self
         self.next_col_id += 1
         col.stored_proxy = proxy_col
+        proxy_col.proxy_base = col
         return proxy_col
 
     def unlink_remote(self, remote: pixeltable.datatransfer.Remote) -> None:
@@ -986,6 +998,8 @@ class TableVersion:
                 self.schema_version = self.version
                 proxy_cols = [col.stored_proxy for col in stored_proxy_deletions_needed]
                 for col in stored_proxy_deletions_needed:
+                    assert col.stored_proxy is not None and col.stored_proxy.proxy_base == col
+                    col.stored_proxy.proxy_base = None
                     col.stored_proxy = None
                 # TODO Drop from base tables
                 self._drop_columns(proxy_cols, conn, preceding_schema_version)
@@ -1093,7 +1107,7 @@ class TableVersion:
                 id=col.id, col_type=col.col_type.as_dict(), is_pk=col.is_pk,
                 schema_version_add=col.schema_version_add, schema_version_drop=col.schema_version_drop,
                 value_expr=value_expr_dict, stored=col.stored,
-                stored_proxy=col.stored_proxy.id if col.stored_proxy else None)
+                proxy_base=col.proxy_base.id if col.proxy_base else None)
         return column_md
 
     @classmethod
