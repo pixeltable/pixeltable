@@ -11,17 +11,18 @@ readme = "README.md"
 exclude = [
     ".pytype",
     ".pytest_cache",
-    "pixeltable/.pytest_cache",
-    "pixeltable/tests/data"
+    "tests",
+    "docs",
 ]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
-numpy = ">=1.26"
+setuptools = "69.1.1"  # setuptools >= 69.2 has known issues with Github Actions
+numpy = ">=1.25"
 pandas = ">=2.0,<3.0"
 pillow = ">=9.3.0"
 opencv-python-headless = "^4.7.0.68"
-tqdm = "^4.64.1"
+tqdm = ">=4.64"
 jmespath = "^1.0.1"
 cloudpickle = "^2.2.1"
 psycopg2-binary = "^2.9.5"
@@ -35,7 +36,7 @@ requests = "^2.31.0"
 pyyaml = "^6.0.1"
 jinja2 = "^3.1.3"
 tenacity = "^8.2"
-pgserver = "0.1.2"
+pgserver = "0.1.3"
 mistune = "^3.0.2"
 pymupdf = "^1.24.1"
 ftfy = "^6.2.0"
@@ -48,21 +49,26 @@ optional = true
 pytest = "^7.2.1"
 pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 coverage = "^7.4"
-# mypy-related
-mypy = "^1.8.0"
+toml = "^0.10.2"
+# type checking
+mypy = "^1.10.0"
+pandas-stubs = ">=2.0"
+pytype = [{version = ">=2024.4", platform = "linux"}, {version = ">=2024.4", platform = "darwin"}]
+pyarrow-stubs = "^10.0.1.7"
 types-pillow = ">=10.0"
 types-pyyaml = "^6.0.1"
-pyarrow-stubs = "^10.0.1.7"
+types-sqlalchemy-utils = "^1.1"
+types-tqdm = "^4.64"
 # linting
 pylint = "^3.1.0"
 ruff = "^0.3.1"
 # jupyter
 notebook = "^7.1.0"
 # mkdocs-related
-mkdocs = "^1.5.3"
-mkdocstrings = {extras = ["python"], version = "^0.24.0"}
-mkdocs-material = "^9.5.3"
-mkdocs-jupyter = "^0.24"
+mkdocs = "^1.6.0"
+mkdocs-material = "^9.5.23"
+mkdocstrings-python = "^1.10.2"
+black = ">=24.4"  # Needed for mkdocs
 # other
 pycocotools = "^2.0.7"
 ipykernel = "^6.27.1"
@@ -72,7 +78,7 @@ torch = "^2.2"
 torchvision = "^0.17"
 pyarrow = ">=13.0.0"
 openai = "^1.10.0"
-together = "^1.0.1"
+together = "^1.1"
 fireworks-ai = "^0.13.0"
 boto3 = "^1.17"
 spacy = "^3.0"
@@ -81,8 +87,8 @@ tiktoken = ">=0.3"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 datasets = ">=2.15.0"
-# setuptools >= 69.2 has known issues with Github Actions
-setuptools = "~69.1"
+openpyxl = ">=3.1"  # Excel (.xlsx) support
+whisperx = {git = "https://github.com/m-bain/whisperX.git", rev = "f2da2f8"}
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -94,13 +100,13 @@ files = ["pixeltable/__version__.py"]
 
 [tool.mypy]
 plugins = "sqlalchemy.ext.mypy.plugin"
-disallow_untyped_defs = true
+allow_redefinition = true
 disallow_any_unimported = true
-no_implicit_optional = true
 check_untyped_defs = true
 warn_return_any = true
 warn_unused_ignores = true
 show_error_codes = true
+strict_optional = false
 
 [tool.pylint.main]
 max-line-length = 120
@@ -128,7 +134,11 @@ markers = [
 ]
 filterwarnings = [
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
-    "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning"
+    "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning",
+    "ignore:Deprecated call to `pkg_resources:DeprecationWarning",
+    "ignore:The get_cmap function was deprecated in Matplotlib 3.7:DeprecationWarning",
+    "ignore:pkg_resources is deprecated as an API:",
+    "ignore:torchaudio._backend.set_audio_backend:UserWarning"
 ]
 
 [tool.ruff]
@@ -143,4 +153,4 @@ preview = true
 known-first-party = ["pixeltable"]
 
 [tool.ruff.format]
-quote-style = "preserve"
+quote-style = "single"  # can be "single", "double", or "preserve"

@@ -1,21 +1,28 @@
-from typing import Dict, Any, List, Tuple
-from pathlib import Path
-import math
 import logging
+import math
+from pathlib import Path
+from typing import Dict, Any, List, Tuple
 
-import cv2
 import PIL.Image
+import cv2
 
-from .base import ComponentIterator
-
-from pixeltable.type_system import ColumnType, VideoType, ImageType, IntType, FloatType
 from pixeltable.exceptions import Error
-
+from pixeltable.type_system import ColumnType, VideoType, ImageType, IntType, FloatType
+from .base import ComponentIterator
 
 _logger = logging.getLogger('pixeltable')
 
+
 class FrameIterator(ComponentIterator):
-    def __init__(self, video: str, fps: float = 0.0):
+    """Iterator over frames of a video.
+
+        Args:
+            video: URL or file of the video to use for frame extraction
+            fps: number of frames to extract per second of video. This may be a fractional value, such as 0.5.
+                If set to 0.0, then the native framerate of the video will be used (all frames will be extracted).
+                Default: 0.0
+    """
+    def __init__(self, video: str, *, fps: float = 0.0):
         video_path = Path(video)
         assert video_path.exists() and video_path.is_file()
         self.video_path = video_path

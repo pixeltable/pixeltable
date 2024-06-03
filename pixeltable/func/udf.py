@@ -6,7 +6,6 @@ from typing import List, Callable, Optional, overload, Any
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from .batched_function import ExplicitBatchedFunction
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
 from .function import Function
@@ -29,7 +28,7 @@ def udf(
         batch_size: Optional[int] = None,
         substitute_fn: Optional[Callable] = None,
         _force_stored: bool = False
-) -> Callable: ...
+) -> Callable[[Callable], Function]: ...
 
 
 def udf(*args, **kwargs):
@@ -78,8 +77,8 @@ def make_function(
     force_stored: bool = False
 ) -> Function:
     """
-    Constructs a `CallableFunction` or `BatchedFunction`, depending on the
-    supplied parameters. If `substitute_fn` is specified, then `decorated_fn`
+    Constructs a `CallableFunction` from the specified parameters.
+    If `substitute_fn` is specified, then `decorated_fn`
     will be used only for its signature, with execution delegated to
     `substitute_fn`.
     """
@@ -117,11 +116,8 @@ def make_function(
             raise excs.Error(f'{errmsg_name}(): @udf decorator with a `substitute_fn` can only be used in a module')
         py_fn = substitute_fn
 
-    if batch_size is None:
-        result = CallableFunction(signature=sig, py_fn=py_fn, self_path=function_path, self_name=function_name)
-    else:
-        result = ExplicitBatchedFunction(
-            signature=sig, batch_size=batch_size, invoker_fn=py_fn, self_path=function_path)
+    result = CallableFunction(
+        signature=sig, py_fn=py_fn, self_path=function_path, self_name=function_name, batch_size=batch_size)
 
     # If this function is part of a module, register it
     if function_path is not None:
@@ -135,7 +131,7 @@ def make_function(
 def expr_udf(py_fn: Callable) -> ExprTemplateFunction: ...
 
 @overload
-def expr_udf(*, param_types: Optional[List[ts.ColumnType]] = None) -> Callable: ...
+def expr_udf(*, param_types: Optional[List[ts.ColumnType]] = None) -> Callable[[Callable], ExprTemplateFunction]: ...
 
 def expr_udf(*args: Any, **kwargs: Any) -> Any:
     def decorator(py_fn: Callable, param_types: Optional[List[ts.ColumnType]]) -> ExprTemplateFunction:

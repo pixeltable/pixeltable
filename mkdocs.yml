@@ -1,64 +1,60 @@
-site_name: Pixeltable
-site_author: Marcel Kornacker
+site_name: Pixeltable API
+site_author: Pixeltable, Inc.
 
 copyright: |
   &copy; 2022 - 2024 <a href="https://github.com/pixeltable" target="_blank" rel="noopener">Pixeltable, Inc.</a> All rights reserved.
 
-#docs_dir: .
+docs_dir: docs/release
 site_dir: site
 
 repo_url: https://github.com/pixeltable/pixeltable
 repo_name: pixeltable/pixeltable
 
-nav:
-- Home: README.md
-- Cheat Sheet: api-cheat-sheet.md
-- Getting Started: getting-started.md
-- Tutorials:
-  - Pixeltable Basics: tutorials/pixeltable-basics.ipynb
-  - Object Detection in Videos: tutorials/object-detection-in-videos.ipynb
-  - Using the OpenAI API with Pixeltable: tutorials/openai-demo.ipynb
-  - RAG Operations in Pixeltable: tutorials/rag-demo.ipynb
-- How-To:
-  - Working with external files: howto/working-with-external-files.ipynb
-- API Reference:
-  - Client: api/client.md
-  - DataFrame: api/data-frame.md
-  - InsertableTable: api/insertable-table.md
-  - Table: api/table.md
-  - View: api/view.md
-
 theme:
   name: material
   custom_dir: docs/overrides
 
-plugins:
-- search
-- autorefs
-- mkdocstrings:
-    default_handler: python
-    handlers:
-      python:
-        paths: [.]
-        options:
-            annotations_path: brief
-            members_order: source
-            line_length: 80
-            docstring_options:
-              ignore_init_summary: false
-            merge_init_into_class: false
-            docstring_style: google
-            docstring_section_style: list
-            show_docstring_description: true
-            show_source: false
-            show_root_heading: true
-            show_bases: false
-            show_signature_annotations: true
-            show_signature_crossrefs: true
-            show_symbol_type_heading: true
-            show_symbol_type_toc: true
-            separate_signature: true
-            signature_crossrefs: true
-- mkdocs-jupyter:
-    include_source: true
+nav:
+  - Home: index.md
+  - 'API Cheat Sheet': api-cheat-sheet.md
+  - 'API Reference':
+    - pixeltable: api/pixeltable.md
+    - pixeltable.io: api/io.md
+    - pixeltable.iterators:
+      - ComponentIterator: api/iterators/component-iterator.md
+      - DocumentSplitter: api/iterators/document-splitter.md
+      - FrameIterator: api/iterators/frame-iterator.md
+    - DataFrame: api/data-frame.md
+    - InsertableTable: api/insertable-table.md
+    - Table: api/table.md
+    - View: api/view.md
+  - Pixeltable Functions:
+    - Huggingface: api/functions/huggingface.md
 
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [.]
+          options:
+              annotations_path: brief
+              members_order: alphabetical
+              line_length: 80
+              docstring_options:
+                ignore_init_summary: true
+              merge_init_into_class: true
+              docstring_style: google
+              docstring_section_style: list
+              show_docstring_description: true
+              show_source: false
+              show_root_heading: true
+              show_bases: false
+              show_signature_annotations: true
+              show_signature_crossrefs: true
+              show_symbol_type_heading: true
+              show_symbol_type_toc: true
+              separate_signature: true
+              signature_crossrefs: true

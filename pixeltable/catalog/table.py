@@ -97,27 +97,31 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self.tbl_version_path).order_by(*items, asc=asc)
 
-    def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
-        """Return rows from this table.
-        """
+    def group_by(self, *items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
+        """Return a DataFrame for this table."""
+        from pixeltable.dataframe import DataFrame
+        return DataFrame(self.tbl_version_path).group_by(*items)
+
+    def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':
+        """Return rows from this table."""
         return self.df().collect()
 
     def show(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+    ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
         return self.df().show(*args, **kwargs)
 
     def head(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+    ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return the first n rows inserted into this table."""
         return self.df().head(*args, **kwargs)
 
     def tail(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':  # type: ignore[name-defined, no-untyped-def]
+    ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return the last n rows inserted into this table."""
         return self.df().tail(*args, **kwargs)
 

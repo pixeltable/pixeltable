@@ -174,9 +174,6 @@ class FunctionCall(Expr):
                     f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
                     f'{param_type}')
 
-    def is_nos_call(self) -> bool:
-        return isinstance(self.fn, func.NOSFunction)
-
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
             return False
@@ -333,7 +330,7 @@ class FunctionCall(Expr):
             # TODO: can we get rid of this extra copy?
             fn_expr = self.components[self.fn_expr_idx]
             data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
-        elif isinstance(self.fn, func.CallableFunction):
+        elif isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
             data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:

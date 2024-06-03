@@ -7,7 +7,6 @@ import importlib
 import importlib.util
 import logging
 import os
-import socketserver
 import sys
 import threading
 import uuid
@@ -25,10 +24,12 @@ import pixeltable.exceptions as excs
 from pixeltable import metadata
 from pixeltable.utils.http_server import make_server
 
+
 class Env:
     """
     Store for runtime globals.
     """
+
     _instance: Optional[Env] = None
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
@@ -49,7 +50,7 @@ class Env:
         self._log_dir: Optional[Path] = None  # log files
         self._tmp_dir: Optional[Path] = None  # any tmp files
         self._sa_engine: Optional[sql.engine.base.Engine] = None
-        self._pgdata_dir : Optional[Path] = None
+        self._pgdata_dir: Optional[Path] = None
         self._db_name: Optional[str] = None
         self._db_server: Optional[pgserver.PostgresServer] = None
         self._db_url: Optional[str] = None
@@ -57,9 +58,8 @@ class Env:
         # info about installed packages that are utilized by some parts of the code;
         # package name -> version; version == []: package is installed, but we haven't determined the version yet
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
-        self._nos_client: Optional[Any] = None
         self._spacy_nlp: Optional[Any] = None  # spacy.Language
-        self._httpd: Optional[http.server.ThreadingHTTPServer] = None
+        self._httpd: Optional[http.server.HTTPServer] = None
         self._http_address: Optional[str] = None
 
         self._registered_clients: dict[str, Any] = {}
@@ -98,8 +98,12 @@ class Env:
         return self._http_address
 
     def configure_logging(
-            self, *, to_stdout: Optional[bool] = None, level: Optional[int] = None,
-            add: Optional[str] = None, remove: Optional[str] = None
+        self,
+        *,
+        to_stdout: Optional[bool] = None,
+        level: Optional[int] = None,
+        add: Optional[str] = None,
+        remove: Optional[str] = None,
     ) -> None:
         """Configure logging.
 
@@ -114,8 +118,8 @@ class Env:
         if level is not None:
             self.set_log_level(level)
         if add is not None:
-            for module, level in [t.split(':') for t in add.split(',')]:
-                self.set_module_log_level(module, int(level))
+            for module, level_str in [t.split(':') for t in add.split(',')]:
+                self.set_module_log_level(module, int(level_str))
         if remove is not None:
             for module in remove.split(','):
                 self.set_module_log_level(module, None)
@@ -128,7 +132,8 @@ class Env:
         print(f'default log level: {logging.getLevelName(self._default_log_level)}')
         print(
             f'module log levels: '
-            f'{",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}')
+            f'{",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}'
+        )
 
     def log_to_stdout(self, enable: bool = True) -> None:
         self._log_to_stdout = enable
@@ -166,6 +171,10 @@ class Env:
     def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
             return
+
+        # Disable spurious warnings
+        warnings.simplefilter('ignore', category=TqdmWarning)
+        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
         self._initialized = True
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
@@ -260,6 +269,7 @@ class Env:
             create_database(self.db_url)
             self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
             from pixeltable.metadata import schema
+
             schema.Base.metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
             # enable pgvector
@@ -276,30 +286,8 @@ class Env:
         self._set_up_runtime()
         self.log_to_stdout(False)
 
-        # Disable spurious warnings
-        warnings.simplefilter("ignore", category=TqdmWarning)
-
     def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
-
-    def _create_nos_client(self) -> None:
-        import nos
-        self._logger.info('connecting to NOS')
-        nos.init(logging_level=logging.DEBUG)
-        self._nos_client = nos.client.InferenceClient()
-        self._logger.info('waiting for NOS')
-        self._nos_client.WaitForServer()
-
-        # now that we have a client, we can create the module
-        import importlib
-        try:
-            importlib.import_module('pixeltable.functions.nos')
-            # it's already been created
-            return
-        except ImportError:
-            pass
-        from pixeltable.functions.util import create_nos_modules
-        _ = create_nos_modules()
 
     def get_client(self, name: str, init: Callable, environ: Optional[str] = None) -> Any:
         """
@@ -338,7 +326,7 @@ class Env:
         The port is chosen dynamically to prevent conflicts.
         """
         # Port 0 means OS picks one for us.
-        self._httpd = make_server("127.0.0.1", 0)
+        self._httpd = make_server('127.0.0.1', 0)
         port = self._httpd.server_address[1]
         self._http_address = f'http://127.0.0.1:{port}'
 
@@ -368,20 +356,20 @@ class Env:
         check('transformers')
         check('sentence_transformers')
         check('yolox')
+        check('whisperx')
         check('boto3')
-        check('fitz') # pymupdf
+        check('fitz')  # pymupdf
         check('pyarrow')
         check('spacy')  # TODO: deal with en-core-web-sm
         if self.is_installed_package('spacy'):
             import spacy
+
             self._spacy_nlp = spacy.load('en_core_web_sm')
         check('tiktoken')
         check('openai')
         check('together')
         check('fireworks')
-        check('nos')
-        if self.is_installed_package('nos'):
-            self._create_nos_client()
+        check('openpyxl')
 
     def require_package(self, package: str, min_version: Optional[List[int]] = None) -> None:
         assert package in self._installed_packages
@@ -399,9 +387,12 @@ class Env:
         if len(min_version) < len(installed_version):
             normalized_min_version = min_version + [0] * (len(installed_version) - len(min_version))
         if any([a < b for a, b in zip(installed_version, normalized_min_version)]):
-            raise excs.Error((
-                f'The installed version of package {package} is {".".join([str[v] for v in installed_version])}, '
-                f'but version  >={".".join([str[v] for v in min_version])} is required'))
+            raise excs.Error(
+                (
+                    f'The installed version of package {package} is {".".join(str(v) for v in installed_version)}, '
+                    f'but version  >={".".join(str(v) for v in min_version)} is required'
+                )
+            )
 
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
@@ -438,10 +429,6 @@ class Env:
     def engine(self) -> sql.engine.base.Engine:
         assert self._sa_engine is not None
         return self._sa_engine
-
-    @property
-    def nos_client(self) -> Any:
-        return self._nos_client
 
     @property
     def spacy_nlp(self) -> Any:

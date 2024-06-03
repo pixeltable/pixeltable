@@ -6,11 +6,11 @@ from pixeltable.type_system import ColumnType
 
 
 class ComponentIterator(ABC):
-    """Base class for iterators."""
+    """Base class for Pixeltable iterators."""
 
     @classmethod
     @abstractmethod
-    def input_schema(cls) -> Dict[str, ColumnType]:
+    def input_schema(cls) -> dict[str, ColumnType]:
         """Provide the Pixeltable types of the init() parameters
 
         The keys need to match the names of the init() parameters. This is equivalent to the parameters_types
@@ -20,7 +20,7 @@ class ComponentIterator(ABC):
 
     @classmethod
     @abstractmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, ColumnType], List[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ColumnType], list[str]]:
         """Specify the dictionary returned by next() and a list of unstored column names
 
         Returns:
@@ -33,7 +33,7 @@ class ComponentIterator(ABC):
         return self
 
     @abstractmethod
-    def __next__(self) -> Dict[str, Any]:
+    def __next__(self) -> dict[str, Any]:
         """Return the next element of the iterator as a dictionary or raise StopIteration"""
         raise NotImplementedError
 
@@ -46,3 +46,7 @@ class ComponentIterator(ABC):
     def set_pos(self, pos: int) -> None:
         """Set the iterator position to pos"""
         raise NotImplementedError
+
+    @classmethod
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return cls, kwargs

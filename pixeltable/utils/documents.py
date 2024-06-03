@@ -24,14 +24,16 @@ def get_document_handle(path: str) -> Optional[DocumentHandle]:
     except UnicodeDecodeError:
         # not pdf, and also not valid text file
         return None
-    md_ast = get_markdown_handle(contents)
-    if md_ast is not None:
-        return DocumentHandle(format=ts.DocumentType.DocumentFormat.MD, md_ast=md_ast)
-    # get_html_handle must happen after markdown, because bs4 will appear to succeed
-    # for md files as well.
+
+    # bs4 will appear to succeed for md files as well.
+    # this will break most markdown files at the moment.
     bs_doc = get_html_handle(contents)
     if bs_doc is not None:
         return DocumentHandle(format=ts.DocumentType.DocumentFormat.HTML, bs_doc=bs_doc)
+
+    md_ast = get_markdown_handle(contents)
+    if md_ast is not None:
+        return DocumentHandle(format=ts.DocumentType.DocumentFormat.MD, md_ast=md_ast)
 
     return None
 
