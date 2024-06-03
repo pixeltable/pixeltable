@@ -38,11 +38,15 @@ class Env:
     @classmethod
     def get(cls) -> Env:
         if cls._instance is None:
-            env = Env()
-            env._set_up()
-            env._upgrade_metadata()
-            cls._instance = env
+            cls._init_env()
         return cls._instance
+
+    @classmethod
+    def _init_env(cls, reinit_db: bool = False) -> None:
+        env = Env()
+        env._set_up(reinit_db=reinit_db)
+        env._upgrade_metadata()
+        cls._instance = env
 
     def __init__(self):
         self._home: Optional[Path] = None

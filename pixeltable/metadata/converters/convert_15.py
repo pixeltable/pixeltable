@@ -1,4 +1,4 @@
-from typing import Any, Optional
+import uuid
 
 import sqlalchemy as sql
 
@@ -15,6 +15,8 @@ def update_column_md(column_md: dict) -> None:
 
 
 def update_remote_md(remote_md: dict) -> None:
+    if remote_md['class'] == 'MockRemote':
+        remote_md['remote_md']['name'] = f'remote_{uuid.uuid4()}'
     if remote_md['class'] == 'LabelStudioProject':
         # 'post' is the media_import_method for legacy remotes
         remote_md['remote_md']['media_import_method'] = 'post'
