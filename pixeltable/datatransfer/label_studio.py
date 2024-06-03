@@ -362,14 +362,13 @@ class LabelStudioProject(Remote):
         for element in root:
             if 'value' in element.attrib and element.attrib['value'][0] == '$':
                 remote_col_name = element.attrib['value'][1:]
-                if 'name' not in element.attrib:
-                    raise excs.Error(f'Data key is missing `name` attribute: `{remote_col_name}`')
+                data_key_name = element.attrib.get('name')
                 element_type = _LS_TAG_MAP.get(element.tag.lower())
                 if element_type is None:
                     raise excs.Error(
                         f'Unsupported Label Studio data type: `{element.tag}` (in data key `{remote_col_name}`)'
                     )
-                yield remote_col_name, _DataKey(element.attrib['name'], element_type)
+                yield remote_col_name, _DataKey(data_key_name, element_type)
 
     @classmethod
     def _parse_rectangle_labels_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, '_RectangleLabel']]:
@@ -442,7 +441,7 @@ class LabelStudioProject(Remote):
 
 @dataclass(frozen=True)
 class _DataKey:
-    name: str  # The 'name' attribute of the data key; may differ from the field name
+    name: Optional[str]  # The 'name' attribute of the data key; may differ from the field name
     column_type: pxt.ColumnType
 
 
@@ -458,7 +457,7 @@ class _LabelStudioConfig:
     rectangle_labels: dict[str, _RectangleLabel]
 
     def validate(self) -> None:
-        data_key_names = set(key.name for key in self.data_keys.values())
+        data_key_names = set(key.name for key in self.data_keys.values() if key is not None)
         for name, rl in self.rectangle_labels.items():
             if rl.to_name not in data_key_names:
                 raise excs.Error(
@@ -468,13 +467,14 @@ class _LabelStudioConfig:
 
     @property
     def push_columns(self) -> dict[str, pxt.ColumnType]:
-        data_key_cols = {key_name: key_info.column_type for key_name, key_info in self.data_keys.items()}
+        data_key_cols = {key_id: key_info.column_type for key_id, key_info in self.data_keys.items()}
         rl_cols = {name: pxt.JsonType() for name in self.rectangle_labels.keys()}
         return {**data_key_cols, **rl_cols}
 
 
 _PAGE_SIZE = 100  # This is the default used in the LS SDK
 _LS_TAG_MAP = {
+    'header': pxt.StringType(),
     'text': pxt.StringType(),
     'image': pxt.ImageType(),
     'video': pxt.VideoType(),

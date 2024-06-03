@@ -709,6 +709,8 @@ class Table(SchemaObject):
             col_mapping: An optional mapping of columns from this `Table` to columns in the `Remote`.
         """
         self._check_is_dropped()
+        if remote in self.get_remotes():
+            raise excs.Error(f'That remote is already linked to table `{self.get_name()}`: {remote}')
         push_cols = remote.get_push_columns()
         pull_cols = remote.get_pull_columns()
         if col_mapping is None:
@@ -772,7 +774,7 @@ class Table(SchemaObject):
                 r_col_type = push_cols[r_col]
                 if not r_col_type.is_supertype_of(t_col_type):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be pushed to remote column `{r_col}` (incompatible types)'
+                        f'Column `{t_col}` cannot be pushed to remote column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
                     )
             if r_col in pull_cols:
                 # Validate that the remote column can be assigned to the table column
@@ -783,7 +785,7 @@ class Table(SchemaObject):
                 r_col_type = pull_cols[r_col]
                 if not t_col_type.is_supertype_of(r_col_type):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be pulled from remote column `{r_col}` (incompatible types)'
+                        f'Column `{t_col}` cannot be pulled from remote column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
                     )
 
     def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:

@@ -63,7 +63,8 @@ class Remote(abc.ABC):
 # A remote that cannot be synced, used mainly for testing.
 class MockRemote(Remote):
 
-    def __init__(self, push_cols: dict[str, ts.ColumnType], pull_cols: dict[str, ts.ColumnType]):
+    def __init__(self, name: str, push_cols: dict[str, ts.ColumnType], pull_cols: dict[str, ts.ColumnType]):
+        self.name = name
         self.push_cols = push_cols
         self.pull_cols = pull_cols
         self.__is_deleted = False
@@ -86,6 +87,7 @@ class MockRemote(Remote):
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            'name': self.name,
             'push_cols': {k: v.as_dict() for k, v in self.push_cols.items()},
             'pull_cols': {k: v.as_dict() for k, v in self.pull_cols.items()}
         }
@@ -93,6 +95,18 @@ class MockRemote(Remote):
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> Remote:
         return cls(
-            {k: ts.ColumnType.from_dict(v) for k, v in md['push_cols'].items()},
-            {k: ts.ColumnType.from_dict(v) for k, v in md['pull_cols'].items()}
+            name=md['name'],
+            push_cols={k: ts.ColumnType.from_dict(v) for k, v in md['push_cols'].items()},
+            pull_cols={k: ts.ColumnType.from_dict(v) for k, v in md['pull_cols'].items()}
         )
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, MockRemote):
+            return False
+        return self.name == other.name
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def __repr__(self) -> str:
+        return f'MockRemote `{self.name}`'

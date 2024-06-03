@@ -11,8 +11,9 @@ import requests.exceptions
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.functions.string import str_format
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
-                     SAMPLE_IMAGE_URL)
+                     SAMPLE_IMAGE_URL, get_video_files)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -46,6 +47,18 @@ class TestLabelStudio:
         <Label value="knife" background="green"/>
         <Label value="person" background="blue"/>
       </RectangleLabels>
+    </View>
+    """
+    test_config_4 = """
+    <View>
+        <Header value="$header"/>
+        <Text name="text_obj" value="$text"/>
+        <Image name="frame_obj" value="$frame"/>
+        <Image name="rot_frame_obj" value="$rot_frame"/>
+        <Choices name="image_class" toName="frame_obj">
+          <Choice value="Cat"/>
+          <Choice value="Dog"/>
+        </Choices>
     </View>
     """
 
@@ -189,6 +202,32 @@ class TestLabelStudio:
         # 'person' should be present ('knife' sometimes is too, but it's nondeterministic)
         assert 'person' in found_labels
 
+    def test_label_studio_sync_complex(self, ls_video_table: pxt.InsertableTable) -> None:
+        # Test a more complex label studio project, with multiple images and other fields
+        skip_test_if_not_installed('label_studio_sdk')
+        from pixeltable.datatransfer.label_studio import LabelStudioProject
+
+        v = pxt.create_view(
+            'frames_view',
+            ls_video_table,
+            iterator=pxt.iterators.FrameIterator.create(video=ls_video_table.video_col, fps=0.5)
+        )
+        assert not v.frame.col.is_stored
+        assert v.count() == 10
+        v.add_column(rot_frame=v.frame.rotate(180))
+        v.add_column(header=str_format('Frame Number {0}', v.frame_idx))
+        v.add_column(text='For testing purposes, this is just a constant.')
+        v.add_column(annotations=pxt.JsonType(nullable=True))
+        remote = LabelStudioProject.create('test_sync_complex_project', self.test_config_4)
+        v.link_remote(remote)
+
+        reload_catalog()
+        v = pxt.get_table('frames_view')
+        v.sync_remotes()
+        tasks = remote.project.get_tasks()
+        assert len(tasks) == 10
+
+
     def test_label_studio_sync_errors(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
@@ -244,6 +283,17 @@ def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
     images = [SAMPLE_IMAGE_URL, *get_image_files()[:29]]
     status = t.insert({'id': n, 'image_col': image} for n, image in enumerate(images))
     validate_update_status(status, expected_rows=len(images))
+    return t
+
+@pytest.fixture(scope='function')
+def ls_video_table(init_ls, reset_db) -> pxt.InsertableTable:
+    skip_test_if_not_installed('label_studio_sdk')
+    t = pxt.create_table(
+        'test_ls_sync',
+        {'id': pxt.IntType(), 'video_col': pxt.VideoType()}
+    )
+    video = next(video for video in get_video_files() if video.endswith('bangkok_half_res.mp4'))
+    t.insert(id=0, video_col=video)
     return t
 
 
