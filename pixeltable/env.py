@@ -394,6 +394,7 @@ class Env:
         check('transformers')
         check('sentence_transformers')
         check('yolox')
+        check('whisperx')
         check('boto3')
         check('fitz')  # pymupdf
         check('pyarrow')

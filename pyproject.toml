@@ -89,6 +89,7 @@ sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 datasets = ">=2.15.0"
 openpyxl = ">=3.1"  # Excel (.xlsx) support
+whisperx = {git = "https://github.com/m-bain/whisperX.git", rev = "f2da2f8"}
 label-studio-sdk = "^0.0.32"
 
 [tool.poetry-dynamic-versioning]
@@ -137,7 +138,11 @@ filterwarnings = [
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
     "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning",
     "ignore:Pydantic V1 style `@root_validator` validators are deprecated.:DeprecationWarning",
-    "ignore:`allow_reuse` is deprecated and will be ignored:DeprecationWarning"
+    "ignore:`allow_reuse` is deprecated and will be ignored:DeprecationWarning",
+    "ignore:Deprecated call to `pkg_resources:DeprecationWarning",
+    "ignore:The get_cmap function was deprecated in Matplotlib 3.7:DeprecationWarning",
+    "ignore:pkg_resources is deprecated as an API:",
+    "ignore:torchaudio._backend.set_audio_backend:UserWarning"
 ]
 
 [tool.ruff]
