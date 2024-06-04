@@ -273,15 +273,24 @@ class TestIndex:
         sorted_data = sorted(data)
         # the index of the first string of length 255
         idx = next(i for i, s in enumerate(sorted_data) if len(s) == 255)
-        assert t.where(t.data == sorted_data[idx]).count() == 1
-        assert t.where(t.data <= sorted_data[idx]).count() == idx + 1
-        assert t.where(t.data < sorted_data[idx]).count() == idx
-        assert t.where(t.data >= sorted_data[idx]).count() == self.BTREE_TEST_NUM_ROWS - idx
-        assert t.where(t.data > sorted_data[idx]).count() == self.BTREE_TEST_NUM_ROWS - idx - 1
+        s = sorted_data[idx]
+        assert t.where(t.data == s).count() == 1
+        assert t.where(t.data <= s).count() == idx + 1
+        assert t.where(t.data < s).count() == idx
+        assert t.where(t.data >= s).count() == self.BTREE_TEST_NUM_ROWS - idx
+        assert t.where(t.data > s).count() == self.BTREE_TEST_NUM_ROWS - idx - 1
 
         with pytest.raises(pxt.Error) as exc_info:
+            assert len(data[56]) == 256
             _ = t.where(t.data == data[56]).count()
         assert 'String literal too long' in str(exc_info.value)
+
+        # test that Comparison uses BtreeIndex.MAX_STRING_LEN
+        t = pxt.create_table('test_max_str_len', schema={'data': pxt.StringType()})
+        rows = [{'data': s}, {'data': s + 'a'}]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        assert t.where(t.data >= s).count() == 2
+        assert t.where(t.data > s).count() == 1
 
     def test_timestamp_btree(self, reset_db) -> None:
         random.seed(1)
@@ -290,4 +299,4 @@ class TestIndex:
         delta = end - start
         delta_secs = int(delta.total_seconds())
         data = [start + timedelta(seconds=random.randint(0, int(delta_secs))) for _ in range(self.BTREE_TEST_NUM_ROWS)]
-        t = self.run_btree_test(data, pxt.TimestampType())
+        self.run_btree_test(data, pxt.TimestampType())
