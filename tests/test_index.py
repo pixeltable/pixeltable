@@ -270,7 +270,15 @@ class TestIndex:
         t = self.run_btree_test(data, pxt.StringType())
 
         # edge cases: strings that are at and above the max length
-        assert t.where(t.data == data[55]).count() == 1
+        sorted_data = sorted(data)
+        # the index of the first string of length 255
+        idx = next(i for i, s in enumerate(sorted_data) if len(s) == 255)
+        assert t.where(t.data == sorted_data[idx]).count() == 1
+        assert t.where(t.data <= sorted_data[idx]).count() == idx + 1
+        assert t.where(t.data < sorted_data[idx]).count() == idx
+        assert t.where(t.data >= sorted_data[idx]).count() == self.BTREE_TEST_NUM_ROWS - idx
+        assert t.where(t.data > sorted_data[idx]).count() == self.BTREE_TEST_NUM_ROWS - idx - 1
+
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.where(t.data == data[56]).count()
         assert 'String literal too long' in str(exc_info.value)
