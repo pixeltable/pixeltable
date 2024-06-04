@@ -73,7 +73,7 @@ class LabelStudioProject(Remote):
         """
         # TODO(aaron-siegel): Add media_import_method = 'server' as an option
         # Check that the config is valid before creating the project
-        config = cls._parse_project_config(label_config)
+        config = cls.__parse_project_config(label_config)
         if media_import_method == 'post' and len(config.data_keys) > 1:
             raise excs.Error('`media_import_method` cannot be `post` if there is more than one data key')
         project = _label_studio_client().start_project(title=title, label_config=label_config, **kwargs)
@@ -102,14 +102,14 @@ class LabelStudioProject(Remote):
         return self.project_params['title']
 
     @property
-    def _project_config(self) -> '_LabelStudioConfig':
-        return self._parse_project_config(self.project_params['label_config'])
+    def __project_config(self) -> '_LabelStudioConfig':
+        return self.__parse_project_config(self.project_params['label_config'])
 
     def get_push_columns(self) -> dict[str, pxt.ColumnType]:
         """
         The data keys and preannotation fields specified in this Label Studio project.
         """
-        return self._project_config.push_columns
+        return self.__project_config.push_columns
 
     def get_pull_columns(self) -> dict[str, pxt.ColumnType]:
         """
@@ -125,13 +125,13 @@ class LabelStudioProject(Remote):
         _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
                      f' (push: {push}, pull: {pull}).')
         # Collect all existing tasks into a dict with entries `rowid: task`
-        tasks = {tuple(task['meta']['rowid']): task for task in self._fetch_all_tasks()}
+        tasks = {tuple(task['meta']['rowid']): task for task in self.__fetch_all_tasks()}
         if push:
-            self._create_tasks_from_table(t, col_mapping, tasks)
+            self.__create_and_update_tasks(t, col_mapping, tasks)
         if pull:
-            self._update_table_from_tasks(t, col_mapping, tasks)
+            self.__update_table_from_tasks(t, col_mapping, tasks)
 
-    def _fetch_all_tasks(self) -> Iterator[dict]:
+    def __fetch_all_tasks(self) -> Iterator[dict]:
         page = 1
         unknown_task_count = 0
         while True:
@@ -150,32 +150,9 @@ class LabelStudioProject(Remote):
                 f'Skipped {unknown_task_count} unrecognized task(s) when syncing Label Studio project "{self.project_title}".'
             )
 
-    def _update_table_from_tasks(self, t: Table, col_mapping: dict[str, str], tasks: dict[tuple, dict]) -> None:
-        # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
-        # of `get_pull_columns`
-        assert self.ANNOTATIONS_COLUMN in col_mapping.values()
-        annotations_column = next(k for k, v in col_mapping.items() if v == self.ANNOTATIONS_COLUMN)
-        updates = [
-            {
-                '_rowid': task['meta']['rowid'],
-                # Replace [] by None to indicate no annotations. We do want to sync rows with no annotations,
-                # in order to properly handle the scenario where existing annotations have been deleted in
-                # Label Studio.
-                annotations_column: task[self.ANNOTATIONS_COLUMN] if len(task[self.ANNOTATIONS_COLUMN]) > 0 else None
-            }
-            for task in tasks.values()
-        ]
-        if len(updates) > 0:
-            _logger.info(
-                f'Updating table `{t.get_name()}`, column `{annotations_column}` with {len(updates)} total annotations.'
-            )
-            t.batch_update(updates)
-            annotations_count = sum(len(task[self.ANNOTATIONS_COLUMN]) for task in tasks.values())
-            print(f'Synced {annotations_count} annotation(s) from {len(updates)} existing task(s) in {self}.')
-
-    def _create_tasks_from_table(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
+    def __create_and_update_tasks(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
         t_col_types = t.column_types()
-        config = self._project_config
+        config = self.__project_config
 
         # Columns in `t` that map to Label Studio data keys
         t_data_cols = [
@@ -198,14 +175,14 @@ class LabelStudioProject(Remote):
 
         if self.media_import_method == 'post':
             # Send media to Label Studio by HTTP post.
-            self._create_tasks_by_post(t, col_mapping, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
+            self.__create_tasks_by_post(t, col_mapping, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
         elif self.media_import_method == 'file':
             # Send media to Label Studio by local file transfer.
-            self._create_tasks_by_files(t, col_mapping, existing_tasks, t_data_cols, t_rl_cols, rl_info)
+            self.__create_tasks_by_files(t, col_mapping, existing_tasks, t_data_cols, t_rl_cols, rl_info)
         else:
             assert False
 
-    def _create_tasks_by_post(
+    def __create_tasks_by_post(
             self,
             t: Table,
             col_mapping: dict[str, str],
@@ -242,13 +219,13 @@ class LabelStudioProject(Remote):
                     os.remove(file)
 
                 # Update the task with `rowid` metadata
-                self.project.update_task(task_id, meta={'rowid': row.rowid})
+                self.project.update_task(task_id, meta={'rowid': row.rowid, 'vmin': row.vmin})
 
                 # Convert coco annotations to predictions
                 coco_annotations = [row.vals[i] for i in rl_col_idxs]
                 _logger.debug('`coco_annotations`: %s', coco_annotations)
                 predictions = [
-                    self._coco_to_predictions(
+                    self.__coco_to_predictions(
                         coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i], task_id=task_id
                     )
                     for i in range(len(coco_annotations))
@@ -259,9 +236,9 @@ class LabelStudioProject(Remote):
 
         print(f'Created {tasks_created} new task(s) in {self}.')
 
-        self._delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
+        self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
 
-    def _create_tasks_by_files(
+    def __create_tasks_by_files(
             self,
             t: Table,
             col_mapping: dict[str, str],
@@ -269,7 +246,7 @@ class LabelStudioProject(Remote):
             t_data_cols: list[str],
             t_rl_cols: list[str],
             rl_info: list['_RectangleLabel']
-    ):
+    ) -> None:
         r_data_cols = [col_mapping[col_name] for col_name in t_data_cols]
         col_refs = {}
         for col_name in t_data_cols:
@@ -301,13 +278,13 @@ class LabelStudioProject(Remote):
                 data_vals = [row.vals[i] for i in data_col_idxs]
                 coco_annotations = [row.vals[i] for i in rl_col_idxs]
                 predictions = [
-                    self._coco_to_predictions(coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i])
+                    self.__coco_to_predictions(coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i])
                     for i in range(len(coco_annotations))
                 ]
 
                 tasks.append({
                     'data': dict(zip(r_data_cols, data_vals)),
-                    'meta': {'rowid': row.rowid},
+                    'meta': {'rowid': row.rowid, 'vmin': row.vmin},
                     'predictions': predictions
                 })
 
@@ -316,9 +293,9 @@ class LabelStudioProject(Remote):
 
         print(f'Created {tasks_created} new task(s) in {self}.')
 
-        self._delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
+        self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
 
-    def _delete_stale_tasks(self, existing_tasks: dict[tuple, dict], row_ids_in_pxt: set[tuple], tasks_created: int):
+    def __delete_stale_tasks(self, existing_tasks: dict[tuple, dict], row_ids_in_pxt: set[tuple], tasks_created: int):
         tasks_to_delete = [
             task['id'] for rowid, task in existing_tasks.items()
             if rowid not in row_ids_in_pxt
@@ -329,6 +306,29 @@ class LabelStudioProject(Remote):
         if len(tasks_to_delete) > 0:
             self.project.delete_tasks(tasks_to_delete)
             print(f'Deleted {len(tasks_to_delete)} tasks(s) in {self} that are no longer present in Pixeltable.')
+
+    def __update_table_from_tasks(self, t: Table, col_mapping: dict[str, str], tasks: dict[tuple, dict]) -> None:
+        # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
+        # of `get_pull_columns`
+        assert self.ANNOTATIONS_COLUMN in col_mapping.values()
+        annotations_column = next(k for k, v in col_mapping.items() if v == self.ANNOTATIONS_COLUMN)
+        updates = [
+            {
+                '_rowid': task['meta']['rowid'],
+                # Replace [] by None to indicate no annotations. We do want to sync rows with no annotations,
+                # in order to properly handle the scenario where existing annotations have been deleted in
+                # Label Studio.
+                annotations_column: task[self.ANNOTATIONS_COLUMN] if len(task[self.ANNOTATIONS_COLUMN]) > 0 else None
+            }
+            for task in tasks.values()
+        ]
+        if len(updates) > 0:
+            _logger.info(
+                f'Updating table `{t.get_name()}`, column `{annotations_column}` with {len(updates)} total annotations.'
+            )
+            t.batch_update(updates)
+            annotations_count = sum(len(task[self.ANNOTATIONS_COLUMN]) for task in tasks.values())
+            print(f'Synced {annotations_count} annotation(s) from {len(updates)} existing task(s) in {self}.')
 
     def to_dict(self) -> dict[str, Any]:
         return {'project_id': self.project_id, 'media_import_method': self.media_import_method}
@@ -342,7 +342,7 @@ class LabelStudioProject(Remote):
         return f'LabelStudioProject `{name}`'
 
     @classmethod
-    def _parse_project_config(cls, xml_config: str) -> '_LabelStudioConfig':
+    def __parse_project_config(cls, xml_config: str) -> '_LabelStudioConfig':
         """
         Parses a Label Studio XML config, extracting the names and Pixeltable types of
         all input variables.
@@ -351,14 +351,14 @@ class LabelStudioProject(Remote):
         if root.tag.lower() != 'view':
             raise excs.Error('Root of Label Studio config must be a `View`')
         config = _LabelStudioConfig(
-            data_keys=dict(cls._parse_data_keys_config(root)),
-            rectangle_labels=dict(cls._parse_rectangle_labels_config(root))
+            data_keys=dict(cls.__parse_data_keys_config(root)),
+            rectangle_labels=dict(cls.__parse_rectangle_labels_config(root))
         )
         config.validate()
         return config
 
     @classmethod
-    def _parse_data_keys_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, '_DataKey']]:
+    def __parse_data_keys_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, '_DataKey']]:
         for element in root:
             if 'value' in element.attrib and element.attrib['value'][0] == '$':
                 remote_col_name = element.attrib['value'][1:]
@@ -371,7 +371,7 @@ class LabelStudioProject(Remote):
                 yield remote_col_name, _DataKey(data_key_name, element_type)
 
     @classmethod
-    def _parse_rectangle_labels_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, '_RectangleLabel']]:
+    def __parse_rectangle_labels_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, '_RectangleLabel']]:
         for element in root:
             if element.tag.lower() == 'rectanglelabels':
                 name = element.attrib['name']
@@ -386,7 +386,7 @@ class LabelStudioProject(Remote):
                 yield name, _RectangleLabel(to_name=to_name, labels=labels)
 
     @classmethod
-    def _coco_to_predictions(
+    def __coco_to_predictions(
             cls,
             coco_annotations: dict[str, Any],
             from_name: str,
