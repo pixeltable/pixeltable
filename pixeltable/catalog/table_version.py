@@ -23,6 +23,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 from .column import Column
 from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier
+from ..func.globals import resolve_symbol
 
 _logger = logging.getLogger('pixeltable')
 
@@ -930,8 +931,8 @@ class TableVersion:
 
     @classmethod
     def _init_remote(cls, remote_md: dict[str, Any]) -> Tuple[pixeltable.datatransfer.Remote, dict[str, str]]:
-        module = importlib.import_module(remote_md['module'])
-        remote_cls = getattr(module, remote_md['class'])
+        remote_cls = resolve_symbol(remote_md['class'])
+        assert isinstance(remote_cls, type) and issubclass(remote_cls, pixeltable.datatransfer.Remote)
         remote = remote_cls.from_dict(remote_md['remote_md'])
         col_mapping = remote_md['col_mapping']
         return remote, col_mapping
@@ -1121,8 +1122,7 @@ class TableVersion:
     def _create_remotes_md(cls, remotes: dict['pixeltable.datatransfer.Remote', dict[str, str]]) -> list[dict[str, Any]]:
         return [
             {
-                'module': type(remote).__module__,
-                'class': type(remote).__qualname__,
+                'class': f'{type(remote).__module__}.{type(remote).__qualname__}',
                 'remote_md': remote.to_dict(),
                 'col_mapping': col_mapping
             }

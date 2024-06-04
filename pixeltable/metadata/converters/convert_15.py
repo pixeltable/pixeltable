@@ -15,11 +15,15 @@ def update_column_md(column_md: dict) -> None:
 
 
 def update_remote_md(remote_md: dict) -> None:
-    if remote_md['class'] == 'MockRemote':
+    remote_md['class'] = f'{remote_md["module"]}.{remote_md["class"]}'
+    del remote_md['module']
+    if remote_md['class'] == 'pixeltable.datatransfer.remote.MockRemote':
         remote_md['remote_md']['name'] = f'remote_{uuid.uuid4()}'
-    if remote_md['class'] == 'LabelStudioProject':
-        # 'post' is the media_import_method for legacy remotes
+    elif remote_md['class'] == 'pixeltable.datatransfer.label_studio.LabelStudioProject':
+        # 'post' is the media_import_method for legacy LabelStudioProject remotes
         remote_md['remote_md']['media_import_method'] = 'post'
+    else:
+        assert False, remote_md['class']
 
 
 register_converter(15, convert_15)
