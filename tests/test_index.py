@@ -100,6 +100,10 @@ class TestIndex:
 
         img_t.add_embedding_index('img', img_embed=clip_img_embed, text_embed=clip_text_embed)
 
+        # predicates on media columns that have both a B-tree and an embedding index still work
+        res = img_t.where(img_t.img == rows[0]['img']).collect()
+        assert len(res) == 1
+
         with pytest.raises(pxt.Error) as exc_info:
             # duplicate name
             img_t.add_embedding_index('img', idx_name='idx0', img_embed=clip_img_embed)
@@ -261,12 +265,14 @@ class TestIndex:
             return ''.join(random.choice(chars) for _ in range(n))
 
         random.seed(1)
-        n = 255
-        data = [create_random_str(n) for _ in range(self.BTREE_TEST_NUM_ROWS)]
+        # create random strings of length 200-300 characters
+        data = [create_random_str(200 + i % 100) for i in range(self.BTREE_TEST_NUM_ROWS)]
         t = self.run_btree_test(data, pxt.StringType())
 
+        # edge cases: strings that are at and above the max length
+        assert t.where(t.data == data[55]).count() == 1
         with pytest.raises(pxt.Error) as exc_info:
-            _ = t.where(t.data == data[0] + 'a').count()
+            _ = t.where(t.data == data[56]).count()
         assert 'String literal too long' in str(exc_info.value)
 
     def test_timestamp_btree(self, reset_db) -> None:

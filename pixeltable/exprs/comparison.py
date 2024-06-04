@@ -12,6 +12,7 @@ from .literal import Literal
 from .predicate import Predicate
 from .row_builder import RowBuilder
 import pixeltable.exceptions as excs
+import pixeltable.index as index
 
 
 class Comparison(Predicate):
@@ -66,11 +67,13 @@ class Comparison(Predicate):
             # reference the index value column if there is an index and this is not a snapshot
             # (indices don't apply to snapshots)
             tbl = self._op1.col.tbl
-            idx_info = self._op1.col.get_idx_info()
+            idx_info = [
+                info for info in self._op1.col.get_idx_info().values() if isinstance(info.idx, index.BtreeIndex)
+            ]
             if len(idx_info) > 0 and not tbl.is_snapshot:
                 # there shouldn't be multiple B-tree indices on a column
                 assert len(idx_info) == 1
-                left = next(iter(idx_info.values())).val_col.sa_col
+                left = idx_info[0].val_col.sa_col
 
         right = self._op2.sql_expr()
         if left is None or right is None:

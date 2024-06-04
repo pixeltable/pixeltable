@@ -286,11 +286,7 @@ class Planner:
         # update row builder with column information
         [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return (
-            plan,
-            [f'{c.tbl.name}.{c.name}' for c in updated_cols + list(recomputed_user_cols)],
-            list(recomputed_user_cols),
-        )
+        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
     def create_view_update_plan(

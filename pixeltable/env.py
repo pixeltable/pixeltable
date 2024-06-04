@@ -301,8 +301,8 @@ class Env:
     def _create_store_db(self) -> None:
         assert self._db_name is not None
         # create the db
-        db_url = self._db_server.get_uri(database='postgres')
-        engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
+        pg_db_url = self._db_server.get_uri(database='postgres')
+        engine = sql.create_engine(pg_db_url, future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
@@ -316,8 +316,8 @@ class Env:
             engine.dispose()
 
         # enable pgvector
-        db_url = self._db_server.get_uri(database=self._db_name)
-        engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
+        store_db_url = self._db_server.get_uri(database=self._db_name)
+        engine = sql.create_engine(store_db_url, future=True, isolation_level='AUTOCOMMIT')
         try:
             with engine.begin() as conn:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
