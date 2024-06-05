@@ -214,18 +214,29 @@ class TestLabelStudio:
         )
         assert not v.frame.col.is_stored
         assert v.count() == 10
-        v.add_column(rot_frame=v.frame.rotate(180))
-        v.add_column(header=str_format('Frame Number {0}', v.frame_idx))
-        v.add_column(text='For testing purposes, this is just a constant.')
-        v.add_column(annotations=pxt.JsonType(nullable=True))
+        v['rot_frame'] = v.frame.rotate(180)
+        v['header'] = str_format('Frame Number {0}', v.frame_idx)
+        v['text'] = pxt.StringType(nullable=True)
+        v['annotations'] = pxt.JsonType(nullable=True)
+        v.update({'text': 'Initial text'})
+
         remote = LabelStudioProject.create('test_sync_complex_project', self.test_config_4)
         v.link_remote(remote)
 
         reload_catalog()
         v = pxt.get_table('frames_view')
         v.sync_remotes()
+        tasks: list[dict] = remote.project.get_tasks()
+        assert len(tasks) == 10
+
+        # Test that update propagation works
+        v.update({'text': 'New text'}, v.frame_idx.isin([3, 8]))
+        assert all(tasks[i]['data']['text'] == 'Initial text' for i in range(10))  # Before syncing
+        v.sync_remotes()
         tasks = remote.project.get_tasks()
         assert len(tasks) == 10
+        assert all(tasks[i]['data']['text'] == 'New text' for i in [3, 8])  # After syncing
+        assert all(tasks[i]['data']['text'] == 'Initial text' for i in [0, 1, 2, 4, 5, 6, 7, 9])
 
 
     def test_label_studio_sync_errors(self, ls_image_table: pxt.InsertableTable) -> None:
@@ -324,7 +335,7 @@ def init_ls(init_env) -> None:
         '--password', 'pxtpass',
         '--user-token', 'pxt-api-token',
         '--data-dir', 'target/ls-data'
-    ])
+    ], env={'LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED': 'true'})
 
     _logger.info('Waiting for Label Studio pytest fixture to initialize.')
     max_wait = 300  # Maximum time in seconds to wait for Label Studio to initialize

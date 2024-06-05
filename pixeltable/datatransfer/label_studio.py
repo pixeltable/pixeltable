@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ import pixeltable.env as env
 import pixeltable.exceptions as excs
 from pixeltable import Table
 from pixeltable.datatransfer.remote import Remote
-from pixeltable.exprs import ColumnRef
+from pixeltable.exprs import ColumnRef, DataRow
 from pixeltable.utils import coco
 
 _logger = logging.getLogger('pixeltable')
@@ -71,12 +72,32 @@ class LabelStudioProject(Remote):
             **kwargs: Additional keyword arguments for the new project; these will be passed to `start_project`
                 in the Label Studio SDK.
         """
-        # TODO(aaron-siegel): Add media_import_method = 'server' as an option
+        # TODO(aaron-siegel): Add media_import_method = 'url' as an option
         # Check that the config is valid before creating the project
         config = cls.__parse_project_config(label_config)
         if media_import_method == 'post' and len(config.data_keys) > 1:
             raise excs.Error('`media_import_method` cannot be `post` if there is more than one data key')
+
         project = _label_studio_client().start_project(title=title, label_config=label_config, **kwargs)
+
+        if media_import_method == 'file':
+            # We need to set up a local storage connection to receive media files
+            pxt_home = str(env.Env.get().home)
+            os.environ['LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT'] = pxt_home
+            try:
+                project.connect_local_import_storage(local_store_path=f'{pxt_home}/media')
+            except HTTPError as exc:
+                response: dict = json.loads(exc.response.text)
+                if 'validation_errors' in response and 'non_field_errors' in response['validation_errors'] \
+                        and 'LOCAL_FILES_SERVING_ENABLED' in response['validation_errors']['non_field_errors'][0]:
+                    raise excs.Error(
+                        '`media_import_method` is set to `file`, but your Label Studio server is not configured '
+                        'for local file storage.\nPlease set the `LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED` '
+                        'environment variable to `true` in the environment where your Label Studio server is running.'
+                    )
+                else:
+                    raise exc
+
         project_id = project.get_params()['id']
         return LabelStudioProject(project_id, media_import_method)
 
@@ -127,7 +148,7 @@ class LabelStudioProject(Remote):
         # Collect all existing tasks into a dict with entries `rowid: task`
         tasks = {tuple(task['meta']['rowid']): task for task in self.__fetch_all_tasks()}
         if push:
-            self.__create_and_update_tasks(t, col_mapping, tasks)
+            self.__update_tasks(t, col_mapping, tasks)
         if pull:
             self.__update_table_from_tasks(t, col_mapping, tasks)
 
@@ -150,7 +171,7 @@ class LabelStudioProject(Remote):
                 f'Skipped {unknown_task_count} unrecognized task(s) when syncing Label Studio project "{self.project_title}".'
             )
 
-    def __create_and_update_tasks(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
+    def __update_tasks(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
         t_col_types = t.column_types()
         config = self.__project_config
 
@@ -175,14 +196,14 @@ class LabelStudioProject(Remote):
 
         if self.media_import_method == 'post':
             # Send media to Label Studio by HTTP post.
-            self.__create_tasks_by_post(t, col_mapping, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
+            self.__update_tasks_by_post(t, col_mapping, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
         elif self.media_import_method == 'file':
             # Send media to Label Studio by local file transfer.
-            self.__create_tasks_by_files(t, col_mapping, existing_tasks, t_data_cols, t_rl_cols, rl_info)
+            self.__update_tasks_by_files(t, col_mapping, existing_tasks, t_data_cols, t_rl_cols, rl_info)
         else:
             assert False
 
-    def __create_tasks_by_post(
+    def __update_tasks_by_post(
             self,
             t: Table,
             col_mapping: dict[str, str],
@@ -238,7 +259,7 @@ class LabelStudioProject(Remote):
 
         self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
 
-    def __create_tasks_by_files(
+    def __update_tasks_by_files(
             self,
             t: Table,
             col_mapping: dict[str, str],
@@ -254,44 +275,64 @@ class LabelStudioProject(Remote):
                 # Not a media column; query the data directly
                 col_refs[col_name] = t[col_name]
             elif t[col_name].col.is_stored:
-                # Stored media column; reference the localpath directly
-                col_refs[col_name] = t[col_name].localpath
+                # Stored media column; reference the url directly
+                col_refs[col_name] = t[col_name].fileurl
             else:
                 # Non-stored media column. A stored proxy must exist (it's created transactionally
                 # any time a column is linked to a remote); use that. We have to give it a name,
                 # since it's an anonymous column
                 assert t[col_name].col.stored_proxy
-                col_refs[f'{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).localpath
+                col_refs[f'{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).fileurl
+
         df = t.select(*[t[col] for col in t_rl_cols], **col_refs)
-        new_rows = filter(lambda row: row.rowid not in existing_tasks, df._exec())
+        rl_col_idxs: Optional[list[int]] = None  # We have to wait until we begin iterating to populate these
+        data_col_idxs: Optional[list[int]] = None
 
-        tasks_created = 0
         row_ids_in_pxt: set[tuple] = set()
+        tasks_created = 0
+        tasks_updated = 0
+        page = []
 
-        for page in more_itertools.batched(new_rows, n=_PAGE_SIZE):
-            rl_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[:len(t_rl_cols)]]
-            data_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[len(t_rl_cols):]]
-            tasks = []
+        def create_task_info(row: DataRow) -> dict:
+            data_vals = [row.vals[i] for i in data_col_idxs]
+            coco_annotations = [row.vals[i] for i in rl_col_idxs]
+            predictions = [
+                self.__coco_to_predictions(coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i])
+                for i in range(len(coco_annotations))
+            ]
+            return {
+                'data': dict(zip(r_data_cols, data_vals)),
+                'meta': {'rowid': row.rowid, 'vmin': row.vmin},
+                'predictions': predictions
+            }
 
-            for row in page:
-                row_ids_in_pxt.add(row.rowid)
-                data_vals = [row.vals[i] for i in data_col_idxs]
-                coco_annotations = [row.vals[i] for i in rl_col_idxs]
-                predictions = [
-                    self.__coco_to_predictions(coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i])
-                    for i in range(len(coco_annotations))
-                ]
+        for row in df._exec():
+            if rl_col_idxs is None:
+                rl_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[:len(t_rl_cols)]]
+                data_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[len(t_rl_cols):]]
+            row_ids_in_pxt.add(row.rowid)
+            if row.rowid in existing_tasks:
+                # A task for this row already exists; see if it needs an update.
+                # Get the vmin record from task metadata. Default to 0 if no vmin record is found
+                old_vmin = int(existing_tasks[row.rowid]['meta'].get('vmin', 0))
+                print(f'{old_vmin}  {row.vmin}')
+                if row.vmin > old_vmin:
+                    _logger.debug(f'Updating task for rowid {row.rowid} ({row.vmin} > {old_vmin}).')
+                    task_info = create_task_info(row)
+                    self.project.update_task(existing_tasks[row.rowid]['id'], **task_info)
+                    tasks_updated += 1
+            else:
+                # No task exists for this row; we need to create one.
+                page.append(create_task_info(row))
+                tasks_created += 1
+                if len(page) == _PAGE_SIZE:
+                    self.project.import_tasks(page)
+                    page = []
 
-                tasks.append({
-                    'data': dict(zip(r_data_cols, data_vals)),
-                    'meta': {'rowid': row.rowid, 'vmin': row.vmin},
-                    'predictions': predictions
-                })
+        if len(page) > 0:
+            self.project.import_tasks(page)
 
-            self.project.import_tasks(tasks)
-            tasks_created += len(tasks)
-
-        print(f'Created {tasks_created} new task(s) in {self}.')
+        print(f'Created {tasks_created} new task(s) and updated {tasks_updated} existing task(s) in {self}.')
 
         self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
 
