@@ -682,7 +682,6 @@ class Table(SchemaObject):
 
         return update_targets
 
-
     def revert(self) -> None:
         """Reverts the table to the previous version.
 
@@ -694,14 +693,14 @@ class Table(SchemaObject):
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.revert()
 
-    def link_remote(
+    def link(
             self,
             remote: 'pixeltable.datatransfer.Remote',
             col_mapping: Optional[dict[str, str]] = None
     ) -> None:
         """
         Links the specified `Remote` to this table. Once a remote is linked, it can be synchronized with
-        this `Table` by calling [`Table.sync_remotes()`]. A record of the link
+        this `Table` by calling [`Table.sync()`]. A record of the link
         is stored in table metadata and will persist across sessions.
 
         Args:
@@ -718,29 +717,37 @@ class Table(SchemaObject):
         self.tbl_version_path.tbl_version.link_remote(remote, col_mapping)
         print(f'Linked remote {remote} to table `{self.get_name()}`.')
 
-    def unlink_remote(
+    def unlink(
             self,
-            remote: 'pixeltable.datatransfer.Remote',
             *,
+            remotes: Optional['pixeltable.datatransfer.Remote' | list['pixeltable.datatransfer.Remote']] = None,
             ignore_errors: bool = False
     ) -> None:
         """
-        Unlinks the specified `Remote` from this table.
+        Unlinks this table's `Remote`s.
 
         Args:
-            remote (pixeltable.datatransfer.Remote): The `Remote` to unlink from this table.
+            remotes: If specified, will unlink only the specified `Remote` or list of `Remote`s. If not specified,
+                will unlink all of this table's `Remote`s.
             ignore_errors (bool): If `True`, no exception will be thrown if the specified `Remote` is not linked
                 to this table.
         """
         self._check_is_dropped()
-        if remote not in self.get_remotes():
-            if ignore_errors:
-                return
-            else:
+        all_remotes = self.get_remotes()
+        if remotes is None:
+            remotes = list(all_remotes.keys())
+        elif isinstance(remotes, pixeltable.datatransfer.Remote):
+            remotes = [remotes]
+
+        # Validation
+        for remote in remotes:
+            if remote not in all_remotes:
                 raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
-        self.tbl_version_path.tbl_version.unlink_remote(remote)
-        # TODO: Provide an option to auto-delete the project
-        print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
+
+        for remote in remotes:
+            self.tbl_version_path.tbl_version.unlink_remote(remote)
+            # TODO: Provide an option to auto-delete the project
+            print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
 
     def _validate_remote(
             self,
@@ -787,44 +794,39 @@ class Table(SchemaObject):
         """
         return self.tbl_version_path.tbl_version.get_remotes()
 
-    def sync_remotes(
+    def sync(
             self,
             *,
-            push: bool = True,
-            pull: bool = True
-    ) -> None:
-        """
-        Synchronizes this table with all of its `Remote`s.
-
-        Args:
-            push: If `True`, data from this table will be pushed to the remotes during synchronization.
-            pull: If `True`, data from this table will be pulled from the remotes during synchronization.
-        """
-        for remote in self.get_remotes():
-            self.sync_remote(remote, push=push, pull=pull)
-
-    def sync_remote(
-            self,
-            remote: 'pixeltable.datatransfer.Remote',
-            *,
+            remotes: Optional['pixeltable.datatransfer.Remote' | list['pixeltable.datatransfer.Remote']] = None,
             push: bool = True,
             pull: bool = True
     ):
         """
-        Synchronizes this table with the specified `Remote`.
+        Synchronizes this table with its linked `Remote`s.
 
         Args:
-            remote (pixeltable.datatransfer.Remote): The `Remote` to synchronize with this table.
+            remotes: If specified, will sync only the specified `Remote` or list of `Remote`s. If not specified,
+                will sync all linked `Remote`s.
             push: If `True`, data from this table will be pushed to the remotes during synchronization.
             pull: If `True`, data from this table will be pulled from the remotes during synchronization.
         """
-        if remote not in self.get_remotes():
-            raise excs.Error(f'Remote is not linked to table `{self.get_name()}`')
-        col_mapping = self.get_remotes()[remote]
-        r_cols = set(col_mapping.values())
-        # Validate push/pull
-        if push and not any(col in r_cols for col in remote.get_push_columns()):
-            raise excs.Error(f'Attempted to sync remote `{remote}` with push=True, but there are no columns to push.')
-        if pull and not any(col in r_cols for col in remote.get_pull_columns()):
-            raise excs.Error(f'Attempted to sync remote `{remote}` with pull=True, but there are no columns to pull.')
-        remote.sync(self, col_mapping, push=push, pull=pull)
+        all_remotes = self.get_remotes()
+        if remotes is None:
+            remotes = list(all_remotes.keys())
+        elif isinstance(remotes, pixeltable.datatransfer.Remote):
+            remotes = [remotes]
+
+        # Validation
+        for remote in remotes:
+            if remote not in all_remotes:
+                raise excs.Error(f'Remote is not linked to table `{self.get_name()}`: {remote}')
+            col_mapping = all_remotes[remote]
+            r_cols = set(col_mapping.values())
+            # Validate push/pull
+            if push and not any(col in r_cols for col in remote.get_push_columns()):
+                raise excs.Error(f'Attempted to sync remote with push=True, but there are no columns to push: {remote}')
+            if pull and not any(col in r_cols for col in remote.get_pull_columns()):
+                raise excs.Error(f'Attempted to sync remote with pull=True, but there are no columns to pull: {remote}')
+
+        for remote in remotes:
+            remote.sync(self, all_remotes[remote], push=push, pull=pull)

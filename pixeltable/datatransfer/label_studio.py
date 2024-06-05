@@ -46,8 +46,6 @@ class LabelStudioProject(Remote):
     """
     # TODO(aaron-siegel): Add link in docstring to a Label Studio howto
 
-    ANNOTATIONS_COLUMN = 'annotations'
-
     def __init__(self, project_id: int):
         self.project_id = project_id
         self._project: Optional[label_studio_sdk.project.Project] = None
@@ -59,7 +57,7 @@ class LabelStudioProject(Remote):
 
         Args:
             title: The title of the project.
-            label_config: The Label Studio project configuration, in XML.
+            label_config: The Label Studio project configuration, in XML format.
             **kwargs: Additional keyword arguments for the new project; these will be passed to `start_project`
                 in the Label Studio SDK.
         """
@@ -108,7 +106,7 @@ class LabelStudioProject(Remote):
         {"annotations": pxt.JsonType(nullable=True)}
         ```
         """
-        return {self.ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}
+        return {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}
 
     def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
         _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
@@ -142,15 +140,15 @@ class LabelStudioProject(Remote):
     def _update_table_from_tasks(self, t: Table, col_mapping: dict[str, str], tasks: dict[tuple, dict]) -> None:
         # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
         # of `get_pull_columns`
-        assert self.ANNOTATIONS_COLUMN in col_mapping.values()
-        annotations_column = next(k for k, v in col_mapping.items() if v == self.ANNOTATIONS_COLUMN)
+        assert ANNOTATIONS_COLUMN in col_mapping.values()
+        annotations_column = next(k for k, v in col_mapping.items() if v == ANNOTATIONS_COLUMN)
         updates = [
             {
                 '_rowid': task['meta']['rowid'],
                 # Replace [] by None to indicate no annotations. We do want to sync rows with no annotations,
                 # in order to properly handle the scenario where existing annotations have been deleted in
                 # Label Studio.
-                annotations_column: task[self.ANNOTATIONS_COLUMN] if len(task[self.ANNOTATIONS_COLUMN]) > 0 else None
+                annotations_column: task[ANNOTATIONS_COLUMN] if len(task[ANNOTATIONS_COLUMN]) > 0 else None
             }
             for task in tasks.values()
         ]
@@ -159,7 +157,7 @@ class LabelStudioProject(Remote):
                 f'Updating table `{t.get_name()}`, column `{annotations_column}` with {len(updates)} total annotations.'
             )
             t.batch_update(updates)
-            annotations_count = sum(len(task[self.ANNOTATIONS_COLUMN]) for task in tasks.values())
+            annotations_count = sum(len(task[ANNOTATIONS_COLUMN]) for task in tasks.values())
             print(f'Synced {annotations_count} annotation(s) from {len(updates)} existing task(s) in {self}.')
 
     def _create_tasks_from_table(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
@@ -449,6 +447,7 @@ class _LabelStudioConfig:
         return {**data_key_cols, **rl_cols}
 
 
+ANNOTATIONS_COLUMN = 'annotations'
 _PAGE_SIZE = 100  # This is the default used in the LS SDK
 _LS_TAG_MAP = {
     'text': pxt.StringType(),
