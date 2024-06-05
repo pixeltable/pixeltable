@@ -22,7 +22,8 @@ class Column:
             computed_with: Optional[Union['Expr', Callable]] = None,
             is_pk: bool = False, stored: Optional[bool] = None,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
-            schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None
+            schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
+            records_errors: Optional[bool] = None
     ):
         """Column constructor.
 
@@ -80,11 +81,13 @@ class Column:
         assert self.col_type is not None
 
         self.stored = stored
-        self.dependent_cols: Set[Column] = set()  # cols with value_exprs that reference us; set by TableVersion
+        self.dependent_cols: set[Column] = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
         self.is_pk = is_pk
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
+
+        self._records_errors = records_errors
 
         # column in the stored table for the values of this Column
         self.sa_col: Optional[sql.schema.Column] = None
@@ -131,6 +134,9 @@ class Column:
     @property
     def records_errors(self) -> bool:
         """True if this column also stores error information."""
+        # default: record errors for computed and media columns
+        if self._records_errors is not None:
+            return self._records_errors
         return self.is_stored and (self.is_computed or self.col_type.is_media_type())
 
     def source(self) -> None:

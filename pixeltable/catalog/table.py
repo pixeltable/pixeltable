@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple, Iterable
+from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple, Iterable, Type
 from uuid import UUID
 
 import pandas as pd
@@ -16,6 +16,7 @@ import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
+import pixeltable.index as index
 from .column import Column
 from .globals import is_valid_identifier, is_system_column_name, UpdateStatus
 from .schema_object import SchemaObject
@@ -513,6 +514,24 @@ class Table(SchemaObject):
         status = self.tbl_version_path.tbl_version.add_index(col, idx_name=idx_name, idx=idx)
         # TODO: how to deal with exceptions here? drop the index and raise?
 
+    def drop_embedding_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
+        """Drop an embedding index from the table.
+
+        Args:
+            column_name: The name of the column whose embedding index to drop. Invalid if the column has multiple
+              embedding indices.
+            idx_name: The name of the index to drop.
+
+        Raises:
+            Error: If the index does not exist.
+
+        Examples:
+            Drop embedding index on the ``img`` column:
+
+            >>> tbl.drop_embedding_index(column_name='img')
+        """
+        self._drop_index(column_name=column_name, idx_name=idx_name, _idx_class=index.EmbeddingIndex)
+
     def drop_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
         """Drop an index from the table.
 
@@ -528,6 +547,12 @@ class Table(SchemaObject):
 
             >>> tbl.drop_index(column_name='img')
         """
+        self._drop_index(column_name=column_name, idx_name=idx_name)
+
+    def _drop_index(
+            self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None,
+            _idx_class: Optional[Type[index.IndexBase]] = None
+    ) -> None:
         if self.tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
         self._check_is_dropped()
@@ -546,12 +571,14 @@ class Table(SchemaObject):
             if col.tbl.id != tbl_version.id:
                 raise excs.Error(
                     f'Column {column_name}: cannot drop index from column that belongs to base ({col.tbl.name})')
-            idx_ids = [info.id for info in tbl_version.idxs_by_name.values() if info.col.id == col.id]
-            if len(idx_ids) == 0:
+            idx_info = [info for info in tbl_version.idxs_by_name.values() if info.col.id == col.id]
+            if _idx_class is not None:
+                idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
+            if len(idx_info) == 0:
                 raise excs.Error(f'Column {column_name} does not have an index')
-            if len(idx_ids) > 1:
+            if len(idx_info) > 1:
                 raise excs.Error(f'Column {column_name} has multiple indices; specify idx_name instead')
-            idx_id = idx_ids[0]
+            idx_id = idx_info[0].id
         self.tbl_version_path.tbl_version.drop_index(idx_id)
 
     def update(
