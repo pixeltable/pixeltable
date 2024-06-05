@@ -82,21 +82,20 @@ class LabelStudioProject(Remote):
 
         if media_import_method == 'file':
             # We need to set up a local storage connection to receive media files
-            pxt_home = str(env.Env.get().home)
-            os.environ['LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT'] = pxt_home
+            os.environ['LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT'] = str(env.Env.get().home)
             try:
-                project.connect_local_import_storage(local_store_path=f'{pxt_home}/media')
+                project.connect_local_import_storage(local_store_path=str(env.Env.get().media_dir))
             except HTTPError as exc:
-                response: dict = json.loads(exc.response.text)
-                if 'validation_errors' in response and 'non_field_errors' in response['validation_errors'] \
-                        and 'LOCAL_FILES_SERVING_ENABLED' in response['validation_errors']['non_field_errors'][0]:
-                    raise excs.Error(
-                        '`media_import_method` is set to `file`, but your Label Studio server is not configured '
-                        'for local file storage.\nPlease set the `LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED` '
-                        'environment variable to `true` in the environment where your Label Studio server is running.'
-                    )
-                else:
-                    raise exc
+                if exc.errno == 400:
+                    response: dict = json.loads(exc.response.text)
+                    if 'validation_errors' in response and 'non_field_errors' in response['validation_errors'] \
+                            and 'LOCAL_FILES_SERVING_ENABLED' in response['validation_errors']['non_field_errors'][0]:
+                        raise excs.Error(
+                            '`media_import_method` is set to `file`, but your Label Studio server is not configured '
+                            'for local file storage.\nPlease set the `LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED` '
+                            'environment variable to `true` in the environment where your Label Studio server is running.'
+                        ) from exc
+                raise  # Handle any other exception type normally
 
         project_id = project.get_params()['id']
         return LabelStudioProject(project_id, media_import_method)
@@ -276,13 +275,13 @@ class LabelStudioProject(Remote):
                 col_refs[col_name] = t[col_name]
             elif t[col_name].col.is_stored:
                 # Stored media column; reference the url directly
-                col_refs[col_name] = t[col_name].fileurl
+                col_refs[col_name] = t[col_name].localpath
             else:
                 # Non-stored media column. A stored proxy must exist (it's created transactionally
                 # any time a column is linked to a remote); use that. We have to give it a name,
                 # since it's an anonymous column
                 assert t[col_name].col.stored_proxy
-                col_refs[f'{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).fileurl
+                col_refs[f'{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).localpath
 
         df = t.select(*[t[col] for col in t_rl_cols], **col_refs)
         rl_col_idxs: Optional[list[int]] = None  # We have to wait until we begin iterating to populate these
@@ -294,8 +293,12 @@ class LabelStudioProject(Remote):
         page = []
 
         def create_task_info(row: DataRow) -> dict:
-            data_vals = [row.vals[i] for i in data_col_idxs]
-            coco_annotations = [row.vals[i] for i in rl_col_idxs]
+            data_vals = [row.vals[idx] for idx in data_col_idxs]
+            coco_annotations = [row.vals[idx] for idx in rl_col_idxs]
+            # For media columns, we need to transform the paths into Label Studio's bespoke path format
+            for i in range(len(t_data_cols)):
+                if t[t_data_cols[i]].col_type.is_media_type():
+                    data_vals[i] = self.__localpath_to_lspath(data_vals[i])
             predictions = [
                 self.__coco_to_predictions(coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i])
                 for i in range(len(coco_annotations))
@@ -327,7 +330,7 @@ class LabelStudioProject(Remote):
                 tasks_created += 1
                 if len(page) == _PAGE_SIZE:
                     self.project.import_tasks(page)
-                    page = []
+                    page.clear()
 
         if len(page) > 0:
             self.project.import_tasks(page)
@@ -335,6 +338,12 @@ class LabelStudioProject(Remote):
         print(f'Created {tasks_created} new task(s) and updated {tasks_updated} existing task(s) in {self}.')
 
         self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
+
+    @classmethod
+    def __localpath_to_lspath(self, localpath: str) -> str:
+        assert isinstance(localpath, str)
+        relpath = Path(localpath).relative_to(env.Env.get().home)
+        return f'/data/local-files/?d={str(relpath)}'
 
     def __delete_stale_tasks(self, existing_tasks: dict[tuple, dict], row_ids_in_pxt: set[tuple], tasks_created: int):
         tasks_to_delete = [
