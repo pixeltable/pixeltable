@@ -938,14 +938,15 @@ class TableVersion:
         return remote, col_mapping
 
     def link(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
-        # All of the columns being linked need to either be stored columns or have stored proxies.
+        # All of the media columns being linked need to either be stored, computed columns or have stored proxies.
+        # This ensures that the media in those columns resides in the media cache, where it can be served.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
         cols_by_name = self.path.cols_by_name()  # Includes base columns
-        stored_proxies_needed = [
-            cols_by_name[col_name]
-            for col_name in col_mapping.keys()
-            if not (cols_by_name[col_name].is_stored or cols_by_name[col_name].stored_proxy)
-        ]
+        stored_proxies_needed = []
+        for col_name in col_mapping.keys():
+            col = cols_by_name[col_name]
+            if col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and not col.stored_proxy:
+                stored_proxies_needed.append(col)
         with Env.get().engine.begin() as conn:
             self.version += 1
             self.remotes[remote] = col_mapping
@@ -968,10 +969,10 @@ class TableVersion:
     def create_stored_proxy(self, col: Column) -> Column:
         from pixeltable import exprs
 
-        assert not (col.is_stored or col.stored_proxy)
+        assert col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and not col.stored_proxy
         proxy_col = Column(
             name=None,
-            computed_with=exprs.ColumnRef(col),
+            computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
             stored=True,
             col_id=self.next_col_id,
             sa_col_type=col.col_type.to_sa_type(),

@@ -1,9 +1,11 @@
+import itertools
 import logging
 import os
 import platform
 import subprocess
 import time
 import uuid
+from pathlib import Path
 from typing import Iterator, Literal
 
 import pytest
@@ -11,6 +13,7 @@ import requests.exceptions
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable import env
 from pixeltable.functions.string import str_format
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
                      SAMPLE_IMAGE_URL, get_video_files)
@@ -131,9 +134,13 @@ class TestLabelStudio:
         tasks = remote.project.get_tasks()
         assert len(tasks) == 30
         assert all(task['data']['image'] for task in tasks)
+        if media_import_method == 'file':
+            # Ensure all image filepaths are properly formatted for Label Studio file import
+            assert all(task['data']['image'].startswith('/data/local-files/?d=media/') for task in tasks)
 
         # Programmatically add annotations by calling the Label Studio API directly
         for task in tasks[:10]:
+            print(task)
             task_id = task['id']
             assert len(remote.project.get_task(task_id)['annotations']) == 0
             remote.project.create_annotation(
@@ -147,9 +154,10 @@ class TestLabelStudio:
         reload_catalog()
         t = pxt.get_table('test_ls_sync')
         t.sync()
-        annotations = t.collect()['annotations_col']
+        annotations_col = t.collect()['annotations_col']
+        annotations = [a for a in annotations_col if a is not None]
+        assert len(annotations) == 10
         assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(10)), annotations
-        assert all(annotations[i] is None for i in range(10, 30)), annotations
 
         # Delete some random rows in Pixeltable and sync remotes again
         validate_update_status(t.delete(where=t.id.isin(range(0, 20, 3))), expected_rows=7)
@@ -170,7 +178,6 @@ class TestLabelStudio:
         skip_test_if_not_installed('transformers')
         t = ls_image_table
         t.delete(where=(t.id >= 5))  # Delete all but 5 rows so that the test isn't too slow
-        from pixeltable.datatransfer.label_studio import LabelStudioProject
         from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
 
         t['detect'] = detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50')

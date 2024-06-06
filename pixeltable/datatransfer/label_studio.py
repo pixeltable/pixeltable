@@ -271,15 +271,14 @@ class LabelStudioProject(Remote):
             if not t[col_name].col_type.is_media_type():
                 # Not a media column; query the data directly
                 col_refs[col_name] = t[col_name]
-            elif t[col_name].col.is_stored:
-                # Stored media column; reference the url directly
-                col_refs[col_name] = t[col_name].localpath
-            else:
-                # Non-stored media column. A stored proxy must exist (it's created transactionally
-                # any time a column is linked to a remote); use that. We have to give it a name,
+            elif t[col_name].col.stored_proxy:
+                # Media column that has a stored proxy; use it. We have to give it a name,
                 # since it's an anonymous column
-                assert t[col_name].col.stored_proxy
                 col_refs[f'{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).localpath
+            else:
+                # Media column without a stored proxy; this means it's a stored computed column,
+                # and we can just use the localpath
+                col_refs[col_name] = t[col_name].localpath
 
         df = t.select(*[t[col] for col in t_rl_cols], **col_refs)
         rl_col_idxs: Optional[list[int]] = None  # We have to wait until we begin iterating to populate these
