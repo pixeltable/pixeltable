@@ -722,8 +722,8 @@ class Table(SchemaObject):
 
     def unlink(
             self,
-            *,
             remotes: Optional['pixeltable.datatransfer.Remote' | list['pixeltable.datatransfer.Remote']] = None,
+            *,
             delete_remote_data: bool = False,
             ignore_errors: bool = False
     ) -> None:
@@ -746,9 +746,10 @@ class Table(SchemaObject):
             remotes = [remotes]
 
         # Validation
-        for remote in remotes:
-            if remote not in all_remotes:
-                raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
+        if not ignore_errors:
+            for remote in remotes:
+                if remote not in all_remotes:
+                    raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
 
         for remote in remotes:
             self.tbl_version_path.tbl_version.unlink(remote)

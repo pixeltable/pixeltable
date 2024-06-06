@@ -118,7 +118,6 @@ class TestLabelStudio:
     ) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
-        from pixeltable.datatransfer.label_studio import LabelStudioProject
 
         pxt.io.create_and_link_label_studio_project(
             t,
@@ -161,7 +160,7 @@ class TestLabelStudio:
         assert len(tasks) == 23
 
         # Unlink the project and verify it no longer exists
-        t.unlink_remote(remote, delete_remote_data=True)
+        t.unlink(remote, delete_remote_data=True)
         with pytest.raises(requests.exceptions.HTTPError) as exc_info:
             print(remote.project_title)
         assert 'Not Found for url' in str(exc_info.value)
@@ -222,18 +221,18 @@ class TestLabelStudio:
         v.update({'text': 'Initial text'})
 
         remote = LabelStudioProject.create('test_sync_complex_project', self.test_config_4)
-        v.link_remote(remote)
+        v.link(remote)
 
         reload_catalog()
         v = pxt.get_table('frames_view')
-        v.sync_remotes()
+        v.sync()
         tasks: list[dict] = remote.project.get_tasks()
         assert len(tasks) == 10
 
         # Test that update propagation works
         v.update({'text': 'New text'}, v.frame_idx.isin([3, 8]))
         assert all(tasks[i]['data']['text'] == 'Initial text' for i in range(10))  # Before syncing
-        v.sync_remotes()
+        v.sync()
         tasks = remote.project.get_tasks()
         assert len(tasks) == 10
         assert all(tasks[i]['data']['text'] == 'New text' for i in [3, 8])  # After syncing

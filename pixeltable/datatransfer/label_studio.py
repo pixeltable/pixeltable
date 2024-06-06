@@ -168,7 +168,7 @@ class LabelStudioProject(Remote):
                 f'Skipped {unknown_task_count} unrecognized task(s) when syncing Label Studio project "{self.project_title}".'
             )
 
-    def _create_tasks_from_table(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
+    def __update_tasks(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
         t_col_types = t.column_types()
         config = self.__project_config
 

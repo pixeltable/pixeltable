@@ -166,7 +166,7 @@ class Dumper:
 
         # Add remotes
         from pixeltable.datatransfer.remote import MockRemote
-        v.link_remote(
+        v.link(
             MockRemote('remote', {'int_field': pxt.IntType()}, {'str_field': pxt.StringType()}),
             col_mapping={'test_udf': 'int_field', 'c1': 'str_field'}
         )

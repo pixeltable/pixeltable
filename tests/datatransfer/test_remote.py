@@ -39,22 +39,22 @@ class TestRemote:
 
         # Duplicate link
         with pytest.raises(excs.Error) as exc_info:
-            t.link_remote(remote1, {'col1': 'push1', 'col2': 'col2'})
+            t.link(remote1, {'col1': 'push1', 'col2': 'col2'})
         assert 'That remote is already linked to table `test_remote`: MockRemote `remote1`' in str(exc_info.value)
 
-        t.unlink_remote(remote1)
+        t.unlink(remote1)
 
         # Correct full spec
         t.link(remote1, {'col1': 'push1', 'col2': 'push2', 'col3': 'pull1', 'col4': 'pull2'})
 
-        t.unlink_remote(remote1)
+        t.unlink(remote1)
 
         # Default spec is correct
         schema2 = {'push1': pxt.StringType(), 'push2': pxt.ImageType(), 'pull1': pxt.StringType(), 'pull2': pxt.VideoType()}
         t2 = pxt.create_table('test_2', schema2)
         t2.link(remote1)
 
-        t2.unlink_remote(remote1)
+        t2.unlink(remote1)
 
         # Incompatible types for push
         with pytest.raises(excs.Error) as exc_info:
@@ -84,7 +84,7 @@ class TestRemote:
             t3.drop_column('spec_img')
         assert 'Cannot drop column `spec_img` because the following remotes depend on it' in str(exc_info.value)
 
-        t3.unlink_remote(remote2)
+        t3.unlink(remote2)
 
         # Cannot push from super to subtype
         with pytest.raises(excs.Error) as exc_info:
@@ -136,7 +136,7 @@ class TestRemote:
             t = pxt.get_table('test_remote')
 
         num_cols_before_linking = len(t.tbl_version_path.tbl_version.cols_by_id)
-        t.link_remote(remote1, {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'})
+        t.link(remote1, {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'})
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
         assert t.rot_img.col.stored_proxy is not None  # Stored proxy
         assert t.rot_img.col.stored_proxy.proxy_base == t.rot_img.col
@@ -152,7 +152,7 @@ class TestRemote:
             reload_catalog()
             t = pxt.get_table('test_remote')
 
-        t.link_remote(remote2, {'rot_img': 'push_img'})
+        t.link(remote2, {'rot_img': 'push_img'})
         # Ensure the stored proxy is created just once (for both remotes)
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
 
@@ -160,7 +160,7 @@ class TestRemote:
             reload_catalog()
             t = pxt.get_table('test_remote')
 
-        t.unlink_remote(remote1)
+        t.unlink(remote1)
         # Now rot_img_col is still linked through remote2, but rot_other_img_col
         # is not linked to any remote. So just rot_img_col should have a proxy
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 1
@@ -171,6 +171,6 @@ class TestRemote:
             reload_catalog()
             t = pxt.get_table('test_remote')
 
-        t.unlink_remote(remote2)
+        t.unlink(remote2)
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking
         assert t.rot_img.col.stored_proxy is None
