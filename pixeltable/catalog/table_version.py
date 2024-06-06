@@ -937,7 +937,7 @@ class TableVersion:
         col_mapping = remote_md['col_mapping']
         return remote, col_mapping
 
-    def link_remote(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
+    def link(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
         # All of the columns being linked need to either be stored columns or have stored proxies.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
         cols_by_name = self.path.cols_by_name()  # Includes base columns
@@ -983,7 +983,7 @@ class TableVersion:
         proxy_col.proxy_base = col
         return proxy_col
 
-    def unlink_remote(self, remote: pixeltable.datatransfer.Remote) -> None:
+    def unlink(self, remote: pixeltable.datatransfer.Remote) -> None:
         assert remote in self.remotes
         timestamp = time.time()
         this_remote_col_names = list(self.remotes[remote].keys())

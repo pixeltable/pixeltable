@@ -717,7 +717,7 @@ class Table(SchemaObject):
             col_mapping = {col: col for col in itertools.chain(push_cols.keys(), pull_cols.keys())}
         self._validate_remote(push_cols, pull_cols, col_mapping)
         _logger.info(f'Linking remote {remote} to table `{self.get_name()}`.')
-        self.tbl_version_path.tbl_version.link_remote(remote, col_mapping)
+        self.tbl_version_path.tbl_version.link(remote, col_mapping)
         print(f'Linked remote {remote} to table `{self.get_name()}`.')
 
     def unlink(
@@ -751,7 +751,7 @@ class Table(SchemaObject):
                 raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
 
         for remote in remotes:
-            self.tbl_version_path.tbl_version.unlink_remote(remote)
+            self.tbl_version_path.tbl_version.unlink(remote)
             print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
             if delete_remote_data:
                 remote.delete()
