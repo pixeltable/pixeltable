@@ -350,36 +350,10 @@ class Env:
     def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
 
-    def register_client(self, name: str) -> Callable:
-        """Decorator that registers a third-party API client for use by Pixeltable.
-
-        The decorated function is an initialization wrapper for the client, and can have
-        any number of string parameters, with a signature such as:
-
-        ```
-        def my_client(api_key: str, url: str) -> my_client_sdk.Client:
-            return my_client_sdk.Client(api_key=api_key, url=url)
-        ```
-
-        The initialization wrapper will not be called immediately; initialization will
-        be deferred until the first time the client is used. At initialization time,
-        Pixeltable will attempt to load the client parameters from config. For each
-        config parameter:
-        - If an environment variable named MY_CLIENT_API_KEY (for example) is set, use it;
-        - Otherwise, look for 'api_key' in the 'my_client' section of config.yaml.
-
-        If all config parameters are found, Pixeltable calls the initialization function;
-        otherwise it throws an exception.
-
-        Args:
-            - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
-        """
-        def decorator(fn: Callable) -> None:
-            sig = inspect.signature(fn)
-            param_names = list(sig.parameters.keys())
-            self._registered_clients[name] = ApiClient(init_fn=fn, param_names=param_names)
-
-        return decorator
+    def _register_client(self, name: str, init_fn: Callable) -> None:
+        sig = inspect.signature(init_fn)
+        param_names = list(sig.parameters.keys())
+        self._registered_clients[name] = ApiClient(init_fn=init_fn, param_names=param_names)
 
     def get_client(self, name: str) -> Any:
         """
@@ -532,6 +506,36 @@ class Env:
     def spacy_nlp(self) -> Any:
         assert self._spacy_nlp is not None
         return self._spacy_nlp
+
+
+def register_client(name: str) -> Callable:
+    """Decorator that registers a third-party API client for use by Pixeltable.
+
+    The decorated function is an initialization wrapper for the client, and can have
+    any number of string parameters, with a signature such as:
+
+    ```
+    def my_client(api_key: str, url: str) -> my_client_sdk.Client:
+        return my_client_sdk.Client(api_key=api_key, url=url)
+    ```
+
+    The initialization wrapper will not be called immediately; initialization will
+    be deferred until the first time the client is used. At initialization time,
+    Pixeltable will attempt to load the client parameters from config. For each
+    config parameter:
+    - If an environment variable named MY_CLIENT_API_KEY (for example) is set, use it;
+    - Otherwise, look for 'api_key' in the 'my_client' section of config.yaml.
+
+    If all config parameters are found, Pixeltable calls the initialization function;
+    otherwise it throws an exception.
+
+    Args:
+        - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
+    """
+    def decorator(fn: Callable) -> None:
+        Env.get()._register_client(name, fn)
+
+    return decorator
 
 
 @dataclass

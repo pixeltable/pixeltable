@@ -6,7 +6,7 @@ import pixeltable as pxt
 from pixeltable import env
 
 
-@env.Env.get().register_client('fireworks')
+@env.register_client('fireworks')
 def _(api_key: str) -> fireworks.client.Fireworks:
     return fireworks.client.Fireworks(api_key=api_key)
 

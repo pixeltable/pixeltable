@@ -11,7 +11,7 @@ from pixeltable import env
 from pixeltable.func import Batch
 
 
-@env.Env.get().register_client('together')
+@env.register_client('together')
 def _(api_key: str) -> together.Together:
     return together.Together(api_key=api_key)
 
