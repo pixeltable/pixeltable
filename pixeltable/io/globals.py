@@ -7,7 +7,7 @@ from pixeltable import Table
 def create_and_link_label_studio_project(
         t: Table,
         label_config: str,
-        col_mapping: Optional[dict[str, str]],
+        col_mapping: Optional[dict[str, str]] = None,
         title: Optional[str] = None,
         sync_immediately: bool = True,
         **kwargs: Any
