@@ -202,5 +202,5 @@ class DataRow:
         return self.pk[:-1]
 
     @property
-    def vmin(self) -> int:
+    def v_min(self) -> int:
         return self.pk[-1]
