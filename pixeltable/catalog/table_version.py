@@ -918,14 +918,14 @@ class TableVersion:
         col_mapping = remote_md['col_mapping']
         return remote, col_mapping
 
-    def link_remote(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
+    def link(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
         timestamp = time.time()
         self.version += 1
         self.remotes[remote] = col_mapping
         with Env.get().engine.begin() as conn:
             self._update_md(timestamp, None, conn)
 
-    def unlink_remote(self, remote: pixeltable.datatransfer.Remote) -> None:
+    def unlink(self, remote: pixeltable.datatransfer.Remote) -> None:
         assert remote in self.remotes
         timestamp = time.time()
         self.version += 1
