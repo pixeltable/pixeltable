@@ -19,7 +19,6 @@ from typing import Callable, Optional, Dict, Any, List
 import pgserver
 import sqlalchemy as sql
 import yaml
-from sqlalchemy_utils.functions import database_exists, create_database, drop_database
 from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
@@ -267,24 +266,19 @@ class Env:
         self._db_url = self._db_server.get_uri(database=self._db_name)
 
         if reinit_db:
-            if database_exists(self.db_url):
-                drop_database(self.db_url)
+            if self._store_db_exists():
+                self._drop_store_db()
 
-        if not database_exists(self.db_url):
+        if not self._store_db_exists():
             self._logger.info(f'creating database at {self.db_url}')
-            create_database(self.db_url)
-            self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
+            self._create_store_db()
+            self._create_engine(echo=echo)
             from pixeltable.metadata import schema
-
             schema.Base.metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
-            # enable pgvector
-            with self._sa_engine.begin() as conn:
-                conn.execute(sql.text('CREATE EXTENSION vector'))
         else:
             self._logger.info(f'found database {self.db_url}')
-            if self._sa_engine is None:
-                self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True)
+            self._create_engine(echo=echo)
 
         print(f'Connected to Pixeltable database at: {self.db_url}')
 
@@ -292,39 +286,78 @@ class Env:
         self._set_up_runtime()
         self.log_to_stdout(False)
 
+    def _create_engine(self, echo: bool = False) -> None:
+        self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True, isolation_level='AUTOCOMMIT')
+
+    def _store_db_exists(self) -> bool:
+        assert self._db_name is not None
+        # don't try to connect to self.db_name, it may not exist
+        db_url = self._db_server.get_uri(database='postgres')
+        engine = sql.create_engine(db_url, future=True)
+        try:
+            with engine.begin() as conn:
+                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{self._db_name}'"
+                result = conn.scalar(sql.text(stmt))
+                assert result <= 1
+                return result == 1
+        finally:
+            engine.dispose()
+
+
+    def _create_store_db(self) -> None:
+        assert self._db_name is not None
+        # create the db
+        pg_db_url = self._db_server.get_uri(database='postgres')
+        engine = sql.create_engine(pg_db_url, future=True, isolation_level='AUTOCOMMIT')
+        preparer = engine.dialect.identifier_preparer
+        try:
+            with engine.begin() as conn:
+                # use C collation to get standard C/Python-style sorting
+                stmt = (
+                    f"CREATE DATABASE {preparer.quote(self._db_name)} "
+                    "ENCODING 'utf-8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0"
+                )
+                conn.execute(sql.text(stmt))
+        finally:
+            engine.dispose()
+
+        # enable pgvector
+        store_db_url = self._db_server.get_uri(database=self._db_name)
+        engine = sql.create_engine(store_db_url, future=True, isolation_level='AUTOCOMMIT')
+        try:
+            with engine.begin() as conn:
+                conn.execute(sql.text('CREATE EXTENSION vector'))
+        finally:
+            engine.dispose()
+
+    def _drop_store_db(self) -> None:
+        assert self._db_name is not None
+        db_url = self._db_server.get_uri(database='postgres')
+        engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
+        preparer = engine.dialect.identifier_preparer
+        try:
+            with engine.begin() as conn:
+                # terminate active connections
+                stmt = (f"""
+                    SELECT pg_terminate_backend(pg_stat_activity.pid)
+                    FROM pg_stat_activity
+                    WHERE pg_stat_activity.datname = '{self._db_name}'
+                    AND pid <> pg_backend_pid()
+                """)
+                conn.execute(sql.text(stmt))
+                # drop db
+                stmt = f'DROP DATABASE {preparer.quote(self._db_name)}'
+                conn.execute(sql.text(stmt))
+        finally:
+            engine.dispose()
+
     def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
 
-    def register_client(self, name: str) -> Callable:
-        """Decorator that registers a third-party API client for use by Pixeltable.
-
-        The decorated function is an initialization wrapper for the client, and can have
-        any number of string parameters, with a signature such as:
-
-        ```
-        def my_client(api_key: str, url: str) -> my_client_sdk.Client:
-            return my_client_sdk.Client(api_key=api_key, url=url)
-        ```
-
-        The initialization wrapper will not be called immediately; initialization will
-        be deferred until the first time the client is used. At initialization time,
-        Pixeltable will attempt to load the client parameters from config. For each
-        config parameter:
-        - If an environment variable named MY_CLIENT_API_KEY (for example) is set, use it;
-        - Otherwise, look for 'api_key' in the 'my_client' section of config.yaml.
-
-        If all config parameters are found, Pixeltable calls the initialization function;
-        otherwise it throws an exception.
-
-        Args:
-            - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
-        """
-        def decorator(fn: Callable) -> None:
-            sig = inspect.signature(fn)
-            param_names = list(sig.parameters.keys())
-            self._registered_clients[name] = ApiClient(init_fn=fn, param_names=param_names)
-
-        return decorator
+    def _register_client(self, name: str, init_fn: Callable) -> None:
+        sig = inspect.signature(init_fn)
+        param_names = list(sig.parameters.keys())
+        self._registered_clients[name] = ApiClient(init_fn=init_fn, param_names=param_names)
 
     def get_client(self, name: str) -> Any:
         """
@@ -477,6 +510,36 @@ class Env:
     def spacy_nlp(self) -> Any:
         assert self._spacy_nlp is not None
         return self._spacy_nlp
+
+
+def register_client(name: str) -> Callable:
+    """Decorator that registers a third-party API client for use by Pixeltable.
+
+    The decorated function is an initialization wrapper for the client, and can have
+    any number of string parameters, with a signature such as:
+
+    ```
+    def my_client(api_key: str, url: str) -> my_client_sdk.Client:
+        return my_client_sdk.Client(api_key=api_key, url=url)
+    ```
+
+    The initialization wrapper will not be called immediately; initialization will
+    be deferred until the first time the client is used. At initialization time,
+    Pixeltable will attempt to load the client parameters from config. For each
+    config parameter:
+    - If an environment variable named MY_CLIENT_API_KEY (for example) is set, use it;
+    - Otherwise, look for 'api_key' in the 'my_client' section of config.yaml.
+
+    If all config parameters are found, Pixeltable calls the initialization function;
+    otherwise it throws an exception.
+
+    Args:
+        - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
+    """
+    def decorator(fn: Callable) -> None:
+        Env.get()._register_client(name, fn)
+
+    return decorator
 
 
 @dataclass

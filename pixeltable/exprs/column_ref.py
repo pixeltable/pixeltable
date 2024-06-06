@@ -108,7 +108,7 @@ class ColumnRef(Expr):
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         tbl_version = catalog.Catalog.get().tbl_versions[(tbl_id, version)]
-        assert col_id in tbl_version.cols_by_id
-        col = tbl_version.cols_by_id[col_id]
+        # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
+        col = next(col for col in tbl_version.cols if col.id == col_id)
         return cls(col)
 

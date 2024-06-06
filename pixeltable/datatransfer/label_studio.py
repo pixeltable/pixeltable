@@ -22,7 +22,7 @@ from pixeltable.utils import coco
 _logger = logging.getLogger('pixeltable')
 
 
-@env.Env.get().register_client('label_studio')
+@env.register_client('label_studio')
 def _(api_key: str, url: str) -> label_studio_sdk.Client:
     return label_studio_sdk.Client(api_key=api_key, url=url)
 

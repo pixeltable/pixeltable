@@ -70,7 +70,10 @@ class EmbeddingIndex(IndexBase):
         """Return expression that computes the value that goes into the index"""
         return self.value_expr
 
-    def index_sa_type(self) -> sql.sqltypes.TypeEngine:
+    def records_value_errors(self) -> bool:
+        return True
+
+    def index_sa_type(self) -> sql.types.TypeEngine:
         """Return the sqlalchemy type of the index value column"""
         return self.index_col_type
 

@@ -1,12 +1,11 @@
-from typing import Optional, List, get_type_hints, Type, Any, TypeVar, Tuple, Union
-import platform
-import uuid
 import dataclasses
+import uuid
+from typing import Optional, List, get_type_hints, Type, Any, TypeVar, Tuple, Union
 
 import sqlalchemy as sql
-from sqlalchemy import Integer, String, Boolean, BigInteger, LargeBinary
+from sqlalchemy import ForeignKey
+from sqlalchemy import Integer, BigInteger, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy import ForeignKey, UniqueConstraint, ForeignKeyConstraint
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -167,7 +166,7 @@ class Table(Base):
 
     MAX_VERSION = 9223372036854775807  # 2^63 - 1
 
-    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    id = sql.Column(UUID(as_uuid=True), primary_key=True, nullable=False)
     dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     md = sql.Column(JSONB, nullable=False)  # TableMd
 

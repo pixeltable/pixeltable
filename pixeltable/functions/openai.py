@@ -16,7 +16,7 @@ from pixeltable import env
 from pixeltable.func import Batch
 
 
-@env.Env.get().register_client('openai')
+@env.register_client('openai')
 def _(api_key: str) -> openai.OpenAI:
     return openai.OpenAI(api_key=api_key)
 
