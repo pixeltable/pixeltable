@@ -36,7 +36,7 @@ class Remote(abc.ABC):
         """
         Synchronizes the given [`Table`][pixeltable.Table] with this `Remote`. This method
         should generally not be called directly; instead, call
-        [`t.sync_remotes()`][pixeltable.Table.sync_remotes].
+        [`t.sync_remotes()`][pixeltable.Table.sync].
 
         Args:
             t: The table to synchronize with this remote.

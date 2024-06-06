@@ -120,15 +120,15 @@ class TestLabelStudio:
         t = ls_image_table
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
-        remote = LabelStudioProject.create(
-            title='test_sync_project',
+        pxt.io.create_and_link_label_studio_project(
+            t,
             label_config=self.test_config,
-            media_import_method=media_import_method
+            media_import_method=media_import_method,
+            col_mapping={sync_col: 'image', 'annotations_col': 'annotations'}
         )
-        t.link_remote(remote, {sync_col: 'image', 'annotations_col': 'annotations'})
-        t.sync_remotes()
 
-        # Check that the tasks were properly created
+        # Check that the project and tasks were properly created
+        remote = next(iter(t.get_remotes()))
         tasks = remote.project.get_tasks()
         assert len(tasks) == 30
         assert all(task['data']['image'] for task in tasks)
@@ -147,14 +147,14 @@ class TestLabelStudio:
         # Pull the annotations back to Pixeltable
         reload_catalog()
         t = pxt.get_table('test_ls_sync')
-        t.sync_remotes()
+        t.sync()
         annotations = t.collect()['annotations_col']
         assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(10)), annotations
         assert all(annotations[i] is None for i in range(10, 30)), annotations
 
         # Delete some random rows in Pixeltable and sync remotes again
         validate_update_status(t.delete(where=t.id.isin(range(0, 20, 3))), expected_rows=7)
-        t.sync_remotes()
+        t.sync()
 
         # Verify that the tasks were deleted by calling the Label Studio API directly
         tasks = remote.project.get_tasks()
@@ -174,17 +174,18 @@ class TestLabelStudio:
         from pixeltable.datatransfer.label_studio import LabelStudioProject
         from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
 
-        remote = LabelStudioProject.create(title='test_client_project', label_config=self.test_config_3, media_import_method='post')
         t['detect'] = detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50')
         t['preannotations'] = detr_to_coco(t.image_col, t.detect)
-        t.link_remote(remote, {
-            'image_col': 'frame',
-            'preannotations': 'obj_label',
-            'annotations_col': 'annotations'
-        })
-        t.sync_remotes()
+
+        pxt.io.create_and_link_label_studio_project(
+            t,
+            label_config=self.test_config_3,
+            media_import_method='post',
+            col_mapping={'image_col': 'frame', 'preannotations': 'obj_label', 'annotations_col': 'annotations'}
+        )
 
         # Check that the preannotations sent to Label Studio are what we expect
+        remote = next(iter(t.get_remotes()))
         tasks = remote.project.get_tasks()
         assert len(tasks) == 5
 
@@ -242,26 +243,27 @@ class TestLabelStudio:
     def test_label_studio_sync_errors(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
+        t['annotations_col'] = pxt.JsonType(nullable=True)
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
         remote = LabelStudioProject.create('test_sync_errors_project', self.test_config, media_import_method='post')
         # Validate that syncing a remote with pull=True must have an `annotations` column mapping
-        t.link_remote(remote, {'image_col': 'image'})
+        t.link(remote, {'image_col': 'image'})
         with pytest.raises(excs.Error) as exc_info:
-            t.sync_remotes()
+            t.sync()
         assert 'but there are no columns to pull' in str(exc_info.value)
         # But it's ok if pull=False
-        t.sync_remotes(pull=False)
-        t.unlink_remote(remote)
+        t.sync(pull=False)
+        t.unlink()
 
         # Validate that syncing a remote with push=True must have at least one column to push
-        t.link_remote(remote, {'annotations_col': 'annotations'})
+        t.link(remote, {'annotations_col': 'annotations'})
         with pytest.raises(excs.Error) as exc_info:
-            t.sync_remotes()
+            t.sync()
         assert 'but there are no columns to push' in str(exc_info.value)
         # But it's ok if push=False
-        t.sync_remotes(push=False)
-        t.unlink_remote(remote)
+        t.sync(push=False)
+        t.unlink()
 
         with pytest.raises(excs.Error) as exc_info:
             _ = LabelStudioProject.create(
@@ -287,7 +289,7 @@ def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table(
         'test_ls_sync',
-        {'id': pxt.IntType(), 'image_col': pxt.ImageType(), 'annotations_col': pxt.JsonType(nullable=True)}
+        {'id': pxt.IntType(), 'image_col': pxt.ImageType()}
     )
     t.add_column(rot_image_col=t.image_col.rotate(180), stored=False)
     # 30 rows, a mix of URLs and locally stored image files
