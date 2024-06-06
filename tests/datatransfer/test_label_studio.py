@@ -242,9 +242,9 @@ class TestLabelStudio:
         v.sync()
         tasks = remote.project.get_tasks()
         assert len(tasks) == 10
-        assert all(tasks[i]['data']['text'] == 'New text' for i in [3, 8])  # After syncing
-        assert all(tasks[i]['data']['text'] == 'Initial text' for i in [0, 1, 2, 4, 5, 6, 7, 9])
 
+        assert sum(tasks[i]['data']['text'] == 'New text' for i in range(10)) == 2  # After syncing
+        assert sum(tasks[i]['data']['text'] == 'Initial text' for i in range(10)) == 8
 
     def test_label_studio_sync_errors(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')

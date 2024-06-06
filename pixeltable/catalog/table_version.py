@@ -983,6 +983,7 @@ class TableVersion:
         with Env.get().engine.begin() as conn:
             self.version += 1
             self.remotes[remote] = col_mapping
+            preceding_schema_version = None
             if len(stored_proxies_needed) > 0:
                 _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
                 # Create stored proxies for columns that need one. Increment the schema version
@@ -992,12 +993,10 @@ class TableVersion:
                 proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
                 # Add the columns; this will also update table metadata.
                 # TODO Add to base tables
-                self._add_columns(proxy_cols, conn, preceding_schema_version=preceding_schema_version)
+                self._add_columns(proxy_cols, conn)
                 # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
                 # invisible to the user.
-            else:
-                # No columns to add; just update the table metadata directly.
-                self._update_md(time.time(), None, conn)
+            self._update_md(time.time(), preceding_schema_version, conn)
 
     def create_stored_proxy(self, col: Column) -> Column:
         from pixeltable import exprs
@@ -1035,6 +1034,7 @@ class TableVersion:
         with Env.get().engine.begin() as conn:
             self.version += 1
             del self.remotes[remote]
+            preceding_schema_version = None
             if len(stored_proxy_deletions_needed) > 0:
                 preceding_schema_version = self.schema_version
                 self.schema_version = self.version
@@ -1044,9 +1044,8 @@ class TableVersion:
                     col.stored_proxy.proxy_base = None
                     col.stored_proxy = None
                 # TODO Drop from base tables
-                self._drop_columns(proxy_cols, conn, preceding_schema_version)
-            else:
-                self._update_md(timestamp, None, conn)
+                self._drop_columns(proxy_cols)
+            self._update_md(timestamp, preceding_schema_version, conn)
 
     def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
         return self.remotes
