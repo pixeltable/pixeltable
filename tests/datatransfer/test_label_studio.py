@@ -95,7 +95,7 @@ class TestLabelStudio:
         t = ls_image_table
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
-        pxt.io.create_and_link_label_studio_project(
+        pxt.io.create_label_studio_project(
             t,
             label_config=self.test_config,
             col_mapping={'image_col': 'image', 'annotations_col': 'annotations'}
@@ -146,7 +146,7 @@ class TestLabelStudio:
         t['detect'] = detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50')
         t['preannotations'] = detr_to_coco(t.image_col, t.detect)
 
-        pxt.io.create_and_link_label_studio_project(
+        pxt.io.create_label_studio_project(
             t,
             label_config=self.test_config_3,
             col_mapping={'image_col': 'frame', 'preannotations': 'obj_label', 'annotations_col': 'annotations'}
