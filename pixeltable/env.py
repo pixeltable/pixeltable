@@ -67,7 +67,7 @@ class Env:
         self._httpd: Optional[http.server.HTTPServer] = None
         self._http_address: Optional[str] = None
 
-        self._registered_clients: dict[str, Any] = {}
+        self._registered_clients: dict[str, ApiClient] = {}
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -366,14 +366,14 @@ class Env:
         Args:
             - name: The name of the client
         """
-        cl: ApiClient = self._registered_clients[name]
+        cl = self._registered_clients[name]
         if cl.client_obj is not None:
             return cl.client_obj  # Already initialized
 
         # Construct a client. For each client parameter, first check if the parameter is in the environment;
         # if not, look in Pixeltable config from `config.yaml`.
 
-        init_kwargs = {}
+        init_kwargs: dict[str, str] = {}
         for param in cl.param_names:
             environ = f'{name.upper()}_{param.upper()}'
             if environ in os.environ:

@@ -20,56 +20,54 @@ class TestRemote:
 
         remote1 = MockRemote(
             'remote1',
-            {'push1': pxt.StringType(), 'push2': pxt.ImageType()},
-            {'pull1': pxt.StringType(), 'pull2': pxt.VideoType()}
+            {'export1': pxt.StringType(), 'export2': pxt.ImageType()},
+            {'import1': pxt.StringType(), 'import2': pxt.VideoType()}
         )
 
         # Nonexistent local column
         with pytest.raises(excs.Error) as exc_info:
-            t.link(remote1)
-        assert 'Column `push1` does not exist' in str(exc_info.value)
+            t._link(remote1)
+        assert 'Column `export1` does not exist' in str(exc_info.value)
 
         # Nonexistent local column, but with a mapping specified
         with pytest.raises(excs.Error) as exc_info:
-            t.link(remote1, {'not_col': 'push1', 'col2': 'push2'})
+            t._link(remote1, {'not_col': 'export1', 'col2': 'export2'})
         assert 'Column name `not_col` appears as a key' in str(exc_info.value)
 
         # Nonexistent remote column
         with pytest.raises(excs.Error) as exc_info:
-            t.link(remote1, {'col1': 'push1', 'col2': 'col2'})
+            t._link(remote1, {'col1': 'export1', 'col2': 'col2'})
         assert 'has no column `col2`' in str(exc_info.value)
 
         # Correct partial spec
-        t.link(remote1, {'col1': 'push1', 'col2': 'push2'})
+        t._link(remote1, {'col1': 'export1', 'col2': 'export2'})
 
         # Duplicate link
         with pytest.raises(excs.Error) as exc_info:
-            t.link(remote1, {'col1': 'push1', 'col2': 'col2'})
+            t._link(remote1, {'col1': 'push1', 'col2': 'col2'})
         assert 'That remote is already linked to table `test_remote`: MockRemote `remote1`' in str(exc_info.value)
 
         t.unlink(remote1)
 
         # Correct full spec
-        t.link(remote1, {'col1': 'push1', 'col2': 'push2', 'col3': 'pull1', 'col4': 'pull2'})
+        t._link(remote1, {'col1': 'export1', 'col2': 'export2', 'col3': 'import1', 'col4': 'import2'})
 
         t.unlink(remote1)
 
         # Default spec is correct
-        schema2 = {'push1': pxt.StringType(), 'push2': pxt.ImageType(), 'pull1': pxt.StringType(), 'pull2': pxt.VideoType()}
+        schema2 = {'export1': pxt.StringType(), 'export2': pxt.ImageType(), 'import1': pxt.StringType(), 'import2': pxt.VideoType()}
         t2 = pxt.create_table('test_2', schema2)
-        t2.link(remote1)
+        t2._link(remote1)
 
-        t2.unlink(remote1)
-
-        # Incompatible types for push
+        # Incompatible types for export
         with pytest.raises(excs.Error) as exc_info:
-            t.link(remote1, {'col1': 'push2'})
-        assert 'Column `col1` cannot be pushed to remote column `push2` (incompatible types; expecting `image`)' in str(exc_info.value)
+            t._link(remote1, {'col1': 'export2'})
+        assert 'Column `col1` cannot be exported to remote column `export2` (incompatible types; expecting `image`)' in str(exc_info.value)
 
-        # Incompatible types for pull
+        # Incompatible types for import
         with pytest.raises(excs.Error) as exc_info:
-            t.link(remote1, {'col1': 'pull2'})
-        assert 'Column `col1` cannot be pulled from remote column `pull2` (incompatible types; expecting `video`)' in str(exc_info.value)
+            t._link(remote1, {'col1': 'import2'})
+        assert 'Column `col1` cannot be imported from remote column `import2` (incompatible types; expecting `video`)' in str(exc_info.value)
 
         # Subtype/supertype relationships
 
@@ -77,12 +75,12 @@ class TestRemote:
         t3 = pxt.create_table('test_remote_3', schema3)
         remote2 = MockRemote(
             'remote2',
-            {'push_img': pxt.ImageType(), 'push_spec_img': pxt.ImageType(512, 512)},
-            {'pull_img': pxt.ImageType(), 'pull_spec_img': pxt.ImageType(512, 512)}
+            {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)},
+            {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)}
         )
 
-        # Can push/pull from sub to supertype
-        t3.link(remote2, {'spec_img': 'push_img', 'img': 'pull_spec_img'})
+        # Can export/import from sub to supertype
+        t3._link(remote2, {'spec_img': 'export_img', 'img': 'import_spec_img'})
 
         # Cannot drop a linked column
         with pytest.raises(excs.Error) as exc_info:
@@ -91,19 +89,19 @@ class TestRemote:
 
         t3.unlink(remote2)
 
-        # Cannot push from super to subtype
+        # Cannot export from super to subtype
         with pytest.raises(excs.Error) as exc_info:
-            t3.link(remote2, {'img': 'push_spec_img'})
-        assert 'Column `img` cannot be pushed to remote column `push_spec_img`' in str(exc_info.value)
+            t3._link(remote2, {'img': 'export_spec_img'})
+        assert 'Column `img` cannot be exported to remote column `export_spec_img`' in str(exc_info.value)
 
-        # Cannot pull from super to subtype
+        # Cannot import from super to subtype
         with pytest.raises(excs.Error) as exc_info:
-            t3.link(remote2, {'spec_img': 'pull_img'})
-        assert 'Column `spec_img` cannot be pulled from remote column `pull_img`' in str(exc_info.value)
+            t3._link(remote2, {'spec_img': 'import_img'})
+        assert 'Column `spec_img` cannot be imported from remote column `import_img`' in str(exc_info.value)
 
         t3['computed_img'] = t3.img.rotate(180)
         with pytest.raises(excs.Error) as exc_info:
-            t3.link(remote2, {'computed_img': 'pull_img'})
+            t3._link(remote2, {'computed_img': 'import_img'})
         assert (
             'Column `computed_img` is a computed column, which cannot be populated from a remote column'
             in str(exc_info.value)
@@ -141,7 +139,7 @@ class TestRemote:
             t = pxt.get_table('test_remote')
 
         num_cols_before_linking = len(t.tbl_version_path.tbl_version.cols_by_id)
-        t.link(remote1, {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'})
+        t._link(remote1, {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'})
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
         assert t.rot_img.col.stored_proxy is not None  # Stored proxy
         assert t.rot_img.col.stored_proxy.proxy_base == t.rot_img.col
@@ -157,7 +155,7 @@ class TestRemote:
             reload_catalog()
             t = pxt.get_table('test_remote')
 
-        t.link(remote2, {'rot_img': 'push_img'})
+        t._link(remote2, {'rot_img': 'push_img'})
         # Ensure the stored proxy is created just once (for both remotes)
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
 

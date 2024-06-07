@@ -54,6 +54,6 @@ def create_label_studio_project(
         t[local_annotations_column] = pxt.JsonType(nullable=True)
 
     # Link the project to `t`, and sync if appropriate.
-    t.link(ls_project, col_mapping)
+    t._link(ls_project, col_mapping)
     if sync_immediately:
         t.sync()

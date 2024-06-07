@@ -36,11 +36,6 @@ class LabelStudioProject(Remote):
     A [`Remote`][pixeltable.datatransfer.Remote] that represents a Label Studio project, providing functionality
     for synchronizing between a Pixeltable table and a Label Studio project.
 
-    Typically, applications will call [`create`][pixeltable.datatransfer.label_studio.LabelStudioProject.create]`()`
-    to create a new project, then
-    [`Table.link`][pixeltable.Table.link]`()` to establish a link between a Pixeltable table and
-    the new project.
-
     The API key and URL for a valid Label Studio server must be specified in Pixeltable config. Either:
 
     * Set the `LABEL_STUDIO_API_KEY` and `LABEL_STUDIO_URL` environment variables; or
@@ -123,13 +118,13 @@ class LabelStudioProject(Remote):
     def __project_config(self) -> '_LabelStudioConfig':
         return self.__parse_project_config(self.project_params['label_config'])
 
-    def get_push_columns(self) -> dict[str, pxt.ColumnType]:
+    def get_export_columns(self) -> dict[str, pxt.ColumnType]:
         """
         The data keys and preannotation fields specified in this Label Studio project.
         """
-        return self.__project_config.push_columns
+        return self.__project_config.export_columns
 
-    def get_pull_columns(self) -> dict[str, pxt.ColumnType]:
+    def get_import_columns(self) -> dict[str, pxt.ColumnType]:
         """
         Always contains a single entry:
 
@@ -139,14 +134,14 @@ class LabelStudioProject(Remote):
         """
         return {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}
 
-    def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
+    def sync(self, t: Table, col_mapping: dict[str, str], export_data: bool, import_data: bool) -> None:
         _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
-                     f' (push: {push}, pull: {pull}).')
+                     f' (export: {export_data}, import: {import_data}).')
         # Collect all existing tasks into a dict with entries `rowid: task`
         tasks = {tuple(task['meta']['rowid']): task for task in self.__fetch_all_tasks()}
-        if push:
+        if export_data:
             self.__update_tasks(t, col_mapping, tasks)
-        if pull:
+        if import_data:
             self.__update_table_from_tasks(t, col_mapping, tasks)
 
     def __fetch_all_tasks(self) -> Iterator[dict]:
@@ -169,6 +164,7 @@ class LabelStudioProject(Remote):
             )
 
     def __update_tasks(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
+
         t_col_types = t.column_types()
         config = self.__project_config
 
@@ -513,7 +509,7 @@ class _LabelStudioConfig:
                 )
 
     @property
-    def push_columns(self) -> dict[str, pxt.ColumnType]:
+    def export_columns(self) -> dict[str, pxt.ColumnType]:
         data_key_cols = {key_id: key_info.column_type for key_id, key_info in self.data_keys.items()}
         rl_cols = {name: pxt.JsonType() for name in self.rectangle_labels.keys()}
         return {**data_key_cols, **rl_cols}

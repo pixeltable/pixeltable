@@ -14,25 +14,25 @@ class Remote(abc.ABC):
     """
 
     @abc.abstractmethod
-    def get_push_columns(self) -> dict[str, ts.ColumnType]:
+    def get_export_columns(self) -> dict[str, ts.ColumnType]:
         """
-        Returns the names and Pixeltable types that this `Remote` expects to see in a data push.
+        Returns the names and Pixeltable types that this `Remote` expects to see in a data export.
 
         Returns:
             A `dict` mapping names of expected columns to their Pixeltable types.
         """
 
     @abc.abstractmethod
-    def get_pull_columns(self) -> dict[str, ts.ColumnType]:
+    def get_import_columns(self) -> dict[str, ts.ColumnType]:
         """
-        Returns the names and Pixeltable types that this `Remote` provides in a data pull.
+        Returns the names and Pixeltable types that this `Remote` provides in a data import.
 
         Returns:
             A `dict` mapping names of provided columns to their Pixeltable types.
         """
 
     @abc.abstractmethod
-    def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
+    def sync(self, t: Table, col_mapping: dict[str, str], export_data: bool, import_data: bool) -> None:
         """
         Synchronizes the given [`Table`][pixeltable.Table] with this `Remote`. This method
         should generally not be called directly; instead, call
@@ -40,10 +40,9 @@ class Remote(abc.ABC):
 
         Args:
             t: The table to synchronize with this remote.
-            col_mapping: A `dict` mapping columns in the Pixeltable table to push and/or pull columns in the remote
-                store.
-            push: If `True`, data from this table will be pushed to the remote during synchronization.
-            pull: If `True`, data from this table will be pulled from the remote during synchronization.
+            col_mapping: A `dict` mapping columns in the Pixeltable table to columns in the remote store.
+            export_data: If `True`, data from this table will be exported to the remote during synchronization.
+            import_data: If `True`, data from this table will be imported from the remote during synchronization.
         """
 
     @abc.abstractmethod
@@ -63,19 +62,19 @@ class Remote(abc.ABC):
 # A remote that cannot be synced, used mainly for testing.
 class MockRemote(Remote):
 
-    def __init__(self, name: str, push_cols: dict[str, ts.ColumnType], pull_cols: dict[str, ts.ColumnType]):
+    def __init__(self, name: str, export_cols: dict[str, ts.ColumnType], import_cols: dict[str, ts.ColumnType]):
         self.name = name
-        self.push_cols = push_cols
-        self.pull_cols = pull_cols
+        self.export_cols = export_cols
+        self.import_cols = import_cols
         self.__is_deleted = False
 
-    def get_push_columns(self) -> dict[str, ts.ColumnType]:
-        return self.push_cols
+    def get_export_columns(self) -> dict[str, ts.ColumnType]:
+        return self.export_cols
 
-    def get_pull_columns(self) -> dict[str, ts.ColumnType]:
-        return self.pull_cols
+    def get_import_columns(self) -> dict[str, ts.ColumnType]:
+        return self.import_cols
 
-    def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> NotImplemented:
+    def sync(self, t: Table, col_mapping: dict[str, str], export_data: bool, import_data: bool) -> NotImplemented:
         raise NotImplementedError()
 
     def delete(self) -> None:
@@ -87,17 +86,19 @@ class MockRemote(Remote):
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            # TODO Change in next schema version
             'name': self.name,
-            'push_cols': {k: v.as_dict() for k, v in self.push_cols.items()},
-            'pull_cols': {k: v.as_dict() for k, v in self.pull_cols.items()}
+            'push_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
+            'pull_cols': {k: v.as_dict() for k, v in self.import_cols.items()}
         }
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> Remote:
         return cls(
             name=md['name'],
-            push_cols={k: ts.ColumnType.from_dict(v) for k, v in md['push_cols'].items()},
-            pull_cols={k: ts.ColumnType.from_dict(v) for k, v in md['pull_cols'].items()}
+            # TODO Change in next schema version
+            export_cols={k: ts.ColumnType.from_dict(v) for k, v in md['push_cols'].items()},
+            import_cols={k: ts.ColumnType.from_dict(v) for k, v in md['pull_cols'].items()}
         )
 
     def __eq__(self, other: Any) -> bool:

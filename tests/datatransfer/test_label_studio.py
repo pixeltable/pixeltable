@@ -70,8 +70,8 @@ class TestLabelStudio:
         from pixeltable.datatransfer.label_studio import LabelStudioProject
         remote = LabelStudioProject.create(title='test_remote_project', label_config=self.test_config_2)
         assert remote.project_title == 'test_remote_project'
-        assert remote.get_push_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
-        assert remote.get_pull_columns() == {'annotations': pxt.JsonType(nullable=True)}
+        assert remote.get_export_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
+        assert remote.get_import_columns() == {'annotations': pxt.JsonType(nullable=True)}
 
     def test_label_studio_remote_errors(self, init_ls) -> None:
         skip_test_if_not_installed('label_studio_sdk')
@@ -130,7 +130,7 @@ class TestLabelStudio:
         )
 
         # Check that the project and tasks were properly created
-        remote = next(iter(t.get_remotes()))
+        remote = next(iter(t._get_remotes()))
         tasks = remote.project.get_tasks()
         assert len(tasks) == 30
         assert all(task['data']['image'] for task in tasks)
@@ -150,7 +150,7 @@ class TestLabelStudio:
             )
             assert len(remote.project.get_task(task_id)['annotations']) == 1
 
-        # Pull the annotations back to Pixeltable
+        # Import the annotations back to Pixeltable
         reload_catalog()
         t = pxt.get_table('test_ls_sync')
         t.sync()
@@ -191,7 +191,7 @@ class TestLabelStudio:
         )
 
         # Check that the preannotations sent to Label Studio are what we expect
-        remote = next(iter(t.get_remotes()))
+        remote = next(iter(t._get_remotes()))
         tasks = remote.project.get_tasks()
         assert len(tasks) == 5
 
@@ -228,7 +228,7 @@ class TestLabelStudio:
         v.update({'text': 'Initial text'})
 
         remote = LabelStudioProject.create('test_sync_complex_project', self.test_config_4)
-        v.link(remote)
+        v._link(remote)
 
         reload_catalog()
         v = pxt.get_table('frames_view')
@@ -253,22 +253,23 @@ class TestLabelStudio:
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
         remote = LabelStudioProject.create('test_sync_errors_project', self.test_config, media_import_method='post')
-        # Validate that syncing a remote with pull=True must have an `annotations` column mapping
-        t.link(remote, {'image_col': 'image'})
+        # Validate that syncing a remote with import_data=True must have an `annotations` column mapping
+        t._link(remote, {'image_col': 'image'})
+
         with pytest.raises(excs.Error) as exc_info:
             t.sync()
-        assert 'but there are no columns to pull' in str(exc_info.value)
-        # But it's ok if pull=False
-        t.sync(pull=False)
+        assert 'but there are no columns to import' in str(exc_info.value)
+        # But it's ok if import_data=False
+        t.sync(import_data=False)
         t.unlink()
 
-        # Validate that syncing a remote with push=True must have at least one column to push
-        t.link(remote, {'annotations_col': 'annotations'})
+        # Validate that syncing a remote with export_data=True must have at least one column to export
+        t._link(remote, {'annotations_col': 'annotations'})
         with pytest.raises(excs.Error) as exc_info:
             t.sync()
-        assert 'but there are no columns to push' in str(exc_info.value)
-        # But it's ok if push=False
-        t.sync(push=False)
+        assert 'but there are no columns to export' in str(exc_info.value)
+        # But it's ok if export=False
+        t.sync(export_data=False)
         t.unlink()
 
         with pytest.raises(excs.Error) as exc_info:
