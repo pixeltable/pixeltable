@@ -122,11 +122,10 @@ class TestLabelStudio:
         reload_catalog()
         t = pxt.get_table('test_ls_sync')
         t.sync()
-        annotations = t.collect()['annotations_col']
-        assert sum(
-            annotations[i] is not None and annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(30)
-        ) == 10, annotations
-        assert sum(annotations[i] is None for i in range(30)) == 20, annotations
+        annotations_col = t.collect()['annotations_col']
+        annotations = [a for a in annotations_col if a is not None]
+        assert len(annotations) == 10
+        assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(10)), annotations
 
         # Delete some random rows in Pixeltable and sync remotes again
         validate_update_status(t.delete(where=t.id.isin(range(0, 20, 3))), expected_rows=7)
