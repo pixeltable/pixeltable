@@ -34,11 +34,6 @@ class LabelStudioProject(Remote):
     A [`Remote`][pixeltable.datatransfer.Remote] that represents a Label Studio project, providing functionality
     for synchronizing between a Pixeltable table and a Label Studio project.
 
-    Typically, applications will call [`create`][pixeltable.datatransfer.label_studio.LabelStudioProject.create]`()`
-    to create a new project, then
-    [`Table.link`][pixeltable.Table.link]`()` to establish a link between a Pixeltable table and
-    the new project.
-
     The API key and URL for a valid Label Studio server must be specified in Pixeltable config. Either:
 
     * Set the `LABEL_STUDIO_API_KEY` and `LABEL_STUDIO_URL` environment variables; or
