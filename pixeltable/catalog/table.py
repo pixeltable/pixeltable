@@ -720,7 +720,7 @@ class Table(SchemaObject):
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.revert()
 
-    def link(
+    def _link(
             self,
             remote: 'pixeltable.datatransfer.Remote',
             col_mapping: Optional[dict[str, str]] = None
@@ -734,53 +734,36 @@ class Table(SchemaObject):
             remote (pixeltable.datatransfer.Remote): The `Remote` to link to this table.
             col_mapping: An optional mapping of columns from this `Table` to columns in the `Remote`.
         """
+        if len(self._get_remotes()) > 0:
+            raise excs.Error('Linking more than one `Remote` to a table is not currently supported.')
         self._check_is_dropped()
-        push_cols = remote.get_push_columns()
-        pull_cols = remote.get_pull_columns()
+        export_cols = remote.get_export_columns()
+        import_cols = remote.get_import_columns()
         is_col_mapping_user_specified = col_mapping is not None
         if col_mapping is None:
             # Use the identity mapping by default if `col_mapping` is not specified
-            col_mapping = {col: col for col in itertools.chain(push_cols.keys(), pull_cols.keys())}
-        self._validate_remote(push_cols, pull_cols, col_mapping, is_col_mapping_user_specified)
+            col_mapping = {col: col for col in itertools.chain(export_cols.keys(), import_cols.keys())}
+        self._validate_remote(export_cols, import_cols, col_mapping, is_col_mapping_user_specified)
         self.tbl_version_path.tbl_version.link(remote, col_mapping)
         print(f'Linked remote {remote} to table `{self.get_name()}`.')
 
-    def unlink(
-            self,
-            *,
-            remotes: Optional['pixeltable.datatransfer.Remote' | list['pixeltable.datatransfer.Remote']] = None,
-            ignore_errors: bool = False
-    ) -> None:
+    def unlink(self) -> None:
         """
         Unlinks this table's `Remote`s.
-
-        Args:
-            remotes: If specified, will unlink only the specified `Remote` or list of `Remote`s. If not specified,
-                will unlink all of this table's `Remote`s.
-            ignore_errors (bool): If `True`, no exception will be thrown if the specified `Remote` is not linked
-                to this table.
         """
         self._check_is_dropped()
-        all_remotes = self.get_remotes()
-        if remotes is None:
-            remotes = list(all_remotes.keys())
-        elif isinstance(remotes, pixeltable.datatransfer.Remote):
-            remotes = [remotes]
+        remotes = self._get_remotes()
+        assert len(remotes) <= 1
 
-        # Validation
-        for remote in remotes:
-            if remote not in all_remotes:
-                raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
-
-        for remote in remotes:
-            self.tbl_version_path.tbl_version.unlink(remote)
-            # TODO: Provide an option to auto-delete the project
-            print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
+        remote = next(iter(remotes.keys()))
+        self.tbl_version_path.tbl_version.unlink(remote)
+        # TODO: Provide an option to auto-delete the project
+        print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
 
     def _validate_remote(
             self,
-            push_cols: dict[str, ts.ColumnType],
-            pull_cols: dict[str, ts.ColumnType],
+            export_cols: dict[str, ts.ColumnType],
+            import_cols: dict[str, ts.ColumnType],
             col_mapping: Optional[dict[str, str]],
             is_col_mapping_user_specified: bool
     ):
@@ -798,7 +781,7 @@ class Table(SchemaObject):
                         f'Column `{t_col}` does not exist in Table `{self.get_name()}`. Either add a column `{t_col}`, '
                         f'or specify a `col_mapping` to associate a different column with the remote field `{r_col}`.'
                     )
-            if r_col not in push_cols and r_col not in pull_cols:
+            if r_col not in export_cols and r_col not in import_cols:
                 raise excs.Error(
                     f'Column name `{r_col}` appears as a value in `col_mapping`, but the remote '
                     f'configuration has no column `{r_col}`.'
@@ -807,26 +790,26 @@ class Table(SchemaObject):
         t_col_types = self.column_types()
         for t_col, r_col in col_mapping.items():
             t_col_type = t_col_types[t_col]
-            if r_col in push_cols:
+            if r_col in export_cols:
                 # Validate that the table column can be assigned to the remote column
-                r_col_type = push_cols[r_col]
+                r_col_type = export_cols[r_col]
                 if not r_col_type.is_supertype_of(t_col_type):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be pushed to remote column `{r_col}` (incompatible types)'
+                        f'Column `{t_col}` cannot be exported to remote column `{r_col}` (incompatible types)'
                     )
-            if r_col in pull_cols:
+            if r_col in import_cols:
                 # Validate that the remote column can be assigned to the table column
                 if self.tbl_version_path.get_column(t_col).is_computed:
                     raise excs.Error(
                         f'Column `{t_col}` is a computed column, which cannot be populated from a remote column'
                     )
-                r_col_type = pull_cols[r_col]
+                r_col_type = import_cols[r_col]
                 if not t_col_type.is_supertype_of(r_col_type):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be pulled from remote column `{r_col}` (incompatible types)'
+                        f'Column `{t_col}` cannot be imported from remote column `{r_col}` (incompatible types)'
                     )
 
-    def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
+    def _get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
         """
         Gets a `dict` of all `Remote`s linked to this table.
         """
@@ -835,36 +818,32 @@ class Table(SchemaObject):
     def sync(
             self,
             *,
-            remotes: Optional['pixeltable.datatransfer.Remote' | list['pixeltable.datatransfer.Remote']] = None,
-            push: bool = True,
-            pull: bool = True
+            export_data: bool = True,
+            import_data: bool = True
     ):
         """
         Synchronizes this table with its linked `Remote`s.
 
         Args:
-            remotes: If specified, will sync only the specified `Remote` or list of `Remote`s. If not specified,
-                will sync all linked `Remote`s.
-            push: If `True`, data from this table will be pushed to the remotes during synchronization.
-            pull: If `True`, data from this table will be pulled from the remotes during synchronization.
+            export_data: If `True`, data from this table will be exported during synchronization.
+            import_data: If `True`, data from this table will be imported during synchronization.
         """
-        all_remotes = self.get_remotes()
-        if remotes is None:
-            remotes = list(all_remotes.keys())
-        elif isinstance(remotes, pixeltable.datatransfer.Remote):
-            remotes = [remotes]
+        remotes = self._get_remotes()
+        assert len(remotes) <= 1
 
         # Validation
         for remote in remotes:
-            if remote not in all_remotes:
-                raise excs.Error(f'Remote is not linked to table `{self.get_name()}`: {remote}')
-            col_mapping = all_remotes[remote]
+            col_mapping = remotes[remote]
             r_cols = set(col_mapping.values())
-            # Validate push/pull
-            if push and not any(col in r_cols for col in remote.get_push_columns()):
-                raise excs.Error(f'Attempted to sync remote with push=True, but there are no columns to push: {remote}')
-            if pull and not any(col in r_cols for col in remote.get_pull_columns()):
-                raise excs.Error(f'Attempted to sync remote with pull=True, but there are no columns to pull: {remote}')
+            # Validate export/import
+            if export_data and not any(col in r_cols for col in remote.get_export_columns()):
+                raise excs.Error(
+                    f'Attempted to sync with export_data=True, but there are no columns to export: {remote}'
+                )
+            if import_data and not any(col in r_cols for col in remote.get_import_columns()):
+                raise excs.Error(
+                    f'Attempted to sync with import_data=True, but there are no columns to import: {remote}'
+                )
 
         for remote in remotes:
-            remote.sync(self, all_remotes[remote], push=push, pull=pull)
+            remote.sync(self, remotes[remote], export_data=export_data, import_data=import_data)

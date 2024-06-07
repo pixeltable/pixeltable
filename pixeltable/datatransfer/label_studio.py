@@ -92,13 +92,13 @@ class LabelStudioProject(Remote):
     def _project_config(self) -> '_LabelStudioConfig':
         return self._parse_project_config(self.project_params['label_config'])
 
-    def get_push_columns(self) -> dict[str, pxt.ColumnType]:
+    def get_export_columns(self) -> dict[str, pxt.ColumnType]:
         """
         The data keys and preannotation fields specified in this Label Studio project.
         """
-        return self._project_config.push_columns
+        return self._project_config.export_columns
 
-    def get_pull_columns(self) -> dict[str, pxt.ColumnType]:
+    def get_import_columns(self) -> dict[str, pxt.ColumnType]:
         """
         Always contains a single entry:
 
@@ -108,14 +108,14 @@ class LabelStudioProject(Remote):
         """
         return {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}
 
-    def sync(self, t: Table, col_mapping: dict[str, str], push: bool, pull: bool) -> None:
+    def sync(self, t: Table, col_mapping: dict[str, str], export_data: bool, import_data: bool) -> None:
         _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
-                     f' (push: {push}, pull: {pull}).')
+                     f' (export: {export_data}, import: {import_data}).')
         # Collect all existing tasks into a dict with entries `rowid: task`
         tasks = {tuple(task['meta']['rowid']): task for task in self._fetch_all_tasks()}
-        if push:
+        if export_data:
             self._create_tasks_from_table(t, col_mapping, tasks)
-        if pull:
+        if import_data:
             self._update_table_from_tasks(t, col_mapping, tasks)
 
     def _fetch_all_tasks(self) -> Iterator[dict]:
@@ -139,7 +139,7 @@ class LabelStudioProject(Remote):
 
     def _update_table_from_tasks(self, t: Table, col_mapping: dict[str, str], tasks: dict[tuple, dict]) -> None:
         # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
-        # of `get_pull_columns`
+        # of `get_import_columns`
         assert ANNOTATIONS_COLUMN in col_mapping.values()
         annotations_column = next(k for k, v in col_mapping.items() if v == ANNOTATIONS_COLUMN)
         updates = [
@@ -441,7 +441,7 @@ class _LabelStudioConfig:
                 )
 
     @property
-    def push_columns(self) -> dict[str, pxt.ColumnType]:
+    def export_columns(self) -> dict[str, pxt.ColumnType]:
         data_key_cols = {key_name: key_info.column_type for key_name, key_info in self.data_keys.items()}
         rl_cols = {name: pxt.JsonType() for name in self.rectangle_labels.keys()}
         return {**data_key_cols, **rl_cols}

@@ -110,13 +110,13 @@ class TestMigration:
         from pixeltable.datatransfer.label_studio import LabelStudioProject
         t = pxt.get_table('views.sample_view')
         # Test that remotes are loaded properly.
-        remotes = t.get_remotes()
+        remotes = t._get_remotes()
         assert len(remotes) == 2
         remotes_iter = iter(remotes.items())
         remote, col_mapping = next(remotes_iter)
         assert isinstance(remote, MockRemote)
-        assert remote.get_push_columns() == {'int_field': pxt.IntType()}
-        assert remote.get_pull_columns() == {'str_field': pxt.StringType()}
+        assert remote.get_export_columns() == {'int_field': pxt.IntType()}
+        assert remote.get_import_columns() == {'str_field': pxt.StringType()}
         assert col_mapping == {'test_udf': 'int_field', 'c1': 'str_field'}
         remote, col_mapping = next(remotes_iter)
         assert isinstance(remote, LabelStudioProject)
