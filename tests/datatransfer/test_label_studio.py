@@ -77,6 +77,7 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
+        # TODO(aaron-siegel) Use create_label_studio_project instead (here and elsewhere)
         with pytest.raises(excs.Error) as exc_info:
             _ = LabelStudioProject.create(
                 title='test_remote_errors_project',

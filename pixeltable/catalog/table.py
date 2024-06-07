@@ -734,6 +734,7 @@ class Table(SchemaObject):
             remote (pixeltable.datatransfer.Remote): The `Remote` to link to this table.
             col_mapping: An optional mapping of columns from this `Table` to columns in the `Remote`.
         """
+        # TODO(aaron-siegel): Refactor `col_mapping`
         self._check_is_dropped()
         if remote in self._get_remotes():
             raise excs.Error(f'That remote is already linked to table `{self.get_name()}`: {remote}')
@@ -852,8 +853,8 @@ class Table(SchemaObject):
         Synchronizes this table with its linked `Remote`s.
 
         Args:
-            export_data: If `True`, data from this table will be exported during synchronization.
-            import_data: If `True`, data from this table will be imported during synchronization.
+            export_data: If `True`, data from this table will be exported to the external store during synchronization.
+            import_data: If `True`, data from the external store will be imported to this table during synchronization.
         """
         remotes = self._get_remotes()
         assert len(remotes) <= 1
