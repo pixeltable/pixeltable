@@ -60,6 +60,7 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         from pixeltable.datatransfer.label_studio import LabelStudioProject
 
+        # TODO(aaron-siegel) Use create_label_studio_project instead (here and elsewhere)
         with pytest.raises(excs.Error) as exc_info:
             _ = LabelStudioProject.create(
                 title='test_remote_errors_project',
@@ -93,7 +94,6 @@ class TestLabelStudio:
     def test_label_studio_sync(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
-        from pixeltable.datatransfer.label_studio import LabelStudioProject
 
         pxt.io.create_label_studio_project(
             t,
@@ -123,8 +123,10 @@ class TestLabelStudio:
         t = pxt.get_table('test_ls_sync')
         t.sync()
         annotations = t.collect()['annotations_col']
-        assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(10)), annotations
-        assert all(annotations[i] is None for i in range(10, 30)), annotations
+        assert sum(
+            annotations[i] is not None and annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(30)
+        ) == 10, annotations
+        assert sum(annotations[i] is None for i in range(30)) == 20, annotations
 
         # Delete some random rows in Pixeltable and sync remotes again
         validate_update_status(t.delete(where=t.id.isin(range(0, 20, 3))), expected_rows=7)
