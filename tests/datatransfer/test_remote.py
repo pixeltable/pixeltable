@@ -29,6 +29,11 @@ class TestRemote:
             t.link(remote1)
         assert 'Column `push1` does not exist' in str(exc_info.value)
 
+        # Nonexistent local column, but with a mapping specified
+        with pytest.raises(excs.Error) as exc_info:
+            t.link(remote1, {'not_col': 'push1', 'col2': 'push2'})
+        assert 'Column name `not_col` appears as a key' in str(exc_info.value)
+
         # Nonexistent remote column
         with pytest.raises(excs.Error) as exc_info:
             t.link(remote1, {'col1': 'push1', 'col2': 'col2'})

@@ -739,10 +739,11 @@ class Table(SchemaObject):
             raise excs.Error(f'That remote is already linked to table `{self.get_name()}`: {remote}')
         push_cols = remote.get_push_columns()
         pull_cols = remote.get_pull_columns()
+        is_col_mapping_user_specified = col_mapping is not None
         if col_mapping is None:
             # Use the identity mapping by default if `col_mapping` is not specified
             col_mapping = {col: col for col in itertools.chain(push_cols.keys(), pull_cols.keys())}
-        self._validate_remote(push_cols, pull_cols, col_mapping)
+        self._validate_remote(push_cols, pull_cols, col_mapping, is_col_mapping_user_specified)
         _logger.info(f'Linking remote {remote} to table `{self.get_name()}`.')
         self.tbl_version_path.tbl_version.link(remote, col_mapping)
         print(f'Linked remote {remote} to table `{self.get_name()}`.')
@@ -788,18 +789,28 @@ class Table(SchemaObject):
             self,
             push_cols: dict[str, ts.ColumnType],
             pull_cols: dict[str, ts.ColumnType],
-            col_mapping: dict[str, str]
+            col_mapping: Optional[dict[str, str]],
+            is_col_mapping_user_specified: bool
     ):
         # Validate names
         t_cols = self.column_names()
         for t_col, r_col in col_mapping.items():
             if t_col not in t_cols:
-                raise excs.Error(
-                    f'Column `{t_col}` does not exist in Table `{self.get_name()}`. '
-                    '(Specify `col_mapping` explicitly?)'
-                )
+                if is_col_mapping_user_specified:
+                    raise excs.Error(
+                        f'Column name `{t_col}` appears as a key in `col_mapping`, but Table `{self.get_name()}` '
+                        'contains no such column.'
+                    )
+                else:
+                    raise excs.Error(
+                        f'Column `{t_col}` does not exist in Table `{self.get_name()}`. Either add a column `{t_col}`, '
+                        f'or specify a `col_mapping` to associate a different column with the remote field `{r_col}`.'
+                    )
             if r_col not in push_cols and r_col not in pull_cols:
-                raise excs.Error(f'Remote configuration has no column `{r_col}`. (Specify `col_mapping` explicitly?)')
+                raise excs.Error(
+                    f'Column name `{r_col}` appears as a value in `col_mapping`, but the remote '
+                    f'configuration has no column `{r_col}`.'
+                )
         # Validate column specs
         t_col_types = self.column_types()
         for t_col, r_col in col_mapping.items():

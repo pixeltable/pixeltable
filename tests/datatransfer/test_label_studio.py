@@ -122,7 +122,7 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
 
-        pxt.io.create_and_link_label_studio_project(
+        pxt.io.create_label_studio_project(
             t,
             label_config=self.test_config,
             media_import_method=media_import_method,
@@ -183,7 +183,7 @@ class TestLabelStudio:
         t['detect'] = detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50')
         t['preannotations'] = detr_to_coco(t.image_col, t.detect)
 
-        pxt.io.create_and_link_label_studio_project(
+        pxt.io.create_label_studio_project(
             t,
             label_config=self.test_config_3,
             media_import_method='post',

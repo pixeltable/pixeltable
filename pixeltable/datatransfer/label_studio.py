@@ -237,7 +237,7 @@ class LabelStudioProject(Remote):
                     os.remove(file)
 
                 # Update the task with `rowid` metadata
-                self.project.update_task(task_id, meta={'rowid': row.rowid, 'vmin': row.vmin})
+                self.project.update_task(task_id, meta={'rowid': row.rowid, 'v_min': row.v_min})
 
                 # Convert coco annotations to predictions
                 coco_annotations = [row.vals[i] for i in rl_col_idxs]
@@ -302,7 +302,7 @@ class LabelStudioProject(Remote):
             ]
             return {
                 'data': dict(zip(r_data_cols, data_vals)),
-                'meta': {'rowid': row.rowid, 'vmin': row.vmin},
+                'meta': {'rowid': row.rowid, 'v_min': row.v_min},
                 'predictions': predictions
             }
 
@@ -313,11 +313,11 @@ class LabelStudioProject(Remote):
             row_ids_in_pxt.add(row.rowid)
             if row.rowid in existing_tasks:
                 # A task for this row already exists; see if it needs an update.
-                # Get the vmin record from task metadata. Default to 0 if no vmin record is found
-                old_vmin = int(existing_tasks[row.rowid]['meta'].get('vmin', 0))
-                print(f'{old_vmin}  {row.vmin}')
-                if row.vmin > old_vmin:
-                    _logger.debug(f'Updating task for rowid {row.rowid} ({row.vmin} > {old_vmin}).')
+                # Get the v_min record from task metadata. Default to 0 if no v_min record is found
+                old_v_min = int(existing_tasks[row.rowid]['meta'].get('v_min', 0))
+                print(f'{old_v_min}  {row.v_min}')
+                if row.v_min > old_v_min:
+                    _logger.debug(f'Updating task for rowid {row.rowid} ({row.v_min} > {old_v_min}).')
                     task_info = create_task_info(row)
                     self.project.update_task(existing_tasks[row.rowid]['id'], **task_info)
                     tasks_updated += 1
