@@ -197,3 +197,10 @@ class DataRow:
             pass
         self.vals[index] = None
 
+    @property
+    def rowid(self) -> Tuple[int]:
+        return self.pk[:-1]
+
+    @property
+    def v_min(self) -> int:
+        return self.pk[-1]

@@ -10,11 +10,11 @@ import sqlalchemy.orm as orm
 from .schema import SystemInfo, SystemInfoMd
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
-VERSION = 14
+VERSION = 15
 
 
 def create_system_info(engine: sql.engine.Engine) -> None:
-    """Create the systemmetadata record"""
+    """Create the system metadata record"""
     system_md = SystemInfoMd(schema_version=VERSION)
     record = SystemInfo(md=dataclasses.asdict(system_md))
     with orm.Session(engine, future=True) as session:

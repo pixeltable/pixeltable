@@ -19,6 +19,9 @@ nav:
   - 'API Cheat Sheet': api-cheat-sheet.md
   - 'API Reference':
     - pixeltable: api/pixeltable.md
+    - pixeltable.datatransfer:
+      - Remote: api/datatransfer/remote.md
+      - LabelStudioProject: api/datatransfer/label-studio-project.md
     - pixeltable.io: api/io.md
     - pixeltable.iterators:
       - ComponentIterator: api/iterators/component-iterator.md

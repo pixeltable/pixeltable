@@ -88,6 +88,8 @@ class TableVersion:
             self.next_idx_id = tbl_md.next_idx_id
             self.next_rowid = tbl_md.next_row_id
 
+        self.remotes = dict(TableVersion._init_remote(remote_md) for remote_md in tbl_md.remotes)
+
         # view-specific initialization
         from pixeltable import exprs
         predicate_dict = None if not is_view or tbl_md.view_md.predicate is None else tbl_md.view_md.predicate
@@ -156,8 +158,8 @@ class TableVersion:
         # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
         column_md = cls._create_column_md(cols)
         table_md = schema.TableMd(
-            name=name, current_version=0, current_schema_version=0,
-            next_col_id=len(cols), next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, view_md=view_md)
+            name=name, current_version=0, current_schema_version=0, next_col_id=len(cols),
+            next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, remotes=[], view_md=view_md)
         # create a schema.Table here, we need it to call our c'tor;
         # don't add it to the session yet, we might add index metadata
         tbl_id = uuid.uuid4()
@@ -696,7 +698,7 @@ class TableVersion:
                     # construct Where clause to match rowid
                     num_rowid_cols = len(self.store_tbl.rowid_columns())
                     for col_idx in range(num_rowid_cols):
-                        assert len(rowids[i]) == num_rowid_cols
+                        assert len(rowids[i]) == num_rowid_cols, f'len({rowids[i]}) != {num_rowid_cols}'
                         clause = exprs.RowidRef(self, col_idx) == rowids[i][col_idx]
                         if where_clause is None:
                             where_clause = clause
@@ -713,7 +715,7 @@ class TableVersion:
                             where_clause = where_clause & clause
 
                 update_targets = {col: row[col] for col in row if col not in pk_cols}
-                status = self._update(conn, update_targets, where_clause, cascade)
+                status = self._update(conn, update_targets, where_clause, cascade, show_progress=False)
                 result_status.num_rows += status.num_rows
                 result_status.num_excs += status.num_excs
                 result_status.num_computed_values += status.num_computed_values
@@ -726,7 +728,8 @@ class TableVersion:
 
     def _update(
             self, conn: sql.engine.Connection, update_targets: dict[Column, 'pixeltable.exprs.Expr'],
-            where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
+            where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True,
+            show_progress: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
         Args:
@@ -741,21 +744,21 @@ class TableVersion:
             Planner.create_update_plan(self.path, update_targets, [], where_clause, cascade)
         result = self._propagate_update(
             plan, where_clause.sql_expr() if where_clause is not None else None, recomputed_cols,
-            base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade)
+            base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade, show_progress=show_progress)
         result.updated_cols = updated_cols
         return result
 
     def _propagate_update(
             self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ClauseElement],
             recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
-            timestamp: float, cascade: bool
+            timestamp: float, cascade: bool, show_progress: bool = True
     ) -> UpdateStatus:
         result = UpdateStatus()
         if plan is not None:
             # we're creating a new version
             self.version += 1
             result.num_rows, result.num_excs, cols_with_excs = \
-                self.store_tbl.insert_rows(plan, conn, v_min=self.version)
+                self.store_tbl.insert_rows(plan, conn, v_min=self.version, show_progress=show_progress)
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause, conn=conn)
@@ -940,6 +943,32 @@ class TableVersion:
             view._revert(session)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
+    @classmethod
+    def _init_remote(cls, remote_md: dict[str, Any]) -> Tuple[pixeltable.datatransfer.Remote, dict[str, str]]:
+        module = importlib.import_module(remote_md['module'])
+        remote_cls = getattr(module, remote_md['class'])
+        remote = remote_cls.from_dict(remote_md['remote_md'])
+        col_mapping = remote_md['col_mapping']
+        return remote, col_mapping
+
+    def link(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
+        timestamp = time.time()
+        self.version += 1
+        self.remotes[remote] = col_mapping
+        with Env.get().engine.begin() as conn:
+            self._update_md(timestamp, None, conn)
+
+    def unlink(self, remote: pixeltable.datatransfer.Remote) -> None:
+        assert remote in self.remotes
+        timestamp = time.time()
+        self.version += 1
+        del self.remotes[remote]
+        with Env.get().engine.begin() as conn:
+            self._update_md(timestamp, None, conn)
+
+    def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
+        return self.remotes
+
     def is_view(self) -> bool:
         return self.base is not None
 
@@ -981,7 +1010,7 @@ class TableVersion:
         return names
 
     @classmethod
-    def _create_value_expr(cls, col: Column, path: 'TableVersionPath') -> None:
+    def _create_value_expr(cls, col: Column, path: 'pixeltable.catalog.TableVersionPath') -> None:
         """
         Create col.value_expr, given col.compute_func.
         Interprets compute_func's parameters to be references to columns and construct ColumnRefs as args.
@@ -1044,11 +1073,24 @@ class TableVersion:
                 value_expr=value_expr_dict, stored=col.stored)
         return column_md
 
+    @classmethod
+    def _create_remotes_md(cls, remotes: dict['pixeltable.datatransfer.Remote', dict[str, str]]) -> list[dict[str, Any]]:
+        return [
+            {
+                'module': type(remote).__module__,
+                'class': type(remote).__qualname__,
+                'remote_md': remote.to_dict(),
+                'col_mapping': col_mapping
+            }
+            for remote, col_mapping in remotes.items()
+        ]
+
     def _create_tbl_md(self) -> schema.TableMd:
         return schema.TableMd(
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
             next_col_id=self.next_col_id, next_idx_id=self.next_idx_id, next_row_id=self.next_rowid,
-            column_md=self._create_column_md(self.cols), index_md=self.idx_md, view_md=self.view_md)
+            column_md=self._create_column_md(self.cols), index_md=self.idx_md,
+            remotes=self._create_remotes_md(self.remotes), view_md=self.view_md)
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(created_at=timestamp, version=self.version, schema_version=self.schema_version)
