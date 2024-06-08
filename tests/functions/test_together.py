@@ -105,6 +105,6 @@ class TestTogether:
     def skip_test_if_no_together_client() -> None:
         try:
             import pixeltable.functions.together
-            _ = pixeltable.functions.together.together_client()
+            _ = pixeltable.functions.together._together_client()
         except excs.Error as exc:
             pytest.skip(str(exc))

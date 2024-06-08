@@ -1,3 +1,8 @@
+<<<<<<< HEAD
+from pixeltable.metadata import register_converter, noop_converter
+
+register_converter(14, noop_converter)
+=======
 import sqlalchemy as sql
 
 from pixeltable.metadata.schema import Table
@@ -11,4 +16,4 @@ def convert_14(engine: sql.engine.Engine) -> None:
 
 
 register_converter(14, convert_14)
-
+>>>>>>> master

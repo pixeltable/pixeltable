@@ -43,6 +43,7 @@ class ExprTemplateFunction(Function):
             {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})
         result = self.expr.copy()
         import pixeltable.exprs as exprs
+        arg_exprs: dict[exprs.Expr, exprs.Expr] = {}
         for param_name, arg in bound_args.items():
             param_expr = self.param_exprs_by_name[param_name]
             if not isinstance(arg, exprs.Expr):
@@ -52,7 +53,8 @@ class ExprTemplateFunction(Function):
                     raise excs.Error(f'{self.self_name}(): cannot convert argument {arg} to a Pixeltable expression')
             else:
                 arg_expr = arg
-            result = result.substitute(param_expr, arg_expr)
+            arg_exprs[param_expr] = arg_expr
+        result = result.substitute(arg_exprs)
         import pixeltable.exprs as exprs
         assert not result.contains(exprs.Variable)
         return result

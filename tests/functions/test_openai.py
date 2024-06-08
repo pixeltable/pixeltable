@@ -158,6 +158,6 @@ class TestOpenai:
     def skip_test_if_no_openai_client() -> None:
         try:
             import pixeltable.functions.openai
-            _ = pixeltable.functions.openai.openai_client()
+            _ = pixeltable.functions.openai._openai_client()
         except excs.Error as exc:
             pytest.skip(str(exc))

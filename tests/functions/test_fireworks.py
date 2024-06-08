@@ -37,6 +37,6 @@ class TestFireworks:
     def skip_test_if_no_fireworks_client() -> None:
         try:
             import pixeltable.functions.fireworks
-            _ = pixeltable.functions.fireworks.fireworks_client()
+            _ = pixeltable.functions.fireworks._fireworks_client()
         except excs.Error as exc:
             pytest.skip(str(exc))

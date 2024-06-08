@@ -23,13 +23,15 @@ class SimilarityExpr(Expr):
 
         # determine index to use
         idx_info = col_ref.col.get_idx_info()
-        if len(idx_info) == 0:
+        import pixeltable.index as index
+        embedding_idx_info = [info for info in idx_info.values() if isinstance(info.idx, index.EmbeddingIndex)]
+        if len(embedding_idx_info) == 0:
             raise excs.Error(f'No index found for column {col_ref.col}')
-        if len(idx_info) > 1:
+        if len(embedding_idx_info) > 1:
             raise excs.Error(
                 f'Column {col_ref.col.name} has multiple indices; use the index name to disambiguate, '
                 f'e.g., `{col_ref.col.name}.<index-name>.similarity(...)`')
-        self.idx_info = next(iter(idx_info.values()))
+        self.idx_info = embedding_idx_info[0]
         idx = self.idx_info.idx
 
         if item.col_type.is_string_type() and idx.txt_embed is None:

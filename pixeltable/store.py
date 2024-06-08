@@ -66,7 +66,6 @@ class StoreBase:
         """Create self.sa_tbl from self.tbl_version."""
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
-        idxs: List[sql.Index] = []
         for col in [c for c in self.tbl_version.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
@@ -76,26 +75,18 @@ class StoreBase:
                 all_cols.append(col.sa_errormsg_col)
                 all_cols.append(col.sa_errortype_col)
 
-            # we create an index for:
-            # - scalar columns (except for strings, because long strings can't be used for B-tree indices)
-            # - non-computed video and image columns (they will contain external paths/urls that users might want to
-            #   filter on)
-            if (col.col_type.is_scalar_type() and not col.col_type.is_string_type()) \
-                    or (col.col_type.is_media_type() and not col.is_computed):
-                # index names need to be unique within the Postgres instance
-                idx_name = f'idx_{col.id}_{self.tbl_version.id.hex}'
-                idxs.append(sql.Index(idx_name, col.sa_col))
-
         if self.sa_tbl is not None:
             # if we're called in response to a schema change, we need to remove the old table first
             self.sa_md.remove(self.sa_tbl)
 
+        idxs: List[sql.Index] = []
         # index for all system columns:
         # - base x view joins can be executed as merge joins
         # - speeds up ORDER BY rowid DESC
         # - allows filtering for a particular table version in index scan
         idx_name = f'sys_cols_idx_{self.tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, *system_cols))
+
         # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
         idx_name = f'vmin_idx_{self.tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using='brin'))
@@ -264,7 +255,8 @@ class StoreBase:
         return num_excs
 
     def insert_rows(
-            self, exec_plan: ExecNode, conn: sql.engine.Connection, v_min: Optional[int] = None
+            self, exec_plan: ExecNode, conn: sql.engine.Connection, v_min: Optional[int] = None,
+            show_progress: bool = True
     ) -> Tuple[int, int, Set[int]]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
@@ -293,15 +285,16 @@ class StoreBase:
                             self._create_table_row(row, row_builder, media_cols, cols_with_excs, v_min=v_min)
                         num_excs += num_row_exc
                         table_rows.append(table_row)
-                        if progress_bar is None:
-                            warnings.simplefilter("ignore", category=TqdmWarning)
-                            progress_bar = tqdm(
-                                desc=f'Inserting rows into `{self.tbl_version.name}`',
-                                unit=' rows',
-                                ncols=100,
-                                file=sys.stdout
-                            )
-                        progress_bar.update(1)
+                        if show_progress:
+                            if progress_bar is None:
+                                warnings.simplefilter("ignore", category=TqdmWarning)
+                                progress_bar = tqdm(
+                                    desc=f'Inserting rows into `{self.tbl_version.name}`',
+                                    unit=' rows',
+                                    ncols=100,
+                                    file=sys.stdout
+                                )
+                            progress_bar.update(1)
                     self._move_tmp_media_files(table_rows, media_cols, v_min)
                     conn.execute(sql.insert(self.sa_tbl), table_rows)
             if progress_bar is not None:

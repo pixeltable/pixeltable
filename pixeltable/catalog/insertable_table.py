@@ -60,12 +60,17 @@ class InsertableTable(Table):
             return tbl
 
     @overload
-    def insert(self, rows: Iterable[Dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True) -> UpdateStatus: ...
+    def insert(
+            self, rows: Iterable[Dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True
+    ) -> UpdateStatus: ...
 
     @overload
     def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
 
-    def insert(self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus:
+    def insert(
+            self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
+            fail_on_exception: bool = True, **kwargs: Any
+    ) -> UpdateStatus:
         """Inserts rows into this table. There are two mutually exclusive call patterns:
 
         To insert multiple rows at a time:

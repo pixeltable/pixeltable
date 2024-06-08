@@ -7,7 +7,7 @@ import json
 import typing
 import urllib.parse
 import urllib.request
-from copy import copy
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
 
@@ -82,7 +82,11 @@ class ColumnType:
 
     def __init__(self, t: Type, nullable: bool = False):
         self._type = t
-        self.nullable = nullable
+        self._nullable = nullable
+
+    @property
+    def nullable(self) -> bool:
+        return self._nullable
 
     @property
     def type_enum(self) -> Type:
@@ -90,6 +94,12 @@ class ColumnType:
 
     def serialize(self) -> str:
         return json.dumps(self.as_dict())
+
+    def copy(self, nullable: Optional[bool] = None) -> ColumnType:
+        result = deepcopy(self)
+        if nullable is not None:
+            result._nullable = nullable
+        return result
 
     @classmethod
     def serialize_list(cls, type_list: List[ColumnType]) -> str:
@@ -177,7 +187,7 @@ class ColumnType:
         if type(self) != type(other):
             return False
         for member_var in vars(self).keys():
-            if member_var == 'nullable':
+            if member_var == '_nullable':
                 continue
             if getattr(self, member_var) != getattr(other, member_var):
                 return False
@@ -250,7 +260,7 @@ class ColumnType:
                 # We treat it as the underlying type but with nullable=True.
                 underlying = cls.from_python_type(union_args[0])
                 if underlying is not None:
-                    underlying.nullable = True
+                    underlying._nullable = True
                     return underlying
         else:
             # Discard type parameters to ensure that parameterized types such as `list[T]`
