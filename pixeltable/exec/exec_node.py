@@ -11,6 +11,7 @@ class ExecNode(abc.ABC):
     def __init__(
             self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr],
             input_exprs: Iterable[exprs.Expr], input: Optional[ExecNode] = None):
+        self.output_exprs = output_exprs
         self.row_builder = row_builder
         self.input = input
         # we flush all image slots that aren't part of our output but are needed to create our output

@@ -8,7 +8,7 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.type_system import IntType, FloatType, ImageType
-from .utils import create_test_tbl, assert_resultset_eq, reload_catalog
+from .utils import create_test_tbl, assert_resultset_eq, reload_catalog, validate_update_status
 
 logger = logging.getLogger('pixeltable')
 
@@ -525,3 +525,25 @@ class TestView:
         t.delete(where=t.c2 < 5)
         assert t.count() == 110
         check(s, v, view_s)
+
+    def test_column_defaults(self, reset_db) -> None:
+        # TODO: use non-None default values once we have them
+        t = pxt.create_table('table_1', {'id': pxt.IntType(), 'json_0': pxt.JsonType(nullable=True)})
+        # computed column depends on nullable non-computed column json_0
+        t.add_column(computed_0=t.json_0.a)
+        validate_update_status(t.insert(id=0, json_0={'a': 'b'}), expected_rows=1)
+        assert t.where(t.computed_0 == None).count() == 0
+
+        v = pxt.create_view('view_1', t, schema={'json_1': pxt.JsonType(nullable=True)}, filter=(t.id >= 0))
+        # computed column depends on nullable non-computed column json_1
+        validate_update_status(v.add_column(computed_1=v.json_1.a))
+        assert v.where(v.computed_1 == None).count() == 1
+        validate_update_status(v.update({'json_1': {'a': 'b'}}), expected_rows=1)
+        assert v.where(v.computed_1 == None).count() == 0
+
+        # insert a new row with nulls in json_0/1
+        validate_update_status(t.insert(id=1))
+        # computed base table column for new row is null
+        assert t.where(t.computed_0 == None).count() == 1
+        # computed view column for new row is null
+        assert v.where(v.computed_1 == None).count() == 1
