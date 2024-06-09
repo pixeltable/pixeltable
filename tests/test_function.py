@@ -242,9 +242,11 @@ class TestFunction:
                 return order_by
         assert 'reserved' in str(exc_info.value)
 
-    def test_query(self, test_tbl: catalog.Table) -> None:
-        t = test_tbl
+    def test_query(self, reset_db) -> None:
+        t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
         name = t.get_name()
+        rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
+        validate_update_status(t.insert(rows))
 
         @t.query
         def lt_x(x: int) -> int:
@@ -253,10 +255,12 @@ class TestFunction:
         res1 = t.select(out=t.lt_x(t.c2)).order_by(t.c2).collect()
         validate_update_status(t.add_column(query1=t.lt_x(t.c2)))
         _ = t.select(t.query1).collect()
-        # this isn't working yet
-        # reload_catalog()
-        # t = pxt.get_table(name)
-        # _ = t.select(t.query1).collect()
+
+        reload_catalog()
+        t = pxt.get_table(name)
+        _ = t.select(t.query1).collect()
+        # insert more rows in order to verify that lt_x() is still executable after catalog reload
+        validate_update_status(t.insert(rows))
 
     def test_query2(self, test_tbl: catalog.Table) -> None:
         queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()}, )

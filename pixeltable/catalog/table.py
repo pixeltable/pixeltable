@@ -891,4 +891,3 @@ class Table(SchemaObject):
 
         for remote in remotes:
             remote.sync(self, remotes[remote], export_data=export_data, import_data=import_data)
-

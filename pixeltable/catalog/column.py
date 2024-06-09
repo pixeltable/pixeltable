@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union, Callable, Set
+from typing import Optional, Union, Callable, Any
 
 import sqlalchemy as sql
 
@@ -23,7 +23,7 @@ class Column:
             is_pk: bool = False, stored: Optional[bool] = None,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
             schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
-            records_errors: Optional[bool] = None
+            records_errors: Optional[bool] = None, value_expr_dict: Optional[dict[str, Any]] = None,
     ):
         """Column constructor.
 
@@ -56,8 +56,9 @@ class Column:
         if col_type is None and computed_with is None:
             raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
-        self.value_expr: Optional['Expr'] = None
+        self._value_expr: Optional['Expr'] = None
         self.compute_func: Optional[Callable] = None
+        self.value_expr_dict = value_expr_dict
         from pixeltable import exprs
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
@@ -73,8 +74,8 @@ class Column:
                 # column name references and for that we need to wait until we're assigned to a Table
                 self.compute_func = computed_with
             else:
-                self.value_expr = value_expr.copy()
-                self.col_type = self.value_expr.col_type
+                self._value_expr = value_expr.copy()
+                self.col_type = self._value_expr.col_type
 
         if col_type is not None:
             self.col_type = col_type
@@ -103,8 +104,20 @@ class Column:
         assert self.tbl is not None
         return hash((self.tbl.id, self.id))
 
+    @property
+    def value_expr(self) -> Optional['Expr']:
+        """Instantiate value_expr on-demand"""
+        if self.value_expr_dict is not None and self._value_expr is None:
+            from pixeltable import exprs
+            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
+        return self._value_expr
+
+    def set_value_expr(self, value_expr: 'Expr') -> None:
+        self._value_expr = value_expr
+        self.value_expr_dict = None
+
     def check_value_expr(self) -> None:
-        assert self.value_expr is not None
+        assert self._value_expr is not None
         if self.stored == False and self.is_computed and self.has_window_fn_call():
             raise excs.Error(
                 f'Column {self.name}: stored={self.stored} not supported for columns computed with window functions:'
@@ -123,7 +136,7 @@ class Column:
 
     @property
     def is_computed(self) -> bool:
-        return self.compute_func is not None or self.value_expr is not None
+        return self.compute_func is not None or self._value_expr is not None or self.value_expr_dict is not None
 
     @property
     def is_stored(self) -> bool:

@@ -300,6 +300,19 @@ class Expr(abc.ABC):
         return ids
 
     @classmethod
+    def get_refd_columns(cls, expr_dict: dict[str, Any]) -> list[catalog.Column]:
+        """Return Columns referenced by expr_dict."""
+        result: list[catalog.Column] = []
+        assert '_classname' in expr_dict
+        from .column_ref import ColumnRef
+        if expr_dict['_classname'] == 'ColumnRef':
+            result.append(ColumnRef.get_column(expr_dict))
+        if 'components' in expr_dict:
+            for component_dict in expr_dict['components']:
+                result.extend(cls.get_refd_columns(component_dict))
+        return result
+
+    @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
         """
         Try to turn a literal object into an Expr.

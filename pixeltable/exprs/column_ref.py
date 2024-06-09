@@ -105,10 +105,14 @@ class ColumnRef(Expr):
         return {'tbl_id': str(tbl.id), 'tbl_version': version, 'col_id': self.col.id}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def get_column(cls, d: dict) -> catalog.Column:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         tbl_version = catalog.Catalog.get().tbl_versions[(tbl_id, version)]
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
         col = next(col for col in tbl_version.cols if col.id == col_id)
-        return cls(col)
+        return col
 
+    @classmethod
+    def _from_dict(cls, d: Dict, _: List[Expr]) -> Expr:
+        col = cls.get_column(d)
+        return cls(col)

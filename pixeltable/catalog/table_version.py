@@ -247,7 +247,8 @@ class TableVersion:
             col = Column(
                 col_id=col_md.id, name=col_name, col_type=ts.ColumnType.from_dict(col_md.col_type),
                 is_pk=col_md.is_pk, stored=col_md.stored,
-                schema_version_add=col_md.schema_version_add, schema_version_drop=col_md.schema_version_drop)
+                schema_version_add=col_md.schema_version_add, schema_version_drop=col_md.schema_version_drop,
+                value_expr_dict=col_md.value_expr)
             col.tbl = self
             self.cols.append(col)
 
@@ -265,8 +266,8 @@ class TableVersion:
             # make sure to traverse columns ordered by position = order in which cols were created;
             # this guarantees that references always point backwards
             if col_md.value_expr is not None:
-                col.value_expr = exprs.Expr.from_dict(col_md.value_expr)
-                self._record_value_expr(col)
+                refd_cols = exprs.Expr.get_refd_columns(col_md.value_expr)
+                self._record_refd_columns(col)
 
     def _init_idxs(self, tbl_md: schema.TableMd) -> None:
         self.idx_md = tbl_md.index_md
@@ -482,7 +483,7 @@ class TableVersion:
             self.cols_by_id[col.id] = col
             if col.value_expr is not None:
                 col.check_value_expr()
-                self._record_value_expr(col)
+                self._record_refd_columns(col)
 
             if col.is_stored:
                 self.store_tbl.add_column(col, conn)
@@ -1029,14 +1030,17 @@ class TableVersion:
             args.append(exprs.ColumnRef(param))
         fn = func.make_function(
             col.compute_func, return_type=col.col_type, param_types=[arg.col_type for arg in args])
-        col.value_expr = fn(*args)
+        col.set_value_expr(fn(*args))
 
-    def _record_value_expr(self, col: Column) -> None:
+    def _record_refd_columns(self, col: Column) -> None:
         """Update Column.dependent_cols for all cols referenced in col.value_expr.
         """
-        assert col.value_expr is not None
-        from pixeltable.exprs import ColumnRef
-        refd_cols = [e.col for e in col.value_expr.subexprs(expr_class=ColumnRef)]
+        import pixeltable.exprs as exprs
+        if col.value_expr_dict is not None:
+            # if we have a value_expr_dict, use that instead of instantiating the value_expr
+            refd_cols = exprs.Expr.get_refd_columns(col.value_expr_dict)
+        else:
+            refd_cols = [e.col for e in col.value_expr.subexprs(expr_class=exprs.ColumnRef)]
         for refd_col in refd_cols:
             refd_col.dependent_cols.add(col)
 

@@ -48,8 +48,12 @@ class TestIndex:
             t.drop_embedding_index(column_name='img')
 
     def test_query(self, reset_db) -> None:
-        queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()}, )
-        queries.insert([{'query_text': 'how much is the stock of AI companies up?'}, {'query_text': 'what happened to the term machine learning?'}])
+        queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()})
+        query_rows = [
+            {'query_text': 'how much is the stock of AI companies up?'},
+            {'query_text': 'what happened to the term machine learning?'}
+        ]
+        validate_update_status(queries.insert(query_rows))
 
         chunks = pxt.create_table('test_doc_chunks', schema={'text': pxt.StringType()})
         chunks.insert([
@@ -69,9 +73,13 @@ class TestIndex:
         _ = queries.select(queries.query_text, out=chunks.top_k_chunks(queries.query_text)).collect()
         queries.add_column(chunks=chunks.top_k_chunks(queries.query_text))
         _ = queries.collect()
-        # reload_catalog()
-        # queries = pxt.get_table('queries')
-        # _ = queries.collect()
+
+        # make sure we can instantiate the query function from the metadata
+        reload_catalog()
+        queries = pxt.get_table('queries')
+        _ = queries.collect()
+        # insert more rows in order to run the query function
+        validate_update_status(queries.insert(query_rows))
 
     def test_search_fn(self, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')

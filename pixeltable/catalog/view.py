@@ -127,7 +127,7 @@ class View(Table):
                     if iterator_args_expr is not None else None
                 for col in columns:
                     if col.value_expr is not None:
-                        col.value_expr = col.value_expr.retarget(base_version_path)
+                        col.set_value_expr(col.value_expr.retarget(base_version_path))
 
             view_md = md_schema.ViewMd(
                 is_snapshot=is_snapshot, predicate=predicate.as_dict() if predicate is not None else None,

@@ -18,7 +18,6 @@ class SimilarityExpr(Expr):
         super().__init__(ts.FloatType())
         self.components = [col_ref, item]
         self.id = self._create_id()
-        #assert isinstance(item, Literal)
         assert item.col_type.is_string_type() or item.col_type.is_image_type()
 
         # determine index to use

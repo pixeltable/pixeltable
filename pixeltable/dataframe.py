@@ -452,6 +452,8 @@ class DataFrame:
         group_by_clause = copy.deepcopy(self.group_by_clause)
         order_by_exprs = copy.deepcopy(
             [order_by_expr for order_by_expr, _ in self.order_by_clause] if self.order_by_clause is not None else None)
+
+        var_exprs: dict[exprs.Expr, exprs.Expr] = {}
         vars = self._vars()
         for arg_name, arg_val in args.items():
             if arg_name not in vars:
@@ -461,14 +463,16 @@ class DataFrame:
             arg_expr = exprs.Expr.from_object(arg_val)
             if arg_expr is None:
                 raise excs.Error(f'Cannot convert argument {arg_val} to a Pixeltable expression')
+            var_exprs[var_expr] = arg_expr
 
-            exprs.Expr.list_substitute(select_list_exprs, var_expr, arg_expr)
-            if where_clause is not None:
-                where_clause.substitute(var_expr, arg_expr)
-            if group_by_clause is not None:
-                exprs.Expr.list_substitute(group_by_clause, var_expr, arg_expr)
-            if order_by_exprs is not None:
-                exprs.Expr.list_substitute(order_by_exprs, var_expr, arg_expr)
+        exprs.Expr.list_substitute(select_list_exprs, var_exprs)
+        if where_clause is not None:
+            where_clause.substitute(var_exprs)
+        if group_by_clause is not None:
+            exprs.Expr.list_substitute(group_by_clause, var_exprs)
+        if order_by_exprs is not None:
+            exprs.Expr.list_substitute(order_by_exprs, var_exprs)
+
         select_list = list(zip(select_list_exprs, self._column_names))
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None
         if order_by_exprs is not None:
