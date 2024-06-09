@@ -46,5 +46,5 @@ poetry build
 poetry publish --username __token__ --password "$PYPI_API_KEY"
 
 echo "Creating release on github ..."
-gh release create "v$VERSION" --generate-notes
+gh release create "v$VERSION" --generate-notes --repo pixeltable/pixeltable
 open "https://github.com/pixeltable/pixeltable/releases/tag/v$VERSION"
