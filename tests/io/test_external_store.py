@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.datatransfer.remote import MockRemote
+from pixeltable.io.external_store import MockExternalStore
 from pixeltable.exprs import ColumnRef
 from tests.utils import get_image_files, reload_catalog
 
@@ -14,11 +14,11 @@ _logger = logging.getLogger('pixeltable')
 
 class TestRemote:
 
-    def test_remote_validation(self, reset_db):
+    def test_validation(self, reset_db):
         schema = {'col1': pxt.StringType(), 'col2': pxt.ImageType(), 'col3': pxt.StringType(), 'col4': pxt.VideoType()}
         t = pxt.create_table('test_remote', schema)
 
-        remote1 = MockRemote(
+        remote1 = MockExternalStore(
             'remote1',
             {'export1': pxt.StringType(), 'export2': pxt.ImageType()},
             {'import1': pxt.StringType(), 'import2': pxt.VideoType()}
@@ -45,7 +45,7 @@ class TestRemote:
         # Duplicate link
         with pytest.raises(excs.Error) as exc_info:
             t._link(remote1, {'col1': 'push1', 'col2': 'col2'})
-        assert 'That remote is already linked to table `test_remote`: MockRemote `remote1`' in str(exc_info.value)
+        assert 'That remote is already linked to table `test_remote`: MockExternalStore `remote1`' in str(exc_info.value)
 
         t.unlink(remote1)
 
@@ -73,7 +73,7 @@ class TestRemote:
 
         schema3 = {'img': pxt.ImageType(), 'spec_img': pxt.ImageType(512, 512)}
         t3 = pxt.create_table('test_remote_3', schema3)
-        remote2 = MockRemote(
+        remote2 = MockExternalStore(
             'remote2',
             {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)},
             {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)}
@@ -111,12 +111,12 @@ class TestRemote:
     def test_remote_stored_proxies(self, reset_db, with_reloads: bool) -> None:
         schema = {'img': pxt.ImageType(), 'other_img': pxt.ImageType()}
         t = pxt.create_table('test_remote', schema)
-        remote1 = MockRemote(
+        remote1 = MockExternalStore(
             'remote1',
             {'push_img': pxt.ImageType(), 'push_other_img': pxt.ImageType()},
             {'pull_str': pxt.StringType()}
         )
-        remote2 = MockRemote(
+        remote2 = MockExternalStore(
             'remote2',
             {'push_img': pxt.ImageType()},
             {'pull_str': pxt.StringType()}

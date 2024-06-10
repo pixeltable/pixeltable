@@ -7,7 +7,7 @@ import pixeltable.type_system as ts
 from pixeltable import Table
 
 
-class Remote(abc.ABC):
+class ExternalStore(abc.ABC):
     """
     Abstract base class that represents a remote data store. Subclasses of `Remote` provide
     functionality for synchronizing between Pixeltable tables and stateful remote stores.
@@ -56,11 +56,11 @@ class Remote(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def from_dict(cls, md: dict[str, Any]) -> Remote: ...
+    def from_dict(cls, md: dict[str, Any]) -> ExternalStore: ...
 
 
 # A remote that cannot be synced, used mainly for testing.
-class MockRemote(Remote):
+class MockExternalStore(ExternalStore):
 
     def __init__(self, name: str, export_cols: dict[str, ts.ColumnType], import_cols: dict[str, ts.ColumnType]):
         self.name = name
@@ -93,7 +93,7 @@ class MockRemote(Remote):
         }
 
     @classmethod
-    def from_dict(cls, md: dict[str, Any]) -> Remote:
+    def from_dict(cls, md: dict[str, Any]) -> ExternalStore:
         return cls(
             name=md['name'],
             # TODO Change in next schema version
@@ -102,7 +102,7 @@ class MockRemote(Remote):
         )
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, MockRemote):
+        if not isinstance(other, MockExternalStore):
             return False
         return self.name == other.name
 
@@ -110,4 +110,4 @@ class MockRemote(Remote):
         return hash(self.name)
 
     def __repr__(self) -> str:
-        return f'MockRemote `{self.name}`'
+        return f'MockExternalStore `{self.name}`'

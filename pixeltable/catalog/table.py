@@ -722,7 +722,7 @@ class Table(SchemaObject):
 
     def _link(
             self,
-            remote: 'pixeltable.datatransfer.Remote',
+            remote: 'pixeltable.io.ExternalStore',
             col_mapping: Optional[dict[str, str]] = None
     ) -> None:
         """
@@ -731,7 +731,7 @@ class Table(SchemaObject):
         is stored in table metadata and will persist across sessions.
 
         Args:
-            remote (pixeltable.datatransfer.Remote): The `Remote` to link to this table.
+            remote (pixeltable.io.Remote): The `Remote` to link to this table.
             col_mapping: An optional mapping of columns from this `Table` to columns in the `Remote`.
         """
         # TODO(aaron-siegel): Refactor `col_mapping`
@@ -751,7 +751,7 @@ class Table(SchemaObject):
 
     def unlink(
             self,
-            remotes: Optional['pixeltable.datatransfer.Remote' | list['pixeltable.datatransfer.Remote']] = None,
+            remotes: Optional['pixeltable.io.ExternalStore' | list['pixeltable.io.ExternalStore']] = None,
             *,
             delete_remote_data: bool = False,
             ignore_errors: bool = False
@@ -773,7 +773,7 @@ class Table(SchemaObject):
 
         if remotes is None:
             remotes = list(all_remotes.keys())
-        elif isinstance(remotes, pixeltable.datatransfer.Remote):
+        elif isinstance(remotes, pixeltable.io.ExternalStore):
             remotes = [remotes]
 
         # Validation
@@ -837,7 +837,7 @@ class Table(SchemaObject):
                         f'Column `{t_col}` cannot be imported from remote column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
                     )
 
-    def _get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
+    def _get_remotes(self) -> dict[pixeltable.io.ExternalStore, dict[str, str]]:
         """
         Gets a `dict` of all `Remote`s linked to this table.
         """

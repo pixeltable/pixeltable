@@ -15,7 +15,7 @@ import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.exceptions as excs
 from pixeltable import Table
-from pixeltable.datatransfer.remote import Remote
+from pixeltable.io.external_store import ExternalStore
 from pixeltable.exprs import ColumnRef, DataRow
 from pixeltable.utils import coco
 
@@ -31,7 +31,7 @@ def _label_studio_client() -> label_studio_sdk.Client:
     return env.Env.get().get_client('label_studio')
 
 
-class LabelStudioProject(Remote):
+class LabelStudioProject(ExternalStore):
     """
     A [`Remote`][pixeltable.datatransfer.Remote] that represents a Label Studio project, providing functionality
     for synchronizing between a Pixeltable table and a Label Studio project.

@@ -145,8 +145,8 @@ class TableMd:
     # - every row is assigned a unique and immutable rowid on insertion
     next_row_id: int
 
-    # Metadata format for remotes:
-    # {'class': 'pixeltable.datatransfer.LabelStudioProject', 'md': {'project_id': 3}}
+    # Metadata format for external stores:
+    # {'class': 'pixeltable.io.label_studio.LabelStudioProject', 'md': {'project_id': 3}}
     remotes: list[dict[str, Any]]
 
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd

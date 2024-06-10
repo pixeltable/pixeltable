@@ -67,7 +67,7 @@ class TestLabelStudio:
 
     def test_label_studio_remote(self, init_ls) -> None:
         skip_test_if_not_installed('label_studio_sdk')
-        from pixeltable.datatransfer.label_studio import LabelStudioProject
+        from pixeltable.io.label_studio import LabelStudioProject
         remote = LabelStudioProject.create(title='test_remote_project', label_config=self.test_config_2)
         assert remote.project_title == 'test_remote_project'
         assert remote.get_export_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
@@ -75,7 +75,7 @@ class TestLabelStudio:
 
     def test_label_studio_remote_errors(self, init_ls) -> None:
         skip_test_if_not_installed('label_studio_sdk')
-        from pixeltable.datatransfer.label_studio import LabelStudioProject
+        from pixeltable.io.label_studio import LabelStudioProject
 
         # TODO(aaron-siegel) Use create_label_studio_project instead (here and elsewhere)
         with pytest.raises(excs.Error) as exc_info:
@@ -213,7 +213,7 @@ class TestLabelStudio:
     def test_label_studio_sync_complex(self, ls_video_table: pxt.InsertableTable) -> None:
         # Test a more complex label studio project, with multiple images and other fields
         skip_test_if_not_installed('label_studio_sdk')
-        from pixeltable.datatransfer.label_studio import LabelStudioProject
+        from pixeltable.io.label_studio import LabelStudioProject
 
         v = pxt.create_view(
             'frames_view',
@@ -251,7 +251,7 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
         t['annotations_col'] = pxt.JsonType(nullable=True)
-        from pixeltable.datatransfer.label_studio import LabelStudioProject
+        from pixeltable.io.label_studio import LabelStudioProject
 
         remote = LabelStudioProject.create('test_sync_errors_project', self.test_config, media_import_method='post')
         # Validate that syncing a remote with import_data=True must have an `annotations` column mapping

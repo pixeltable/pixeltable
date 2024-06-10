@@ -41,7 +41,7 @@ def create_label_studio_project(
         sync_immediately: If `True`, immediately perform an initial synchronization by
             importing all rows of the `Table` as Label Studio tasks.
     """
-    from pixeltable.datatransfer.label_studio import LabelStudioProject, ANNOTATIONS_COLUMN
+    from pixeltable.io.label_studio import LabelStudioProject, ANNOTATIONS_COLUMN
 
     ls_project = LabelStudioProject.create(title or t.get_name(), label_config, media_import_method, **kwargs)
 

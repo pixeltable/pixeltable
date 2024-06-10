@@ -963,14 +963,14 @@ class TableVersion:
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
     @classmethod
-    def _init_remote(cls, remote_md: dict[str, Any]) -> Tuple[pixeltable.datatransfer.Remote, dict[str, str]]:
+    def _init_remote(cls, remote_md: dict[str, Any]) -> Tuple[pixeltable.io.ExternalStore, dict[str, str]]:
         remote_cls = resolve_symbol(remote_md['class'])
-        assert isinstance(remote_cls, type) and issubclass(remote_cls, pixeltable.datatransfer.Remote)
+        assert isinstance(remote_cls, type) and issubclass(remote_cls, pixeltable.io.ExternalStore)
         remote = remote_cls.from_dict(remote_md['remote_md'])
         col_mapping = remote_md['col_mapping']
         return remote, col_mapping
 
-    def link(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
+    def link(self, remote: pixeltable.io.ExternalStore, col_mapping: dict[str, str]) -> None:
         # All of the media columns being linked need to either be stored, computed columns or have stored proxies.
         # This ensures that the media in those columns resides in the media cache, where it can be served.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
@@ -1016,7 +1016,7 @@ class TableVersion:
         proxy_col.proxy_base = col
         return proxy_col
 
-    def unlink(self, remote: pixeltable.datatransfer.Remote) -> None:
+    def unlink(self, remote: pixeltable.io.ExternalStore) -> None:
         assert remote in self.remotes
         timestamp = time.time()
         this_remote_col_names = list(self.remotes[remote].keys())
@@ -1047,7 +1047,7 @@ class TableVersion:
                 self._drop_columns(proxy_cols)
             self._update_md(timestamp, preceding_schema_version, conn)
 
-    def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
+    def get_remotes(self) -> dict[pixeltable.io.ExternalStore, dict[str, str]]:
         return self.remotes
 
     def is_view(self) -> bool:
@@ -1156,7 +1156,7 @@ class TableVersion:
         return column_md
 
     @classmethod
-    def _create_remotes_md(cls, remotes: dict['pixeltable.datatransfer.Remote', dict[str, str]]) -> list[dict[str, Any]]:
+    def _create_remotes_md(cls, remotes: dict['pixeltable.io.ExternalStore', dict[str, str]]) -> list[dict[str, Any]]:
         return [
             {
                 'class': f'{type(remote).__module__}.{type(remote).__qualname__}',
