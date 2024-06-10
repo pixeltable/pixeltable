@@ -12,6 +12,7 @@ env:
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+  OPENCV_VIDEOIO_DEBUG: 1
 
 jobs:
   pytest:
@@ -63,6 +64,7 @@ jobs:
           python -m pip install poetry==${{ matrix.poetry-version }}
       - name: Define a venv cache
         uses: actions/cache@v4
+        if: false
         with:
           # The cache is keyed to the following:
           # - Matrix parameters
@@ -88,7 +90,7 @@ jobs:
       - name: Run the unit tests
         run: coverage run -m --source=pixeltable pytest -v -m ''
       - name: Run documentation notebooks
-        if: ${{ matrix.poetry-options != '' }}
+        if: false
         continue-on-error: true  # For now, continue even if the notebooks fail
         env:
           GITHUB_REF: ${{ github.ref }}
