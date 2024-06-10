@@ -253,9 +253,9 @@ class TestLabelStudio:
         t['annotations_col'] = pxt.JsonType(nullable=True)
         from pixeltable.io.label_studio import LabelStudioProject
 
-        remote = LabelStudioProject.create('test_sync_errors_project', self.test_config, media_import_method='post')
+        remote = LabelStudioProject.create('test_sync_errors_project', self.test_config, media_import_method='post', col_mapping={'image_col': 'image'})
         # Validate that syncing a remote with import_data=True must have an `annotations` column mapping
-        t._link(remote, {'image_col': 'image'})
+        t._link(remote)
 
         with pytest.raises(excs.Error) as exc_info:
             t.sync()
@@ -264,8 +264,9 @@ class TestLabelStudio:
         t.sync(import_data=False)
         t.unlink()
 
+        remote2 = LabelStudioProject.create('test_sync_errors_project', self.test_config, media_import_method='post', col_mapping={'annotations_col': 'annotations'})
         # Validate that syncing a remote with export_data=True must have at least one column to export
-        t._link(remote, {'annotations_col': 'annotations'})
+        t._link(remote2)
         with pytest.raises(excs.Error) as exc_info:
             t.sync()
         assert 'but there are no columns to export' in str(exc_info.value)
@@ -284,7 +285,7 @@ class TestLabelStudio:
         # Check that we can create a LabelStudioProject on a non-existent project id
         # (this will happen if, for example, a DB reload happens after a synced project has
         # been deleted externally)
-        false_project = LabelStudioProject(4171780, media_import_method='post')
+        false_project = LabelStudioProject(4171780, media_import_method='post', col_mapping=None)
 
         # But trying to do anything with it raises an exception.
         with pytest.raises(excs.Error) as exc_info:

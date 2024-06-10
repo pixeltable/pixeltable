@@ -42,13 +42,14 @@ class LabelStudioProject(Project):
     """
     # TODO(aaron-siegel): Add link in docstring to a Label Studio howto
 
-    def __init__(self, project_id: int, media_import_method: Literal['post', 'file']):
+    def __init__(self, project_id: int, media_import_method: Literal['post', 'file'], col_mapping: Optional[dict[str, str]]):
         self.project_id = project_id
         self.media_import_method = media_import_method
         self._project: Optional[label_studio_sdk.project.Project] = None
+        super().__init__(col_mapping)
 
     @classmethod
-    def create(cls, title: str, label_config: str, media_import_method: Literal['post', 'file'] = 'file', **kwargs: Any) -> 'LabelStudioProject':
+    def create(cls, title: str, label_config: str, media_import_method: Literal['post', 'file'] = 'file', col_mapping: Optional[dict[str, str]] = None, **kwargs: Any) -> 'LabelStudioProject':
         """
         Creates a new Label Studio project, using the Label Studio client configured in Pixeltable.
 
@@ -90,7 +91,7 @@ class LabelStudioProject(Project):
                 raise  # Handle any other exception type normally
 
         project_id = project.get_params()['id']
-        return LabelStudioProject(project_id, media_import_method)
+        return LabelStudioProject(project_id, media_import_method, col_mapping)
 
     @property
     def project(self) -> label_studio_sdk.project.Project:
@@ -133,15 +134,15 @@ class LabelStudioProject(Project):
         """
         return {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}
 
-    def sync(self, t: Table, col_mapping: dict[str, str], export_data: bool, import_data: bool) -> None:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> None:
         _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
                      f' (export: {export_data}, import: {import_data}).')
         # Collect all existing tasks into a dict with entries `rowid: task`
         tasks = {tuple(task['meta']['rowid']): task for task in self.__fetch_all_tasks()}
         if export_data:
-            self.__update_tasks(t, col_mapping, tasks)
+            self.__update_tasks(t, tasks)
         if import_data:
-            self.__update_table_from_tasks(t, col_mapping, tasks)
+            self.__update_table_from_tasks(t, tasks)
 
     def __fetch_all_tasks(self) -> Iterator[dict]:
         page = 1
@@ -162,20 +163,20 @@ class LabelStudioProject(Project):
                 f'Skipped {unknown_task_count} unrecognized task(s) when syncing Label Studio project "{self.project_title}".'
             )
 
-    def __update_tasks(self, t: Table, col_mapping: dict[str, str], existing_tasks: dict[tuple, dict]) -> None:
+    def __update_tasks(self, t: Table, existing_tasks: dict[tuple, dict]) -> None:
 
         t_col_types = t.column_types()
         config = self.__project_config
 
         # Columns in `t` that map to Label Studio data keys
         t_data_cols = [
-            t_col_name for t_col_name, r_col_name in col_mapping.items()
+            t_col_name for t_col_name, r_col_name in self.col_mapping.items()
             if r_col_name in config.data_keys
         ]
 
         # Columns in `t` that map to `rectanglelabels` preannotations
         t_rl_cols = [
-            t_col_name for t_col_name, r_col_name in col_mapping.items()
+            t_col_name for t_col_name, r_col_name in self.col_mapping.items()
             if r_col_name in config.rectangle_labels
         ]
 
@@ -188,17 +189,16 @@ class LabelStudioProject(Project):
 
         if self.media_import_method == 'post':
             # Send media to Label Studio by HTTP post.
-            self.__update_tasks_by_post(t, col_mapping, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
+            self.__update_tasks_by_post(t, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
         elif self.media_import_method == 'file':
             # Send media to Label Studio by local file transfer.
-            self.__update_tasks_by_files(t, col_mapping, existing_tasks, t_data_cols, t_rl_cols, rl_info)
+            self.__update_tasks_by_files(t, existing_tasks, t_data_cols, t_rl_cols, rl_info)
         else:
             assert False
 
     def __update_tasks_by_post(
             self,
             t: Table,
-            col_mapping: dict[str, str],
             existing_tasks: dict[tuple, dict],
             media_col_name: str,
             t_rl_cols: list[str],
@@ -239,7 +239,7 @@ class LabelStudioProject(Project):
                 _logger.debug('`coco_annotations`: %s', coco_annotations)
                 predictions = [
                     self.__coco_to_predictions(
-                        coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i], task_id=task_id
+                        coco_annotations[i], self.col_mapping[t_rl_cols[i]], rl_info[i], task_id=task_id
                     )
                     for i in range(len(coco_annotations))
                 ]
@@ -254,13 +254,12 @@ class LabelStudioProject(Project):
     def __update_tasks_by_files(
             self,
             t: Table,
-            col_mapping: dict[str, str],
             existing_tasks: dict[tuple, dict],
             t_data_cols: list[str],
             t_rl_cols: list[str],
             rl_info: list['_RectangleLabel']
     ) -> None:
-        r_data_cols = [col_mapping[col_name] for col_name in t_data_cols]
+        r_data_cols = [self.col_mapping[col_name] for col_name in t_data_cols]
         col_refs = {}
         for col_name in t_data_cols:
             if not t[col_name].col_type.is_media_type():
@@ -292,7 +291,7 @@ class LabelStudioProject(Project):
                 if t[t_data_cols[i]].col_type.is_media_type():
                     data_vals[i] = self.__localpath_to_lspath(data_vals[i])
             predictions = [
-                self.__coco_to_predictions(coco_annotations[i], col_mapping[t_rl_cols[i]], rl_info[i])
+                self.__coco_to_predictions(coco_annotations[i], self.col_mapping[t_rl_cols[i]], rl_info[i])
                 for i in range(len(coco_annotations))
             ]
             return {
@@ -349,11 +348,11 @@ class LabelStudioProject(Project):
             self.project.delete_tasks(tasks_to_delete)
             print(f'Deleted {len(tasks_to_delete)} tasks(s) in {self} that are no longer present in Pixeltable.')
 
-    def __update_table_from_tasks(self, t: Table, col_mapping: dict[str, str], tasks: dict[tuple, dict]) -> None:
-        # `col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
+    def __update_table_from_tasks(self, t: Table, tasks: dict[tuple, dict]) -> None:
+        # `self.col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
         # of `get_pull_columns`
-        assert ANNOTATIONS_COLUMN in col_mapping.values()
-        annotations_column = next(k for k, v in col_mapping.items() if v == ANNOTATIONS_COLUMN)
+        assert ANNOTATIONS_COLUMN in self.col_mapping.values()
+        annotations_column = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN)
         updates = [
             {
                 '_rowid': task['meta']['rowid'],
@@ -373,11 +372,15 @@ class LabelStudioProject(Project):
             print(f'Synced {annotations_count} annotation(s) from {len(updates)} existing task(s) in {self}.')
 
     def to_dict(self) -> dict[str, Any]:
-        return {'project_id': self.project_id, 'media_import_method': self.media_import_method}
+        return {
+            'project_id': self.project_id,
+            'media_import_method': self.media_import_method,
+            'col_mapping': self.col_mapping
+        }
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> 'LabelStudioProject':
-        return LabelStudioProject(md['project_id'], md['media_import_method'])
+        return LabelStudioProject(md['project_id'], md['media_import_method'], md['col_mapping'])
 
     def __repr__(self) -> str:
         name = self.project.get_params()['title']

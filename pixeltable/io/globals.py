@@ -43,7 +43,7 @@ def create_label_studio_project(
     """
     from pixeltable.io.label_studio import LabelStudioProject, ANNOTATIONS_COLUMN
 
-    ls_project = LabelStudioProject.create(title or t.get_name(), label_config, media_import_method, **kwargs)
+    ls_project = LabelStudioProject.create(title or t.get_name(), label_config, media_import_method, col_mapping, **kwargs)
 
     # Create a column to hold the annotations, if one does not yet exist.
     if col_mapping is not None and ANNOTATIONS_COLUMN in col_mapping.values():
@@ -54,6 +54,6 @@ def create_label_studio_project(
         t[local_annotations_column] = pxt.JsonType(nullable=True)
 
     # Link the project to `t`, and sync if appropriate.
-    t._link(ls_project, col_mapping)
+    t._link(ls_project)
     if sync_immediately:
         t.sync()

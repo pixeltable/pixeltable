@@ -20,14 +20,19 @@ def update_remote_md(remote_md: dict) -> None:
     remote_md['class'] = f'{remote_md["module"]}.{remote_md["class"]}'
     del remote_md['module']
 
+    # col_mapping moved inside class-specific md
+
+    project_md = remote_md['remote_md']
+    project_md['col_mapping'] = remote_md['col_mapping']
+    del remote_md['col_mapping']
+
     if remote_md['class'] == 'pixeltable.datatransfer.remote.MockRemote':
         remote_md['class'] = 'pixeltable.io.external_store.MockProject'
-        mes_md = remote_md['remote_md']
-        mes_md['name'] = f'remote_{uuid.uuid4()}'
-        mes_md['export_cols'] = mes_md['push_cols']
-        mes_md['import_cols'] = mes_md['pull_cols']
-        del mes_md['push_cols']
-        del mes_md['pull_cols']
+        project_md['name'] = f'remote_{uuid.uuid4()}'
+        project_md['export_cols'] = project_md['push_cols']
+        project_md['import_cols'] = project_md['pull_cols']
+        del project_md['push_cols']
+        del project_md['pull_cols']
 
     elif remote_md['class'] == 'pixeltable.datatransfer.label_studio.LabelStudioProject':
         remote_md['class'] = 'pixeltable.io.label_studio.LabelStudioProject'

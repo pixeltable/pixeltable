@@ -112,12 +112,11 @@ class TestMigration:
         # Test that remotes are loaded properly.
         remotes = t._get_remotes()
         assert len(remotes) == 2
-        remotes_iter = iter(remotes.items())
-        remote, col_mapping = next(remotes_iter)
-        assert isinstance(remote, MockProject)
-        assert remote.get_export_columns() == {'int_field': pxt.IntType()}
-        assert remote.get_import_columns() == {'str_field': pxt.StringType()}
-        assert col_mapping == {'test_udf': 'int_field', 'c1': 'str_field'}
-        remote, col_mapping = next(remotes_iter)
-        assert isinstance(remote, LabelStudioProject)
-        assert remote.project_id == 4171780
+        remote0 = remotes[0]
+        assert isinstance(remote0, MockProject)
+        assert remote0.get_export_columns() == {'int_field': pxt.IntType()}
+        assert remote0.get_import_columns() == {'str_field': pxt.StringType()}
+        assert remote0.col_mapping == {'test_udf': 'int_field', 'c1': 'str_field'}
+        remote1 = remotes[1]
+        assert isinstance(remote1, LabelStudioProject)
+        assert remote1.project_id == 4171780
