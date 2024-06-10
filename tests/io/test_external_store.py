@@ -12,7 +12,7 @@ from tests.utils import get_image_files, reload_catalog
 _logger = logging.getLogger('pixeltable')
 
 
-class TestRemote:
+class TestExternalStore:
 
     def test_validation(self, reset_db):
         schema = {'col1': pxt.StringType(), 'col2': pxt.ImageType(), 'col3': pxt.StringType(), 'col4': pxt.VideoType()}

@@ -22,11 +22,16 @@ def update_remote_md(remote_md: dict) -> None:
 
     if remote_md['class'] == 'pixeltable.datatransfer.remote.MockRemote':
         remote_md['class'] = 'pixeltable.io.external_store.MockExternalStore'
-        remote_md['remote_md']['name'] = f'remote_{uuid.uuid4()}'
+        mes_md = remote_md['remote_md']
+        mes_md['name'] = f'remote_{uuid.uuid4()}'
+        mes_md['export_cols'] = mes_md['push_cols']
+        mes_md['import_cols'] = mes_md['pull_cols']
+        del mes_md['push_cols']
+        del mes_md['pull_cols']
 
     elif remote_md['class'] == 'pixeltable.datatransfer.label_studio.LabelStudioProject':
         remote_md['class'] = 'pixeltable.io.label_studio.LabelStudioProject'
-        # 'post' is the media_import_method for legacy LabelStudioProject remotes
+        # 'post' is the media_import_method for legacy LabelStudioProjects
         remote_md['remote_md']['media_import_method'] = 'post'
 
     else:

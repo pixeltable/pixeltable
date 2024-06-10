@@ -86,19 +86,17 @@ class MockExternalStore(ExternalStore):
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            # TODO Change in next schema version
             'name': self.name,
-            'push_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
-            'pull_cols': {k: v.as_dict() for k, v in self.import_cols.items()}
+            'export_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
+            'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()}
         }
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> ExternalStore:
         return cls(
             name=md['name'],
-            # TODO Change in next schema version
-            export_cols={k: ts.ColumnType.from_dict(v) for k, v in md['push_cols'].items()},
-            import_cols={k: ts.ColumnType.from_dict(v) for k, v in md['pull_cols'].items()}
+            export_cols={k: ts.ColumnType.from_dict(v) for k, v in md['export_cols'].items()},
+            import_cols={k: ts.ColumnType.from_dict(v) for k, v in md['import_cols'].items()}
         )
 
     def __eq__(self, other: Any) -> bool:
