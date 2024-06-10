@@ -33,11 +33,11 @@ class InMemoryDataNode(ExecNode):
 
     def _open(self) -> None:
         """Create row batch and populate with self.input_rows"""
-        user_column_info = {
+        user_cols_by_name = {
             col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
             for col_ref in self.output_exprs if col_ref.col.name is not None
         }
-        output_column_info = {
+        output_cols_by_idx = {
             col_ref.slot_idx: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
             for col_ref in self.output_exprs
         }
@@ -48,7 +48,7 @@ class InMemoryDataNode(ExecNode):
             # populate the output row with the values provided in the input row
             input_slot_idxs: set[int] = set()
             for col_name, val in input_row.items():
-                col_info = user_column_info.get(col_name)
+                col_info = user_cols_by_name.get(col_name)
                 assert col_info is not None
 
                 if col_info.col.col_type.is_image_type() and isinstance(val, bytes):
@@ -62,7 +62,7 @@ class InMemoryDataNode(ExecNode):
             # set the remaining output slots to their default values (presently None)
             missing_slot_idxs =  output_slot_idxs - input_slot_idxs
             for slot_idx in missing_slot_idxs:
-                col_info = output_column_info.get(slot_idx)
+                col_info = output_cols_by_idx.get(slot_idx)
                 assert col_info is not None
                 self.output_rows[row_idx][col_info.slot_idx] = None
 

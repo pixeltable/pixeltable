@@ -527,6 +527,10 @@ class TestView:
         check(s, v, view_s)
 
     def test_column_defaults(self, reset_db) -> None:
+        """
+        Test that during insert() manually-supplied columns are materialized with their defaults and can be referenced
+        in computed columns.
+        """
         # TODO: use non-None default values once we have them
         t = pxt.create_table('table_1', {'id': pxt.IntType(), 'json_0': pxt.JsonType(nullable=True)})
         # computed column depends on nullable non-computed column json_0

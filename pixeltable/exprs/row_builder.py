@@ -96,7 +96,7 @@ class RowBuilder:
             self.output_exprs.append(expr)
 
         # default eval ctx: all output exprs
-        self.default_eval_ctx = self.create_eval_ctx(self.output_exprs, exclude=unique_input_exprs)
+        self.default_eval_ctx = self.create_eval_ctx(list(self.output_exprs), exclude=unique_input_exprs)
 
         # references to unstored iterator columns:
         # - those ColumnRefs need to instantiate iterators
@@ -251,7 +251,7 @@ class RowBuilder:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def create_eval_ctx(self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None) -> EvalCtx:
+    def create_eval_ctx(self, targets: list[Expr], exclude: Optional[list[Expr]] = None) -> EvalCtx:
         """Return EvalCtx for targets"""
         if exclude is None:
             exclude = []
