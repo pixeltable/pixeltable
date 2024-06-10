@@ -6,7 +6,8 @@ from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
 
 
-def convert_15(engine: sql.engine.Engine) -> None:
+@register_converter(version=15)
+def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, column_md_updater=update_column_md, remote_md_updater=update_remote_md)
 
 
@@ -24,6 +25,3 @@ def update_remote_md(remote_md: dict) -> None:
         remote_md['remote_md']['media_import_method'] = 'post'
     else:
         assert False, remote_md['class']
-
-
-register_converter(15, convert_15)
