@@ -86,7 +86,8 @@ class ColumnRef(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if not self.is_unstored_iter_col:
-            assert data_row.has_val[self.slot_idx]
+            # supply default
+            data_row[self.slot_idx] = None
             return
 
         # if this is a new base row, we need to instantiate a new iterator
