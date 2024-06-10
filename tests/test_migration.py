@@ -106,7 +106,7 @@ class TestMigration:
     @classmethod
     def _run_v15_tests(cls) -> None:
         """Tests that apply to DB artifacts of version 15+."""
-        from pixeltable.io.external_store import MockExternalStore
+        from pixeltable.io.external_store import MockProject
         from pixeltable.io.label_studio import LabelStudioProject
         t = pxt.get_table('views.sample_view')
         # Test that remotes are loaded properly.
@@ -114,7 +114,7 @@ class TestMigration:
         assert len(remotes) == 2
         remotes_iter = iter(remotes.items())
         remote, col_mapping = next(remotes_iter)
-        assert isinstance(remote, MockExternalStore)
+        assert isinstance(remote, MockProject)
         assert remote.get_export_columns() == {'int_field': pxt.IntType()}
         assert remote.get_import_columns() == {'str_field': pxt.StringType()}
         assert col_mapping == {'test_udf': 'int_field', 'c1': 'str_field'}

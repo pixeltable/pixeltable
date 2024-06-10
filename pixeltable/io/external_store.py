@@ -9,27 +9,10 @@ from pixeltable import Table
 
 class ExternalStore(abc.ABC):
     """
-    Abstract base class that represents a remote data store. Subclasses of `Remote` provide
-    functionality for synchronizing between Pixeltable tables and stateful remote stores.
+    Abstract base class that represents an external data store that is linked to a Pixeltable
+    table. Subclasses of `ExternalStore` provide functionality for synchronizing between Pixeltable
+    and stateful external stores.
     """
-
-    @abc.abstractmethod
-    def get_export_columns(self) -> dict[str, ts.ColumnType]:
-        """
-        Returns the names and Pixeltable types that this `Remote` expects to see in a data export.
-
-        Returns:
-            A `dict` mapping names of expected columns to their Pixeltable types.
-        """
-
-    @abc.abstractmethod
-    def get_import_columns(self) -> dict[str, ts.ColumnType]:
-        """
-        Returns the names and Pixeltable types that this `Remote` provides in a data import.
-
-        Returns:
-            A `dict` mapping names of provided columns to their Pixeltable types.
-        """
 
     @abc.abstractmethod
     def sync(self, t: Table, col_mapping: dict[str, str], export_data: bool, import_data: bool) -> None:
@@ -46,12 +29,6 @@ class ExternalStore(abc.ABC):
         """
 
     @abc.abstractmethod
-    def delete(self) -> None:
-        """
-        Deletes this `Remote`.
-        """
-
-    @abc.abstractmethod
     def to_dict(self) -> dict[str, Any]: ...
 
     @classmethod
@@ -59,8 +36,35 @@ class ExternalStore(abc.ABC):
     def from_dict(cls, md: dict[str, Any]) -> ExternalStore: ...
 
 
-# A remote that cannot be synced, used mainly for testing.
-class MockExternalStore(ExternalStore):
+class Project(ExternalStore, abc.ABC):
+
+    @abc.abstractmethod
+    def get_export_columns(self) -> dict[str, ts.ColumnType]:
+        """
+        Returns the names and Pixeltable types that this `Project` expects to see in a data export.
+
+        Returns:
+            A `dict` mapping names of expected columns to their Pixeltable types.
+        """
+
+    @abc.abstractmethod
+    def get_import_columns(self) -> dict[str, ts.ColumnType]:
+        """
+        Returns the names and Pixeltable types that this `Project` provides in a data import.
+
+        Returns:
+            A `dict` mapping names of provided columns to their Pixeltable types.
+        """
+
+    @abc.abstractmethod
+    def delete(self) -> None:
+        """
+        Deletes this `Project` and all associated (externally stored) data.
+        """
+
+
+# A project that cannot be synced, used mainly for testing.
+class MockProject(Project):
 
     def __init__(self, name: str, export_cols: dict[str, ts.ColumnType], import_cols: dict[str, ts.ColumnType]):
         self.name = name
@@ -100,7 +104,7 @@ class MockExternalStore(ExternalStore):
         )
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, MockExternalStore):
+        if not isinstance(other, MockProject):
             return False
         return self.name == other.name
 
@@ -108,4 +112,4 @@ class MockExternalStore(ExternalStore):
         return hash(self.name)
 
     def __repr__(self) -> str:
-        return f'MockExternalStore `{self.name}`'
+        return f'MockProject `{self.name}`'

@@ -165,9 +165,9 @@ class Dumper:
         v['astype'] = t.c1.astype(pxt.FloatType())
 
         # Add remotes
-        from pixeltable.io.external_store import MockExternalStore
+        from pixeltable.io.external_store import MockProject
         v._link(
-            MockExternalStore('remote', {'int_field': pxt.IntType()}, {'str_field': pxt.StringType()}),
+            MockProject('remote', {'int_field': pxt.IntType()}, {'str_field': pxt.StringType()}),
             col_mapping={'test_udf': 'int_field', 'c1': 'str_field'}
         )
         # We're just trying to test metadata here, so reach "under the covers" and link a fake

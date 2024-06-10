@@ -21,7 +21,7 @@ def update_remote_md(remote_md: dict) -> None:
     del remote_md['module']
 
     if remote_md['class'] == 'pixeltable.datatransfer.remote.MockRemote':
-        remote_md['class'] = 'pixeltable.io.external_store.MockExternalStore'
+        remote_md['class'] = 'pixeltable.io.external_store.MockProject'
         mes_md = remote_md['remote_md']
         mes_md['name'] = f'remote_{uuid.uuid4()}'
         mes_md['export_cols'] = mes_md['push_cols']
