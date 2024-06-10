@@ -37,7 +37,6 @@ class SqlScanNode(ExecNode):
             order_by_items = []
         if exact_version_only is None:
             exact_version_only = []
-        super().__init__(row_builder, [], [], None)
         self.tbl = tbl
         target = tbl.tbl_version  # the stored table we're scanning
         self.sql_exprs = exprs.ExprSet(select_list)
@@ -45,6 +44,7 @@ class SqlScanNode(ExecNode):
         for iter_arg in row_builder.unstored_iter_args.values():
             sql_subexprs = iter_arg.subexprs(filter=lambda e: e.sql_expr() is not None, traverse_matches=False)
             [self.sql_exprs.append(e) for e in sql_subexprs]
+        super().__init__(row_builder, self.sql_exprs, [], None)  # we materialize self.sql_exprs
         self.filter = filter
         self.filter_eval_ctx = \
             row_builder.create_eval_ctx([filter], exclude=select_list) if filter is not None else None
