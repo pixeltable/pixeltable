@@ -191,8 +191,8 @@ class LabelStudioProject(Project):
         if self.media_import_method == 'post':
             # Send media to Label Studio by HTTP post.
             self.__update_tasks_by_post(t, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
-        elif self.media_import_method == 'file':
-            # Send media to Label Studio by local file transfer.
+        elif self.media_import_method == 'file' or self.media_import_method == 'url':
+            # Send media to Label Studio by file reference (local file or URL).
             self.__update_tasks_by_files(t, existing_tasks, t_data_cols, t_rl_cols, rl_info)
         else:
             assert False
@@ -263,17 +263,21 @@ class LabelStudioProject(Project):
         r_data_cols = [self.col_mapping[col_name] for col_name in t_data_cols]
         col_refs = {}
         for col_name in t_data_cols:
-            if not t[col_name].col_type.is_media_type():
-                # Not a media column; query the data directly
-                col_refs[col_name] = t[col_name]
-            elif t[col_name].col.stored_proxy:
-                # Media column that has a stored proxy; use it. We have to give it a name,
-                # since it's an anonymous column
-                col_refs[f'{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).localpath
+            if self.media_import_method == 'url':
+                col_refs[col_name] = t[col_name].fileurl
             else:
-                # Media column without a stored proxy; this means it's a stored computed column,
-                # and we can just use the localpath
-                col_refs[col_name] = t[col_name].localpath
+                assert self.media_import_method == 'file'
+                if not t[col_name].col_type.is_media_type():
+                    # Not a media column; query the data directly
+                    col_refs[col_name] = t[col_name]
+                elif t[col_name].col.stored_proxy:
+                    # Media column that has a stored proxy; use it. We have to give it a name,
+                    # since it's an anonymous column
+                    col_refs[f'{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).localpath
+                else:
+                    # Media column without a stored proxy; this means it's a stored computed column,
+                    # and we can just use the localpath
+                    col_refs[col_name] = t[col_name].localpath
 
         df = t.select(*[t[col] for col in t_rl_cols], **col_refs)
         rl_col_idxs: Optional[list[int]] = None  # We have to wait until we begin iterating to populate these
@@ -284,13 +288,20 @@ class LabelStudioProject(Project):
         tasks_updated = 0
         page = []
 
+        # Function that turns a `DataRow` into a `dict` for creating or updating a task in the
+        # Label Studio SDK.
         def create_task_info(row: DataRow) -> dict:
             data_vals = [row.vals[idx] for idx in data_col_idxs]
             coco_annotations = [row.vals[idx] for idx in rl_col_idxs]
-            # For media columns, we need to transform the paths into Label Studio's bespoke path format
             for i in range(len(t_data_cols)):
-                if t[t_data_cols[i]].col_type.is_media_type():
-                    data_vals[i] = self.__localpath_to_lspath(data_vals[i])
+                if t[t_data_cols[i]].col_type.is_media_type() and data_vals[i] is not None:
+                    # Special handling for media columns
+                    assert isinstance(data_vals[i], str)
+                    if self.media_import_method == 'url':
+                        data_vals[i] = self.__validate_fileurl(data_vals[i])
+                    else:
+                        assert self.media_import_method == 'file'
+                        data_vals[i] = self.__localpath_to_lspath(data_vals[i])
             predictions = [
                 self.__coco_to_predictions(coco_annotations[i], self.col_mapping[t_rl_cols[i]], rl_info[i])
                 for i in range(len(coco_annotations))
@@ -310,7 +321,6 @@ class LabelStudioProject(Project):
                 # A task for this row already exists; see if it needs an update.
                 # Get the v_min record from task metadata. Default to 0 if no v_min record is found
                 old_v_min = int(existing_tasks[row.rowid]['meta'].get('v_min', 0))
-                print(f'{old_v_min}  {row.v_min}')
                 if row.v_min > old_v_min:
                     _logger.debug(f'Updating task for rowid {row.rowid} ({row.v_min} > {old_v_min}).')
                     task_info = create_task_info(row)
@@ -332,8 +342,19 @@ class LabelStudioProject(Project):
         self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
 
     @classmethod
-    def __localpath_to_lspath(self, localpath: str) -> str:
-        assert isinstance(localpath, str)
+    def __validate_fileurl(cls, url: str) -> Optional[str]:
+        # Check that the URL is not a local file. If it is, then it can't be exported to Label Studio
+        # using the `url` import method.
+        if url.startswith('file://'):
+            _logger.info(
+                f'Cannot export local file to Label Studio, because `media_import_method` is `url`: {url}'
+            )
+            return None
+        return url
+
+    @classmethod
+    def __localpath_to_lspath(cls, localpath: str) -> str:
+        # Transform the local path into Label Studio's bespoke path format.
         relpath = Path(localpath).relative_to(env.Env.get().home)
         return f'/data/local-files/?d={str(relpath)}'
 
