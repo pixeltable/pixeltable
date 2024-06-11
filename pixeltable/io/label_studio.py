@@ -294,11 +294,11 @@ class LabelStudioProject(Project):
             data_vals = [row.vals[idx] for idx in data_col_idxs]
             coco_annotations = [row.vals[idx] for idx in rl_col_idxs]
             for i in range(len(t_data_cols)):
-                if t[t_data_cols[i]].col_type.is_media_type() and data_vals[i] is not None:
+                if t[t_data_cols[i]].col_type.is_media_type():
                     # Special handling for media columns
                     assert isinstance(data_vals[i], str)
                     if self.media_import_method == 'url':
-                        data_vals[i] = self.__validate_fileurl(data_vals[i])
+                        data_vals[i] = self.__validate_fileurl(t_data_cols[i], data_vals[i])
                     else:
                         assert self.media_import_method == 'file'
                         data_vals[i] = self.__localpath_to_lspath(data_vals[i])
@@ -342,14 +342,14 @@ class LabelStudioProject(Project):
         self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
 
     @classmethod
-    def __validate_fileurl(cls, url: str) -> Optional[str]:
-        # Check that the URL is not a local file. If it is, then it can't be exported to Label Studio
-        # using the `url` import method.
-        if url.startswith('file://'):
+    def __validate_fileurl(cls, col_name: str, url: str) -> Optional[str]:
+        # Check that the URL is one that will be visible to Label Studio. If it isn't, log an info message
+        # to help users debug the issue.
+        if url.startswith('file://') or url.startswith('s3://'):
             _logger.info(
-                f'Cannot export local file to Label Studio, because `media_import_method` is `url`: {url}'
+                'URL found in media column `col_name` will not render correctly in Label Studio, since '
+                f'it is not an HTTP URL: {url}'
             )
-            return None
         return url
 
     @classmethod
