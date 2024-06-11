@@ -109,14 +109,14 @@ class TestMigration:
         from pixeltable.io.external_store import MockProject
         from pixeltable.io.label_studio import LabelStudioProject
         t = pxt.get_table('views.sample_view')
-        # Test that remotes are loaded properly.
-        remotes = list(t.tbl_version_path.tbl_version.remotes.values())
-        assert len(remotes) == 2
-        remote0 = remotes[0]
-        assert isinstance(remote0, MockProject)
-        assert remote0.get_export_columns() == {'int_field': pxt.IntType()}
-        assert remote0.get_import_columns() == {'str_field': pxt.StringType()}
-        assert remote0.col_mapping == {'test_udf': 'int_field', 'c1': 'str_field'}
-        remote1 = remotes[1]
-        assert isinstance(remote1, LabelStudioProject)
-        assert remote1.project_id == 4171780
+        # Test that external stores are loaded properly.
+        stores = list(t.tbl_version_path.tbl_version.external_stores.values())
+        assert len(stores) == 2
+        store0 = stores[0]
+        assert isinstance(store0, MockProject)
+        assert store0.get_export_columns() == {'int_field': pxt.IntType()}
+        assert store0.get_import_columns() == {'str_field': pxt.StringType()}
+        assert store0.col_mapping == {'test_udf': 'int_field', 'c1': 'str_field'}
+        store1 = stores[1]
+        assert isinstance(store1, LabelStudioProject)
+        assert store1.project_id == 4171780

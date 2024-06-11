@@ -17,11 +17,11 @@ class TestProject:
 
     def test_validation(self, reset_db):
         schema = {'col1': pxt.StringType(), 'col2': pxt.ImageType(), 'col3': pxt.StringType(), 'col4': pxt.VideoType()}
-        t = pxt.create_table('test_remote', schema)
+        t = pxt.create_table('test_store', schema)
 
-        def make_remote(col_mapping: Optional[dict[str, str]]) -> MockProject:
+        def make_store(col_mapping: Optional[dict[str, str]]) -> MockProject:
             return MockProject(
-                name='remote',
+                name='store',
                 export_cols={'export1': pxt.StringType(), 'export2': pxt.ImageType()},
                 import_cols={'import1': pxt.StringType(), 'import2': pxt.VideoType()},
                 col_mapping=col_mapping
@@ -29,102 +29,102 @@ class TestProject:
 
         # Nonexistent local column
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_remote(None))
+            t._link(make_store(None))
         assert 'Column `export1` does not exist' in str(exc_info.value)
 
         # Nonexistent local column, but with a mapping specified
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_remote({'not_col': 'export1', 'col2': 'export2'}))
+            t._link(make_store({'not_col': 'export1', 'col2': 'export2'}))
         assert 'Column name `not_col` appears as a key' in str(exc_info.value)
 
-        # Nonexistent remote column
+        # Nonexistent external column
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_remote({'col1': 'export1', 'col2': 'col2'}))
+            t._link(make_store({'col1': 'export1', 'col2': 'col2'}))
         assert 'has no column `col2`' in str(exc_info.value)
 
         # Correct partial spec
-        t._link(make_remote({'col1': 'export1', 'col2': 'export2'}))
+        t._link(make_store({'col1': 'export1', 'col2': 'export2'}))
 
         # Duplicate link
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_remote({'col1': 'push1', 'col2': 'col2'}))
-        assert 'Table `test_remote` already has an external store with that name: remote' in str(exc_info.value)
+            t._link(make_store({'col1': 'push1', 'col2': 'col2'}))
+        assert 'Table `test_store` already has an external store with that name: store' in str(exc_info.value)
 
         t.unlink()
 
         # Correct full spec
-        t._link(make_remote({'col1': 'export1', 'col2': 'export2', 'col3': 'import1', 'col4': 'import2'}))
+        t._link(make_store({'col1': 'export1', 'col2': 'export2', 'col3': 'import1', 'col4': 'import2'}))
         t.unlink()
 
         # Default spec is correct
         schema2 = {'export1': pxt.StringType(), 'export2': pxt.ImageType(), 'import1': pxt.StringType(), 'import2': pxt.VideoType()}
         t2 = pxt.create_table('test_2', schema2)
-        t2._link(make_remote(None))
+        t2._link(make_store(None))
         t2.unlink()
 
         # Incompatible types for export
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_remote({'col1': 'export2'}))
-        assert 'Column `col1` cannot be exported to remote column `export2` (incompatible types; expecting `image`)' in str(exc_info.value)
+            t._link(make_store({'col1': 'export2'}))
+        assert 'Column `col1` cannot be exported to external column `export2` (incompatible types; expecting `image`)' in str(exc_info.value)
 
         # Incompatible types for import
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_remote({'col1': 'import2'}))
-        assert 'Column `col1` cannot be imported from remote column `import2` (incompatible types; expecting `video`)' in str(exc_info.value)
+            t._link(make_store({'col1': 'import2'}))
+        assert 'Column `col1` cannot be imported from external column `import2` (incompatible types; expecting `video`)' in str(exc_info.value)
 
         # Subtype/supertype relationships
 
         schema3 = {'img': pxt.ImageType(), 'spec_img': pxt.ImageType(512, 512)}
-        t3 = pxt.create_table('test_remote_3', schema3)
+        t3 = pxt.create_table('test_store_3', schema3)
 
-        def make_remote_2(col_mapping: Optional[dict[str, str]]) -> MockProject:
+        def make_store_2(col_mapping: Optional[dict[str, str]]) -> MockProject:
             return MockProject(
-                'remote2',
+                'store2',
                 {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)},
                 {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)},
                 col_mapping=col_mapping
             )
 
         # Can export/import from sub to supertype
-        t3._link(make_remote_2({'spec_img': 'export_img', 'img': 'import_spec_img'}))
+        t3._link(make_store_2({'spec_img': 'export_img', 'img': 'import_spec_img'}))
 
         # Cannot drop a linked column
         with pytest.raises(excs.Error) as exc_info:
             t3.drop_column('spec_img')
-        assert 'Cannot drop column `spec_img` because the following remotes depend on it' in str(exc_info.value)
+        assert 'Cannot drop column `spec_img` because the following external stores depend on it' in str(exc_info.value)
 
         t3.unlink()
 
         # Cannot export from super to subtype
         with pytest.raises(excs.Error) as exc_info:
-            t3._link(make_remote_2({'img': 'export_spec_img'}))
-        assert 'Column `img` cannot be exported to remote column `export_spec_img`' in str(exc_info.value)
+            t3._link(make_store_2({'img': 'export_spec_img'}))
+        assert 'Column `img` cannot be exported to external column `export_spec_img`' in str(exc_info.value)
 
         # Cannot import from super to subtype
         with pytest.raises(excs.Error) as exc_info:
-            t3._link(make_remote_2({'spec_img': 'import_img'}))
-        assert 'Column `spec_img` cannot be imported from remote column `import_img`' in str(exc_info.value)
+            t3._link(make_store_2({'spec_img': 'import_img'}))
+        assert 'Column `spec_img` cannot be imported from external column `import_img`' in str(exc_info.value)
 
         t3['computed_img'] = t3.img.rotate(180)
         with pytest.raises(excs.Error) as exc_info:
-            t3._link(make_remote_2({'computed_img': 'import_img'}))
+            t3._link(make_store_2({'computed_img': 'import_img'}))
         assert (
-            'Column `computed_img` is a computed column, which cannot be populated from a remote column'
+            'Column `computed_img` is a computed column, which cannot be populated from an external column'
             in str(exc_info.value)
         )
 
     @pytest.mark.parametrize('with_reloads', [False, True])
-    def test_remote_stored_proxies(self, reset_db, with_reloads: bool) -> None:
+    def test_stored_proxies(self, reset_db, with_reloads: bool) -> None:
         schema = {'img': pxt.ImageType(), 'other_img': pxt.ImageType()}
-        t = pxt.create_table('test_remote', schema)
-        remote1 = MockProject(
-            'remote1',
+        t = pxt.create_table('test_store', schema)
+        store1 = MockProject(
+            'store1',
             {'push_img': pxt.ImageType(), 'push_other_img': pxt.ImageType()},
             {'pull_str': pxt.StringType()},
             {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'}
         )
-        remote2 = MockProject(
-            'remote2',
+        store2 = MockProject(
+            'store2',
             {'push_img': pxt.ImageType()},
             {'pull_str': pxt.StringType()},
             {'rot_img': 'push_img'}
@@ -144,10 +144,10 @@ class TestProject:
 
         if with_reloads:
             reload_catalog()
-            t = pxt.get_table('test_remote')
+            t = pxt.get_table('test_store')
 
         num_cols_before_linking = len(t.tbl_version_path.tbl_version.cols_by_id)
-        t._link(remote1)
+        t._link(store1)
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
         assert t.rot_img.col.stored_proxy is not None  # Stored proxy
         assert t.rot_img.col.stored_proxy.proxy_base == t.rot_img.col
@@ -161,27 +161,27 @@ class TestProject:
 
         if with_reloads:
             reload_catalog()
-            t = pxt.get_table('test_remote')
+            t = pxt.get_table('test_store')
 
-        t._link(remote2)
-        # Ensure the stored proxy is created just once (for both remotes)
+        t._link(store2)
+        # Ensure the stored proxy is created just once (for both external stores)
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
 
         if with_reloads:
             reload_catalog()
-            t = pxt.get_table('test_remote')
+            t = pxt.get_table('test_store')
 
-        t.unlink('remote1')
-        # Now rot_img_col is still linked through remote2, but rot_other_img_col
-        # is not linked to any remote. So just rot_img_col should have a proxy
+        t.unlink('store1')
+        # Now rot_img_col is still linked through store2, but rot_other_img_col
+        # is not linked to any store. So just rot_img_col should have a proxy
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 1
         assert t.rot_img.col.stored_proxy is not None
         assert t.rot_other_img.col.stored_proxy is None
 
         if with_reloads:
             reload_catalog()
-            t = pxt.get_table('test_remote')
+            t = pxt.get_table('test_store')
 
-        t.unlink('remote2')
+        t.unlink('store2')
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking
         assert t.rot_img.col.stored_proxy is None

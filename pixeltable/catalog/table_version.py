@@ -89,7 +89,7 @@ class TableVersion:
             self.next_idx_id = tbl_md.next_idx_id
             self.next_rowid = tbl_md.next_row_id
 
-        self.remotes = dict(TableVersion._init_remote(remote_md) for remote_md in tbl_md.remotes)
+        self.external_stores = dict(TableVersion._init_external_store(store_md) for store_md in tbl_md.external_stores)
 
         # view-specific initialization
         from pixeltable import exprs
@@ -160,7 +160,7 @@ class TableVersion:
         column_md = cls._create_column_md(cols)
         table_md = schema.TableMd(
             name=name, current_version=0, current_schema_version=0, next_col_id=len(cols),
-            next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, remotes=[], view_md=view_md)
+            next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, external_stores=[], view_md=view_md)
         # create a schema.Table here, we need it to call our c'tor;
         # don't add it to the session yet, we might add index metadata
         tbl_id = uuid.uuid4()
@@ -547,13 +547,13 @@ class TableVersion:
                 f'Cannot drop column `{name}` because the following columns depend on it:\n'
                 f'{", ".join(c.name for c in dependent_user_cols)}'
             )
-        dependent_remotes = [remote for remote in self.remotes.values() if name in remote.get_table_columns()]
-        if len(dependent_remotes) > 0:
+        dependent_stores = [store for store in self.external_stores.values() if name in store.get_table_columns()]
+        if len(dependent_stores) > 0:
             raise excs.Error(
-                f'Cannot drop column `{name}` because the following remotes depend on it:\n'
-                f'{", ".join(str(r) for r in dependent_remotes)}'
+                f'Cannot drop column `{name}` because the following external stores depend on it:\n'
+                f'{", ".join(str(r) for r in dependent_stores)}'
             )
-        assert col.stored_proxy is None  # since there are no dependent remotes
+        assert col.stored_proxy is None  # since there are no dependent stores
 
         # we're creating a new schema version
         self.version += 1
@@ -963,25 +963,25 @@ class TableVersion:
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
     @classmethod
-    def _init_remote(cls, remote_md: dict[str, Any]) -> tuple[str, pixeltable.io.ExternalStore]:
-        remote_cls = resolve_symbol(remote_md['class'])
-        assert isinstance(remote_cls, type) and issubclass(remote_cls, pixeltable.io.ExternalStore)
-        remote = remote_cls.from_dict(remote_md['remote_md'])
-        return remote.name, remote
+    def _init_external_store(cls, store_md: dict[str, Any]) -> tuple[str, pixeltable.io.ExternalStore]:
+        store_cls = resolve_symbol(store_md['class'])
+        assert isinstance(store_cls, type) and issubclass(store_cls, pixeltable.io.ExternalStore)
+        store = store_cls.from_dict(store_md['md'])
+        return store.name, store
 
-    def link(self, remote: pixeltable.io.ExternalStore) -> None:
+    def link(self, store: pixeltable.io.ExternalStore) -> None:
         # All of the media columns being linked need to either be stored, computed columns or have stored proxies.
         # This ensures that the media in those columns resides in the media cache, where it can be served.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
         cols_by_name = self.path.cols_by_name()  # Includes base columns
         stored_proxies_needed = []
-        for col_name in remote.get_table_columns():
+        for col_name in store.get_table_columns():
             col = cols_by_name[col_name]
             if col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and not col.stored_proxy:
                 stored_proxies_needed.append(col)
         with Env.get().engine.begin() as conn:
             self.version += 1
-            self.remotes[remote.name] = remote
+            self.external_stores[store.name] = store
             preceding_schema_version = None
             if len(stored_proxies_needed) > 0:
                 _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
@@ -1015,25 +1015,25 @@ class TableVersion:
         proxy_col.proxy_base = col
         return proxy_col
 
-    def unlink(self, remote_name: str, delete_remote_data: bool) -> None:
-        assert remote_name in self.remotes
-        remote = self.remotes[remote_name]
+    def unlink(self, store_name: str, delete_external_data: bool) -> None:
+        assert store_name in self.external_stores
+        store = self.external_stores[store_name]
         timestamp = time.time()
-        this_remote_col_names = list(remote.get_table_columns())
-        other_remote_col_names = {
+        this_store_col_names = list(store.get_table_columns())
+        other_store_col_names = {
             col_name
-            for other_remote in self.remotes.values() if other_remote != remote
-            for col_name in other_remote.get_table_columns()
+            for other_store in self.external_stores.values() if other_store != store
+            for col_name in other_store.get_table_columns()
         }
         cols_by_name = self.path.cols_by_name()  # Includes base columns
         stored_proxy_deletions_needed = [
             cols_by_name[col_name]
-            for col_name in this_remote_col_names
-            if col_name not in other_remote_col_names and cols_by_name[col_name].stored_proxy
+            for col_name in this_store_col_names
+            if col_name not in other_store_col_names and cols_by_name[col_name].stored_proxy
         ]
         with Env.get().engine.begin() as conn:
             self.version += 1
-            del self.remotes[remote.name]
+            del self.external_stores[store.name]
             preceding_schema_version = None
             if len(stored_proxy_deletions_needed) > 0:
                 preceding_schema_version = self.schema_version
@@ -1047,8 +1047,8 @@ class TableVersion:
                 self._drop_columns(proxy_cols)
             self._update_md(timestamp, preceding_schema_version, conn)
 
-        if delete_remote_data and isinstance(remote, pixeltable.io.external_store.Project):
-            remote.delete()
+        if delete_external_data and isinstance(store, pixeltable.io.external_store.Project):
+            store.delete()
 
     def is_view(self) -> bool:
         return self.base is not None
@@ -1156,13 +1156,13 @@ class TableVersion:
         return column_md
 
     @classmethod
-    def _create_remotes_md(cls, remotes: Iterable['pixeltable.io.ExternalStore']) -> list[dict[str, Any]]:
+    def _create_stores_md(cls, stores: Iterable['pixeltable.io.ExternalStore']) -> list[dict[str, Any]]:
         return [
             {
-                'class': f'{type(remote).__module__}.{type(remote).__qualname__}',
-                'remote_md': remote.to_dict()
+                'class': f'{type(store).__module__}.{type(store).__qualname__}',
+                'md': store.to_dict()
             }
-            for remote in remotes
+            for store in stores
         ]
 
     def _create_tbl_md(self) -> schema.TableMd:
@@ -1170,7 +1170,7 @@ class TableVersion:
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
             next_col_id=self.next_col_id, next_idx_id=self.next_idx_id, next_row_id=self.next_rowid,
             column_md=self._create_column_md(self.cols), index_md=self.idx_md,
-            remotes=self._create_remotes_md(self.remotes.values()), view_md=self.view_md)
+            external_stores=self._create_stores_md(self.external_stores.values()), view_md=self.view_md)
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(created_at=timestamp, version=self.version, schema_version=self.schema_version)

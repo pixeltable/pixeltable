@@ -68,9 +68,9 @@ def create_label_studio_project(
     from pixeltable.io.label_studio import LabelStudioProject, ANNOTATIONS_COLUMN
 
     if name is None:
-        all_remotes = t.list_remotes()
+        all_stores = t.list_external_stores()
         n = 0
-        while f'ls_project_{n}' in all_remotes:
+        while f'ls_project_{n}' in all_stores:
             n += 1
         name = f'ls_project_{n}'
 

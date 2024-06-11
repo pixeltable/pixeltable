@@ -164,11 +164,11 @@ class Dumper:
         # astype
         v['astype'] = t.c1.astype(pxt.FloatType())
 
-        # Add remotes
+        # Add external stores
         from pixeltable.io.external_store import MockProject
         v._link(
             MockProject(
-                'remote',
+                'project',
                 {'int_field': pxt.IntType()},
                 {'str_field': pxt.StringType()},
                 {'test_udf': 'int_field', 'c1': 'str_field'}

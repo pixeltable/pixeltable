@@ -1,11 +1,9 @@
-import itertools
 import logging
 import os
 import platform
 import subprocess
 import time
 import uuid
-from pathlib import Path
 from typing import Iterator, Literal
 
 import pytest
@@ -13,8 +11,6 @@ import requests.exceptions
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.io
-from pixeltable import env
 from pixeltable.functions.string import str_format
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
                      SAMPLE_IMAGE_URL, get_video_files)
@@ -79,11 +75,11 @@ class TestLabelStudio:
             col_mapping={'image_col': 'image'},
             sync_immediately=False
         )
-        remote = t.tbl_version_path.tbl_version.remotes['test_project']
-        assert remote.name == 'test_project'
-        assert remote.project_title == 'Test Project'
-        assert remote.get_export_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
-        assert remote.get_import_columns() == {'annotations': pxt.JsonType(nullable=True)}
+        store = t.tbl_version_path.tbl_version.external_stores['test_project']
+        assert store.name == 'test_project'
+        assert store.project_title == 'Test Project'
+        assert store.get_export_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
+        assert store.get_import_columns() == {'annotations': pxt.JsonType(nullable=True)}
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.create_label_studio_project(
@@ -138,8 +134,8 @@ class TestLabelStudio:
         )
 
         # Check that the project and tasks were properly created
-        remote = t.tbl_version_path.tbl_version.remotes['ls_project_0']
-        tasks = remote.project.get_tasks()
+        store = t.tbl_version_path.tbl_version.external_stores['ls_project_0']
+        tasks = store.project.get_tasks()
         assert len(tasks) == 30
         assert all(task['data']['image'] for task in tasks)
         if media_import_method == 'file':
@@ -150,13 +146,13 @@ class TestLabelStudio:
         for task in tasks[:10]:
             print(task)
             task_id = task['id']
-            assert len(remote.project.get_task(task_id)['annotations']) == 0
-            remote.project.create_annotation(
+            assert len(store.project.get_task(task_id)['annotations']) == 0
+            store.project.create_annotation(
                 task_id=task_id,
                 unique_id=str(uuid.uuid4()),
                 result=[{'image_class': 'Cat'}]
             )
-            assert len(remote.project.get_task(task_id)['annotations']) == 1
+            assert len(store.project.get_task(task_id)['annotations']) == 1
 
         # Import the annotations back to Pixeltable
         reload_catalog()
@@ -167,18 +163,18 @@ class TestLabelStudio:
         assert len(annotations) == 10
         assert all(annotations[i][0]['result'][0]['image_class'] == 'Cat' for i in range(10)), annotations
 
-        # Delete some random rows in Pixeltable and sync remotes again
+        # Delete some random rows in Pixeltable and sync external stores again
         validate_update_status(t.delete(where=t.id.isin(range(0, 20, 3))), expected_rows=7)
         t.sync()
 
         # Verify that the tasks were deleted by calling the Label Studio API directly
-        tasks = remote.project.get_tasks()
+        tasks = store.project.get_tasks()
         assert len(tasks) == 23
 
         # Unlink the project and verify it no longer exists
-        t.unlink(delete_remote_data=True)
+        t.unlink(delete_external_data=True)
         with pytest.raises(requests.exceptions.HTTPError) as exc_info:
-            print(remote.project_title)
+            print(store.project_title)
         assert 'Not Found for url' in str(exc_info.value)
 
         # Remote with no `annotations` col; will skip import
@@ -221,8 +217,8 @@ class TestLabelStudio:
         )
 
         # Check that the preannotations sent to Label Studio are what we expect
-        remote = t.tbl_version_path.tbl_version.remotes['ls_project_0']
-        tasks = remote.project.get_tasks()
+        store = t.tbl_version_path.tbl_version.external_stores['ls_project_0']
+        tasks = store.project.get_tasks()
         assert len(tasks) == 5
 
         def extract_labels() -> Iterator[str]:
@@ -261,15 +257,15 @@ class TestLabelStudio:
         reload_catalog()
         v = pxt.get_table('frames_view')
         v.sync()
-        remote = v.tbl_version_path.tbl_version.remotes['complex_project']
-        tasks: list[dict] = remote.project.get_tasks()
+        store = v.tbl_version_path.tbl_version.external_stores['complex_project']
+        tasks: list[dict] = store.project.get_tasks()
         assert len(tasks) == 10
 
         # Test that update propagation works
         v.update({'text': 'New text'}, v.frame_idx.isin([3, 8]))
         assert all(tasks[i]['data']['text'] == 'Initial text' for i in range(10))  # Before syncing
         v.sync()
-        tasks = remote.project.get_tasks()
+        tasks = store.project.get_tasks()
         assert len(tasks) == 10
 
         assert sum(tasks[i]['data']['text'] == 'New text' for i in range(10)) == 2  # After syncing

@@ -11,9 +11,9 @@ __logger = logging.getLogger('pixeltable')
 
 def convert_table_md(
     engine: sql.engine.Engine,
-    column_md_updater: Optional[Callable[[dict], None]] = None,
-    remote_md_updater: Optional[Callable[[dict], None]] = None,
     table_md_updater: Optional[Callable[[dict], None]] = None,
+    column_md_updater: Optional[Callable[[dict], None]] = None,
+    external_store_md_updater: Optional[Callable[[dict], None]] = None,
     substitution_fn: Optional[Callable[[Any, Any], Optional[tuple[Any, Any]]]] = None
 ) -> None:
     with engine.begin() as conn:
@@ -26,8 +26,8 @@ def convert_table_md(
                 table_md_updater(updated_table_md)
             if column_md_updater is not None:
                 __update_column_md(updated_table_md, column_md_updater)
-            if remote_md_updater is not None:
-                __update_remote_md(updated_table_md, remote_md_updater)
+            if external_store_md_updater is not None:
+                __update_external_store_md(updated_table_md, external_store_md_updater)
             if substitution_fn is not None:
                 updated_table_md = __substitute_md_rec(updated_table_md, substitution_fn)
             if updated_table_md != table_md:
@@ -42,11 +42,11 @@ def __update_column_md(table_md: dict, column_md_updater: Callable[[dict], None]
         column_md_updater(column_md)
 
 
-def __update_remote_md(table_md: dict, remote_md_updater: Callable[[dict], None]) -> None:
-    remotes_md = table_md['remotes']
-    assert isinstance(remotes_md, list)
-    for remote_md in remotes_md:
-        remote_md_updater(remote_md)
+def __update_external_store_md(table_md: dict, external_store_md_updater: Callable[[dict], None]) -> None:
+    stores_md = table_md['external_stores']
+    assert isinstance(stores_md, list)
+    for store_md in stores_md:
+        external_store_md_updater(store_md)
 
 
 def __substitute_md_rec(md: Any, substitution_fn: Callable[[Any, Any], Optional[tuple[Any, Any]]]) -> Any:

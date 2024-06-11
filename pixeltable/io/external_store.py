@@ -81,11 +81,11 @@ class Project(ExternalStore, abc.ABC):
                 else:
                     raise excs.Error(
                         f'Column `{t_col}` does not exist in Table `{table.get_name()}`. Either add a column `{t_col}`, '
-                        f'or specify a `col_mapping` to associate a different column with the remote field `{r_col}`.'
+                        f'or specify a `col_mapping` to associate a different column with the external field `{r_col}`.'
                     )
             if r_col not in export_cols and r_col not in import_cols:
                 raise excs.Error(
-                    f'Column name `{r_col}` appears as a value in `col_mapping`, but the remote '
+                    f'Column name `{r_col}` appears as a value in `col_mapping`, but the external store '
                     f'configuration has no column `{r_col}`.'
                 )
         # Validate column specs
@@ -93,22 +93,22 @@ class Project(ExternalStore, abc.ABC):
         for t_col, r_col in self.col_mapping.items():
             t_col_type = t_col_types[t_col]
             if r_col in export_cols:
-                # Validate that the table column can be assigned to the remote column
+                # Validate that the table column can be assigned to the external column
                 r_col_type = export_cols[r_col]
                 if not r_col_type.is_supertype_of(t_col_type):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be exported to remote column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
+                        f'Column `{t_col}` cannot be exported to external column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
                     )
             if r_col in import_cols:
-                # Validate that the remote column can be assigned to the table column
+                # Validate that the external column can be assigned to the table column
                 if table.tbl_version_path.get_column(t_col).is_computed:
                     raise excs.Error(
-                        f'Column `{t_col}` is a computed column, which cannot be populated from a remote column'
+                        f'Column `{t_col}` is a computed column, which cannot be populated from an external column'
                     )
                 r_col_type = import_cols[r_col]
                 if not t_col_type.is_supertype_of(r_col_type):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be imported from remote column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
+                        f'Column `{t_col}` cannot be imported from external column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
                     )
 
     @abc.abstractmethod

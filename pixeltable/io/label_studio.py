@@ -428,14 +428,14 @@ class LabelStudioProject(Project):
     def __parse_data_keys_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, '_DataKey']]:
         for element in root:
             if 'value' in element.attrib and element.attrib['value'][0] == '$':
-                remote_col_name = element.attrib['value'][1:]
+                external_col_name = element.attrib['value'][1:]
                 data_key_name = element.attrib.get('name')
                 element_type = _LS_TAG_MAP.get(element.tag.lower())
                 if element_type is None:
                     raise excs.Error(
-                        f'Unsupported Label Studio data type: `{element.tag}` (in data key `{remote_col_name}`)'
+                        f'Unsupported Label Studio data type: `{element.tag}` (in data key `{external_col_name}`)'
                     )
-                yield remote_col_name, _DataKey(data_key_name, element_type)
+                yield external_col_name, _DataKey(data_key_name, element_type)
 
     @classmethod
     def __parse_rectangle_labels_config(cls, root: ElementTree.Element) -> Iterator[tuple[str, '_RectangleLabel']]:

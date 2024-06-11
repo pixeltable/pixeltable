@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 import json
 import logging
 from pathlib import Path
@@ -15,9 +14,9 @@ import pixeltable.catalog as catalog
 import pixeltable.env as env
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
+import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
-import pixeltable.index as index
 from .column import Column
 from .globals import is_valid_identifier, is_system_column_name, UpdateStatus
 from .schema_object import SchemaObject
@@ -720,67 +719,67 @@ class Table(SchemaObject):
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.revert()
 
-    def list_remotes(self) -> list[str]:
-        return list(self.tbl_version_path.tbl_version.remotes.keys())
+    def list_external_stores(self) -> list[str]:
+        return list(self.tbl_version_path.tbl_version.external_stores.keys())
 
-    def _link(self, remote: 'pixeltable.io.ExternalStore') -> None:
+    def _link(self, store: 'pixeltable.io.ExternalStore') -> None:
         """
         Links the specified `Remote` to this table. Once a remote is linked, it can be synchronized with
         this `Table` by calling [`Table.sync()`]. A record of the link
         is stored in table metadata and will persist across sessions.
 
         Args:
-            remote (pixeltable.io.Remote): The `Remote` to link to this table.
+            store (pixeltable.io.Remote): The `Remote` to link to this table.
             col_mapping: An optional mapping of columns from this `Table` to columns in the `Remote`.
         """
         self._check_is_dropped()
-        if remote.name in self.list_remotes():
-            raise excs.Error(f'Table `{self.get_name()}` already has an external store with that name: {remote.name}')
-        _logger.info(f'Linking remote {remote} to table `{self.get_name()}`.')
-        remote.validate(self)
-        self.tbl_version_path.tbl_version.link(remote)
-        print(f'Linked remote {remote} to table `{self.get_name()}`.')
+        if store.name in self.list_external_stores():
+            raise excs.Error(f'Table `{self.get_name()}` already has an external store with that name: {store.name}')
+        _logger.info(f'Linking external store {store} to table `{self.get_name()}`.')
+        store.validate(self)
+        self.tbl_version_path.tbl_version.link(store)
+        print(f'Linked external store {store} to table `{self.get_name()}`.')
 
     def unlink(
             self,
-            remotes: Optional[str | list[str]] = None,
+            stores: Optional[str | list[str]] = None,
             *,
-            delete_remote_data: bool = False,
+            delete_external_data: bool = False,
             ignore_errors: bool = False
     ) -> None:
         """
         Unlinks this table's `Remote`s.
 
         Args:
-            remotes: If specified, will unlink only the specified `Remote` or list of `Remote`s. If not specified,
+            stores: If specified, will unlink only the specified `Remote` or list of `Remote`s. If not specified,
                 will unlink all of this table's `Remote`s.
             ignore_errors (bool): If `True`, no exception will be thrown if the specified `Remote` is not linked
                 to this table.
-            delete_remote_data (bool): If `True`, then the remote data source will also be deleted. WARNING: This
+            delete_external_data (bool): If `True`, then the external data source will also be deleted. WARNING: This
                 is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
 
         """
         self._check_is_dropped()
-        all_remotes = self.list_remotes()
+        all_stores = self.list_external_stores()
 
-        if remotes is None:
-            remotes = all_remotes
-        elif isinstance(remotes, str):
-            remotes = [remotes]
+        if stores is None:
+            stores = all_stores
+        elif isinstance(stores, str):
+            stores = [stores]
 
         # Validation
         if not ignore_errors:
-            for remote in remotes:
-                if remote not in all_remotes:
-                    raise excs.Error(f'Table `{self.get_name()}` has no remote with that name: {remote}')
+            for store in stores:
+                if store not in all_stores:
+                    raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
 
-        for remote in remotes:
-            self.tbl_version_path.tbl_version.unlink(remote, delete_remote_data=delete_remote_data)
-            print(f'Unlinked remote from table `{self.get_name()}`: {remote}')
+        for store in stores:
+            self.tbl_version_path.tbl_version.unlink(store, delete_external_data=delete_external_data)
+            print(f'Unlinked external store from table `{self.get_name()}`: {store}')
 
     def sync(
             self,
-            remotes: Optional[str | list[str]] = None,
+            stores: Optional[str | list[str]] = None,
             *,
             export_data: bool = True,
             import_data: bool = True
@@ -789,23 +788,23 @@ class Table(SchemaObject):
         Synchronizes this table with its linked `Remote`s.
 
         Args:
-            remotes: If specified, will synchronize only the given `Remote` or list of `Remote`s. If not specified,
+            stores: If specified, will synchronize only the given `Remote` or list of `Remote`s. If not specified,
                 will synchronize all of this table's `Remote`s.
             export_data: If `True`, data from this table will be exported to the external store during synchronization.
             import_data: If `True`, data from the external store will be imported to this table during synchronization.
         """
         self._check_is_dropped()
-        all_remotes = self.list_remotes()
+        all_stores = self.list_external_stores()
 
-        if remotes is None:
-            remotes = all_remotes
-        elif isinstance(remotes, str):
-            remotes = [remotes]
+        if stores is None:
+            stores = all_stores
+        elif isinstance(stores, str):
+            stores = [stores]
 
-        for remote in remotes:
-            if remote not in all_remotes:
-                raise excs.Error(f'Table `{self.get_name()}` has no remote with that name: {remote}')
+        for store in stores:
+            if store not in all_stores:
+                raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
 
-        for remote in remotes:
-            remote_obj = self.tbl_version_path.tbl_version.remotes[remote]
-            remote_obj.sync(self, export_data=export_data, import_data=import_data)
+        for store in stores:
+            store_obj = self.tbl_version_path.tbl_version.external_stores[store]
+            store_obj.sync(self, export_data=export_data, import_data=import_data)
