@@ -1022,7 +1022,7 @@ class TableVersion:
         this_store_col_names = list(store.get_table_columns())
         other_store_col_names = {
             col_name
-            for other_store in self.external_stores.values() if other_store != store
+            for other_name, other_store in self.external_stores.items() if other_name != store_name
             for col_name in other_store.get_table_columns()
         }
         cols_by_name = self.path.cols_by_name()  # Includes base columns

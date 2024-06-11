@@ -724,13 +724,7 @@ class Table(SchemaObject):
 
     def _link(self, store: 'pixeltable.io.ExternalStore') -> None:
         """
-        Links the specified `Remote` to this table. Once a remote is linked, it can be synchronized with
-        this `Table` by calling [`Table.sync()`]. A record of the link
-        is stored in table metadata and will persist across sessions.
-
-        Args:
-            store (pixeltable.io.Remote): The `Remote` to link to this table.
-            col_mapping: An optional mapping of columns from this `Table` to columns in the `Remote`.
+        Links the specified `ExternalStore` to this table.
         """
         self._check_is_dropped()
         if store.name in self.list_external_stores():
@@ -748,16 +742,15 @@ class Table(SchemaObject):
             ignore_errors: bool = False
     ) -> None:
         """
-        Unlinks this table's `Remote`s.
+        Unlinks this table's external stores.
 
         Args:
-            stores: If specified, will unlink only the specified `Remote` or list of `Remote`s. If not specified,
-                will unlink all of this table's `Remote`s.
-            ignore_errors (bool): If `True`, no exception will be thrown if the specified `Remote` is not linked
+            stores: If specified, will unlink only the specified named store or list of stores. If not specified,
+                will unlink all of this table's external stores.
+            ignore_errors (bool): If `True`, no exception will be thrown if a specified store is not linked
                 to this table.
-            delete_external_data (bool): If `True`, then the external data source will also be deleted. WARNING: This
+            delete_external_data (bool): If `True`, then the external data store will also be deleted. WARNING: This
                 is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
-
         """
         self._check_is_dropped()
         all_stores = self.list_external_stores()
@@ -785,13 +778,13 @@ class Table(SchemaObject):
             import_data: bool = True
     ):
         """
-        Synchronizes this table with its linked `Remote`s.
+        Synchronizes this table with its linked external stores.
 
         Args:
-            stores: If specified, will synchronize only the given `Remote` or list of `Remote`s. If not specified,
-                will synchronize all of this table's `Remote`s.
-            export_data: If `True`, data from this table will be exported to the external store during synchronization.
-            import_data: If `True`, data from the external store will be imported to this table during synchronization.
+            stores: If specified, will synchronize only the specified named store or list of stores. If not specified,
+                will synchronize all of this table's external stores.
+            export_data: If `True`, data from this table will be exported to the external stores during synchronization.
+            import_data: If `True`, data from the external stores will be imported to this table during synchronization.
         """
         self._check_is_dropped()
         all_stores = self.list_external_stores()

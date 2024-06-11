@@ -177,7 +177,7 @@ class TestLabelStudio:
             print(store.project_title)
         assert 'Not Found for url' in str(exc_info.value)
 
-        # Remote with no `annotations` col; will skip import
+        # External store with no `annotations` col; will skip import
         pxt.io.create_label_studio_project(
             t,
             self.test_config,
@@ -188,7 +188,7 @@ class TestLabelStudio:
         )
         t.unlink('custom_name')
 
-        # Remote with no columns to export; will skip export
+        # External store with no columns to export; will skip export
         pxt.io.create_label_studio_project(
             t,
             self.test_config,
