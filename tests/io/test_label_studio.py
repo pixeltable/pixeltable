@@ -13,6 +13,7 @@ import requests.exceptions
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.io
 from pixeltable import env
 from pixeltable.functions.string import str_format
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
@@ -65,28 +66,29 @@ class TestLabelStudio:
     </View>
     """
 
-    def test_label_studio_remote(self, init_ls) -> None:
+    def test_label_studio_project(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
-        from pixeltable.io.label_studio import LabelStudioProject
-        remote = LabelStudioProject.create(
-            name='ls_project_0',
-            title='test_remote_project',
-            label_config=self.test_config_2
+        t = ls_image_table
+
+        pxt.io.create_label_studio_project(
+            t,
+            self.test_config_2,
+            name='test_project',
+            title='Test Project',
+            media_import_method='file',
+            col_mapping={'image_col': 'image'},
+            sync_immediately=False
         )
-        assert remote.project_title == 'test_remote_project'
+        remote = t.tbl_version_path.tbl_version.remotes['test_project']
+        assert remote.name == 'test_project'
+        assert remote.project_title == 'Test Project'
         assert remote.get_export_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
         assert remote.get_import_columns() == {'annotations': pxt.JsonType(nullable=True)}
 
-    def test_label_studio_remote_errors(self, init_ls) -> None:
-        skip_test_if_not_installed('label_studio_sdk')
-        from pixeltable.io.label_studio import LabelStudioProject
-
-        # TODO(aaron-siegel) Use create_label_studio_project instead (here and elsewhere)
         with pytest.raises(excs.Error) as exc_info:
-            _ = LabelStudioProject.create(
-                name='ls_project_0',
-                title='test_remote_errors_project',
-                label_config="""
+            pxt.io.create_label_studio_project(
+                t,
+                """
                 <View>
                   <Image name="frame_obj" value="$frame"/>
                   <RectangleLabels name="obj_label" toName="walnut">
@@ -99,10 +101,9 @@ class TestLabelStudio:
         assert '`toName` attribute of RectangleLabels `obj_label` references an unknown data key: `walnut`' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = LabelStudioProject.create(
-                name='ls_project_1',
-                title='test_remote_errors_project',
-                label_config="""
+            pxt.io.create_label_studio_project(
+                t,
+                """
                 <View>
                   <Image name="frame_obj" value="$frame"/>
                   <RectangleLabels name="obj_label" toName="frame_obj">
@@ -189,7 +190,6 @@ class TestLabelStudio:
             media_import_method=media_import_method,
             col_mapping={sync_col: 'image'}
         )
-        t.sync()
         t.unlink('custom_name')
 
         # Remote with no columns to export; will skip export
@@ -201,7 +201,6 @@ class TestLabelStudio:
             media_import_method=media_import_method,
             col_mapping={sync_col: 'image'}
         )
-        t.sync()
         t.unlink('custom_name')
 
     def test_label_studio_sync_preannotations(self, ls_image_table: pxt.InsertableTable) -> None:
@@ -243,7 +242,6 @@ class TestLabelStudio:
     def test_label_studio_sync_complex(self, ls_video_table: pxt.InsertableTable) -> None:
         # Test a more complex label studio project, with multiple images and other fields
         skip_test_if_not_installed('label_studio_sdk')
-        from pixeltable.io.label_studio import LabelStudioProject
 
         v = pxt.create_view(
             'frames_view',
@@ -258,12 +256,12 @@ class TestLabelStudio:
         v['annotations'] = pxt.JsonType(nullable=True)
         v.update({'text': 'Initial text'})
 
-        remote = LabelStudioProject.create('ls_project_0', 'test_sync_complex_project', self.test_config_4)
-        v._link(remote)
+        pxt.io.create_label_studio_project(v, self.test_config_4, media_import_method='file', name='complex_project')
 
         reload_catalog()
         v = pxt.get_table('frames_view')
         v.sync()
+        remote = v.tbl_version_path.tbl_version.remotes['complex_project']
         tasks: list[dict] = remote.project.get_tasks()
         assert len(tasks) == 10
 
@@ -281,16 +279,12 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
         t['annotations_col'] = pxt.JsonType(nullable=True)
-        from pixeltable.io.label_studio import LabelStudioProject
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = LabelStudioProject.create(
-                'ls_project_2',
-                'test_sync_errors_project_2',
-                self.test_config_2,
-                media_import_method='post'
-            )
+            pxt.io.create_label_studio_project(t, self.test_config_2, media_import_method='post')
         assert '`media_import_method` cannot be `post` if there is more than one data key' in str(exc_info.value)
+
+        from pixeltable.io.label_studio import LabelStudioProject
 
         # Check that we can create a LabelStudioProject on a non-existent project id
         # (this will happen if, for example, a DB reload happens after a synced project has

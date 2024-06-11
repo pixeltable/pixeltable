@@ -723,10 +723,7 @@ class Table(SchemaObject):
     def list_remotes(self) -> list[str]:
         return list(self.tbl_version_path.tbl_version.remotes.keys())
 
-    def _link(
-            self,
-            remote: 'pixeltable.io.ExternalStore'
-    ) -> None:
+    def _link(self, remote: 'pixeltable.io.ExternalStore') -> None:
         """
         Links the specified `Remote` to this table. Once a remote is linked, it can be synchronized with
         this `Table` by calling [`Table.sync()`]. A record of the link
