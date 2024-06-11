@@ -26,19 +26,14 @@ class ExternalStore(abc.ABC):
     @abc.abstractmethod
     def sync(self, t: Table, export_data: bool, import_data: bool) -> None:
         """
-        Synchronizes the given [`Table`][pixeltable.Table] with this `Remote`. This method
-        should generally not be called directly; instead, call
-        [`t.sync()`][pixeltable.Table.sync].
-
-        Args:
-            t: The table to synchronize with this remote.
-            col_mapping: A `dict` mapping columns in the Pixeltable table to columns in the remote store.
-            export_data: If `True`, data from this table will be exported to the remote during synchronization.
-            import_data: If `True`, data from this table will be imported from the remote during synchronization.
+        Called by `Table.sync()` to implement store-specific synchronization logic.
         """
 
     @abc.abstractmethod
-    def get_table_columns(self) -> list[str]: ...
+    def get_table_columns(self) -> list[str]:
+        """
+        A list of all Pixeltable column names that are involved in this `ExternalStore`.
+        """
 
     @abc.abstractmethod
     def validate(self, table: Table) -> None: ...
@@ -162,7 +157,7 @@ class MockProject(Project):
     def get_import_columns(self) -> dict[str, ts.ColumnType]:
         return self.import_cols
 
-    def sync(self, t: Table, col_mapping: dict[str, str], export_data: bool, import_data: bool) -> NotImplemented:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> NotImplemented:
         raise NotImplementedError()
 
     def delete(self) -> None:

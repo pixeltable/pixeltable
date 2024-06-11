@@ -32,42 +32,43 @@ def _label_studio_client() -> label_studio_sdk.Client:
 
 class LabelStudioProject(Project):
     """
-    A [`Remote`][pixeltable.datatransfer.Remote] that represents a Label Studio project, providing functionality
+    An [`ExternalStore`][pixeltable.io.ExternalStore] that represents a Label Studio project, providing functionality
     for synchronizing between a Pixeltable table and a Label Studio project.
-
-    The API key and URL for a valid Label Studio server must be specified in Pixeltable config. Either:
-
-    * Set the `LABEL_STUDIO_API_KEY` and `LABEL_STUDIO_URL` environment variables; or
-    * Specify `api_key` and `url` fields in the `label-studio` section of `$PIXELTABLE_HOME/config.yaml`.
     """
-    # TODO(aaron-siegel): Add link in docstring to a Label Studio howto
 
-    def __init__(self, name: str, project_id: int, media_import_method: Literal['post', 'file'], col_mapping: Optional[dict[str, str]]):
+    def __init__(
+            self,
+            name: str,
+            project_id: int,
+            media_import_method: Literal['post', 'file', 'url'],
+            col_mapping: Optional[dict[str, str]]
+    ):
+        """
+        The constructor will NOT create a new Label Studio project; it is also used when loading
+        metadata for existing projects.
+        """
         self.project_id = project_id
         self.media_import_method = media_import_method
         self._project: Optional[label_studio_sdk.project.Project] = None
         super().__init__(name, col_mapping)
 
     @classmethod
-    def create(cls, name: str, title: str, label_config: str, media_import_method: Literal['post', 'file'] = 'file', col_mapping: Optional[dict[str, str]] = None, **kwargs: Any) -> 'LabelStudioProject':
+    def create(
+            cls,
+            name: str,
+            title: str,
+            label_config: str,
+            media_import_method: Literal['post', 'file', 'url'] = 'file',
+            col_mapping: Optional[dict[str, str]] = None,
+            **kwargs: Any
+    ) -> 'LabelStudioProject':
         """
         Creates a new Label Studio project, using the Label Studio client configured in Pixeltable.
-
-        Args:
-            title: The title of the project.
-            label_config: The Label Studio project configuration, in XML format.
-            media_import_method: The method to use when importing media columns to Label Studio:
-                - `file`: Media will be sent to Label Studio as a file on the local filesystem. This method can be
-                    used if Pixeltable and Label Studio are running on the same host.
-                - `post`: Media will be sent to Label Studio via HTTP post. This should generally only be used for
-                    prototyping; due to restrictions in Label Studio, it can only be used with projects that have
-                    just one data field.
-            **kwargs: Additional keyword arguments for the new project; these will be passed to `start_project`
-                in the Label Studio SDK.
         """
-        # TODO(aaron-siegel): Add media_import_method = 'url' as an option
         # Check that the config is valid before creating the project
         config = cls.__parse_project_config(label_config)
+
+        # Perform some additional validation
         if media_import_method == 'post' and len(config.data_keys) > 1:
             raise excs.Error('`media_import_method` cannot be `post` if there is more than one data key')
 
@@ -349,9 +350,8 @@ class LabelStudioProject(Project):
             print(f'Deleted {len(tasks_to_delete)} tasks(s) in {self} that are no longer present in Pixeltable.')
 
     def __update_table_from_tasks(self, t: Table, tasks: dict[tuple, dict]) -> None:
-        # `self.col_mapping` is guaranteed to be a one-to-one dict whose values are a superset
-        # of `get_pull_columns`
-        assert ANNOTATIONS_COLUMN in self.col_mapping.values()
+        if ANNOTATIONS_COLUMN not in self.col_mapping.values():
+            return
         annotations_column = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN)
         updates = [
             {

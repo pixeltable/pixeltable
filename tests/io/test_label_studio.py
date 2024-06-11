@@ -180,6 +180,30 @@ class TestLabelStudio:
             print(remote.project_title)
         assert 'Not Found for url' in str(exc_info.value)
 
+        # Remote with no `annotations` col; will skip import
+        pxt.io.create_label_studio_project(
+            t,
+            self.test_config,
+            name='custom_name',
+            title='Custom Title',
+            media_import_method=media_import_method,
+            col_mapping={sync_col: 'image'}
+        )
+        t.sync()
+        t.unlink('custom_name')
+
+        # Remote with no columns to export; will skip export
+        pxt.io.create_label_studio_project(
+            t,
+            self.test_config,
+            name='custom_name',
+            title='Custom Title',
+            media_import_method=media_import_method,
+            col_mapping={sync_col: 'image'}
+        )
+        t.sync()
+        t.unlink('custom_name')
+
     def test_label_studio_sync_preannotations(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         skip_test_if_not_installed('transformers')
@@ -259,27 +283,6 @@ class TestLabelStudio:
         t['annotations_col'] = pxt.JsonType(nullable=True)
         from pixeltable.io.label_studio import LabelStudioProject
 
-        remote = LabelStudioProject.create('ls_project_0', 'test_sync_errors_project', self.test_config, media_import_method='post', col_mapping={'image_col': 'image'})
-        # Validate that syncing a remote with import_data=True must have an `annotations` column mapping
-        t._link(remote)
-
-        with pytest.raises(excs.Error) as exc_info:
-            t.sync()
-        assert 'but there are no columns to import' in str(exc_info.value)
-        # But it's ok if import_data=False
-        t.sync(import_data=False)
-        t.unlink()
-
-        remote2 = LabelStudioProject.create('ls_project_1', 'test_sync_errors_project', self.test_config, media_import_method='post', col_mapping={'annotations_col': 'annotations'})
-        # Validate that syncing a remote with export_data=True must have at least one column to export
-        t._link(remote2)
-        with pytest.raises(excs.Error) as exc_info:
-            t.sync()
-        assert 'but there are no columns to export' in str(exc_info.value)
-        # But it's ok if export=False
-        t.sync(export_data=False)
-        t.unlink()
-
         with pytest.raises(excs.Error) as exc_info:
             _ = LabelStudioProject.create(
                 'ls_project_2',
@@ -291,7 +294,7 @@ class TestLabelStudio:
 
         # Check that we can create a LabelStudioProject on a non-existent project id
         # (this will happen if, for example, a DB reload happens after a synced project has
-        # been deleted externally)
+        # been deleted externally, or cannot be contacted due to a network error)
         false_project = LabelStudioProject('false_project', 4171780, media_import_method='post', col_mapping=None)
 
         # But trying to do anything with it raises an exception.
