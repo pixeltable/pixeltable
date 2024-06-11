@@ -139,6 +139,17 @@ class Table(SchemaObject):
         return {c.name: c.col_type for c in self.tbl_version_path.columns()}
 
     @property
+    def base(self) -> Optional['Table']:
+        """
+        The base table of this `Table`. If this table is a view, returns the `Table`
+        from which it was derived. Otherwise, returns `None`.
+        """
+        if self.tbl_version_path.base is None:
+            return None
+        base_id = self.tbl_version_path.base.tbl_version.id
+        return catalog.Catalog.get().tbls[base_id]
+
+    @property
     def comment(self) -> str:
         return self.tbl_version.comment
 

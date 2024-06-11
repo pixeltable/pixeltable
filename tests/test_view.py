@@ -32,6 +32,7 @@ class TestView:
 
     def test_basic(self, reset_db) -> None:
         t = self.create_tbl()
+        assert t.base is None
 
         # create view with filter and computed columns
         schema = {
@@ -53,6 +54,7 @@ class TestView:
         v.add_column(v4=v.v2[0])
 
         def check_view(t: pxt.Table, v: pxt.Table) -> None:
+            assert v.base == t
             assert v.count() == t.where(t.c2 < 10).count()
             assert_resultset_eq(
                 v.select(v.v1).order_by(v.c2).collect(),

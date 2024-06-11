@@ -144,7 +144,6 @@ class TestLabelStudio:
 
         # Programmatically add annotations by calling the Label Studio API directly
         for task in tasks[:10]:
-            print(task)
             task_id = task['id']
             assert len(store.project.get_task(task_id)['annotations']) == 0
             store.project.create_annotation(
@@ -235,6 +234,40 @@ class TestLabelStudio:
         # 'person' should be present ('knife' sometimes is too, but it's nondeterministic)
         assert 'person' in found_labels
 
+    def test_label_studio_sync_to_base_table(self, ls_image_table: pxt.InsertableTable) -> None:
+        skip_test_if_not_installed('label_studio_sdk')
+        t = ls_image_table
+        t['annotations_col'] = pxt.JsonType(nullable=True)
+        v1 = pxt.create_view('view_1', t, filter=t.id < 20)
+        v2 = pxt.create_view('view_2', v1, filter=t.id < 10)
+
+        # Link a project to the view, but with annotations going to a column of the base table,
+        # and ensure that they propagate correctly.
+        pxt.io.create_label_studio_project(
+            v2,
+            label_config=self.test_config,
+            media_import_method='post',
+            col_mapping={'image_col': 'image', 'annotations_col': 'annotations'}
+        )
+        store = v2.tbl_version_path.tbl_version.external_stores['ls_project_0']
+        tasks = store.project.get_tasks()
+        assert len(tasks) == 10
+        for task in tasks[:5]:
+            task_id = task['id']
+            assert len(store.project.get_task(task_id)['annotations']) == 0
+            store.project.create_annotation(
+                task_id=task_id,
+                unique_id=str(uuid.uuid4()),
+                result=[{'image_class': 'Dog'}]
+            )
+            assert len(store.project.get_task(task_id)['annotations']) == 1
+        v2.sync()
+        annotations_col = t.collect()['annotations_col']  # collect() from base table
+        annotations = [a for a in annotations_col if a is not None]
+        assert len(annotations) == 5
+        assert all(annotations[i][0]['result'][0]['image_class'] == 'Dog' for i in range(5)), annotations
+
+
     def test_label_studio_sync_complex(self, ls_video_table: pxt.InsertableTable) -> None:
         # Test a more complex label studio project, with multiple images and other fields
         skip_test_if_not_installed('label_studio_sdk')
@@ -249,7 +282,6 @@ class TestLabelStudio:
         v['rot_frame'] = v.frame.rotate(180)
         v['header'] = str_format('Frame Number {0}', v.frame_idx)
         v['text'] = pxt.StringType(nullable=True)
-        v['annotations'] = pxt.JsonType(nullable=True)
         v.update({'text': 'Initial text'})
 
         pxt.io.create_label_studio_project(v, self.test_config_4, media_import_method='file', name='complex_project')

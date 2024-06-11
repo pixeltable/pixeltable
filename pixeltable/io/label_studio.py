@@ -332,22 +332,29 @@ class LabelStudioProject(Project):
     def __update_table_from_tasks(self, t: Table, tasks: dict[tuple, dict]) -> None:
         if ANNOTATIONS_COLUMN not in self.col_mapping.values():
             return
-        annotations_column = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN)
+        local_annotations_column = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN)
         updates = [
             {
                 '_rowid': task['meta']['rowid'],
                 # Replace [] by None to indicate no annotations. We do want to sync rows with no annotations,
                 # in order to properly handle the scenario where existing annotations have been deleted in
                 # Label Studio.
-                annotations_column: task[ANNOTATIONS_COLUMN] if len(task[ANNOTATIONS_COLUMN]) > 0 else None
+                local_annotations_column: task[ANNOTATIONS_COLUMN] if len(task[ANNOTATIONS_COLUMN]) > 0 else None
             }
             for task in tasks.values()
         ]
         if len(updates) > 0:
             _logger.info(
-                f'Updating table `{t.get_name()}`, column `{annotations_column}` with {len(updates)} total annotations.'
+                f'Updating table `{t.get_name()}`, column `{local_annotations_column}` with {len(updates)} total annotations.'
             )
-            t.batch_update(updates)
+            # batch_update currently doesn't propagate from views to base tables. As a workaround, we call
+            # batch_update on the actual ancestor table that holds the annotations column.
+            # TODO(aaron-siegel): Simplify this once propagation is properly implemented in batch_update
+            ancestor = t
+            while local_annotations_column not in ancestor.tbl_version_path.tbl_version.cols_by_name:
+                assert ancestor.base is not None
+                ancestor = ancestor.base
+            ancestor.batch_update(updates)
             annotations_count = sum(len(task[ANNOTATIONS_COLUMN]) for task in tasks.values())
             print(f'Synced {annotations_count} annotation(s) from {len(updates)} existing task(s) in {self}.')
 
