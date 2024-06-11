@@ -217,15 +217,15 @@ class Planner:
         plan = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
 
         media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
+        if len(media_input_cols) > 0:
+            # prefetch external files for all input column refs for validation
+            plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
+            plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
 
-        # prefetch external files for all input column refs for validation
-        plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
-        plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
-
-        computed_exprs = row_builder.default_eval_ctx.target_exprs
+        computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
         if len(computed_exprs) > 0:
             # add an ExprEvalNode when there are exprs to compute
-            plan = exec.ExprEvalNode(row_builder, computed_exprs, [], input=plan)
+            plan = exec.ExprEvalNode(row_builder, computed_exprs, plan.output_exprs, input=plan)
 
         plan.set_stored_img_cols(stored_img_col_info)
         plan.set_ctx(
@@ -355,7 +355,8 @@ class Planner:
         # - we can ignore stored non-computed columns because they have a default value that is supplied directly by
         #   the store
         target = view.tbl_version  # the one we need to populate
-        stored_cols = [c for c in target.cols if c.is_stored and (c.is_computed or target.is_iterator_column(c))]
+        #stored_cols = [c for c in target.cols if c.is_stored and (c.is_computed or target.is_iterator_column(c))]
+        stored_cols = [c for c in target.cols if c.is_stored]
         # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
