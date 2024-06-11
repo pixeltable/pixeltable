@@ -6,7 +6,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.io.external_store import MockProject
+from pixeltable.io.external_store import MockProject, Project
 from pixeltable.exprs import ColumnRef
 from tests.utils import get_image_files, reload_catalog
 
@@ -18,6 +18,8 @@ class TestProject:
     def test_validation(self, reset_db):
         schema = {'col1': pxt.StringType(), 'col2': pxt.ImageType(), 'col3': pxt.StringType(), 'col4': pxt.VideoType()}
         t = pxt.create_table('test_store', schema)
+        export_cols = {'export1': pxt.StringType(), 'export2': pxt.ImageType()}
+        import_cols = {'import1': pxt.StringType(), 'import2': pxt.VideoType()}
 
         def make_store(col_mapping: Optional[dict[str, str]]) -> MockProject:
             return MockProject(
@@ -29,47 +31,38 @@ class TestProject:
 
         # Nonexistent local column
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_store(None))
+            Project.validate_column_names(t, export_cols, import_cols, None)
         assert 'Column `export1` does not exist' in str(exc_info.value)
 
         # Nonexistent local column, but with a mapping specified
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_store({'not_col': 'export1', 'col2': 'export2'}))
+            Project.validate_column_names(t, export_cols, import_cols, {'not_col': 'export1', 'col2': 'export2'})
         assert 'Column name `not_col` appears as a key' in str(exc_info.value)
 
         # Nonexistent external column
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_store({'col1': 'export1', 'col2': 'col2'}))
+            Project.validate_column_names(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'col2'})
         assert 'has no column `col2`' in str(exc_info.value)
 
         # Correct partial spec
-        t._link(make_store({'col1': 'export1', 'col2': 'export2'}))
-
-        # Duplicate link
-        with pytest.raises(excs.Error) as exc_info:
-            t._link(make_store({'col1': 'push1', 'col2': 'col2'}))
-        assert 'Table `test_store` already has an external store with that name: store' in str(exc_info.value)
-
-        t.unlink()
+        Project.validate_column_names(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'})
 
         # Correct full spec
-        t._link(make_store({'col1': 'export1', 'col2': 'export2', 'col3': 'import1', 'col4': 'import2'}))
-        t.unlink()
+        Project.validate_column_names(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'export2', 'col3': 'import1', 'col4': 'import2'})
 
         # Default spec is correct
         schema2 = {'export1': pxt.StringType(), 'export2': pxt.ImageType(), 'import1': pxt.StringType(), 'import2': pxt.VideoType()}
         t2 = pxt.create_table('test_2', schema2)
-        t2._link(make_store(None))
-        t2.unlink()
+        Project.validate_column_names(t2, export_cols, import_cols, None)
 
         # Incompatible types for export
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_store({'col1': 'export2'}))
+            Project.validate_column_names(t, export_cols, import_cols, {'col1': 'export2'})
         assert 'Column `col1` cannot be exported to external column `export2` (incompatible types; expecting `image`)' in str(exc_info.value)
 
         # Incompatible types for import
         with pytest.raises(excs.Error) as exc_info:
-            t._link(make_store({'col1': 'import2'}))
+            Project.validate_column_names(t, export_cols, import_cols, {'col1': 'import2'})
         assert 'Column `col1` cannot be imported from external column `import2` (incompatible types; expecting `video`)' in str(exc_info.value)
 
         # Subtype/supertype relationships
@@ -77,41 +70,40 @@ class TestProject:
         schema3 = {'img': pxt.ImageType(), 'spec_img': pxt.ImageType(512, 512)}
         t3 = pxt.create_table('test_store_3', schema3)
 
-        def make_store_2(col_mapping: Optional[dict[str, str]]) -> MockProject:
-            return MockProject(
-                'store2',
-                {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)},
-                {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)},
-                col_mapping=col_mapping
-            )
+        export_img_cols = {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)}
+        import_img_cols = {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)}
 
         # Can export/import from sub to supertype
-        t3._link(make_store_2({'spec_img': 'export_img', 'img': 'import_spec_img'}))
-
-        # Cannot drop a linked column
-        with pytest.raises(excs.Error) as exc_info:
-            t3.drop_column('spec_img')
-        assert 'Cannot drop column `spec_img` because the following external stores depend on it' in str(exc_info.value)
-
-        t3.unlink()
+        Project.validate_column_names(t3, export_img_cols, import_img_cols, {'spec_img': 'export_img', 'img': 'import_spec_img'})
 
         # Cannot export from super to subtype
         with pytest.raises(excs.Error) as exc_info:
-            t3._link(make_store_2({'img': 'export_spec_img'}))
+            Project.validate_column_names(t3, export_img_cols, import_img_cols, {'img': 'export_spec_img'})
         assert 'Column `img` cannot be exported to external column `export_spec_img`' in str(exc_info.value)
 
         # Cannot import from super to subtype
         with pytest.raises(excs.Error) as exc_info:
-            t3._link(make_store_2({'spec_img': 'import_img'}))
+            Project.validate_column_names(t3, export_img_cols, import_img_cols, {'spec_img': 'import_img'})
         assert 'Column `spec_img` cannot be imported from external column `import_img`' in str(exc_info.value)
 
         t3['computed_img'] = t3.img.rotate(180)
         with pytest.raises(excs.Error) as exc_info:
-            t3._link(make_store_2({'computed_img': 'import_img'}))
+            Project.validate_column_names(t3, export_img_cols, import_img_cols, {'computed_img': 'import_img'})
         assert (
             'Column `computed_img` is a computed column, which cannot be populated from an external column'
             in str(exc_info.value)
         )
+
+        # Duplicate link
+        t._link(MockProject('project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
+        with pytest.raises(excs.Error) as exc_info:
+            t._link(MockProject('project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
+        assert 'Table `test_store` already has an external store with that name: project' in str(exc_info.value)
+
+        # Cannot drop a linked column
+        with pytest.raises(excs.Error) as exc_info:
+            t.drop_column('col1')
+        assert 'Cannot drop column `col1` because the following external stores depend on it' in str(exc_info.value)
 
     @pytest.mark.parametrize('with_reloads', [False, True])
     def test_stored_proxies(self, reset_db, with_reloads: bool) -> None:

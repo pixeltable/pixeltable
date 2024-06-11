@@ -1,6 +1,5 @@
 from typing import Any, Optional, Literal
 
-import pixeltable as pxt
 from pixeltable import Table
 
 
@@ -65,24 +64,17 @@ def create_label_studio_project(
             Studio SDK, as described here:
             https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_project
     """
-    from pixeltable.io.label_studio import LabelStudioProject, ANNOTATIONS_COLUMN
+    from pixeltable.io.label_studio import LabelStudioProject
 
-    if name is None:
-        all_stores = t.list_external_stores()
-        n = 0
-        while f'ls_project_{n}' in all_stores:
-            n += 1
-        name = f'ls_project_{n}'
-
-    ls_project = LabelStudioProject.create(name, title or t.get_name(), label_config, media_import_method, col_mapping, **kwargs)
-
-    # Create a column to hold the annotations, if one does not yet exist.
-    if col_mapping is not None and ANNOTATIONS_COLUMN in col_mapping.values():
-        local_annotations_column = next(k for k, v in col_mapping.items() if v == ANNOTATIONS_COLUMN)
-    else:
-        local_annotations_column = ANNOTATIONS_COLUMN
-    if local_annotations_column not in t.column_names():
-        t[local_annotations_column] = pxt.JsonType(nullable=True)
+    ls_project = LabelStudioProject.create(
+        t,
+        label_config,
+        name,
+        title,
+        media_import_method,
+        col_mapping,
+        **kwargs
+    )
 
     # Link the project to `t`, and sync if appropriate.
     t._link(ls_project)

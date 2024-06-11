@@ -174,10 +174,9 @@ class Dumper:
                 {'test_udf': 'int_field', 'c1': 'str_field'}
             )
         )
-        # We're just trying to test metadata here, so reach "under the covers" and link a fake
-        # Label Studio project without validation (so we don't need a real Label Studio server)
+        # We're just trying to test metadata here, so it's ok to link a false Label Studio project
         from pixeltable.io.label_studio import LabelStudioProject
-        v.tbl_version_path.tbl_version.link(
+        v._link(
             LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping={'str_format': 'str_format'})
         )
 

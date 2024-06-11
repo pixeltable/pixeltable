@@ -277,7 +277,7 @@ class TestLabelStudio:
         t['annotations_col'] = pxt.JsonType(nullable=True)
 
         with pytest.raises(excs.Error) as exc_info:
-            pxt.io.create_label_studio_project(t, self.test_config_2, media_import_method='post')
+            pxt.io.create_label_studio_project(t, self.test_config_2, media_import_method='post', col_mapping={'image_col': 'image'})
         assert '`media_import_method` cannot be `post` if there is more than one data key' in str(exc_info.value)
 
         from pixeltable.io.label_studio import LabelStudioProject

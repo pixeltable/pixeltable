@@ -1,3 +1,4 @@
+import itertools
 import json
 import logging
 import os
@@ -51,48 +52,6 @@ class LabelStudioProject(Project):
         self.media_import_method = media_import_method
         self._project: Optional[label_studio_sdk.project.Project] = None
         super().__init__(name, col_mapping)
-
-    @classmethod
-    def create(
-            cls,
-            name: str,
-            title: str,
-            label_config: str,
-            media_import_method: Literal['post', 'file', 'url'],
-            col_mapping: Optional[dict[str, str]],
-            **kwargs: Any
-    ) -> 'LabelStudioProject':
-        """
-        Creates a new Label Studio project, using the Label Studio client configured in Pixeltable.
-        """
-        # Check that the config is valid before creating the project
-        config = cls.__parse_project_config(label_config)
-
-        # Perform some additional validation
-        if media_import_method == 'post' and len(config.data_keys) > 1:
-            raise excs.Error('`media_import_method` cannot be `post` if there is more than one data key')
-
-        project = _label_studio_client().start_project(title=title, label_config=label_config, **kwargs)
-
-        if media_import_method == 'file':
-            # We need to set up a local storage connection to receive media files
-            os.environ['LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT'] = str(env.Env.get().home)
-            try:
-                project.connect_local_import_storage(local_store_path=str(env.Env.get().media_dir))
-            except HTTPError as exc:
-                if exc.errno == 400:
-                    response: dict = json.loads(exc.response.text)
-                    if 'validation_errors' in response and 'non_field_errors' in response['validation_errors'] \
-                            and 'LOCAL_FILES_SERVING_ENABLED' in response['validation_errors']['non_field_errors'][0]:
-                        raise excs.Error(
-                            '`media_import_method` is set to `file`, but your Label Studio server is not configured '
-                            'for local file storage.\nPlease set the `LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED` '
-                            'environment variable to `true` in the environment where your Label Studio server is running.'
-                        ) from exc
-                raise  # Handle any other exception type normally
-
-        project_id = project.get_params()['id']
-        return LabelStudioProject(name, project_id, media_import_method, col_mapping)
 
     @property
     def project(self) -> label_studio_sdk.project.Project:
@@ -504,6 +463,75 @@ class LabelStudioProject(Project):
 
     def __hash__(self) -> int:
         return hash(self.project_id)
+
+    @classmethod
+    def create(
+            cls,
+            t: Table,
+            label_config: str,
+            name: Optional[str],
+            title: Optional[str],
+            media_import_method: Literal['post', 'file', 'url'],
+            col_mapping: Optional[dict[str, str]],
+            **kwargs: Any
+    ) -> 'LabelStudioProject':
+        """
+        Creates a new Label Studio project, using the Label Studio client configured in Pixeltable.
+        """
+        # Check that the config is valid before creating the project
+        config = cls.__parse_project_config(label_config)
+
+        if name is None:
+            # Create a default name that's unique to the table
+            all_stores = t.list_external_stores()
+            n = 0
+            while f'ls_project_{n}' in all_stores:
+                n += 1
+            name = f'ls_project_{n}'
+
+        if title is None:
+            # `title` defaults to table name
+            title = t.get_name()
+
+        # Create a column to hold the annotations, if one does not yet exist
+        if col_mapping is None or ANNOTATIONS_COLUMN in col_mapping.values():
+            if col_mapping is None:
+                local_annotations_column = ANNOTATIONS_COLUMN
+            else:
+                local_annotations_column = next(k for k, v in col_mapping.items() if v == ANNOTATIONS_COLUMN)
+            if local_annotations_column not in t.column_names():
+                t[local_annotations_column] = pxt.JsonType(nullable=True)
+
+        cls.validate_column_names(t, config.export_columns, {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}, col_mapping)
+
+        # Perform some additional validation
+        if media_import_method == 'post' and len(config.data_keys) > 1:
+            raise excs.Error('`media_import_method` cannot be `post` if there is more than one data key')
+
+        project = _label_studio_client().start_project(title=title, label_config=label_config, **kwargs)
+
+        if media_import_method == 'file':
+            # We need to set up a local storage connection to receive media files
+            os.environ['LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT'] = str(env.Env.get().home)
+            try:
+                project.connect_local_import_storage(local_store_path=str(env.Env.get().media_dir))
+            except HTTPError as exc:
+                if exc.errno == 400:
+                    response: dict = json.loads(exc.response.text)
+                    if 'validation_errors' in response and 'non_field_errors' in response['validation_errors'] \
+                            and 'LOCAL_FILES_SERVING_ENABLED' in response['validation_errors']['non_field_errors'][0]:
+                        raise excs.Error(
+                            '`media_import_method` is set to `file`, but your Label Studio server is not configured '
+                            'for local file storage.\nPlease set the `LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED` '
+                            'environment variable to `true` in the environment where your Label Studio server is running.'
+                        ) from exc
+                raise  # Handle any other exception type normally
+
+        if col_mapping is None:
+            col_mapping = {col: col for col in itertools.chain(config.export_columns.keys(), [ANNOTATIONS_COLUMN])}
+
+        project_id = project.get_params()['id']
+        return LabelStudioProject(name, project_id, media_import_method, col_mapping)
 
 
 @dataclass(frozen=True)

@@ -729,8 +729,7 @@ class Table(SchemaObject):
         self._check_is_dropped()
         if store.name in self.list_external_stores():
             raise excs.Error(f'Table `{self.get_name()}` already has an external store with that name: {store.name}')
-        _logger.info(f'Linking external store `{store.name}` to table `{self.get_name()}`: {store}')
-        store.validate(self)
+        _logger.info(f'Linking external store `{store.name}` to table `{self.get_name()}`')
         self.tbl_version_path.tbl_version.link(store)
         print(f'Linked external store `{store.name}` to table `{self.get_name()}`.')
 
