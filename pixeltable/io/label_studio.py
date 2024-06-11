@@ -58,8 +58,8 @@ class LabelStudioProject(Project):
             name: str,
             title: str,
             label_config: str,
-            media_import_method: Literal['post', 'file', 'url'] = 'file',
-            col_mapping: Optional[dict[str, str]] = None,
+            media_import_method: Literal['post', 'file', 'url'],
+            col_mapping: Optional[dict[str, str]],
             **kwargs: Any
     ) -> 'LabelStudioProject':
         """
