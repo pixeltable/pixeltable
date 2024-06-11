@@ -8,14 +8,23 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 @register_converter(version=15)
 def _(engine: sql.engine.Engine) -> None:
-    convert_table_md(engine, column_md_updater=update_column_md, remote_md_updater=update_remote_md)
+    convert_table_md(
+        engine,
+        column_md_updater=__update_column_md,
+        remote_md_updater=__update_remote_md,
+        table_md_updater=__update_table_md
+    )
 
 
-def update_column_md(column_md: dict) -> None:
+def __update_table_md(table_md: dict) -> None:
+    pass
+
+
+def __update_column_md(column_md: dict) -> None:
     column_md['proxy_base'] = None
 
 
-def update_remote_md(remote_md: dict) -> None:
+def __update_remote_md(remote_md: dict) -> None:
     # New schema uses a single `class` string to be consistent with other pxt metadata
     remote_md['class'] = f'{remote_md["module"]}.{remote_md["class"]}'
     del remote_md['module']
@@ -38,6 +47,9 @@ def update_remote_md(remote_md: dict) -> None:
         remote_md['class'] = 'pixeltable.io.label_studio.LabelStudioProject'
         # 'post' is the media_import_method for legacy LabelStudioProjects
         remote_md['remote_md']['media_import_method'] = 'post'
+        # version 15 disallowed more than one ExternalStore per table, so we can safely
+        # use a static default name
+        remote_md['remote_md']['name'] = 'ls_project_0'
 
     else:
         assert False, remote_md['class']

@@ -178,7 +178,7 @@ class Dumper:
         # Label Studio project without validation (so we don't need a real Label Studio server)
         from pixeltable.io.label_studio import LabelStudioProject
         v.tbl_version_path.tbl_version.link(
-            LabelStudioProject(4171780, media_import_method='file', col_mapping={'str_format': 'str_format'})
+            LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping={'str_format': 'str_format'})
         )
 
 

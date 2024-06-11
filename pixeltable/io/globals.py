@@ -1,4 +1,7 @@
+import itertools
 from typing import Any, Optional, Literal
+
+import more_itertools
 
 import pixeltable as pxt
 from pixeltable import Table
@@ -8,6 +11,7 @@ def create_label_studio_project(
         t: Table,
         label_config: str,
         col_mapping: Optional[dict[str, str]] = None,
+        name: Optional[str] = None,
         title: Optional[str] = None,
         media_import_method: Literal['post', 'file'] = 'file',
         sync_immediately: bool = True,
@@ -43,7 +47,14 @@ def create_label_studio_project(
     """
     from pixeltable.io.label_studio import LabelStudioProject, ANNOTATIONS_COLUMN
 
-    ls_project = LabelStudioProject.create(title or t.get_name(), label_config, media_import_method, col_mapping, **kwargs)
+    if name is None:
+        all_remotes = t.list_remotes()
+        n = 0
+        while f'ls_project_{n}' in all_remotes:
+            n += 1
+        name = f'ls_project_{n}'
+
+    ls_project = LabelStudioProject.create(name, title or t.get_name(), label_config, media_import_method, col_mapping, **kwargs)
 
     # Create a column to hold the annotations, if one does not yet exist.
     if col_mapping is not None and ANNOTATIONS_COLUMN in col_mapping.values():

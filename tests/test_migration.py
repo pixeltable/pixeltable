@@ -110,7 +110,7 @@ class TestMigration:
         from pixeltable.io.label_studio import LabelStudioProject
         t = pxt.get_table('views.sample_view')
         # Test that remotes are loaded properly.
-        remotes = t._get_remotes()
+        remotes = list(t.tbl_version_path.tbl_version.remotes.values())
         assert len(remotes) == 2
         remote0 = remotes[0]
         assert isinstance(remote0, MockProject)

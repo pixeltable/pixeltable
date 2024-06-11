@@ -16,6 +16,13 @@ class ExternalStore(abc.ABC):
     and stateful external stores.
     """
 
+    def __init__(self, name: str) -> None:
+        self.__name = name
+
+    @property
+    def name(self) -> str:
+        return self.__name
+
     @abc.abstractmethod
     def sync(self, t: Table, export_data: bool, import_data: bool) -> None:
         """
@@ -46,7 +53,8 @@ class ExternalStore(abc.ABC):
 
 class Project(ExternalStore, abc.ABC):
 
-    def __init__(self, col_mapping: Optional[dict[str, str]]):
+    def __init__(self, name: str, col_mapping: Optional[dict[str, str]]):
+        super().__init__(name)
         self.__user_specified_col_mapping = col_mapping
         self.__col_mapping: Optional[dict[str, str]] = None
 
@@ -143,11 +151,10 @@ class MockProject(Project):
             import_cols: dict[str, ts.ColumnType],
             col_mapping: Optional[dict[str, str]]
     ):
-        self.name = name
         self.export_cols = export_cols
         self.import_cols = import_cols
         self.__is_deleted = False
-        super().__init__(col_mapping)
+        super().__init__(name, col_mapping)
 
     def get_export_columns(self) -> dict[str, ts.ColumnType]:
         return self.export_cols

@@ -68,7 +68,11 @@ class TestLabelStudio:
     def test_label_studio_remote(self, init_ls) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         from pixeltable.io.label_studio import LabelStudioProject
-        remote = LabelStudioProject.create(title='test_remote_project', label_config=self.test_config_2)
+        remote = LabelStudioProject.create(
+            name='ls_project_0',
+            title='test_remote_project',
+            label_config=self.test_config_2
+        )
         assert remote.project_title == 'test_remote_project'
         assert remote.get_export_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
         assert remote.get_import_columns() == {'annotations': pxt.JsonType(nullable=True)}
@@ -80,6 +84,7 @@ class TestLabelStudio:
         # TODO(aaron-siegel) Use create_label_studio_project instead (here and elsewhere)
         with pytest.raises(excs.Error) as exc_info:
             _ = LabelStudioProject.create(
+                name='ls_project_0',
                 title='test_remote_errors_project',
                 label_config="""
                 <View>
@@ -95,6 +100,7 @@ class TestLabelStudio:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = LabelStudioProject.create(
+                name='ls_project_1',
                 title='test_remote_errors_project',
                 label_config="""
                 <View>
@@ -131,7 +137,7 @@ class TestLabelStudio:
         )
 
         # Check that the project and tasks were properly created
-        remote = next(iter(t._get_remotes()))
+        remote = t.tbl_version_path.tbl_version.remotes['ls_project_0']
         tasks = remote.project.get_tasks()
         assert len(tasks) == 30
         assert all(task['data']['image'] for task in tasks)
@@ -169,7 +175,7 @@ class TestLabelStudio:
         assert len(tasks) == 23
 
         # Unlink the project and verify it no longer exists
-        t.unlink(remote, delete_remote_data=True)
+        t.unlink(delete_remote_data=True)
         with pytest.raises(requests.exceptions.HTTPError) as exc_info:
             print(remote.project_title)
         assert 'Not Found for url' in str(exc_info.value)
@@ -192,7 +198,7 @@ class TestLabelStudio:
         )
 
         # Check that the preannotations sent to Label Studio are what we expect
-        remote = next(iter(t._get_remotes()))
+        remote = t.tbl_version_path.tbl_version.remotes['ls_project_0']
         tasks = remote.project.get_tasks()
         assert len(tasks) == 5
 
@@ -228,7 +234,7 @@ class TestLabelStudio:
         v['annotations'] = pxt.JsonType(nullable=True)
         v.update({'text': 'Initial text'})
 
-        remote = LabelStudioProject.create('test_sync_complex_project', self.test_config_4)
+        remote = LabelStudioProject.create('ls_project_0', 'test_sync_complex_project', self.test_config_4)
         v._link(remote)
 
         reload_catalog()
@@ -253,7 +259,7 @@ class TestLabelStudio:
         t['annotations_col'] = pxt.JsonType(nullable=True)
         from pixeltable.io.label_studio import LabelStudioProject
 
-        remote = LabelStudioProject.create('test_sync_errors_project', self.test_config, media_import_method='post', col_mapping={'image_col': 'image'})
+        remote = LabelStudioProject.create('ls_project_0', 'test_sync_errors_project', self.test_config, media_import_method='post', col_mapping={'image_col': 'image'})
         # Validate that syncing a remote with import_data=True must have an `annotations` column mapping
         t._link(remote)
 
@@ -264,7 +270,7 @@ class TestLabelStudio:
         t.sync(import_data=False)
         t.unlink()
 
-        remote2 = LabelStudioProject.create('test_sync_errors_project', self.test_config, media_import_method='post', col_mapping={'annotations_col': 'annotations'})
+        remote2 = LabelStudioProject.create('ls_project_1', 'test_sync_errors_project', self.test_config, media_import_method='post', col_mapping={'annotations_col': 'annotations'})
         # Validate that syncing a remote with export_data=True must have at least one column to export
         t._link(remote2)
         with pytest.raises(excs.Error) as exc_info:
@@ -276,6 +282,7 @@ class TestLabelStudio:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = LabelStudioProject.create(
+                'ls_project_2',
                 'test_sync_errors_project_2',
                 self.test_config_2,
                 media_import_method='post'
@@ -285,7 +292,7 @@ class TestLabelStudio:
         # Check that we can create a LabelStudioProject on a non-existent project id
         # (this will happen if, for example, a DB reload happens after a synced project has
         # been deleted externally)
-        false_project = LabelStudioProject(4171780, media_import_method='post', col_mapping=None)
+        false_project = LabelStudioProject('false_project', 4171780, media_import_method='post', col_mapping=None)
 
         # But trying to do anything with it raises an exception.
         with pytest.raises(excs.Error) as exc_info:

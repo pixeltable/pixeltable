@@ -720,6 +720,9 @@ class Table(SchemaObject):
         self._check_is_dropped()
         self.tbl_version_path.tbl_version.revert()
 
+    def list_remotes(self) -> list[str]:
+        return list(self.tbl_version_path.tbl_version.remotes.keys())
+
     def _link(
             self,
             remote: 'pixeltable.io.ExternalStore'
@@ -734,8 +737,8 @@ class Table(SchemaObject):
             col_mapping: An optional mapping of columns from this `Table` to columns in the `Remote`.
         """
         self._check_is_dropped()
-        if remote in self._get_remotes():
-            raise excs.Error(f'That remote is already linked to table `{self.get_name()}`: {remote}')
+        if remote.name in self.list_remotes():
+            raise excs.Error(f'Table `{self.get_name()}` already has an external store with that name: {remote.name}')
         _logger.info(f'Linking remote {remote} to table `{self.get_name()}`.')
         remote.validate(self)
         self.tbl_version_path.tbl_version.link(remote)
@@ -743,7 +746,7 @@ class Table(SchemaObject):
 
     def unlink(
             self,
-            remotes: Optional['pixeltable.io.ExternalStore' | list['pixeltable.io.ExternalStore']] = None,
+            remote_names: Optional[str | list[str]] = None,
             *,
             delete_remote_data: bool = False,
             ignore_errors: bool = False
@@ -752,7 +755,7 @@ class Table(SchemaObject):
         Unlinks this table's `Remote`s.
 
         Args:
-            remotes: If specified, will unlink only the specified `Remote` or list of `Remote`s. If not specified,
+            remote_names: If specified, will unlink only the specified `Remote` or list of `Remote`s. If not specified,
                 will unlink all of this table's `Remote`s.
             ignore_errors (bool): If `True`, no exception will be thrown if the specified `Remote` is not linked
                 to this table.
@@ -761,30 +764,22 @@ class Table(SchemaObject):
 
         """
         self._check_is_dropped()
-        all_remotes = self._get_remotes()
+        all_remotes = self.list_remotes()
 
-        if remotes is None:
-            remotes = list(all_remotes)
-        elif isinstance(remotes, pixeltable.io.ExternalStore):
-            remotes = [remotes]
+        if remote_names is None:
+            remote_names = all_remotes
+        elif isinstance(remote_names, str):
+            remote_names = [remote_names]
 
         # Validation
         if not ignore_errors:
-            for remote in remotes:
-                if remote not in all_remotes:
-                    raise excs.Error(f'Remote {remote} is not linked to table `{self.get_name()}`')
+            for remote_name in remote_names:
+                if remote_name not in all_remotes:
+                    raise excs.Error(f'Table `{self.get_name()}` has no remote `{remote_name}`')
 
-        for remote in remotes:
-            self.tbl_version_path.tbl_version.unlink(remote)
-            print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
-            if delete_remote_data:
-                remote.delete()
-
-    def _get_remotes(self) -> list[pixeltable.io.ExternalStore]:
-        """
-        Gets a `dict` of all `Remote`s linked to this table.
-        """
-        return self.tbl_version_path.tbl_version.get_remotes()
+        for remote_name in remote_names:
+            self.tbl_version_path.tbl_version.unlink(remote_name, delete_remote_data=delete_remote_data)
+            print(f'Unlinked remote {remote_name} from table `{self.get_name()}`.')
 
     def sync(
             self,
@@ -799,13 +794,14 @@ class Table(SchemaObject):
             export_data: If `True`, data from this table will be exported to the external store during synchronization.
             import_data: If `True`, data from the external store will be imported to this table during synchronization.
         """
-        remotes = self._get_remotes()
-        assert len(remotes) <= 1
+        remote_names = self.list_remotes()
+        assert len(remote_names) <= 1
 
         from pixeltable.io.external_store import Project
 
         # Validation
-        for remote in remotes:
+        for remote_name in remote_names:
+            remote = self.tbl_version_path.tbl_version.remotes[remote_name]
             if isinstance(remote, Project):
                 col_mapping = remote.col_mapping
                 r_cols = set(col_mapping.values())
@@ -819,5 +815,6 @@ class Table(SchemaObject):
                         f'Attempted to sync with import_data=True, but there are no columns to import: {remote}'
                     )
 
-        for remote in remotes:
+        for remote_name in remote_names:
+            remote = self.tbl_version_path.tbl_version.remotes[remote_name]
             remote.sync(self, export_data=export_data, import_data=import_data)

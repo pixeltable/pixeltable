@@ -48,7 +48,7 @@ class TestProject:
         # Duplicate link
         with pytest.raises(excs.Error) as exc_info:
             t._link(make_remote({'col1': 'push1', 'col2': 'col2'}))
-        assert 'That remote is already linked to table `test_remote`: MockProject `remote`' in str(exc_info.value)
+        assert 'Table `test_remote` already has an external store with that name: remote' in str(exc_info.value)
 
         t.unlink()
 
@@ -171,7 +171,7 @@ class TestProject:
             reload_catalog()
             t = pxt.get_table('test_remote')
 
-        t.unlink(remote1)
+        t.unlink('remote1')
         # Now rot_img_col is still linked through remote2, but rot_other_img_col
         # is not linked to any remote. So just rot_img_col should have a proxy
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 1
@@ -182,6 +182,6 @@ class TestProject:
             reload_catalog()
             t = pxt.get_table('test_remote')
 
-        t.unlink(remote2)
+        t.unlink('remote2')
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking
         assert t.rot_img.col.stored_proxy is None

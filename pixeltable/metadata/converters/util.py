@@ -13,6 +13,7 @@ def convert_table_md(
     engine: sql.engine.Engine,
     column_md_updater: Optional[Callable[[dict], None]] = None,
     remote_md_updater: Optional[Callable[[dict], None]] = None,
+    table_md_updater: Optional[Callable[[dict], None]] = None,
     substitution_fn: Optional[Callable[[Any, Any], Optional[tuple[Any, Any]]]] = None
 ) -> None:
     with engine.begin() as conn:
@@ -21,6 +22,8 @@ def convert_table_md(
             table_md = row[2]
             assert isinstance(table_md, dict)
             updated_table_md = copy.deepcopy(table_md)
+            if table_md_updater is not None:
+                table_md_updater(updated_table_md)
             if column_md_updater is not None:
                 __update_column_md(updated_table_md, column_md_updater)
             if remote_md_updater is not None:

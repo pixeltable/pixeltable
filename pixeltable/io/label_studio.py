@@ -42,14 +42,14 @@ class LabelStudioProject(Project):
     """
     # TODO(aaron-siegel): Add link in docstring to a Label Studio howto
 
-    def __init__(self, project_id: int, media_import_method: Literal['post', 'file'], col_mapping: Optional[dict[str, str]]):
+    def __init__(self, name: str, project_id: int, media_import_method: Literal['post', 'file'], col_mapping: Optional[dict[str, str]]):
         self.project_id = project_id
         self.media_import_method = media_import_method
         self._project: Optional[label_studio_sdk.project.Project] = None
-        super().__init__(col_mapping)
+        super().__init__(name, col_mapping)
 
     @classmethod
-    def create(cls, title: str, label_config: str, media_import_method: Literal['post', 'file'] = 'file', col_mapping: Optional[dict[str, str]] = None, **kwargs: Any) -> 'LabelStudioProject':
+    def create(cls, name: str, title: str, label_config: str, media_import_method: Literal['post', 'file'] = 'file', col_mapping: Optional[dict[str, str]] = None, **kwargs: Any) -> 'LabelStudioProject':
         """
         Creates a new Label Studio project, using the Label Studio client configured in Pixeltable.
 
@@ -91,7 +91,7 @@ class LabelStudioProject(Project):
                 raise  # Handle any other exception type normally
 
         project_id = project.get_params()['id']
-        return LabelStudioProject(project_id, media_import_method, col_mapping)
+        return LabelStudioProject(name, project_id, media_import_method, col_mapping)
 
     @property
     def project(self) -> label_studio_sdk.project.Project:
@@ -373,6 +373,7 @@ class LabelStudioProject(Project):
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            'name': self.name,
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
             'col_mapping': self.col_mapping
@@ -380,7 +381,7 @@ class LabelStudioProject(Project):
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> 'LabelStudioProject':
-        return LabelStudioProject(md['project_id'], md['media_import_method'], md['col_mapping'])
+        return LabelStudioProject(md['name'], md['project_id'], md['media_import_method'], md['col_mapping'])
 
     def __repr__(self) -> str:
         name = self.project.get_params()['title']
