@@ -124,8 +124,6 @@ class LabelStudioProject(Project):
             )
 
     def __update_tasks(self, t: Table, existing_tasks: dict[tuple, dict]) -> None:
-
-        t_col_types = t.column_types()
         config = self.__project_config
 
         # Columns in `t` that map to Label Studio data keys
@@ -133,6 +131,9 @@ class LabelStudioProject(Project):
             t_col_name for t_col_name, r_col_name in self.col_mapping.items()
             if r_col_name in config.data_keys
         ]
+
+        if len(t_data_cols) == 0:
+            return
 
         # Columns in `t` that map to `rectanglelabels` preannotations
         t_rl_cols = [
@@ -192,7 +193,7 @@ class LabelStudioProject(Project):
                     os.remove(file)
 
                 # Update the task with `rowid` metadata
-                self.project.update_task(task_id, meta={'rowid': row.rowid, 'v_min': row.v_min})
+                self.project.update_task(task_id, meta={'rowid': row.rowid})
 
                 # Convert coco annotations to predictions
                 coco_annotations = [row.vals[i] for i in rl_col_idxs]
@@ -267,7 +268,7 @@ class LabelStudioProject(Project):
             ]
             return {
                 'data': dict(zip(r_data_cols, data_vals)),
-                'meta': {'rowid': row.rowid, 'v_min': row.v_min},
+                'meta': {'rowid': row.rowid},
                 'predictions': predictions
             }
 
@@ -276,16 +277,17 @@ class LabelStudioProject(Project):
                 rl_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[:len(t_rl_cols)]]
                 data_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[len(t_rl_cols):]]
             row_ids_in_pxt.add(row.rowid)
-            if row.rowid in existing_tasks:
-                # A task for this row already exists; see if it needs an update.
-                # Get the v_min record from task metadata. Default to 0 if no v_min record is found
-                old_v_min = int(existing_tasks[row.rowid]['meta'].get('v_min', 0))
-                if row.v_min > old_v_min:
-                    _logger.debug(f'Updating task for rowid {row.rowid} ({row.v_min} > {old_v_min}).')
-                    task_info = create_task_info(row)
-                    self.project.update_task(existing_tasks[row.rowid]['id'], **task_info)
-                    tasks_updated += 1
-            else:
+            # TODO(aaron-siegel) Implement update logic (the below logic is not correct)
+            # if row.rowid in existing_tasks:
+            #     # A task for this row already exists; see if it needs an update.
+            #     # Get the v_min record from task metadata. Default to 0 if no v_min record is found
+            #     old_v_min = int(existing_tasks[row.rowid]['meta'].get('v_min', 0))
+            #     if row.v_min > old_v_min:
+            #         _logger.debug(f'Updating task for rowid {row.rowid} ({row.v_min} > {old_v_min}).')
+            #         task_info = create_task_info(row)
+            #         self.project.update_task(existing_tasks[row.rowid]['id'], **task_info)
+            #         tasks_updated += 1
+            if row.rowid not in existing_tasks:
                 # No task exists for this row; we need to create one.
                 page.append(create_task_info(row))
                 tasks_created += 1
