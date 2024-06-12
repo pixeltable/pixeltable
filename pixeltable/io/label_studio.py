@@ -285,19 +285,19 @@ class LabelStudioProject(Project):
                 rl_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[:len(t_rl_cols)]]
                 data_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[len(t_rl_cols):]]
             row_ids_in_pxt.add(row.rowid)
-            # TODO(aaron-siegel) Implement update logic (the below logic is not correct)
-            # if row.rowid in existing_tasks:
-            #     # A task for this row already exists; see if it needs an update.
-            #     # Get the v_min record from task metadata. Default to 0 if no v_min record is found
-            #     old_v_min = int(existing_tasks[row.rowid]['meta'].get('v_min', 0))
-            #     if row.v_min > old_v_min:
-            #         _logger.debug(f'Updating task for rowid {row.rowid} ({row.v_min} > {old_v_min}).')
-            #         task_info = create_task_info(row)
-            #         self.project.update_task(existing_tasks[row.rowid]['id'], **task_info)
-            #         tasks_updated += 1
-            if row.rowid not in existing_tasks:
+            task_info = create_task_info(row)
+            # TODO(aaron-siegel): Implement more efficient update logic (currently involves a full table scan)
+            if row.rowid in existing_tasks:
+                # A task for this row already exists; see if it needs an update.
+                existing_task = existing_tasks[row.rowid]
+                if task_info['data'] != existing_task['data'] or \
+                        task_info['predictions'] != existing_task['predictions']:
+                    _logger.debug(f'Updating task for rowid {row.rowid}.')
+                    self.project.update_task(existing_tasks[row.rowid]['id'], **task_info)
+                    tasks_updated += 1
+            else:
                 # No task exists for this row; we need to create one.
-                page.append(create_task_info(row))
+                page.append(task_info)
                 tasks_created += 1
                 if len(page) == _PAGE_SIZE:
                     self.project.import_tasks(page)
@@ -308,7 +308,7 @@ class LabelStudioProject(Project):
 
         print(f'Created {tasks_created} new task(s) and updated {tasks_updated} existing task(s) in {self}.')
 
-        sync_status = SyncStatus(external_rows_created=tasks_created)
+        sync_status = SyncStatus(external_rows_created=tasks_created, external_rows_updated=tasks_updated)
 
         deletion_sync_status = self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
 

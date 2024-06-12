@@ -218,7 +218,7 @@ class TestLabelStudio:
         assert len(annotations) == ann_count
         assert all(annotations[i][0]['result'][0]['class'] == 'Cat' for i in range(ann_count)), annotations
 
-        # Sync the annotations again, verify that there are no new updates (nothing happens)
+        # Sync the annotations again, verify that there are no changes (no writes should happen)
         sync_status = t.sync()
         validate_sync_status(sync_status, 0, 0, 0, 0, 0)
 
@@ -361,20 +361,24 @@ class TestLabelStudio:
 
         reload_catalog()
         v = pxt.get_table('frames_view')
-        sync_status = v.sync()
+        sync_status = v.sync()  # Verify that this has no effect
         validate_sync_status(sync_status, 0, 0, 0, 0, 0)
         store = v.tbl_version_path.tbl_version.external_stores['complex_project']
         tasks: list[dict] = store.project.get_tasks()
         assert len(tasks) == 10
 
-        # Test that update propagation works
-        # v.update({'text': 'New text'}, v.frame_idx.isin([3, 8]))
-        # assert all(tasks[i]['data']['text'] == 'Initial text' for i in range(10))  # Before syncing
-        # v.sync()
-        # tasks = store.project.get_tasks()
-        # assert len(tasks) == 10
-        # assert sum(tasks[i]['data']['text'] == 'New text' for i in range(10)) == 2  # After syncing
-        # assert sum(tasks[i]['data']['text'] == 'Initial text' for i in range(10)) == 8
+        # Update a few rows in Pixeltable and check that they sync properly
+        v.update({'text': 'New text'}, v.frame_idx.isin([3, 8]))
+        assert all(tasks[i]['data']['text'] == 'Initial text' for i in range(10))  # Before syncing
+        sync_status = v.sync()
+        validate_sync_status(sync_status, 0, 2, 0, 0, 0)
+        tasks = store.project.get_tasks()
+        assert len(tasks) == 10
+        assert sum(tasks[i]['data']['text'] == 'New text' for i in range(10)) == 2  # After syncing
+        assert sum(tasks[i]['data']['text'] == 'Initial text' for i in range(10)) == 8
+
+        sync_status = v.sync()  # Should have no further effect
+        validate_sync_status(sync_status, 0, 0, 0, 0, 0)
 
     def test_label_studio_sync_errors(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
