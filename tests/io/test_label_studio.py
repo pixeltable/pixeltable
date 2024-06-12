@@ -14,7 +14,7 @@ import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
 from pixeltable.functions.string import str_format
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
-                     SAMPLE_IMAGE_URL, get_video_files)
+                     SAMPLE_IMAGE_URL, get_video_files, get_audio_files)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -34,7 +34,16 @@ class TestLabelStudio:
     test_config_video = """
     <View>
         <Video name="video_object" value="$video"/>
-        <Choices name="video_class" toName="video_object">
+        <Choices name="class" toName="video_object">
+          <Choice value="Cat"/>
+          <Choice value="Dog"/>
+        </Choices>
+    </View>
+    """
+    test_config_audio = """
+    <View>
+        <Audio name="audio_object" value="$audio"/>
+        <Choices name="class" toName="audio_object">
           <Choice value="Cat"/>
           <Choice value="Dog"/>
         </Choices>
@@ -139,7 +148,7 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         self.__test_label_studio_sync(ls_image_table, self.test_config_image, media_import_method, sync_col, 'image')
 
-    # TODO(aaron-siegel): 'file' is not working for videos yet.
+    # TODO(aaron-siegel): 'file' is not working for videos or audio yet.
     @pytest.mark.parametrize('media_import_method', ['post', 'url'])
     def test_label_studio_sync_videos(
             self,
@@ -148,6 +157,15 @@ class TestLabelStudio:
     ) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         self.__test_label_studio_sync(ls_video_table, self.test_config_video, media_import_method, 'video_col', 'video')
+
+    @pytest.mark.parametrize('media_import_method', ['post', 'url'])
+    def test_label_studio_sync_audio(
+            self,
+            ls_audio_table: pxt.InsertableTable,
+            media_import_method: Literal['post', 'file', 'url']
+    ) -> None:
+        skip_test_if_not_installed('label_studio_sdk')
+        self.__test_label_studio_sync(ls_audio_table, self.test_config_audio, media_import_method, 'audio_col', 'audio')
 
     @classmethod
     def __test_label_studio_sync(
@@ -397,6 +415,19 @@ def ls_video_table(init_ls, reset_db) -> pxt.InsertableTable:
     ]
     status = t.insert({'id': n, 'video_col': video} for n, video in enumerate(videos))
     validate_update_status(status, expected_rows=len(videos))
+    return t
+
+
+@pytest.fixture(scope='function')
+def ls_audio_table(init_ls, reset_db) -> pxt.InsertableTable:
+    skip_test_if_not_installed('label_studio_sdk')
+    t = pxt.create_table(
+        'test_ls_sync',
+        {'id': pxt.IntType(), 'audio_col': pxt.AudioType()}
+    )
+    audio = get_audio_files()
+    status = t.insert({'id': n, 'audio_col': audio} for n, audio in enumerate(audio))
+    validate_update_status(status, expected_rows=len(audio))
     return t
 
 
