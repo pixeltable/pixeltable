@@ -786,7 +786,7 @@ class Table(SchemaObject):
             *,
             export_data: bool = True,
             import_data: bool = True
-    ):
+    ) -> 'pixeltable.io.SyncStatus':
         """
         Synchronizes this table with its linked external stores.
 
@@ -808,6 +808,12 @@ class Table(SchemaObject):
             if store not in all_stores:
                 raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
 
+        from pixeltable.io import SyncStatus
+
+        sync_status = SyncStatus.empty()
         for store in stores:
             store_obj = self.tbl_version_path.tbl_version.external_stores[store]
-            store_obj.sync(self, export_data=export_data, import_data=import_data)
+            store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)
+            sync_status = sync_status.combine(store_sync_status)
+
+        return sync_status

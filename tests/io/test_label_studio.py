@@ -14,7 +14,7 @@ import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
 from pixeltable.functions.string import str_format
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
-                     SAMPLE_IMAGE_URL, get_video_files, get_audio_files)
+                     SAMPLE_IMAGE_URL, get_video_files, get_audio_files, validate_sync_status)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -176,17 +176,18 @@ class TestLabelStudio:
             sync_col: str,
             r_col: str
     ) -> None:
-        pxt.io.create_label_studio_project(
+        sync_status = pxt.io.create_label_studio_project(
             t,
             label_config=label_config,
             media_import_method=media_import_method,
             col_mapping={sync_col: r_col, 'annotations_col': 'annotations'}
         )
+        t_count = t.count()
+        validate_sync_status(sync_status, t_count, 0, 0, 0, 0)
 
         # Check that the project and tasks were properly created
         store = t.tbl_version_path.tbl_version.external_stores['ls_project_0']
         tasks = store.project.get_tasks()
-        t_count = t.count()
         assert len(tasks) == t_count
         assert all(task['data'][r_col] for task in tasks)
         if media_import_method == 'file':
@@ -209,17 +210,23 @@ class TestLabelStudio:
         # Import the annotations back to Pixeltable
         reload_catalog()
         t = pxt.get_table('test_ls_sync')
-        t.sync()
+        ann_count = min(10, t_count)
+        sync_status = t.sync()
+        validate_sync_status(sync_status, 0, 0, 0, ann_count, 0)
         annotations_col = t.collect()['annotations_col']
         annotations = [a for a in annotations_col if a is not None]
-        ann_count = min(10, t_count)
         assert len(annotations) == ann_count
         assert all(annotations[i][0]['result'][0]['class'] == 'Cat' for i in range(ann_count)), annotations
+
+        # Sync the annotations again, verify that there are no new updates (nothing happens)
+        sync_status = t.sync()
+        validate_sync_status(sync_status, 0, 0, 0, 0, 0)
 
         # Delete some random rows in Pixeltable and sync external stores again
         rows_to_delete = range(0, t_count, 3)
         validate_update_status(t.delete(where=t.id.isin(rows_to_delete)), expected_rows=len(rows_to_delete))
-        t.sync()
+        sync_status = t.sync()
+        validate_sync_status(sync_status, 0, 0, len(rows_to_delete), 0, 0)
 
         # Verify that the tasks were deleted by calling the Label Studio API directly
         tasks = store.project.get_tasks()
@@ -232,7 +239,7 @@ class TestLabelStudio:
         assert 'Not Found for url' in str(exc_info.value)
 
         # External store with no `annotations` col; will skip import
-        pxt.io.create_label_studio_project(
+        sync_status = pxt.io.create_label_studio_project(
             t,
             label_config,
             name='custom_name',
@@ -240,9 +247,11 @@ class TestLabelStudio:
             media_import_method=media_import_method,
             col_mapping={sync_col: r_col}
         )
+        validate_sync_status(sync_status, t.count(), 0, 0, 0, 0)
         t.unlink('custom_name', delete_external_data=True)
 
         # External store with no columns to export; will skip export
+        # TODO(aaron-siegel) This should probably just be an error?
         pxt.io.create_label_studio_project(
             t,
             label_config,
@@ -267,12 +276,13 @@ class TestLabelStudio:
         t['detect'] = detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50')
         t['preannotations'] = detr_to_coco(t.image_col, t.detect)
 
-        pxt.io.create_label_studio_project(
+        sync_status = pxt.io.create_label_studio_project(
             t,
             label_config=self.test_config_with_rl,
             media_import_method='post',
             col_mapping={'image_col': 'frame', 'preannotations': 'obj_label', 'annotations_col': 'annotations'}
         )
+        validate_sync_status(sync_status, t.count(), 0, 0, 0, 0)
 
         # Check that the preannotations sent to Label Studio are what we expect
         store = t.tbl_version_path.tbl_version.external_stores['ls_project_0']
@@ -302,12 +312,13 @@ class TestLabelStudio:
 
         # Link a project to the view, but with annotations going to a column of the base table,
         # and ensure that they propagate correctly.
-        pxt.io.create_label_studio_project(
+        sync_status = pxt.io.create_label_studio_project(
             v2,
             label_config=self.test_config_image,
             media_import_method='post',
             col_mapping={'image_col': 'image', 'annotations_col': 'annotations'}
         )
+        validate_sync_status(sync_status, v2.count(), 0, 0, 0, 0)
         store = v2.tbl_version_path.tbl_version.external_stores['ls_project_0']
         tasks = store.project.get_tasks()
         assert len(tasks) == 10
@@ -320,7 +331,8 @@ class TestLabelStudio:
                 result=[{'image_class': 'Dog'}]
             )
             assert len(store.project.get_task(task_id)['annotations']) == 1
-        v2.sync()
+        sync_status = v2.sync()
+        validate_sync_status(sync_status, 0, 0, 0, 5, 0)
         annotations_col = t.collect()['annotations_col']  # collect() from base table
         annotations = [a for a in annotations_col if a is not None]
         assert len(annotations) == 5
@@ -344,11 +356,13 @@ class TestLabelStudio:
         v['text'] = pxt.StringType(nullable=True)
         v.update({'text': 'Initial text'})
 
-        pxt.io.create_label_studio_project(v, self.test_config_complex, media_import_method='file', name='complex_project')
+        sync_status = pxt.io.create_label_studio_project(v, self.test_config_complex, media_import_method='file', name='complex_project')
+        validate_sync_status(sync_status, v.count(), 0, 0, 0, 0)
 
         reload_catalog()
         v = pxt.get_table('frames_view')
-        v.sync()
+        sync_status = v.sync()
+        validate_sync_status(sync_status, 0, 0, 0, 0, 0)
         store = v.tbl_version_path.tbl_version.external_stores['complex_project']
         tasks: list[dict] = store.project.get_tasks()
         assert len(tasks) == 10

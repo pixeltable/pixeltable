@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import itertools
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import pixeltable.exceptions as excs
@@ -24,7 +25,7 @@ class ExternalStore(abc.ABC):
         return self.__name
 
     @abc.abstractmethod
-    def sync(self, t: Table, export_data: bool, import_data: bool) -> None:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
         """
         Called by `Table.sync()` to implement store-specific synchronization logic.
         """
@@ -129,6 +130,28 @@ class Project(ExternalStore, abc.ABC):
                     raise excs.Error(
                         f'Column `{t_col}` cannot be imported from external column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
                     )
+
+
+@dataclass(frozen=True)
+class SyncStatus:
+    external_rows_created: int = 0
+    external_rows_deleted: int = 0
+    external_rows_updated: int = 0
+    pxt_rows_updated: int = 0
+    num_excs: int = 0
+
+    def combine(self, other: 'SyncStatus') -> 'SyncStatus':
+        return SyncStatus(
+            external_rows_created=self.external_rows_created + other.external_rows_created,
+            external_rows_deleted=self.external_rows_deleted + other.external_rows_deleted,
+            external_rows_updated=self.external_rows_updated + other.external_rows_updated,
+            pxt_rows_updated=self.pxt_rows_updated + other.pxt_rows_updated,
+            num_excs=self.num_excs + other.num_excs
+        )
+
+    @classmethod
+    def empty(cls) -> 'SyncStatus':
+        return SyncStatus(0, 0, 0, 0, 0)
 
 
 # A project that cannot be synced, used mainly for testing.

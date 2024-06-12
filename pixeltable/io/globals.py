@@ -1,6 +1,7 @@
 from typing import Any, Optional, Literal
 
 from pixeltable import Table
+from pixeltable.io.external_store import SyncStatus
 
 
 def create_label_studio_project(
@@ -12,7 +13,7 @@ def create_label_studio_project(
         col_mapping: Optional[dict[str, str]] = None,
         sync_immediately: bool = True,
         **kwargs: Any
-) -> None:
+) -> SyncStatus:
     # TODO(aaron-siegel): Add link in docstring to a Label Studio howto
     """
     Creates a new Label Studio project and links it to the specified `Table`.
@@ -79,4 +80,6 @@ def create_label_studio_project(
     # Link the project to `t`, and sync if appropriate.
     t._link(ls_project)
     if sync_immediately:
-        t.sync()
+        return t.sync()
+    else:
+        return SyncStatus.empty()
