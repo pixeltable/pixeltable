@@ -452,7 +452,7 @@ def ls_audio_table(init_ls, reset_db) -> pxt.InsertableTable:
 @pytest.fixture(scope='session')
 def init_ls(init_env) -> None:
     skip_test_if_not_installed('label_studio_sdk')
-    ls_version = '1.11.0'
+    ls_version = '1.12.1'
     ls_port = 31713
     ls_url = f'http://localhost:{ls_port}/'
     _logger.info('Setting up a venv the Label Studio pytext fixture.')
