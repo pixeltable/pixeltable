@@ -991,7 +991,6 @@ class TableVersion:
                 self.schema_version = self.version
                 proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
                 # Add the columns; this will also update table metadata.
-                # TODO Add to base tables
                 self._add_columns(proxy_cols, conn)
                 # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
                 # invisible to the user.
@@ -1003,6 +1002,9 @@ class TableVersion:
         assert col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and not col.stored_proxy
         proxy_col = Column(
             name=None,
+            # Force images in the proxy column to be materialized inside the media store,
+            # in a normalized format.
+            # TODO This does not work for video or audio.
             computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
             stored=True,
             col_id=self.next_col_id,
@@ -1043,7 +1045,6 @@ class TableVersion:
                     assert col.stored_proxy is not None and col.stored_proxy.proxy_base == col
                     col.stored_proxy.proxy_base = None
                     col.stored_proxy = None
-                # TODO Drop from base tables
                 self._drop_columns(proxy_cols)
             self._update_md(timestamp, preceding_schema_version, conn)
 
