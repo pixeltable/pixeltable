@@ -1,4 +1,4 @@
-from typing import Callable, TypeVar, Optional
+from typing import Callable, TypeVar, Optional, Any
 
 import PIL.Image
 import numpy as np
@@ -143,6 +143,25 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
         }
         for result in results
     ]
+
+
+@pxt.udf
+def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str, Any]:
+    bboxes, labels = detr_info['boxes'], detr_info['labels']
+    annotations = [
+        {
+            'bbox': [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]],
+            'category': label
+        }
+        for bbox, label in zip(bboxes, labels)
+    ]
+    return {
+        'image': {
+            'width': image.width,
+            'height': image.height
+        },
+        'annotations': annotations
+    }
 
 
 T = TypeVar('T')

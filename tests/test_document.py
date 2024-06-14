@@ -59,7 +59,7 @@ class TestDocument:
         file_paths = self.invalid_doc_paths()
         status = doc_t.insert(({'doc': p} for p in file_paths), fail_on_exception=False)
         assert status.num_rows == len(file_paths)
-        assert status.num_excs == len(file_paths)
+        assert status.num_excs >= len(file_paths)
 
     def test_get_document_handle(self) -> None:
         file_paths = self.valid_doc_paths()

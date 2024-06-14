@@ -217,15 +217,15 @@ class Planner:
         plan = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
 
         media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
+        if len(media_input_cols) > 0:
+            # prefetch external files for all input column refs for validation
+            plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
+            plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
 
-        # prefetch external files for all input column refs for validation
-        plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
-        plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
-
-        computed_exprs = row_builder.default_eval_ctx.target_exprs
+        computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
         if len(computed_exprs) > 0:
             # add an ExprEvalNode when there are exprs to compute
-            plan = exec.ExprEvalNode(row_builder, computed_exprs, [], input=plan)
+            plan = exec.ExprEvalNode(row_builder, computed_exprs, plan.output_exprs, input=plan)
 
         plan.set_stored_img_cols(stored_img_col_info)
         plan.set_ctx(
@@ -251,7 +251,7 @@ class Planner:
         Returns:
             - root node of the plan
             - list of qualified column names that are getting updated
-            - list of columns that are being recomputed
+            - list of user-visible columns that are being recomputed
         """
         # retrieve all stored cols and all target exprs
         assert isinstance(tbl, catalog.TableVersionPath)
@@ -260,7 +260,10 @@ class Planner:
         if len(recompute_targets) > 0:
             recomputed_cols = recompute_targets.copy()
         else:
-            recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else {}
+            recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
+            # regardless of cascade, we need to update all indices on any updated column
+            idx_val_cols = target.get_idx_val_columns(updated_cols)
+            recomputed_cols.update(idx_val_cols)
             # we only need to recompute stored columns (unstored ones are substituted away)
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
@@ -273,8 +276,8 @@ class Planner:
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
         # recomputed cols reference the new values of the updated cols
-        for col, e in update_targets.items():
-            exprs.Expr.list_substitute(recomputed_exprs, exprs.ColumnRef(col), e)
+        spec = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
+        exprs.Expr.list_substitute(recomputed_exprs, spec)
         select_list.extend(recomputed_exprs)
 
         # we need to retrieve the PK columns of the existing rows
@@ -282,7 +285,8 @@ class Planner:
         all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
         [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
-        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + list(recomputed_cols)], list(recomputed_cols)
+        recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
+        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
     def create_view_update_plan(
@@ -351,7 +355,8 @@ class Planner:
         # - we can ignore stored non-computed columns because they have a default value that is supplied directly by
         #   the store
         target = view.tbl_version  # the one we need to populate
-        stored_cols = [c for c in target.cols if c.is_stored and (c.is_computed or target.is_iterator_column(c))]
+        #stored_cols = [c for c in target.cols if c.is_stored and (c.is_computed or target.is_iterator_column(c))]
+        stored_cols = [c for c in target.cols if c.is_stored]
         # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 

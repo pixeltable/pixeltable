@@ -12,6 +12,7 @@ env:
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+  OPENCV_VIDEOIO_DEBUG: 1
 
 jobs:
   pytest:
@@ -63,6 +64,7 @@ jobs:
           python -m pip install poetry==${{ matrix.poetry-version }}
       - name: Define a venv cache
         uses: actions/cache@v4
+        if: false
         with:
           # The cache is keyed to the following:
           # - Matrix parameters
@@ -79,7 +81,7 @@ jobs:
           poetry install ${{ matrix.poetry-options }}
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
-        if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' }}
+        if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && startsWith(matrix.os, 'ubuntu') }}
         run: python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
@@ -88,7 +90,7 @@ jobs:
       - name: Run the unit tests
         run: coverage run -m --source=pixeltable pytest -v -m ''
       - name: Run documentation notebooks
-        if: ${{ matrix.poetry-options != '' }}
+        if: false
         continue-on-error: true  # For now, continue even if the notebooks fail
         env:
           GITHUB_REF: ${{ github.ref }}

@@ -13,6 +13,10 @@ without having to construct [`DataFrame`][pixeltable.DataFrame] instances explic
       - describe
       - df
       - head
+      - link
+      - unlink
+      - sync
+      - get_remotes
       - select
       - show
       - where

@@ -141,8 +141,10 @@ class TestHuggingface:
 
     def test_detr_for_object_detection(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
-        t = pxt.create_table('test_tbl', {'img': ImageType()})
         from pixeltable.functions.huggingface import detr_for_object_detection
+        from pixeltable.utils import coco
+
+        t = pxt.create_table('test_tbl', {'img': ImageType()})
         t['detect'] = detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
         status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
@@ -151,3 +153,7 @@ class TestHuggingface:
         assert 'orange' in result['label_text']
         assert 'bowl' in result['label_text']
         assert 'broccoli' in result['label_text']
+        label_text = {coco.COCO_2017_CATEGORIES[i] for i in result['labels']}
+        assert 'orange' in label_text
+        assert 'bowl' in label_text
+        assert 'broccoli' in label_text

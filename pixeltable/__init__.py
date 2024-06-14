@@ -1,5 +1,7 @@
 from .catalog import Column, Table, InsertableTable, View
 from .dataframe import DataFrame
+from .datatransfer import Remote
+from .catalog import Column, Table, InsertableTable, View
 from .exceptions import Error, Error
 from .exprs import RELATIVE_PATH_ROOT
 from .func import Function, udf, uda, Aggregator, expr_udf

@@ -74,10 +74,10 @@ class RowBuilder:
         # - explicitly requested output_exprs
         # - values for computed columns
         resolve_cols = set(columns)
-        self.output_exprs = [
+        self.output_exprs = ExprSet([
             self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
             for e in output_exprs
-        ]
+        ])
 
         # record columns for create_table_row()
         from .column_ref import ColumnRef
@@ -88,16 +88,15 @@ class RowBuilder:
                 # create a copy here so we don't reuse execution state and resolve references to computed columns
                 expr = col.value_expr.copy().resolve_computed_cols(resolve_cols=resolve_cols)
                 expr = self._record_unique_expr(expr, recursive=True)
-                self.add_table_column(col, expr.slot_idx)
-                self.output_exprs.append(expr)
             else:
                 # record a ColumnRef so that references to this column resolve to the same slot idx
-                ref = ColumnRef(col)
-                ref = self._record_unique_expr(ref, recursive=False)
-                self.add_table_column(col, ref.slot_idx)
+                expr = ColumnRef(col)
+                expr = self._record_unique_expr(expr, recursive=False)
+            self.add_table_column(col, expr.slot_idx)
+            self.output_exprs.append(expr)
 
         # default eval ctx: all output exprs
-        self.default_eval_ctx = self.create_eval_ctx(self.output_exprs, exclude=unique_input_exprs)
+        self.default_eval_ctx = self.create_eval_ctx(list(self.output_exprs), exclude=unique_input_exprs)
 
         # references to unstored iterator columns:
         # - those ColumnRefs need to instantiate iterators
@@ -158,9 +157,9 @@ class RowBuilder:
     def num_materialized(self) -> int:
         return self.next_slot_idx
 
-    def get_output_exprs(self) -> List[Expr]:
+    def get_output_exprs(self) -> list[Expr]:
         """Returns exprs that were requested in the c'tor and require evaluation"""
-        return self.output_exprs
+        return list(self.output_exprs)
 
     def _next_slot_idx(self) -> int:
         result = self.next_slot_idx
@@ -252,7 +251,7 @@ class RowBuilder:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def create_eval_ctx(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> EvalCtx:
+    def create_eval_ctx(self, targets: list[Expr], exclude: Optional[list[Expr]] = None) -> EvalCtx:
         """Return EvalCtx for targets"""
         if exclude is None:
             exclude = []
