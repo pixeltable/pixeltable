@@ -14,7 +14,7 @@ from yolox.utils import postprocess
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.func import Batch
-from pixeltable.functions.util import resolve_torch_device
+from pixeltable.functions.util import normalize_image_mode
 
 _logger = logging.getLogger('pixeltable')
 
@@ -74,11 +74,7 @@ def yolo_to_coco(detections: dict) -> list:
 
 def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: Exp) -> Iterator[torch.Tensor]:
     for image in images:
-        # Convert grayscale images to 3-channel
-        if image.mode == '1' or image.mode == 'L':
-            image = image.convert('RGB')
-        elif image.mode == 'LA':
-            image = image.convert('RGBA')
+        image = normalize_image_mode(image)
         image_transform, _ = _val_transform(np.array(image), None, exp.test_size)
         yield torch.from_numpy(image_transform)
 

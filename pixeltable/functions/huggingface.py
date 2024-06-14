@@ -7,7 +7,7 @@ import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.type_system as ts
 from pixeltable.func import Batch
-from pixeltable.functions.util import resolve_torch_device
+from pixeltable.functions.util import resolve_torch_device, normalize_image_mode
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
@@ -126,7 +126,7 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
     model = _lookup_model(
         model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'), device=device)
     processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision='no_timm'))
-    normalized_images = [__normalize_mode(img) for img in image]
+    normalized_images = [normalize_image_mode(img) for img in image]
 
     with torch.no_grad():
         inputs = processor(images=normalized_images, return_tensors='pt')
@@ -144,14 +144,6 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
         }
         for result in results
     ]
-
-
-def __normalize_mode(image: PIL.Image.Image) -> PIL.Image.Image:
-    if image.mode == '1' or image.mode == 'L':
-        return image.convert('RGB')
-    elif image.mode == 'LA':
-        return image.convert('RGBA')
-    return image
 
 
 @pxt.udf
