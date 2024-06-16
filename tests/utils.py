@@ -294,7 +294,9 @@ def get_image_files(include_bad_image: bool = False) -> list[str]:
     global __IMAGE_FILES, __IMAGE_FILES_WITH_BAD_IMAGE
     if not __IMAGE_FILES:
         tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
-        glob_result = glob.glob(f'{tests_dir}/data/imagenette2-160/*.JPEG')
+        img_files_path = Path(tests_dir) / 'data' / 'imagenette2-160'
+        glob_result = glob.glob(f'{img_files_path}/*.JPEG')
+        assert len(glob_result) > 1000
         bad_image = next(f for f in glob_result if 'bad_image' in f)
         good_images = [(__image_mode(f), f) for f in glob_result if 'bad_image' not in f]
         # Group images by mode
