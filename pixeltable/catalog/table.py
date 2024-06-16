@@ -743,8 +743,8 @@ class Table(SchemaObject):
             else:
                 function_path = None
             import pixeltable.func as func
-            template = func.QueryTemplate(py_fn, param_types=param_types, path=function_path, name=py_fn.__name__)
-            query_fn = template.bind(self)
+            query_fn = func.QueryTemplateFunction.create(
+                py_fn, param_types=param_types, path=function_path, name=py_fn.__name__)
             query_name = py_fn.__name__
             if query_name in self.column_names():
                 raise excs.Error(f'Query name {query_name} conflicts with existing column')

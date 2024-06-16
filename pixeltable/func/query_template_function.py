@@ -11,36 +11,35 @@ from .function import Function
 from .signature import Signature, Parameter
 
 
-class QueryTemplate:
-    def __init__(self, template_callable: Callable, param_types: Optional[list[ts.ColumnType]], path: str, name: str):
-        self.template_callable = template_callable
-        sig = inspect.signature(template_callable)
-        py_params = list(sig.parameters.values())
-        self.params = Signature.create_parameters(py_params=py_params, param_types=param_types)
-        self.params_by_name = {p.name: p for p in self.params}
-        self.path = path
-        self.name = name
-
-    def bind(self, t: pixeltable.Table) -> QueryTemplateFunction:
-        import pixeltable.exprs as exprs
-        var_exprs = [exprs.Variable(param.name, param.col_type) for param in self.params]
-        # call the function with the parameter expressions to construct a DataFrame with parameters
-        template = self.template_callable(*var_exprs)
-        from pixeltable import DataFrame
-        assert isinstance(template, DataFrame)
-        sig = Signature(return_type=ts.JsonType(), parameters=self.params)
-        return QueryTemplateFunction(template, sig, self_path=self.path, name=self.name)
-
-
 class QueryTemplateFunction(Function):
     """A parameterized query/DataFrame from which an executable DataFrame is created with a function call."""
 
+    @classmethod
+    def create(
+            cls, template_callable: Callable, param_types: Optional[list[ts.ColumnType]], path: str, name: str
+    ) -> QueryTemplateFunction:
+        # we need to construct a template df and a signature
+        py_sig = inspect.signature(template_callable)
+        py_params = list(py_sig.parameters.values())
+        params = Signature.create_parameters(py_params=py_params, param_types=param_types)
+        # invoke template_callable with parameter expressions to construct a DataFrame with parameters
+        import pixeltable.exprs as exprs
+        var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
+        template_df = template_callable(*var_exprs)
+        from pixeltable import DataFrame
+        assert isinstance(template_df, DataFrame)
+        # we take params and return json
+        sig = Signature(return_type=ts.JsonType(), parameters=params)
+        return QueryTemplateFunction(template_df, sig, path=path, name=name)
+
     def __init__(
-            self, df: 'pixeltable.DataFrame', sig: Signature, self_path: Optional[str] = None,
-            name: Optional[str] = None):
-        self.df = df
+            self, template_df: Optional['pixeltable.DataFrame'], sig: Optional[Signature], path: Optional[str] = None,
+            name: Optional[str] = None,
+    ):
+        super().__init__(sig, self_path=path)
         self.self_name = name
-        self.param_types = df.parameters()
+        self.template_df = template_df
+
         # if we're running as part of an ongoing update operation, we need to use the same connection, otherwise
         # we end up with a deadlock
         # TODO: figure out a more general way to make execution state available
@@ -48,14 +47,13 @@ class QueryTemplateFunction(Function):
 
         # convert defaults to Literals
         import pixeltable.exprs as exprs
-        self.defaults: Dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
-        for param in [p for p in sig.parameters.values() if p.has_default()]:
-            assert param.name in self.param_types
-            param_type = self.param_types[param.name]
+        self.defaults: dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
+        param_types = self.template_df.parameters()
+        for param in [p for p in self.signature.parameters.values() if p.has_default()]:
+            assert param.name in param_types
+            param_type = param_types[param.name]
             literal_default = exprs.Literal(param.default, col_type=param_type)
             self.defaults[param.name] = literal_default
-
-        super().__init__(sig, self_path=self_path)
 
     def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
         self.conn = conn
@@ -65,7 +63,7 @@ class QueryTemplateFunction(Function):
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})
-        bound_df = self.df.bind(bound_args)
+        bound_df = self.template_df.bind(bound_args)
         result = bound_df._collect(self.conn)
         return list(result)
 
@@ -78,7 +76,7 @@ class QueryTemplateFunction(Function):
         return self.self_name
 
     def _as_dict(self) -> Dict:
-        return {'name': self.name, 'signature': self.signature.as_dict(), 'df': self.df.as_dict()}
+        return {'name': self.name, 'signature': self.signature.as_dict(), 'df': self.template_df.as_dict()}
 
     @classmethod
     def _from_dict(cls, d: Dict) -> Function:

@@ -107,6 +107,8 @@ class Column:
     @property
     def value_expr(self) -> Optional['Expr']:
         """Instantiate value_expr on-demand"""
+        # TODO: instantiate expr in the c'tor and add an Expr.prepare() that can create additional state after the
+        # catalog has been fully loaded; that way, we encounter bugs in the serialization/deserialization logic earlier
         if self.value_expr_dict is not None and self._value_expr is None:
             from pixeltable import exprs
             self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)

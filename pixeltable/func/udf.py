@@ -10,7 +10,6 @@ from .expr_template_function import ExprTemplateFunction
 from .function import Function
 from .function_registry import FunctionRegistry
 from .globals import validate_symbol_path
-from .query_template_function import QueryTemplate
 from .signature import Signature
 
 
