@@ -30,6 +30,8 @@ class Dumper:
         os.environ['PIXELTABLE_DB'] = db_name
         os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 
+        Env._init_env(reinit_db=True)
+
         Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
 
     def dump_db(self) -> None:
@@ -164,7 +166,7 @@ class Dumper:
 
         # Add remotes
         from pixeltable.datatransfer.remote import MockRemote
-        v.link_remote(
+        v._link(
             MockRemote({'int_field': pxt.IntType()}, {'str_field': pxt.StringType()}),
             col_mapping={'test_udf': 'int_field', 'c1': 'str_field'}
         )
