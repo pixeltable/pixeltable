@@ -55,7 +55,7 @@ class View(Table):
 
         # verify that filter can be evaluated in the context of the base
         if predicate is not None:
-            if not predicate.is_bound_by(base.tbl_version_path):
+            if not predicate.is_bound_by(base._tbl_version_path):
                 raise excs.Error(f'Filter cannot be computed in the context of the base {base._name}')
             # create a copy that we can modify and store
             predicate = predicate.copy()
@@ -65,7 +65,7 @@ class View(Table):
             if not col.is_computed:
                 continue
             # make sure that the value can be computed in the context of the base
-            if col.value_expr is not None and not col.value_expr.is_bound_by(base.tbl_version_path):
+            if col.value_expr is not None and not col.value_expr.is_bound_by(base._tbl_version_path):
                 raise excs.Error(
                     f'Column {col.name}: value expression cannot be computed in the context of the base {base._name}')
 
@@ -114,7 +114,7 @@ class View(Table):
             iterator_args_expr = InlineDict(iterator_args) if iterator_args is not None else None
             iterator_class_fqn = f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None \
                 else None
-            base_version_path = cls._get_snapshot_path(base.tbl_version_path) if is_snapshot else base.tbl_version_path
+            base_version_path = cls._get_snapshot_path(base._tbl_version_path) if is_snapshot else base._tbl_version_path
             base_versions = [
                 (tbl_version.id.hex, tbl_version.version if is_snapshot or tbl_version.is_snapshot else None)
                 for tbl_version in base_version_path.get_tbl_versions()
@@ -148,7 +148,7 @@ class View(Table):
                 _logger.info(f'Created view `{name}`, id={tbl_version.id}')
 
                 from pixeltable.plan import Planner
-                plan, num_values_per_row = Planner.create_view_load_plan(view.tbl_version_path)
+                plan, num_values_per_row = Planner.create_view_load_plan(view._tbl_version_path)
                 num_rows, num_excs, cols_with_excs = tbl_version.store_tbl.insert_rows(
                     plan, session.connection(), v_min=tbl_version.version)
                 print(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')

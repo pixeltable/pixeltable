@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Optional, Any, Tuple
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -38,7 +38,7 @@ class ColumnRef(Expr):
         self.iter_arg_ctx = iter_arg_ctx
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[Tuple[str, Any]]:
         return super()._id_attrs() + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id)]
 
     def __getattr__(self, name: str) -> Expr:
@@ -100,7 +100,7 @@ class ColumnRef(Expr):
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         tbl = self.col.tbl
         version = tbl.version if tbl.is_snapshot else None
         return {'tbl_id': str(tbl.id), 'tbl_version': version, 'col_id': self.col.id}
@@ -114,6 +114,6 @@ class ColumnRef(Expr):
         return col
 
     @classmethod
-    def _from_dict(cls, d: Dict, _: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, _: list[Expr]) -> Expr:
         col = cls.get_column(d)
         return cls(col)

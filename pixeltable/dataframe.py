@@ -9,7 +9,7 @@ import logging
 import mimetypes
 import traceback
 from pathlib import Path
-from typing import List, Optional, Any, Dict, Generator, Tuple, Set
+from typing import List, Optional, Any, Dict, Iterator, Tuple, Set
 
 import PIL.Image
 import cv2
@@ -375,7 +375,7 @@ class DataFrame:
         vars = self._vars()
         return {name: var.col_type for name, var in vars.items()}
 
-    def _exec(self, conn: Optional[sql.engine.Connection] = None) -> Generator[exprs.DataRow, None, None]:
+    def _exec(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[exprs.DataRow]:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
@@ -402,7 +402,7 @@ class DataFrame:
             limit=self.limit_val if self.limit_val is not None else 0,
         )  # limit_val == 0: no limit_val
 
-        def exec_plan(conn: sql.engine.Connection) -> Generator[exprs.DataRow, None, None]:
+        def exec_plan(conn: sql.engine.Connection) -> Iterator[exprs.DataRow]:
             plan.ctx.set_conn(conn)
             plan.open()
             try:
@@ -660,10 +660,10 @@ class DataFrame:
                 if len(grouping_items) > 1:
                     raise excs.Error(f'group_by(): only one table can be specified')
                 # we need to make sure that the grouping table is a base of self.tbl
-                base = self.tbl.find_tbl_version(item.tbl_version_path.tbl_id())
+                base = self.tbl.find_tbl_version(item._tbl_version_path.tbl_id())
                 if base is None or base.id == self.tbl.tbl_id():
                     raise excs.Error(f'group_by(): {item.name} is not a base table of {self.tbl.tbl_name()}')
-                grouping_tbl = item.tbl_version_path.tbl_version
+                grouping_tbl = item._tbl_version_path.tbl_version
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.Error(f'Invalid expression in group_by(): {item}')
@@ -763,6 +763,15 @@ class DataFrame:
             tbl, select_list=select_list, where_clause=where_clause, group_by_clause=group_by_clause,
             grouping_tbl=grouping_tbl, order_by_clause=order_by_clause, limit=limit_val)
 
+    def _hash_result_set(self) -> str:
+        """Return a hash that changes when the result set changes."""
+        d = self.as_dict()
+        # add list of referenced table versions (the actual versions, not the effective ones) in order to force cache
+        # invalidation when any of the referenced tables changes
+        d['tbl_versions'] = [tbl_version.version for tbl_version in self.tbl.get_tbl_versions()]
+        summary_string = json.dumps(d)
+        return hashlib.sha256(summary_string.encode()).hexdigest()
+
     def to_coco_dataset(self) -> Path:
         """Convert the dataframe to a COCO dataset.
         This dataframe must return a single json-typed output column in the following format:
@@ -782,9 +791,7 @@ class DataFrame:
         """
         from pixeltable.utils.coco import write_coco_dataset
 
-        summary_string = json.dumps(self.as_dict())
-        cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
-
+        cache_key = self._hash_result_set()
         dest_path = Env.get().dataset_cache_dir / f'coco_{cache_key}'
         if dest_path.exists():
             assert dest_path.is_dir()
@@ -833,14 +840,7 @@ class DataFrame:
         from pixeltable.io.parquet import save_parquet  # pylint: disable=import-outside-toplevel
         from pixeltable.utils.pytorch import PixeltablePytorchDataset  # pylint: disable=import-outside-toplevel
 
-        # for caching purposes, create a checksum of the specific query that this dataframe represents;
-        # we also need to include the actual ids of the tables referenced by the query (TableVersionPath.as_dict()
-        # includes the effective versions, which are None for non-snapshot versions)
-        checksum_dict = self.as_dict()
-        tbl_versions = [tbl_version.version for tbl_version in self.tbl.get_tbl_versions()]
-        checksum_dict['tbl_versions'] = tbl_versions
-        summary_string = json.dumps(checksum_dict)
-        cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
+        cache_key = self._hash_result_set()
 
         dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet')  # pylint: disable = protected-access
         if dest_path.exists():  # fast path: use cache
