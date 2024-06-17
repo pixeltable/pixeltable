@@ -262,7 +262,7 @@ class TestFunction:
         # insert more rows in order to verify that lt_x() is still executable after catalog reload
         validate_update_status(t.insert(rows))
 
-    def test_query2(self, test_tbl: catalog.Table) -> None:
+    def test_query2(self, reset_db) -> None:
         schema = {
             'query_text': pxt.StringType(nullable=False),
             'i': pxt.IntType(nullable=False),
@@ -311,6 +311,38 @@ class TestFunction:
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
+
+    def test_query_errors(self, reset_db) -> None:
+        schema = {
+            'a': pxt.IntType(nullable=False),
+            'b': pxt.IntType(nullable=False),
+        }
+        t = pxt.create_table('test', schema=schema)
+        rows = [{'a': i, 'b': i + 1} for i in range(100)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        # query name conflicts with column name
+        with pytest.raises(excs.Error) as exc_info:
+            @t.query
+            def a(x: int, y: int) -> int:
+                return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
+        assert 'conflicts with existing column' in str(exc_info.value).lower()
+
+        @t.query
+        def c(x: int, y: int) -> int:
+            return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
+
+        # duplicate query name
+        with pytest.raises(excs.Error) as exc_info:
+            @t.query
+            def c(x: int, y: int) -> int:
+                return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
+        assert 'duplicate query name' in str(exc_info.value).lower()
+
+        # column name conflicts with query name
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_column(c=pxt.IntType(nullable=True))
+        assert 'conflicts with a registered query' in str(exc_info.value).lower()
 
     @pxt.expr_udf
     def add1(x: int) -> int:

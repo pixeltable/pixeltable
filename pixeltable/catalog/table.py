@@ -4,7 +4,7 @@ import itertools
 import json
 import logging
 from pathlib import Path
-from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple, Iterable, overload, Type
+from typing import Union, Any, Optional, Callable, Set, Tuple, Iterable, overload, Type
 from uuid import UUID
 
 import pandas as pd
@@ -138,13 +138,17 @@ class Table(SchemaObject):
         """Return the number of rows in this table."""
         return self.df().count()
 
-    def column_names(self) -> List[str]:
+    def column_names(self) -> list[str]:
         """Return the names of the columns in this table."""
         return [c.name for c in self._tbl_version_path.columns()]
 
-    def column_types(self) -> Dict[str, ts.ColumnType]:
+    def column_types(self) -> dict[str, ts.ColumnType]:
         """Return the names of the columns in this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
+
+    def query_names(self) -> list[str]:
+        """Return the names of the registered queries for this table."""
+        return self._queries.keys()
 
     @property
     def comment(self) -> str:
@@ -259,7 +263,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Invalid column name: {column_name!r}')
 
         new_col = self._create_columns({column_name: value})[0]
-        self._verify_column(new_col, self.column_names())
+        self._verify_column(new_col, self.column_names(), self.query_names())
         return self._tbl_version.add_column(new_col)
 
     def add_column(
@@ -326,7 +330,7 @@ class Table(SchemaObject):
                 f'got {len(kwargs)} instead ({", ".join(list(kwargs.keys()))})'
             ))
         col_name, spec = next(iter(kwargs.items()))
-        col_schema: Dict[str, Any] = {}
+        col_schema: dict[str, Any] = {}
         if isinstance(spec, ts.ColumnType):
             if type is not None:
                 raise excs.Error(f'add_column(): keyword argument "type" is redundant')
@@ -341,11 +345,11 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
-        self._verify_column(new_col, self.column_names())
+        self._verify_column(new_col, self.column_names(), self.query_names())
         return self._tbl_version.add_column(new_col, print_stats=print_stats)
 
     @classmethod
-    def _validate_column_spec(cls, name: str, spec: Dict[str, Any]) -> None:
+    def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
         """Check integrity of user-supplied Column spec
 
         We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
@@ -385,9 +389,9 @@ class Table(SchemaObject):
             raise excs.Error(f'Column {name}: "type" is required')
 
     @classmethod
-    def _create_columns(cls, schema: Dict[str, Any]) -> List[Column]:
+    def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
         """Construct list of Columns, given schema"""
-        columns: List[Column] = []
+        columns: list[Column] = []
         for name, spec in schema.items():
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
@@ -421,25 +425,29 @@ class Table(SchemaObject):
         return columns
 
     @classmethod
-    def _verify_column(cls, col: Column, existing_column_names: Set[str]) -> None:
+    def _verify_column(
+            cls, col: Column, existing_column_names: Set[str], existing_query_names: Optional[Set[str]] = None
+    ) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         if is_system_column_name(col.name):
-            raise excs.Error(f'Column name {col.name} is reserved')
+            raise excs.Error(f'Column name {col.name!r} is reserved')
         if not is_valid_identifier(col.name):
-            raise excs.Error(f"Invalid column name: '{col.name}'")
+            raise excs.Error(f"Invalid column name: {col.name!r}")
         if col.name in existing_column_names:
-            raise excs.Error(f'Duplicate column name: {col.name}')
+            raise excs.Error(f'Duplicate column name: {col.name!r}')
+        if existing_query_names is not None and col.name in existing_query_names:
+            raise excs.Error(f'Column name conflicts with a registered query: {col.name!r}')
         if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
-            raise excs.Error(f'Column {col.name}: stored={col.stored} only applies to computed image columns')
+            raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed image columns')
         if col.stored is False and not (col.col_type.is_image_type() and not col.has_window_fn_call()):
             raise excs.Error((
-                f'Column {col.name}: stored={col.stored} is not valid for image columns computed with a streaming '
+                f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a streaming '
                 f'function'))
         if col.stored is None:
             col.stored = not (col.is_computed and col.col_type.is_image_type() and not col.has_window_fn_call())
 
     @classmethod
-    def _verify_schema(cls, schema: List[Column]) -> None:
+    def _verify_schema(cls, schema: list[Column]) -> None:
         """Check integrity of user-supplied schema and set defaults"""
         column_names: Set[str] = set()
         for col in schema:
@@ -648,7 +656,7 @@ class Table(SchemaObject):
             raise excs.Error('Cannot update a snapshot')
         self._check_is_dropped()
 
-        row_updates: List[Dict[Column, exprs.Expr]] = []
+        row_updates: list[dict[Column, exprs.Expr]] = []
         pk_col_names = set(c.name for c in self._tbl_version.primary_key_columns())
 
         # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
@@ -731,26 +739,26 @@ class Table(SchemaObject):
 
     @overload
     def query(
-            self, *, param_types: Optional[List[ts.ColumnType]] = None
+            self, *, param_types: Optional[list[ts.ColumnType]] = None
     ) -> Callable[[Callable], 'pixeltable.exprs.QueryTemplateFunction']: ...
 
     def query(self, *args: Any, **kwargs: Any) -> Any:
         def make_query_template(
-                py_fn: Callable, param_types: Optional[List[ts.ColumnType]]
+                py_fn: Callable, param_types: Optional[list[ts.ColumnType]]
         ) -> 'pixeltable.func.QueryTemplateFunction':
             if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
                 # this is a named function in a module
                 function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
             else:
                 function_path = None
-            import pixeltable.func as func
-            query_fn = func.QueryTemplateFunction.create(
-                py_fn, param_types=param_types, path=function_path, name=py_fn.__name__)
             query_name = py_fn.__name__
             if query_name in self.column_names():
-                raise excs.Error(f'Query name {query_name} conflicts with existing column')
+                raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
             if query_name in self._queries:
-                raise excs.Error(f'Duplicate query name: {query_name}')
+                raise excs.Error(f'Duplicate query name: {query_name!r}')
+            import pixeltable.func as func
+            query_fn = func.QueryTemplateFunction.create(
+                py_fn, param_types=param_types, path=function_path, name=query_name)
             self._queries[query_name] = query_fn
             return query_fn
 
