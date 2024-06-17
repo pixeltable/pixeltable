@@ -1,10 +1,10 @@
-import itertools
 import json
 import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Optional, Literal
+from uuid import UUID
 from xml.etree import ElementTree
 
 import PIL.Image
@@ -14,7 +14,7 @@ from requests.exceptions import HTTPError
 import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.exceptions as excs
-from pixeltable import Table
+from pixeltable import Table, Column
 from pixeltable.exprs import ColumnRef, DataRow
 from pixeltable.io.external_store import Project, SyncStatus
 from pixeltable.utils import coco
@@ -42,7 +42,7 @@ class LabelStudioProject(Project):
             name: str,
             project_id: int,
             media_import_method: Literal['post', 'file', 'url'],
-            col_mapping: Optional[dict[str, str]]
+            raw_col_mapping: Optional[dict[tuple[UUID, int], str]]
     ):
         """
         The constructor will NOT create a new Label Studio project; it is also used when loading
@@ -51,7 +51,7 @@ class LabelStudioProject(Project):
         self.project_id = project_id
         self.media_import_method = media_import_method
         self._project: Optional[label_studio_sdk.project.Project] = None
-        super().__init__(name, col_mapping)
+        super().__init__(name, raw_col_mapping)
 
     @property
     def project(self) -> label_studio_sdk.project.Project:
@@ -132,7 +132,7 @@ class LabelStudioProject(Project):
 
         # Columns in `t` that map to Label Studio data keys
         t_data_cols = [
-            t_col_name for t_col_name, r_col_name in self.col_mapping.items()
+            t_col for t_col, r_col_name in self.col_mapping.items()
             if r_col_name in config.data_keys
         ]
 
@@ -141,7 +141,7 @@ class LabelStudioProject(Project):
 
         # Columns in `t` that map to `rectanglelabels` preannotations
         t_rl_cols = [
-            t_col_name for t_col_name, r_col_name in self.col_mapping.items()
+            t_col for t_col, r_col_name in self.col_mapping.items()
             if r_col_name in config.rectangle_labels
         ]
 
@@ -165,15 +165,15 @@ class LabelStudioProject(Project):
             self,
             t: Table,
             existing_tasks: dict[tuple, dict],
-            media_col_name: str,
-            t_rl_cols: list[str],
+            media_col: Column,
+            t_rl_cols: list[Column],
             rl_info: list['_RectangleLabel']
     ) -> 'SyncStatus':
-        is_stored = t[media_col_name].col.is_stored
+        is_stored = media_col.is_stored
         # If it's a stored column, we can use `localpath`
-        localpath_col_opt = [t[media_col_name].localpath] if is_stored else []
+        localpath_col_opt = [t[media_col.name].localpath] if is_stored else []
         # Select the media column, rectanglelabels columns, and localpath (if appropriate)
-        rows = t.select(t[media_col_name], *[t[col] for col in t_rl_cols], *localpath_col_opt)
+        rows = t.select(t[media_col.name], *[t[col.name] for col in t_rl_cols], *localpath_col_opt)
         tasks_created = 0
         row_ids_in_pxt: set[tuple] = set()
 
@@ -224,24 +224,25 @@ class LabelStudioProject(Project):
             self,
             t: Table,
             existing_tasks: dict[tuple, dict],
-            t_data_cols: list[str],
-            t_rl_cols: list[str],
+            t_data_cols: list[Column],
+            t_rl_cols: list[Column],
             rl_info: list['_RectangleLabel']
     ) -> 'SyncStatus':
-        r_data_cols = [self.col_mapping[col_name] for col_name in t_data_cols]
+        r_data_cols = [self.col_mapping[col] for col in t_data_cols]
         col_refs = {}
-        for col_name in t_data_cols:
+        for col in t_data_cols:
+            col_name = col.name
             if self.media_import_method == 'url':
                 col_refs[col_name] = t[col_name].fileurl
             else:
                 assert self.media_import_method == 'file'
-                if not t[col_name].col_type.is_media_type():
+                if not col.col_type.is_media_type():
                     # Not a media column; query the data directly
                     col_refs[col_name] = t[col_name]
-                elif t[col_name].col.stored_proxy:
+                elif col.stored_proxy:
                     # Media column that has a stored proxy; use it. We have to give it a name,
                     # since it's an anonymous column
-                    col_refs[f'{col_name}_proxy'] = ColumnRef(t[col_name].col.stored_proxy).localpath
+                    col_refs[f'{col_name}_proxy'] = ColumnRef(col.stored_proxy).localpath
                 else:
                     # Media column without a stored proxy; this means it's a stored computed column,
                     # and we can just use the localpath
@@ -262,7 +263,7 @@ class LabelStudioProject(Project):
             data_vals = [row.vals[idx] for idx in data_col_idxs]
             coco_annotations = [row.vals[idx] for idx in rl_col_idxs]
             for i in range(len(t_data_cols)):
-                if t[t_data_cols[i]].col_type.is_media_type():
+                if t_data_cols[i].col_type.is_media_type():
                     # Special handling for media columns
                     assert isinstance(data_vals[i], str)
                     if self.media_import_method == 'url':
@@ -315,12 +316,12 @@ class LabelStudioProject(Project):
         return sync_status.combine(deletion_sync_status)
 
     @classmethod
-    def __validate_fileurl(cls, col_name: str, url: str) -> Optional[str]:
+    def __validate_fileurl(cls, col: Column, url: str) -> Optional[str]:
         # Check that the URL is one that will be visible to Label Studio. If it isn't, log an info message
         # to help users debug the issue.
         if url.startswith('file://') or url.startswith('s3://'):
             _logger.info(
-                'URL found in media column `col_name` will not render correctly in Label Studio, since '
+                f'URL found in media column `{col.name}` will not render correctly in Label Studio, since '
                 f'it is not an HTTP URL: {url}'
             )
         return url
@@ -351,7 +352,6 @@ class LabelStudioProject(Project):
         if ANNOTATIONS_COLUMN not in self.col_mapping.values():
             return SyncStatus.empty()
 
-        local_annotations_column = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN)
         annotations = {
             # Replace [] by None to indicate no annotations. We do want to sync rows with no annotations,
             # in order to properly handle the scenario where existing annotations have been deleted in
@@ -360,24 +360,26 @@ class LabelStudioProject(Project):
             for task in tasks.values()
         }
 
+        local_annotations_col = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN)
+
         # Prune the annotations down to just the ones that have actually changed.
-        rows = t.select(t[local_annotations_column])
+        rows = t.select(t[local_annotations_col.name])
         for row in rows._exec():
             assert len(row.vals) == 1
             if row.rowid in annotations and annotations[row.rowid] == row.vals[0]:
                 del annotations[row.rowid]
 
         # Apply updates
-        updates = [{'_rowid': rowid, local_annotations_column: ann} for rowid, ann in annotations.items()]
+        updates = [{'_rowid': rowid, local_annotations_col.name: ann} for rowid, ann in annotations.items()]
         if len(updates) > 0:
             _logger.info(
-                f'Updating table `{t.get_name()}`, column `{local_annotations_column}` with {len(updates)} total annotations.'
+                f'Updating table `{t.get_name()}`, column `{local_annotations_col.name}` with {len(updates)} total annotations.'
             )
             # batch_update currently doesn't propagate from views to base tables. As a workaround, we call
             # batch_update on the actual ancestor table that holds the annotations column.
             # TODO(aaron-siegel): Simplify this once propagation is properly implemented in batch_update
             ancestor = t
-            while local_annotations_column not in ancestor.tbl_version_path.tbl_version.cols_by_name:
+            while local_annotations_col not in ancestor.tbl_version_path.tbl_version.cols:
                 assert ancestor.base is not None
                 ancestor = ancestor.base
             ancestor.batch_update(updates)
@@ -390,12 +392,25 @@ class LabelStudioProject(Project):
             'name': self.name,
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
-            'col_mapping': self.col_mapping
+            # We need to convert `col_mapping` to a list, since the keys of a serialized dict cannot be tuples
+            'col_mapping': [
+                {'tbl_id': str(tbl_id), 'col_id': col_id, 'r_col': r_col}
+                for (tbl_id, col_id), r_col in self._raw_col_mapping.items()
+            ]
         }
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> 'LabelStudioProject':
-        return LabelStudioProject(md['name'], md['project_id'], md['media_import_method'], md['col_mapping'])
+        col_mapping_list: list[dict[str, Any]] = md['col_mapping']
+        return LabelStudioProject(
+            md['name'],
+            md['project_id'],
+            md['media_import_method'],
+            {
+                (UUID(d['tbl_id']), d['col_id']): d['r_col']
+                for d in col_mapping_list
+            }
+        )
 
     def __repr__(self) -> str:
         name = self.project.get_params()['title']
@@ -536,7 +551,8 @@ class LabelStudioProject(Project):
             if local_annotations_column not in t.column_names():
                 t[local_annotations_column] = pxt.JsonType(nullable=True)
 
-        cls.validate_column_names(t, config.export_columns, {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}, col_mapping)
+        col_mapping_by_ids = cls.validate_columns(
+            t, config.export_columns, {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}, col_mapping)
 
         # Perform some additional validation
         if media_import_method == 'post' and len(config.data_keys) > 1:
@@ -561,11 +577,8 @@ class LabelStudioProject(Project):
                         ) from exc
                 raise  # Handle any other exception type normally
 
-        if col_mapping is None:
-            col_mapping = {col: col for col in itertools.chain(config.export_columns.keys(), [ANNOTATIONS_COLUMN])}
-
         project_id = project.get_params()['id']
-        return LabelStudioProject(name, project_id, media_import_method, col_mapping)
+        return LabelStudioProject(name, project_id, media_import_method, col_mapping_by_ids)
 
 
 @dataclass(frozen=True)

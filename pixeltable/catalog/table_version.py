@@ -547,7 +547,7 @@ class TableVersion:
                 f'Cannot drop column `{name}` because the following columns depend on it:\n'
                 f'{", ".join(c.name for c in dependent_user_cols)}'
             )
-        dependent_stores = [store for store in self.external_stores.values() if name in store.get_table_columns()]
+        dependent_stores = [store for store in self.external_stores.values() if col in store.get_local_columns()]
         if len(dependent_stores) > 0:
             raise excs.Error(
                 f'Cannot drop column `{name}` because the following external stores depend on it:\n'
@@ -973,10 +973,8 @@ class TableVersion:
         # All of the media columns being linked need to either be stored, computed columns or have stored proxies.
         # This ensures that the media in those columns resides in the media cache, where it can be served.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
-        cols_by_name = self.path.cols_by_name()  # Includes base columns
         stored_proxies_needed = []
-        for col_name in store.get_table_columns():
-            col = cols_by_name[col_name]
+        for col in store.get_local_columns():
             if col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and not col.stored_proxy:
                 stored_proxies_needed.append(col)
         with Env.get().engine.begin() as conn:
@@ -1021,17 +1019,16 @@ class TableVersion:
         assert store_name in self.external_stores
         store = self.external_stores[store_name]
         timestamp = time.time()
-        this_store_col_names = list(store.get_table_columns())
-        other_store_col_names = {
-            col_name
+        this_store_cols = store.get_local_columns()
+        other_store_cols = {
+            col
             for other_name, other_store in self.external_stores.items() if other_name != store_name
-            for col_name in other_store.get_table_columns()
+            for col in other_store.get_local_columns()
         }
-        cols_by_name = self.path.cols_by_name()  # Includes base columns
         stored_proxy_deletions_needed = [
-            cols_by_name[col_name]
-            for col_name in this_store_col_names
-            if col_name not in other_store_col_names and cols_by_name[col_name].stored_proxy
+            col
+            for col in this_store_cols
+            if col not in other_store_cols and col.stored_proxy
         ]
         with Env.get().engine.begin() as conn:
             self.version += 1

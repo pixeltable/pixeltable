@@ -377,6 +377,12 @@ class TestLabelStudio:
         assert sum(tasks[i]['data']['text'] == 'New text' for i in range(10)) == 2  # After syncing
         assert sum(tasks[i]['data']['text'] == 'Initial text' for i in range(10)) == 8
 
+        # Rename columns and verify that the sync still works
+        v.rename_column('annotations', 'annotations_renamed')
+        t.rename_column('video_col', 'video_col_renamed')
+        sync_status = v.sync()
+        validate_sync_status(sync_status, 0, 0, 0, 0, 0)
+
         sync_status = v.sync()  # Should have no further effect
         validate_sync_status(sync_status, 0, 0, 0, 0, 0)
 
@@ -394,7 +400,7 @@ class TestLabelStudio:
         # Check that we can create a LabelStudioProject on a non-existent project id
         # (this will happen if, for example, a DB reload happens after a synced project has
         # been deleted externally, or cannot be contacted due to a network error)
-        false_project = LabelStudioProject('false_project', 4171780, media_import_method='post', col_mapping=None)
+        false_project = LabelStudioProject('false_project', 4171780, media_import_method='post', raw_col_mapping=None)
 
         # But trying to do anything with it raises an exception.
         with pytest.raises(excs.Error) as exc_info:

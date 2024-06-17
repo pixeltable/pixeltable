@@ -114,6 +114,11 @@ class TableVersionPath:
         cols = self.columns()
         return {col.name: col for col in cols}
 
+    def cols_by_id(self) -> dict[int, Column]:
+        """Return a dict of all user columns visible in this tbl version path, including columns from bases"""
+        cols = self.columns()
+        return {col.id: col for col in cols}
+
     def get_column(self, name: str, include_bases: bool = True) -> Optional[Column]:
         """Return the column with the given name, or None if not found"""
         col = self.tbl_version.cols_by_name.get(name)

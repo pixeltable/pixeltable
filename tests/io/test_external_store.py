@@ -31,38 +31,38 @@ class TestProject:
 
         # Nonexistent local column
         with pytest.raises(excs.Error) as exc_info:
-            Project.validate_column_names(t, export_cols, import_cols, None)
+            Project.validate_columns(t, export_cols, import_cols, None)
         assert 'Column `export1` does not exist' in str(exc_info.value)
 
         # Nonexistent local column, but with a mapping specified
         with pytest.raises(excs.Error) as exc_info:
-            Project.validate_column_names(t, export_cols, import_cols, {'not_col': 'export1', 'col2': 'export2'})
+            Project.validate_columns(t, export_cols, import_cols, {'not_col': 'export1', 'col2': 'export2'})
         assert 'Column name `not_col` appears as a key' in str(exc_info.value)
 
         # Nonexistent external column
         with pytest.raises(excs.Error) as exc_info:
-            Project.validate_column_names(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'col2'})
+            Project.validate_columns(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'col2'})
         assert 'has no column `col2`' in str(exc_info.value)
 
         # Correct partial spec
-        Project.validate_column_names(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'})
+        Project.validate_columns(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'})
 
         # Correct full spec
-        Project.validate_column_names(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'export2', 'col3': 'import1', 'col4': 'import2'})
+        Project.validate_columns(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'export2', 'col3': 'import1', 'col4': 'import2'})
 
         # Default spec is correct
         schema2 = {'export1': pxt.StringType(), 'export2': pxt.ImageType(), 'import1': pxt.StringType(), 'import2': pxt.VideoType()}
         t2 = pxt.create_table('test_2', schema2)
-        Project.validate_column_names(t2, export_cols, import_cols, None)
+        Project.validate_columns(t2, export_cols, import_cols, None)
 
         # Incompatible types for export
         with pytest.raises(excs.Error) as exc_info:
-            Project.validate_column_names(t, export_cols, import_cols, {'col1': 'export2'})
+            Project.validate_columns(t, export_cols, import_cols, {'col1': 'export2'})
         assert 'Column `col1` cannot be exported to external column `export2` (incompatible types; expecting `image`)' in str(exc_info.value)
 
         # Incompatible types for import
         with pytest.raises(excs.Error) as exc_info:
-            Project.validate_column_names(t, export_cols, import_cols, {'col1': 'import2'})
+            Project.validate_columns(t, export_cols, import_cols, {'col1': 'import2'})
         assert 'Column `col1` cannot be imported from external column `import2` (incompatible types; expecting `video`)' in str(exc_info.value)
 
         # Subtype/supertype relationships
@@ -74,21 +74,21 @@ class TestProject:
         import_img_cols = {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)}
 
         # Can export/import from sub to supertype
-        Project.validate_column_names(t3, export_img_cols, import_img_cols, {'spec_img': 'export_img', 'img': 'import_spec_img'})
+        Project.validate_columns(t3, export_img_cols, import_img_cols, {'spec_img': 'export_img', 'img': 'import_spec_img'})
 
         # Cannot export from super to subtype
         with pytest.raises(excs.Error) as exc_info:
-            Project.validate_column_names(t3, export_img_cols, import_img_cols, {'img': 'export_spec_img'})
+            Project.validate_columns(t3, export_img_cols, import_img_cols, {'img': 'export_spec_img'})
         assert 'Column `img` cannot be exported to external column `export_spec_img`' in str(exc_info.value)
 
         # Cannot import from super to subtype
         with pytest.raises(excs.Error) as exc_info:
-            Project.validate_column_names(t3, export_img_cols, import_img_cols, {'spec_img': 'import_img'})
+            Project.validate_columns(t3, export_img_cols, import_img_cols, {'spec_img': 'import_img'})
         assert 'Column `spec_img` cannot be imported from external column `import_img`' in str(exc_info.value)
 
         t3['computed_img'] = t3.img.rotate(180)
         with pytest.raises(excs.Error) as exc_info:
-            Project.validate_column_names(t3, export_img_cols, import_img_cols, {'computed_img': 'import_img'})
+            Project.validate_columns(t3, export_img_cols, import_img_cols, {'computed_img': 'import_img'})
         assert (
             'Column `computed_img` is a computed column, which cannot be populated from an external column'
             in str(exc_info.value)

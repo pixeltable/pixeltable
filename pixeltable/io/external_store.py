@@ -4,10 +4,11 @@ import abc
 import itertools
 from dataclasses import dataclass
 from typing import Any, Optional
+from uuid import UUID
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable import Table
+from pixeltable import Table, Column, Catalog
 
 
 class ExternalStore(abc.ABC):
@@ -31,9 +32,9 @@ class ExternalStore(abc.ABC):
         """
 
     @abc.abstractmethod
-    def get_table_columns(self) -> list[str]:
+    def get_local_columns(self) -> list[Column]:
         """
-        A list of all Pixeltable column names that are involved in this `ExternalStore`.
+        A list of all Pixeltable column IDs that are involved in this `ExternalStore`.
         """
 
     @abc.abstractmethod
@@ -46,11 +47,23 @@ class ExternalStore(abc.ABC):
 
 class Project(ExternalStore, abc.ABC):
 
-    def __init__(self, name: str, col_mapping: Optional[dict[str, str]]):
+    def __init__(self, name: str, raw_col_mapping: Optional[dict[tuple[UUID, int], str]]):
         super().__init__(name)
-        self.col_mapping = col_mapping
+        self._raw_col_mapping = raw_col_mapping
+        self._col_mapping: Optional[dict[Column, str]] = None
 
-    def get_table_columns(self) -> list[str]:
+    @property
+    def col_mapping(self) -> dict[Column, str]:
+        # Lazily initialize the typed `col_mapping` from `_raw_col_mapping`
+        if self._col_mapping is None:
+            cat = Catalog.get()
+            self._col_mapping = {
+                cat.tbl_versions[(tbl_id, None)].cols_by_id[col_id]: r_col
+                for (tbl_id, col_id), r_col in self._raw_col_mapping.items()
+            }
+        return self._col_mapping
+
+    def get_local_columns(self) -> list[Column]:
         return list(self.col_mapping.keys())
 
     @abc.abstractmethod
@@ -78,16 +91,18 @@ class Project(ExternalStore, abc.ABC):
         """
 
     @classmethod
-    def validate_column_names(
+    def validate_columns(
             cls,
             table: Table,
             export_cols: dict[str, ts.ColumnType],
             import_cols: dict[str, ts.ColumnType],
             col_mapping: Optional[dict[str, str]]
-    ) -> None:
+    ) -> dict[tuple[UUID, int], str]:
         is_user_specified_col_mapping = col_mapping is not None
         if col_mapping is None:
             col_mapping = {col: col for col in itertools.chain(export_cols.keys(), import_cols.keys())}
+
+        col_mapping_by_ids: dict[tuple[UUID, int], str] = {}
 
         # Validate names
         t_cols = table.column_names()
@@ -108,6 +123,8 @@ class Project(ExternalStore, abc.ABC):
                     f'Column name `{r_col}` appears as a value in `col_mapping`, but the external store '
                     f'configuration has no column `{r_col}`.'
                 )
+            col = table[t_col].col
+            col_mapping_by_ids[(col.tbl.id, col.id)] = r_col
         # Validate column specs
         t_col_types = table.column_types()
         for t_col, r_col in col_mapping.items():
@@ -130,6 +147,7 @@ class Project(ExternalStore, abc.ABC):
                     raise excs.Error(
                         f'Column `{t_col}` cannot be imported from external column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
                     )
+        return col_mapping_by_ids
 
 
 @dataclass(frozen=True)
