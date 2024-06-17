@@ -696,6 +696,7 @@ class DataFrame:
         )
 
     def limit(self, n: int) -> DataFrame:
+        # TODO: allow n to be a Variable that can be substituted in bind()
         assert n is not None and isinstance(n, int)
         return DataFrame(
             self.tbl,
