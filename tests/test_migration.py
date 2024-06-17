@@ -74,9 +74,9 @@ class TestMigration:
             reload_catalog()
 
             # TODO(aaron-siegel) We need many more of these sorts of checks.
-            if old_version >= 13:
+            if 13 <= old_version <= 14:
                 self._run_v13_tests()
-            if old_version >= 14:
+            if old_version == 14:
                 self._run_v14_tests()
             if old_version >= 15:
                 self._run_v15_tests()
@@ -89,7 +89,7 @@ class TestMigration:
 
     @classmethod
     def _run_v13_tests(cls) -> None:
-        """Tests that apply to DB artifacts of version 13+."""
+        """Tests that apply to DB artifacts of version 13-14."""
         t = pxt.get_table('views.empty_view')
         # Test that the batched function is properly loaded as batched
         expr = t['batched'].col.value_expr
@@ -97,7 +97,7 @@ class TestMigration:
 
     @classmethod
     def _run_v14_tests(cls) -> None:
-        """Tests that apply to DB artifacts of version 14+."""
+        """Tests that apply to DB artifacts of version ==14."""
         t = pxt.get_table('views.sample_view')
         # Test that stored batched functions are properly loaded as batched
         expr = t['test_udf_batched'].col.value_expr
@@ -108,15 +108,26 @@ class TestMigration:
         """Tests that apply to DB artifacts of version 15+."""
         from pixeltable.io.external_store import MockProject
         from pixeltable.io.label_studio import LabelStudioProject
-        t = pxt.get_table('views.sample_view')
+
+        v = pxt.get_table('views.view')
+        e = pxt.get_table('views.empty_view')
+
+        # Test that batched functions are properly loaded as batched
+        expr = e['empty_view_batched'].col.value_expr
+        assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
+
+        # Test that stored batched functions are properly loaded as batched
+        expr = v['view_test_udf_batched'].col.value_expr
+        assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
+
         # Test that external stores are loaded properly.
-        stores = list(t.tbl_version_path.tbl_version.external_stores.values())
+        stores = list(v.tbl_version_path.tbl_version.external_stores.values())
         assert len(stores) == 2
         store0 = stores[0]
         assert isinstance(store0, MockProject)
         assert store0.get_export_columns() == {'int_field': pxt.IntType()}
         assert store0.get_import_columns() == {'str_field': pxt.StringType()}
-        assert store0.col_mapping == {'test_udf': 'int_field', 'c1': 'str_field'}
+        assert store0.col_mapping == {'view_test_udf': 'int_field', 'c1': 'str_field'}
         store1 = stores[1]
         assert isinstance(store1, LabelStudioProject)
         assert store1.project_id == 4171780
