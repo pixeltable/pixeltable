@@ -4,6 +4,7 @@ import logging
 import os
 import pathlib
 import subprocess
+from typing import Any
 
 import pgserver
 import toml
@@ -12,8 +13,9 @@ import pixeltable as pxt
 import pixeltable.metadata as metadata
 from pixeltable.env import Env
 from pixeltable.func import Batch
+from pixeltable.tool import embed_udf
 from pixeltable.type_system import \
-    StringType, IntType, FloatType, BoolType, TimestampType, JsonType
+    StringType, IntType, FloatType, BoolType, TimestampType, JsonType, ImageType
 
 _logger = logging.getLogger('pixeltable')
 
@@ -64,8 +66,7 @@ class Dumper:
         with open(info_file, 'w') as info:
             toml.dump(info_dict, info)
 
-    # TODO: Add additional features to the test DB dump (ideally it should exercise
-    # every major pixeltable DB feature)
+    # Expression types, predicate types, embedding indices, views on views
     def create_tables(self) -> None:
         schema = {
             'c1': StringType(nullable=False),
@@ -76,29 +77,11 @@ class Dumper:
             'c5': TimestampType(nullable=False),
             'c6': JsonType(nullable=False),
             'c7': JsonType(nullable=False),
+            'c8': ImageType(nullable=True)
         }
-        t = pxt.create_table('sample_table', schema, primary_key='c2')
+        t = pxt.create_table('base_table', schema, primary_key='c2')
 
-        # Add columns for InlineArray and InlineDict
-        t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
-        t.add_column(c9=[['a', 'b', 'c'], ['d', 'e', 'f']])
-        t.add_column(c10=[t.c1, [t.c1n, t.c2]])
-        t.add_column(c11={'int': 22, 'dict': {'key': 'val'}, 'expr': t.c1})
-
-        # InPredicate
-        t.add_column(isin_1=t.c1.isin(['test string 1', 'test string 2', 'test string 3']))
-        t.add_column(isin_2=t.c2.isin([1, 2, 3, 4, 5]))
-        t.add_column(isin_3=t.c2.isin(t.c6.f5))
-
-        # Add columns for .astype converters to ensure they're persisted properly
-        t.add_column(c2_as_float=t.c2.astype(FloatType()))
-
-        # Add columns for .apply
-        t.add_column(c2_to_string=t.c2.apply(str))
-        t.add_column(c6_to_string=t.c6.apply(json.dumps))
-        t.add_column(c6_back_to_json=t.c6_to_string.apply(json.loads))
-
-        num_rows = 100
+        num_rows = 20
         d1 = {
             'f1': 'test string 1',
             'f2': 1,
@@ -117,9 +100,8 @@ class Dumper:
         c3_data = [float(i) for i in range(num_rows)]
         c4_data = [bool(i % 2) for i in range(num_rows)]
         c5_data = [datetime.datetime.now()] * num_rows
-        c6_data = []
-        for i in range(num_rows):
-            d = {
+        c6_data = [
+            {
                 'f1': f'test string {i}',
                 'f2': i,
                 'f3': float(i),
@@ -130,8 +112,8 @@ class Dumper:
                     'f8': [1.0, 2.0, 3.0, 4.0],
                 },
             }
-            c6_data.append(d)
-
+            for i in range(num_rows)
+        ]
         c7_data = [d2] * num_rows
         rows = [
             {
@@ -143,40 +125,123 @@ class Dumper:
                 'c5': c5_data[i],
                 'c6': c6_data[i],
                 'c7': c7_data[i],
+                'c8': None
             }
             for i in range(num_rows)
         ]
+
+        self.__add_expr_columns(t, 'base_table')
         t.insert(rows)
+
         pxt.create_dir('views')
-        v = pxt.create_view('views.sample_view', t, filter=(t.c2 < 50))
-        _ = pxt.create_view('views.sample_snapshot', t, filter=(t.c2 >= 75), is_snapshot=True)
+
+        # simple view
+        v = pxt.create_view('views.view', t, filter=(t.c2 < 50))
+        self.__add_expr_columns(v, 'view')
+
+        # snapshot
+        _ = pxt.create_view('views.snapshot', t, filter=(t.c2 >= 75), is_snapshot=True)
+
+        # view of views
+        vv = pxt.create_view('views.view_of_views', v, filter=(t.c2 >= 25))
+        self.__add_expr_columns(vv, 'view_of_views')
+
+        # empty view
         e = pxt.create_view('views.empty_view', t, filter=t.c2 == 4171780)
         assert e.count() == 0
-        # Computed column using a library function
-        v['str_format'] = pxt.functions.string.str_format('{0} {key}', t.c1, key=t.c1)
-        # Computed column using a bespoke stored udf
-        v['test_udf'] = test_udf_stored(t.c2)
-        # Computed column using a batched function
-        # (apply this to the empty view, since it's a "heavyweight" function)
-        e['batched'] = pxt.functions.huggingface.clip_text(t.c1, model_id='openai/clip-vit-base-patch32')
-        # computed column using a stored batched function
-        v['test_udf_batched'] = test_udf_stored_batched(t.c1, upper=False)
-        # astype
-        v['astype'] = t.c1.astype(pxt.FloatType())
+        self.__add_expr_columns(e, 'empty_view', include_expensive_functions=True)
 
         # Add remotes
         from pixeltable.datatransfer.remote import MockRemote
         v._link(
             MockRemote({'int_field': pxt.IntType()}, {'str_field': pxt.StringType()}),
-            col_mapping={'test_udf': 'int_field', 'c1': 'str_field'}
+            col_mapping={'view_test_udf': 'int_field', 'c1': 'str_field'}
         )
         # We're just trying to test metadata here, so reach "under the covers" and link a fake
         # Label Studio project without validation (so we don't need a real Label Studio server)
         from pixeltable.datatransfer.label_studio import LabelStudioProject
         v._tbl_version_path.tbl_version.link(
             LabelStudioProject(4171780),
-            col_mapping={'str_format': 'str_format'}
+            col_mapping={'view_function_call': 'str_format'}
         )
+
+    def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
+        def add_column(col_name: str, col_expr: Any) -> None:
+            t.add_column(**{f'{col_prefix}_{col_name}': col_expr})
+        
+        # arithmetic_expr
+        add_column('plus', t.c2 + 6)
+        add_column('minus', t.c2 - 5)
+        add_column('times', t.c3 * 1.2)
+        add_column('div', t.c3 / 1.7)
+        add_column('mod', t.c2 % 11)
+
+        # array_slice
+        add_column('array_slice_1', t.c6[5])
+
+        # column_property_ref
+        add_column('fileurl', t.c8.fileurl)
+        add_column('localpath', t.c8.localpath)
+
+        # comparison
+        add_column('lt', t.c2 < t.c3)
+        add_column('le', t.c2 <= t.c3)
+        add_column('gt', t.c2 > t.c3)
+        add_column('ge', t.c2 >= t.c3)
+        add_column('ne', t.c2 != t.c3)
+        add_column('eq', t.c2 == t.c3)
+
+        # compound_predicate
+        add_column('and', (t.c2 >= 5) & (t.c2 < 8))
+        add_column('or', (t.c2 > 1) | t.c4)
+        add_column('not', ~(t.c2 > 20))
+
+        # function_call
+        add_column('function_call', pxt.functions.string.str_format('{0} {key}', t.c1, key=t.c1))  # library function
+        add_column('test_udf', test_udf_stored(t.c2))  # stored udf
+        add_column('test_udf_batched', test_udf_stored_batched(t.c1, upper=False))  # batched stored udf
+        if include_expensive_functions:
+            # batched library function
+            add_column('batched', pxt.functions.huggingface.clip_text(t.c1, model_id='openai/clip-vit-base-patch32'))
+
+        # image_member_access
+        add_column('image_mode', t.c8.mode)
+
+        # in_predicate
+        add_column('isin_1', t.c1.isin(['test string 1', 'test string 2', 'test string 3']))
+        add_column('isin_2', t.c2.isin([1, 2, 3, 4, 5]))
+        add_column('isin_3', t.c2.isin(t.c6.f5))
+
+        # inline_array and inline_dict
+        add_column('inline_array_1', [[1, 2, 3], [4, 5, 6]])
+        add_column('inline_array_2', [['a', 'b', 'c'], ['d', 'e', 'f']])
+        add_column('inline_list_exprs', [t.c1, [t.c1n, t.c2]])
+        add_column('inline_list_mixed', [1, 'a', t.c1, [1, 'a', t.c1n], 1, 'a'])
+        add_column('inline_dict', {'int': 22, 'dict': {'key': 'val'}, 'expr': t.c1})
+
+        # is_null
+        add_column('isnull', t.c1 == None)
+
+        # json_mapper and json_path
+        add_column('json_mapper', t.c6[3])
+        add_column('json_path', t.c6.f1)
+
+        # literal
+        add_column('str_const', 'str')
+        add_column('int_const', 5)
+        add_column('float_const', 5.0)
+        add_column('timestamp_const_1', datetime.datetime.utcnow())
+        add_column('timestamp_const_2', datetime.date.today())
+
+        # type_cast
+        add_column('astype', t.c2.astype(FloatType()))
+
+        # .apply
+        add_column('c2_to_string', t.c2.apply(str))
+        add_column('c6_to_string', t.c6.apply(json.dumps))
+        add_column('c6_back_to_json', t[f'{col_prefix}_c6_to_string'].apply(json.loads))
+
+        t.add_embedding_index(f'{col_prefix}_function_call', text_embed=embed_udf.clip_text_embed)
 
 
 @pxt.udf(_force_stored=True)
