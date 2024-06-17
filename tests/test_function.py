@@ -263,23 +263,44 @@ class TestFunction:
         validate_update_status(t.insert(rows))
 
     def test_query2(self, test_tbl: catalog.Table) -> None:
-        queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()}, )
-        queries.insert([{'query_text': 'how much is the stock of AI companies up?'}, {'query_text': 'what happened to the term machine learning?'}])
+        schema = {
+            'query_text': pxt.StringType(nullable=False),
+            'count': pxt.IntType(nullable=False),
+        }
+        queries = pxt.create_table('queries', schema=schema)
+        query_rows = [
+            {'query_text': 'how much is the stock of AI companies up?', 'count': 1},
+            {'query_text': 'what happened to the term machine learning?', 'count': 2},
+        ]
+        validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
 
         chunks = pxt.create_table('test_doc_chunks', schema={'text': pxt.StringType()})
         chunks.insert([
             {'text': 'the stock of artificial intelligence companies is up 1000%'},
-            {'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'},
+            {
+                'text': (
+                         'the term machine learning has fallen out of fashion now that AI has been '
+                         'rehabilitated and is now the new hotness'
+                )
+            },
             {'text': 'machine learning is a subset of artificial intelligence'},
             {'text': 'gas car companies are in danger of being left behind by electric car companies'},
         ])
 
         @chunks.query
-        def retrieval(query: str):
+        def retrieval(n: int):
             """ simply returns 2 passages from the table"""
-            return chunks.select(chunks.text).limit(2)
+            return chunks.select(chunks.text).limit(n)
 
-        queries.select(queries.query_text, out=chunks.retrieval(queries.query_text)).show()
+        _ = queries.select(queries.count, out=chunks.retrieval(queries.count)).collect()
+        validate_update_status(queries.add_column(chunks=chunks.retrieval(queries.count)))
+        _ = queries.select(queries.count, queries.chunks).collect()
+
+        reload_catalog()
+        queries = pxt.get_table('queries')
+        _ = queries.select(queries.chunks).collect()
+        validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
+        _ = queries.select(queries.chunks).collect()
 
     @pxt.expr_udf
     def add1(x: int) -> int:

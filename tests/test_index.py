@@ -48,6 +48,7 @@ class TestIndex:
             t.drop_embedding_index(column_name='img')
 
     def test_query(self, reset_db) -> None:
+        skip_test_if_not_installed('transformers')
         queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()})
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
