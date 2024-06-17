@@ -67,7 +67,7 @@ class Table(SchemaObject):
     def __getattr__(
             self, name: str
     ) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.func.QueryTemplateFunction']:
-        """Return a ColumnRef for the given column name.
+        """Return a ColumnRef or QueryTemplateFunction for the given column name.
         """
         if name in self._queries:
             return self._queries[name]
@@ -110,6 +110,10 @@ class Table(SchemaObject):
         """Return a DataFrame for this table."""
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).group_by(*items)
+
+    def limit(self, n: int) -> 'pixeltable.dataframe.DataFrame':
+        from pixeltable.dataframe import DataFrame
+        return DataFrame(self._tbl_version_path).limit(n)
 
     def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return rows from this table."""

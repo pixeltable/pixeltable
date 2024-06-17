@@ -450,8 +450,8 @@ class DataFrame:
         select_list_exprs = copy.deepcopy(self._select_list_exprs)
         where_clause = copy.deepcopy(self.where_clause)
         group_by_clause = copy.deepcopy(self.group_by_clause)
-        order_by_exprs = copy.deepcopy(
-            [order_by_expr for order_by_expr, _ in self.order_by_clause] if self.order_by_clause is not None else None)
+        order_by_exprs = [copy.deepcopy(order_by_expr) for order_by_expr, _ in self.order_by_clause] \
+            if self.order_by_clause is not None else None
 
         var_exprs: dict[exprs.Expr, exprs.Expr] = {}
         vars = self._vars()

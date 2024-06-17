@@ -243,6 +243,14 @@ class Dumper:
 
         t.add_embedding_index(f'{col_prefix}_function_call', text_embed=embed_udf.clip_text_embed)
 
+        # query()
+        @t.query
+        def q1(i: int):
+            # this breaks; TODO: why?
+            #return t.where(t.c2 < i)
+            return t.where(t.c2 < i).select(t.c1, t.c2)
+        add_column('query_output', t.q1(t.c2))
+
 
 @pxt.udf(_force_stored=True)
 def test_udf_stored(n: int) -> int:

@@ -31,7 +31,7 @@ def _update_md(orig_d: dict, binary_obj: bytes) -> Any:
     for name, col_type_dict, kind_int, is_batched in orig_d['parameters']:
         col_type = ts.ColumnType.from_dict(col_type_dict) if col_type_dict is not None else None
         default = py_params[name].default
-        kind = inspect._ParameterKind(kind_int)  # is there a way to avoid referecing a private type?
+        kind = inspect._ParameterKind(kind_int)  # is there a way to avoid referencing a private type?
         params.append(func.Parameter(name=name, col_type=col_type, kind=kind, default=default, is_batched=is_batched))
     is_batched = 'batch_size' in orig_d
     sig = func.Signature(return_type, params, is_batched=is_batched)
