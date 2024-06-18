@@ -537,6 +537,8 @@ class TableVersion:
     def drop_column(self, name: str) -> None:
         """Drop a column from the table.
         """
+        from pixeltable.catalog import Catalog
+
         assert not self.is_snapshot
         if name not in self.cols_by_name:
             raise excs.Error(f'Unknown column: {name}')
@@ -547,11 +549,23 @@ class TableVersion:
                 f'Cannot drop column `{name}` because the following columns depend on it:\n'
                 f'{", ".join(c.name for c in dependent_user_cols)}'
             )
-        dependent_stores = [store for store in self.external_stores.values() if col in store.get_local_columns()]
+        # See if this column has a dependent store. We need to look through all stores in all
+        # (transitive) views of this table.
+        transitive_views = Catalog.get().tbls[self.id].transitive_views
+        dependent_stores = [
+            (view, store)
+            for view in transitive_views
+            for store in view.tbl_version_path.tbl_version.external_stores.values()
+            if col in store.get_local_columns()
+        ]
         if len(dependent_stores) > 0:
+            dependent_store_names = [
+                store.name if view.get_id() == self.id else f'{store.name} (in view `{view.get_name()}`)'
+                for view, store in dependent_stores
+            ]
             raise excs.Error(
                 f'Cannot drop column `{name}` because the following external stores depend on it:\n'
-                f'{", ".join(str(r) for r in dependent_stores)}'
+                f'{", ".join(dependent_store_names)}'
             )
         assert col.stored_proxy is None  # since there are no dependent stores
 

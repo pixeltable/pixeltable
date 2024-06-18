@@ -95,7 +95,19 @@ class TestProject:
         # Cannot drop a linked column
         with pytest.raises(excs.Error) as exc_info:
             t.drop_column('col1')
-        assert 'Cannot drop column `col1` because the following external stores depend on it' in str(exc_info.value)
+        assert 'Cannot drop column `col1` because the following external stores depend on it:\nproject' in str(exc_info.value)
+
+        # Can drop the column after unlinking
+        t.unlink('project')
+        t.drop_column('col1')
+
+        v = pxt.create_view('test_view', t)
+        v._link(MockProject.create(v, 'project', export_cols, import_cols, {'col3': 'export1'}))
+
+        # Cannot drop a column that is linked through a view
+        with pytest.raises(excs.Error) as exc_info:
+            t.drop_column('col3')
+        assert 'Cannot drop column `col3` because the following external stores depend on it:\nproject (in view `test_view`)' in str(exc_info.value)
 
     @pytest.mark.parametrize('with_reloads', [False, True])
     def test_stored_proxies(self, reset_db, with_reloads: bool) -> None:
