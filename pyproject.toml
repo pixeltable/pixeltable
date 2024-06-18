@@ -81,8 +81,8 @@ openai = "^1.10.0"
 together = "^1.1"
 fireworks-ai = "^0.13.0"
 boto3 = "^1.17"
-spacy = "^3.0"
-en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
+spacy = {version = ">=3.7", python = "<=3.11"}  # spacy seems to be broken on python 3.12.4
+en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl", python="<=3.11"}
 sentencepiece = ">=0.2.0"
 tiktoken = ">=0.7"
 sentence-transformers = "^2.0.0"

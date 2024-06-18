@@ -122,6 +122,7 @@ class TestDocument:
     def test_doc_splitter(self, reset_db) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('fitz')
+        skip_test_if_not_installed('spacy')
 
         file_paths = self.valid_doc_paths()
         doc_t = pxt.create_table('docs', {'doc': DocumentType()})
