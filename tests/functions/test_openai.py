@@ -75,6 +75,7 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
 
+    @pytest.mark.skip('Deprecated (needs to be replaced with GPT-4o support)')
     def test_gpt_4_vision(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
