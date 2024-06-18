@@ -158,7 +158,9 @@ class Expr(abc.ABC):
         return result
 
     @classmethod
-    def copy_list(cls, expr_list: List[Expr]) -> List[Expr]:
+    def copy_list(cls, expr_list: Optional[List[Expr]]) -> Optional[List[Expr]]:
+        if expr_list is None:
+            return None
         return [e.copy() for e in expr_list]
 
     def __deepcopy__(self, memo=None) -> Expr:
@@ -296,6 +298,19 @@ class Expr(abc.ABC):
         for e in expr_list:
             ids.update(e.tbl_ids())
         return ids
+
+    @classmethod
+    def get_refd_columns(cls, expr_dict: dict[str, Any]) -> list[catalog.Column]:
+        """Return Columns referenced by expr_dict."""
+        result: list[catalog.Column] = []
+        assert '_classname' in expr_dict
+        from .column_ref import ColumnRef
+        if expr_dict['_classname'] == 'ColumnRef':
+            result.append(ColumnRef.get_column(expr_dict))
+        if 'components' in expr_dict:
+            for component_dict in expr_dict['components']:
+                result.extend(cls.get_refd_columns(component_dict))
+        return result
 
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:

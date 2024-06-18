@@ -25,8 +25,7 @@ class CallableFunction(Function):
         self.py_fn = py_fn
         self.self_name = self_name
         self.batch_size = batch_size
-        py_signature = inspect.signature(self.py_fn)
-        super().__init__(signature, py_signature, self_path=self_path)
+        super().__init__(signature, self_path=self_path)
 
     @property
     def is_batched(self) -> bool:
@@ -91,16 +90,19 @@ class CallableFunction(Function):
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:
-        md = self.signature.as_dict()
-        if self.batch_size is not None:
-            md['batch_size'] = self.batch_size
+        md = {
+            'signature': self.signature.as_dict(),
+            'batch_size': self.batch_size,
+        }
         return md, cloudpickle.dumps(self.py_fn)
 
     @classmethod
     def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
         py_fn = cloudpickle.loads(binary_obj)
         assert isinstance(py_fn, Callable)
-        return CallableFunction(Signature.from_dict(md), py_fn, self_name=name, batch_size=md.get('batch_size'))
+        sig = Signature.from_dict(md['signature'])
+        batch_size = md['batch_size']
+        return CallableFunction(sig, py_fn, self_name=name, batch_size=batch_size)
 
     def validate_call(self, bound_args: dict[str, Any]) -> None:
         import pixeltable.exprs as exprs

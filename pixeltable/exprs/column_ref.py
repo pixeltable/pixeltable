@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Optional, Any, Tuple
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -38,7 +38,7 @@ class ColumnRef(Expr):
         self.iter_arg_ctx = iter_arg_ctx
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[Tuple[str, Any]]:
         return super()._id_attrs() + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id)]
 
     def __getattr__(self, name: str) -> Expr:
@@ -64,8 +64,8 @@ class ColumnRef(Expr):
         return super().__getattr__(name)
 
     def similarity(self, other: Any) -> Expr:
-        if isinstance(other, Expr):
-            raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
+        # if isinstance(other, Expr):
+        #     raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = Expr.from_object(other)
         if item is None or not(item.col_type.is_string_type() or item.col_type.is_image_type()):
             raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not a {type(other)}')
@@ -100,16 +100,20 @@ class ColumnRef(Expr):
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         tbl = self.col.tbl
         version = tbl.version if tbl.is_snapshot else None
         return {'tbl_id': str(tbl.id), 'tbl_version': version, 'col_id': self.col.id}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def get_column(cls, d: dict) -> catalog.Column:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         tbl_version = catalog.Catalog.get().tbl_versions[(tbl_id, version)]
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
         col = next(col for col in tbl_version.cols if col.id == col_id)
-        return cls(col)
+        return col
 
+    @classmethod
+    def _from_dict(cls, d: dict, _: list[Expr]) -> Expr:
+        col = cls.get_column(d)
+        return cls(col)
