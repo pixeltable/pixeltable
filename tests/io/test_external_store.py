@@ -21,14 +21,6 @@ class TestProject:
         export_cols = {'export1': pxt.StringType(), 'export2': pxt.ImageType()}
         import_cols = {'import1': pxt.StringType(), 'import2': pxt.VideoType()}
 
-        def make_store(col_mapping: Optional[dict[str, str]]) -> MockProject:
-            return MockProject(
-                name='store',
-                export_cols={'export1': pxt.StringType(), 'export2': pxt.ImageType()},
-                import_cols={'import1': pxt.StringType(), 'import2': pxt.VideoType()},
-                col_mapping=col_mapping
-            )
-
         # Nonexistent local column
         with pytest.raises(excs.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, None)
@@ -95,9 +87,9 @@ class TestProject:
         )
 
         # Duplicate link
-        t._link(MockProject('project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
+        t._link(MockProject.create(t, 'project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
         with pytest.raises(excs.Error) as exc_info:
-            t._link(MockProject('project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
+            t._link(MockProject.create(t, 'project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
         assert 'Table `test_store` already has an external store with that name: project' in str(exc_info.value)
 
         # Cannot drop a linked column
@@ -109,13 +101,17 @@ class TestProject:
     def test_stored_proxies(self, reset_db, with_reloads: bool) -> None:
         schema = {'img': pxt.ImageType(), 'other_img': pxt.ImageType()}
         t = pxt.create_table('test_store', schema)
-        store1 = MockProject(
+        t.add_column(rot_img=t.img.rotate(180), stored=False)
+        t.add_column(rot_other_img=t.other_img.rotate(180), stored=False)
+        store1 = MockProject.create(
+            t,
             'store1',
             {'push_img': pxt.ImageType(), 'push_other_img': pxt.ImageType()},
             {'pull_str': pxt.StringType()},
             {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'}
         )
-        store2 = MockProject(
+        store2 = MockProject.create(
+            t,
             'store2',
             {'push_img': pxt.ImageType()},
             {'pull_str': pxt.StringType()},
@@ -127,8 +123,6 @@ class TestProject:
             {'img': img, 'other_img': other_img}
             for img, other_img in zip(image_files[:5], other_image_files[:5])
         )
-        t.add_column(rot_img=t.img.rotate(180), stored=False)
-        t.add_column(rot_other_img=t.other_img.rotate(180), stored=False)
         assert not t.rot_img.col.is_stored
         assert not t.rot_other_img.col.is_stored
         assert t.rot_img.col.stored_proxy is None  # No stored proxy yet

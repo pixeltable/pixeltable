@@ -180,12 +180,24 @@ class MockProject(Project):
             name: str,
             export_cols: dict[str, ts.ColumnType],
             import_cols: dict[str, ts.ColumnType],
-            col_mapping: Optional[dict[str, str]]
+            raw_col_mapping: dict[tuple[UUID, int], str]
     ):
-        super().__init__(name, col_mapping)
+        super().__init__(name, raw_col_mapping)
         self.export_cols = export_cols
         self.import_cols = import_cols
         self.__is_deleted = False
+
+    @classmethod
+    def create(
+            cls,
+            t: Table,
+            name: str,
+            export_cols: dict[str, ts.ColumnType],
+            import_cols: dict[str, ts.ColumnType],
+            col_mapping: Optional[dict[str, str]] = None
+    ) -> 'MockProject':
+        raw_col_mapping = cls.validate_columns(t, export_cols, import_cols, col_mapping)
+        return cls(name, export_cols, import_cols, raw_col_mapping)
 
     def get_export_columns(self) -> dict[str, ts.ColumnType]:
         return self.export_cols
@@ -206,18 +218,25 @@ class MockProject(Project):
     def to_dict(self) -> dict[str, Any]:
         return {
             'name': self.name,
-            'col_mapping': self.col_mapping,
             'export_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
-            'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()}
+            'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()},
+            'col_mapping': [
+                {'tbl_id': str(tbl_id), 'col_id': col_id, 'r_col': r_col}
+                for (tbl_id, col_id), r_col in self._raw_col_mapping.items()
+            ]
         }
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> MockProject:
+        col_mapping_list: list[dict[str, Any]] = md['col_mapping']
         return cls(
             name=md['name'],
-            col_mapping=md['col_mapping'],
             export_cols={k: ts.ColumnType.from_dict(v) for k, v in md['export_cols'].items()},
-            import_cols={k: ts.ColumnType.from_dict(v) for k, v in md['import_cols'].items()}
+            import_cols={k: ts.ColumnType.from_dict(v) for k, v in md['import_cols'].items()},
+            raw_col_mapping={
+                (UUID(d['tbl_id']), d['col_id']): d['r_col']
+                for d in col_mapping_list
+            }
         )
 
     def __eq__(self, other: Any) -> bool:
