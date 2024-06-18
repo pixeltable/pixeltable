@@ -103,20 +103,6 @@ class TestProject:
         t = pxt.create_table('test_store', schema)
         t.add_column(rot_img=t.img.rotate(180), stored=False)
         t.add_column(rot_other_img=t.other_img.rotate(180), stored=False)
-        store1 = MockProject.create(
-            t,
-            'store1',
-            {'push_img': pxt.ImageType(), 'push_other_img': pxt.ImageType()},
-            {'pull_str': pxt.StringType()},
-            {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'}
-        )
-        store2 = MockProject.create(
-            t,
-            'store2',
-            {'push_img': pxt.ImageType()},
-            {'pull_str': pxt.StringType()},
-            {'rot_img': 'push_img'}
-        )
         image_files = get_image_files()[:10]
         other_image_files = get_image_files()[-10:]
         t.insert(
@@ -133,6 +119,13 @@ class TestProject:
             t = pxt.get_table('test_store')
 
         num_cols_before_linking = len(t.tbl_version_path.tbl_version.cols_by_id)
+        store1 = MockProject.create(
+            t,
+            'store1',
+            {'push_img': pxt.ImageType(), 'push_other_img': pxt.ImageType()},
+            {'pull_str': pxt.StringType()},
+            {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'}
+        )
         t._link(store1)
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
         assert t.rot_img.col.stored_proxy is not None  # Stored proxy
@@ -149,6 +142,19 @@ class TestProject:
             reload_catalog()
             t = pxt.get_table('test_store')
 
+        # Now we're going to add `store2`, which links just one of the two columns. We'll rename
+        # a column before linking, to ensure that column associations are preserved by reference
+        # (tbl/column ID), not by name.
+        t.rename_column('rot_img', 'rot_img_renamed')
+        assert t.rot_img_renamed.col.stored_proxy is not None
+        assert t.rot_img_renamed.col.stored_proxy.proxy_base == t.rot_img_renamed.col
+        store2 = MockProject.create(
+            t,
+            'store2',
+            {'push_img': pxt.ImageType()},
+            {'pull_str': pxt.StringType()},
+            {'rot_img_renamed': 'push_img'}
+        )
         t._link(store2)
         # Ensure the stored proxy is created just once (for both external stores)
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
@@ -158,10 +164,10 @@ class TestProject:
             t = pxt.get_table('test_store')
 
         t.unlink('store1')
-        # Now rot_img_col is still linked through store2, but rot_other_img_col
-        # is not linked to any store. So just rot_img_col should have a proxy
+        # Now rot_img_renamed is still linked through store2, but rot_other_img
+        # is not linked to any store. So just rot_img_renamed should have a proxy
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 1
-        assert t.rot_img.col.stored_proxy is not None
+        assert t.rot_img_renamed.col.stored_proxy is not None
         assert t.rot_other_img.col.stored_proxy is None
 
         if with_reloads:
@@ -170,4 +176,4 @@ class TestProject:
 
         t.unlink('store2')
         assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking
-        assert t.rot_img.col.stored_proxy is None
+        assert t.rot_img_renamed.col.stored_proxy is None
