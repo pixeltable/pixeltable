@@ -13,6 +13,7 @@ import pixeltable as pxt
 import pixeltable.metadata as metadata
 from pixeltable.env import Env
 from pixeltable.func import Batch
+from pixeltable.io.external_store import Project
 from pixeltable.tool import embed_udf
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, JsonType, ImageType
@@ -154,7 +155,8 @@ class Dumper:
         # Add external stores
         from pixeltable.io.external_store import MockProject
         v._link(
-            MockProject(
+            MockProject.create(
+                v,
                 'project',
                 {'int_field': pxt.IntType()},
                 {'str_field': pxt.StringType()},
@@ -163,8 +165,10 @@ class Dumper:
         )
         # We're just trying to test metadata here, so it's ok to link a false Label Studio project
         from pixeltable.io.label_studio import LabelStudioProject
+        col_mapping = Project.validate_columns(
+            v, {'str_field': pxt.StringType()}, {}, {'view_function_call': 'str_field'})
         v._link(
-            LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping={'view_function_call': 'str_format'})
+            LabelStudioProject('ls_project_0', 4171780, media_import_method='file', raw_col_mapping=col_mapping)
         )
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:

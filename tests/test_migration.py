@@ -80,6 +80,8 @@ class TestMigration:
                 self._run_v14_tests()
             if old_version >= 15:
                 self._run_v15_tests()
+            if old_version >= 16:
+                self._run_v16_tests()
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, \
@@ -106,9 +108,6 @@ class TestMigration:
     @classmethod
     def _run_v15_tests(cls) -> None:
         """Tests that apply to DB artifacts of version 15+."""
-        from pixeltable.io.external_store import MockProject
-        from pixeltable.io.label_studio import LabelStudioProject
-
         v = pxt.get_table('views.view')
         e = pxt.get_table('views.empty_view')
 
@@ -120,6 +119,14 @@ class TestMigration:
         expr = v['view_test_udf_batched'].col.value_expr
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
 
+    @classmethod
+    def _run_v16_tests(cls) -> None:
+        from pixeltable.io.external_store import MockProject
+        from pixeltable.io.label_studio import LabelStudioProject
+
+        t = pxt.get_table('base_table')
+        v = pxt.get_table('views.view')
+
         # Test that external stores are loaded properly.
         stores = list(v.tbl_version_path.tbl_version.external_stores.values())
         assert len(stores) == 2
@@ -127,7 +134,7 @@ class TestMigration:
         assert isinstance(store0, MockProject)
         assert store0.get_export_columns() == {'int_field': pxt.IntType()}
         assert store0.get_import_columns() == {'str_field': pxt.StringType()}
-        assert store0.col_mapping == {'view_test_udf': 'int_field', 'c1': 'str_field'}
+        assert store0.col_mapping == {v.view_test_udf.col: 'int_field', t.c1.col: 'str_field'}
         store1 = stores[1]
         assert isinstance(store1, LabelStudioProject)
         assert store1.project_id == 4171780
