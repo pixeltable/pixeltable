@@ -45,6 +45,10 @@ class TestIndex:
                 .order_by(t.img.similarity('parachute'), asc=is_asc) \
                 .limit(1).collect()
 
+            # can also be used in a computed column
+            validate_update_status(t.add_column(sim=t.img.similarity('parachute')))
+            t.drop_column('sim')
+
             t.drop_embedding_index(column_name='img')
 
     def test_query(self, reset_db) -> None:
@@ -72,6 +76,8 @@ class TestIndex:
                 .limit(5)
 
         _ = queries.select(queries.query_text, out=chunks.top_k_chunks(queries.query_text)).collect()
+        # alternative syntax
+        _ = queries.select(queries.query_text, out=chunks['top_k_chunks'](queries.query_text)).collect()
         queries.add_column(chunks=chunks.top_k_chunks(queries.query_text))
         _ = queries.collect()
 

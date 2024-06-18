@@ -73,9 +73,15 @@ class Table(SchemaObject):
             return self._queries[name]
         return getattr(self._tbl_version_path, name)
 
-    def __getitem__(self, index: object) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame']:
+    def __getitem__(
+            self, index: object
+    ) -> Union[
+        'pixeltable.exprs.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame'
+    ]:
         """Return a ColumnRef for the given column name, or a DataFrame for the given slice.
         """
+        if isinstance(index, str) and index in self._queries:
+            return self._queries[index]
         return self._tbl_version_path.__getitem__(index)
 
     def df(self) -> 'pixeltable.dataframe.DataFrame':

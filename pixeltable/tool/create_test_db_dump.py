@@ -251,6 +251,12 @@ class Dumper:
             return t.where(t.c2 < i).select(t.c1, t.c2)
         add_column('query_output', t.q1(t.c2))
 
+        @t.query
+        def q2(s: str):
+            sim = t[f'{col_prefix}_function_call'].similarity(s)
+            return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
+        add_column('sim_output', t.q2(t.c1))
+
 
 @pxt.udf(_force_stored=True)
 def test_udf_stored(n: int) -> int:
