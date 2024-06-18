@@ -2,10 +2,12 @@ import datetime
 import glob
 import json
 import os
+import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import PIL.Image
+import more_itertools
 import numpy as np
 import pandas as pd
 import pytest
@@ -281,12 +283,44 @@ def get_test_video_files() -> List[str]:
     return glob_result
 
 
-def get_image_files(include_bad_image: bool = False) -> List[str]:
-    tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
-    glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
-    if not include_bad_image:
-        glob_result = [f for f in glob_result if 'bad_image' not in f]
-    return glob_result
+__IMAGE_FILES: list[str] = []
+__IMAGE_FILES_WITH_BAD_IMAGE: list[str] = []
+
+
+# Gets all image files in the test folder.
+# The images will be returned in an order that: (1) is deterministic; (2) ensures that images
+# of different modes appear early in the list; and (3) is appropriately randomized subject to
+# these constraints.
+def get_image_files(include_bad_image: bool = False) -> list[str]:
+    global __IMAGE_FILES, __IMAGE_FILES_WITH_BAD_IMAGE
+    if not __IMAGE_FILES:
+        tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
+        img_files_path = Path(tests_dir) / 'data' / 'imagenette2-160'
+        glob_result = glob.glob(f'{img_files_path}/*.JPEG')
+        assert len(glob_result) > 1000
+        bad_image = next(f for f in glob_result if 'bad_image' in f)
+        good_images = [(__image_mode(f), f) for f in glob_result if 'bad_image' not in f]
+        # Group images by mode
+        modes = {mode for mode, _ in good_images}
+        groups = [[f for mode, f in good_images if mode == mode_group] for mode_group in modes]
+        # Sort and randomize the images in each group to ensure that the ordering is both
+        # deterministic and not dependent on extrinsic characteristics such as filename
+        for group in groups:
+            group.sort()
+            random.Random(4171780).shuffle(group)
+        # Combine the groups in round-robin fashion to ensure that small initial segments
+        # contain representatives from each group
+        __IMAGE_FILES = list(more_itertools.roundrobin(*groups))
+        __IMAGE_FILES_WITH_BAD_IMAGE = [bad_image] + __IMAGE_FILES
+    return __IMAGE_FILES_WITH_BAD_IMAGE if include_bad_image else __IMAGE_FILES
+
+
+def __image_mode(path: str) -> str:
+    image: PIL.Image = PIL.Image.open(path)
+    try:
+        return image.mode
+    finally:
+        image.close()
 
 
 def get_audio_files(include_bad_audio: bool = False) -> List[str]:
