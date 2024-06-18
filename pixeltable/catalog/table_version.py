@@ -122,6 +122,17 @@ class TableVersion:
         self.cols: list[Column] = []  # contains complete history of columns, incl dropped ones
         self.cols_by_name: dict[str, Column] = {}  # contains only user-facing (named) columns visible in this version
         self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
+
+        # A mapping from original columns to proxy columns. For each entry (k, v) in the dict, `v` is the stored
+        # proxy column for `k`. The proxy column `v` must necessarily be defined in this table, but `k` need not be;
+        # `k` might instead be defined in a base table.
+        # We need to track this here, not as a property of `Column`, because the same base column might have different
+        # more than one proxy in different views (and those proxies are not interchangeable, because the views might
+        # select different rows).
+        # Note from aaron-siegel: This methodology is inefficient in the case where a table has many views with a high
+        # proportion of overlapping rows, all proxying the same base column.
+        self.stored_proxies: dict[Column, Column] = {}
+
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
         self._init_schema(tbl_md, schema_version_md)
@@ -240,6 +251,8 @@ class TableVersion:
     def _init_cols(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
         import pixeltable.exprs as exprs
+        from pixeltable.catalog import Catalog
+
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
@@ -271,13 +284,23 @@ class TableVersion:
 
             # if this is a stored proxy column, resolve the relationships with its proxy base.
             if col_md.proxy_base is not None:
-                # proxy_base must have a strictly smaller id, so we must already have encountered it
-                # in traversal order; and if the proxy column is active at this version, then the
-                # proxy base must necessarily be active as well. This motivates the following assertion.
-                assert col_md.proxy_base in self.cols_by_id
-                base_col = self.cols_by_id[col_md.proxy_base]
-                base_col.stored_proxy = col
+                # proxy_base must either belong to a base table, or else have a strictly smaller id
+                # than this column. Moreover, if the proxy column is active at this version, then the
+                # proxy base must necessarily be active as well.
+                proxy_base_tbl_id = UUID(col_md.proxy_base['tbl_id'])
+                proxy_base_col_id = col_md.proxy_base['col_id']
+                if proxy_base_tbl_id == self.id:
+                    # proxy_base belongs to this table. It necessarily has a strictly smaller id than
+                    # this column, which motivates the following assertion.
+                    assert proxy_base_col_id in self.cols_by_id
+                    base_col = self.cols_by_id[proxy_base_col_id]
+                else:
+                    # proxy_base belongs to a base table. We can assume it is already deserialized in
+                    # the catalog.
+                    proxy_base_table = Catalog.get().tbl_versions[(proxy_base_tbl_id, None)]
+                    base_col = proxy_base_table.cols_by_id[proxy_base_col_id]
                 col.proxy_base = base_col
+                self.stored_proxies[base_col] = col
 
     def _init_idxs(self, tbl_md: schema.TableMd) -> None:
         self.idx_md = tbl_md.index_md
@@ -567,7 +590,7 @@ class TableVersion:
                 f'Cannot drop column `{name}` because the following external stores depend on it:\n'
                 f'{", ".join(dependent_store_names)}'
             )
-        assert col.stored_proxy is None  # since there are no dependent stores
+        assert col not in self.stored_proxies  # since there are no dependent stores
 
         # we're creating a new schema version
         self.version += 1
@@ -989,7 +1012,7 @@ class TableVersion:
         # First determine which columns (if any) need stored proxies, but don't have one yet.
         stored_proxies_needed = []
         for col in store.get_local_columns():
-            if col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and not col.stored_proxy:
+            if col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and col not in self.stored_proxies:
                 stored_proxies_needed.append(col)
         with Env.get().engine.begin() as conn:
             self.version += 1
@@ -1011,7 +1034,7 @@ class TableVersion:
     def create_stored_proxy(self, col: Column) -> Column:
         from pixeltable import exprs
 
-        assert col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and not col.stored_proxy
+        assert col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and col not in self.stored_proxies
         proxy_col = Column(
             name=None,
             # Force images in the proxy column to be materialized inside the media store,
@@ -1025,7 +1048,7 @@ class TableVersion:
         )
         proxy_col.tbl = self
         self.next_col_id += 1
-        col.stored_proxy = proxy_col
+        self.stored_proxies[col] = proxy_col
         proxy_col.proxy_base = col
         return proxy_col
 
@@ -1042,7 +1065,7 @@ class TableVersion:
         stored_proxy_deletions_needed = [
             col
             for col in this_store_cols
-            if col not in other_store_cols and col.stored_proxy
+            if col not in other_store_cols and col in self.stored_proxies
         ]
         with Env.get().engine.begin() as conn:
             self.version += 1
@@ -1051,12 +1074,11 @@ class TableVersion:
             if len(stored_proxy_deletions_needed) > 0:
                 preceding_schema_version = self.schema_version
                 self.schema_version = self.version
-                proxy_cols = [col.stored_proxy for col in stored_proxy_deletions_needed]
-                for col in stored_proxy_deletions_needed:
-                    assert col.stored_proxy is not None and col.stored_proxy.proxy_base == col
-                    col.stored_proxy.proxy_base = None
-                    col.stored_proxy = None
+                proxy_cols = [self.stored_proxies[col] for col in stored_proxy_deletions_needed]
                 self._drop_columns(proxy_cols)
+                for col in stored_proxy_deletions_needed:
+                    assert col in self.stored_proxies and self.stored_proxies[col].proxy_base == col
+                    del self.stored_proxies[col]
             self._update_md(timestamp, preceding_schema_version, conn)
 
         if delete_external_data and isinstance(store, pixeltable.io.external_store.Project):
@@ -1157,14 +1179,14 @@ class TableVersion:
 
     @classmethod
     def _create_column_md(cls, cols: List[Column]) -> dict[int, schema.ColumnMd]:
-        column_md: Dict[int, schema.ColumnMd] = {}
+        column_md: dict[int, schema.ColumnMd] = {}
         for col in cols:
             value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
+            proxy_base_dict = {'tbl_id': str(col.proxy_base.tbl.id), 'col_id': col.proxy_base.id} if col.proxy_base else None
             column_md[col.id] = schema.ColumnMd(
                 id=col.id, col_type=col.col_type.as_dict(), is_pk=col.is_pk,
                 schema_version_add=col.schema_version_add, schema_version_drop=col.schema_version_drop,
-                value_expr=value_expr_dict, stored=col.stored,
-                proxy_base=col.proxy_base.id if col.proxy_base else None)
+                value_expr=value_expr_dict, stored=col.stored, proxy_base=proxy_base_dict)
         return column_md
 
     @classmethod

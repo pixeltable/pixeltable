@@ -163,13 +163,19 @@ class Dumper:
                 {'view_test_udf': 'int_field', 'c1': 'str_field'}
             )
         )
-        # We're just trying to test metadata here, so it's ok to link a false Label Studio project
+        # We're just trying to test metadata here, so it's ok to link a false Label Studio project.
+        # We include a computed image column in order to ensure the creation of a stored proxy.
         from pixeltable.io.label_studio import LabelStudioProject
         col_mapping = Project.validate_columns(
-            v, {'str_field': pxt.StringType()}, {}, {'view_function_call': 'str_field'})
+            v, {'str_field': pxt.StringType(), 'img_field': pxt.ImageType()}, {},
+            {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'}
+        )
         v._link(
             LabelStudioProject('ls_project_0', 4171780, media_import_method='file', raw_col_mapping=col_mapping)
         )
+        # Sanity check that the stored proxy column did get created
+        assert len(v._tbl_version().stored_proxies) == 1
+        assert t.base_table_image_rot.col in v._tbl_version().stored_proxies
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
         def add_column(col_name: str, col_expr: Any) -> None:
@@ -212,6 +218,7 @@ class Dumper:
 
         # image_member_access
         add_column('image_mode', t.c8.mode)
+        add_column('image_rot', t.c8.rotate(180))
 
         # in_predicate
         add_column('isin_1', t.c1.isin(['test string 1', 'test string 2', 'test string 3']))

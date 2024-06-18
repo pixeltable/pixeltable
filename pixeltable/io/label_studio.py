@@ -239,10 +239,11 @@ class LabelStudioProject(Project):
                 if not col.col_type.is_media_type():
                     # Not a media column; query the data directly
                     col_refs[col_name] = t[col_name]
-                elif col.stored_proxy:
+                elif col in t._tbl_version().stored_proxies:
                     # Media column that has a stored proxy; use it. We have to give it a name,
                     # since it's an anonymous column
-                    col_refs[f'{col_name}_proxy'] = ColumnRef(col.stored_proxy).localpath
+                    stored_proxy_col = t._tbl_version().stored_proxies[col]
+                    col_refs[f'{col_name}_proxy'] = ColumnRef(stored_proxy_col).localpath
                 else:
                     # Media column without a stored proxy; this means it's a stored computed column,
                     # and we can just use the localpath

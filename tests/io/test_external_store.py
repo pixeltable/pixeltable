@@ -123,14 +123,14 @@ class TestProject:
         )
         assert not t.rot_img.col.is_stored
         assert not t.rot_other_img.col.is_stored
-        assert t.rot_img.col.stored_proxy is None  # No stored proxy yet
-        assert t.rot_other_img.col.stored_proxy is None
+        assert t.rot_img.col not in t._tbl_version().stored_proxies  # No stored proxy yet
+        assert t.rot_other_img.col not in t._tbl_version().stored_proxies
 
         if with_reloads:
             reload_catalog()
             t = pxt.get_table('test_store')
 
-        num_cols_before_linking = len(t.tbl_version_path.tbl_version.cols_by_id)
+        num_cols_before_linking = len(t._tbl_version().cols_by_id)
         store1 = MockProject.create(
             t,
             'store1',
@@ -139,13 +139,13 @@ class TestProject:
             {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'}
         )
         t._link(store1)
-        assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
-        assert t.rot_img.col.stored_proxy is not None  # Stored proxy
-        assert t.rot_img.col.stored_proxy.proxy_base == t.rot_img.col
-        assert t.rot_other_img.col.stored_proxy is not None
-        assert t.rot_other_img.col.stored_proxy.proxy_base == t.rot_other_img.col
+        assert len(t._tbl_version().cols_by_id) == num_cols_before_linking + 2
+        assert t.rot_img.col in t._tbl_version().stored_proxies  # Stored proxy
+        assert t._tbl_version().stored_proxies[t.rot_img.col].proxy_base == t.rot_img.col
+        assert t.rot_other_img.col in t._tbl_version().stored_proxies  # Stored proxy
+        assert t._tbl_version().stored_proxies[t.rot_other_img.col].proxy_base == t.rot_other_img.col
         # Verify that the stored proxies properly materialized, and we can query them
-        ref = ColumnRef(t.rot_img.col.stored_proxy)
+        ref = ColumnRef(t._tbl_version().stored_proxies[t.rot_img.col])
         proxies = t.select(img=ref, path=ref.localpath).collect()
         assert all(os.path.isfile(proxies['path'][i]) for i in range(len(proxies)))
         proxies['img'][0].load()
@@ -158,8 +158,8 @@ class TestProject:
         # a column before linking, to ensure that column associations are preserved by reference
         # (tbl/column ID), not by name.
         t.rename_column('rot_img', 'rot_img_renamed')
-        assert t.rot_img_renamed.col.stored_proxy is not None
-        assert t.rot_img_renamed.col.stored_proxy.proxy_base == t.rot_img_renamed.col
+        assert t.rot_img_renamed.col in t._tbl_version().stored_proxies
+        assert t._tbl_version().stored_proxies[t.rot_img_renamed.col].proxy_base == t.rot_img_renamed.col
         store2 = MockProject.create(
             t,
             'store2',
@@ -169,7 +169,7 @@ class TestProject:
         )
         t._link(store2)
         # Ensure the stored proxy is created just once (for both external stores)
-        assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 2
+        assert len(t._tbl_version().cols_by_id) == num_cols_before_linking + 2
 
         if with_reloads:
             reload_catalog()
@@ -178,14 +178,60 @@ class TestProject:
         t.unlink('store1')
         # Now rot_img_renamed is still linked through store2, but rot_other_img
         # is not linked to any store. So just rot_img_renamed should have a proxy
-        assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking + 1
-        assert t.rot_img_renamed.col.stored_proxy is not None
-        assert t.rot_other_img.col.stored_proxy is None
+        assert len(t._tbl_version().cols_by_id) == num_cols_before_linking + 1
+        assert t.rot_img_renamed.col in t._tbl_version().stored_proxies
+        assert t.rot_other_img.col not in t._tbl_version().stored_proxies
 
         if with_reloads:
             reload_catalog()
             t = pxt.get_table('test_store')
 
         t.unlink('store2')
-        assert len(t.tbl_version_path.tbl_version.cols_by_id) == num_cols_before_linking
-        assert t.rot_img_renamed.col.stored_proxy is None
+        assert len(t._tbl_version().cols_by_id) == num_cols_before_linking
+        assert t.rot_img_renamed.col not in t._tbl_version().stored_proxies
+
+        # Now try linking through a view.
+        v1 = pxt.create_view('test_view_1', t)
+        storev1 = MockProject.create(
+            v1,
+            'storev1',
+            {'push_img': pxt.ImageType(), 'push_other_img': pxt.ImageType()},
+            {'pull_str': pxt.StringType()},
+            {'rot_img_renamed': 'push_img', 'rot_other_img': 'push_other_img'}
+        )
+        v1._link(storev1)
+
+        if with_reloads:
+            reload_catalog()
+            t = pxt.get_table('test_store')
+            v1 = pxt.get_table('test_view_1')
+
+        assert t.rot_img_renamed.col == v1.rot_img_renamed.col
+        assert t.rot_img_renamed.col in v1._tbl_version().stored_proxies
+        assert t.rot_img_renamed.col not in t._tbl_version().stored_proxies
+        assert v1._tbl_version().stored_proxies[t.rot_img_renamed.col].tbl.id == v1.get_id()
+
+        storev2 = MockProject.create(
+            t,
+            'storev2',
+            {'push_img': pxt.ImageType()},
+            {'pull_str': pxt.StringType()},
+            {'rot_img_renamed': 'push_img'}
+        )
+
+        v2 = pxt.create_view('test_view_2', t)
+        v2._link(storev2)
+
+        if with_reloads:
+            reload_catalog()
+            t = pxt.get_table('test_store')
+            v1 = pxt.get_table('test_view_1')
+            v2 = pxt.get_table('test_view_2')
+
+        # Check that the same column correctly gets mapped to two distinct stored proxies, one
+        # for each view
+        assert t.rot_img_renamed.col in v1._tbl_version().stored_proxies
+        assert t.rot_img_renamed.col in v2._tbl_version().stored_proxies
+        assert t.rot_img_renamed.col not in t._tbl_version().stored_proxies
+        assert v1._tbl_version().stored_proxies[t.rot_img_renamed.col].tbl.id == v1.get_id()
+        assert v2._tbl_version().stored_proxies[t.rot_img_renamed.col].tbl.id == v2.get_id()

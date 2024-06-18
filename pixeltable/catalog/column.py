@@ -87,14 +87,9 @@ class Column:
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
 
-        # It is sometimes necessary to create a stored "proxy column" for a non-stored media column: for example, when
-        # linking a non-stored column to a labeling project. The proxy column can be thought of as a stored computed
-        # column whose computation is the identity function on the original column.
-        self.stored_proxy: Optional[Column] = None
-        # If this column is a proxy column, then `proxy_base` is the original column (i.e., the column that this column
-        # proxies). Therefore, if `col2` is the proxy column of `col1`, it will be the case that
-        # col1.stored_proxy == col2    and    col1 == col2.proxy_base.
-        # TODO(aaron-siegel) A problem will arise if the same column of a base table is proxied in two different views.
+        # If this column is a stored proxy column, then `proxy_base` will be the column for which it is
+        # a proxy. `proxy_base` need not belong to the same table as this column, but if not, then it is
+        # necessarily in one of this column's base tables.
         self.proxy_base: Optional[Column] = None
 
         self._records_errors = records_errors

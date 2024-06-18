@@ -93,7 +93,7 @@ class ColumnMd:
     stored: Optional[bool]
 
     # if specified, the column is a stored proxy of another column
-    proxy_base: Optional[int]
+    proxy_base: Optional[dict]
 
 
 @dataclasses.dataclass

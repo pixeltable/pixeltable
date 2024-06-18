@@ -128,7 +128,7 @@ class TestMigration:
         v = pxt.get_table('views.view')
 
         # Test that external stores are loaded properly.
-        stores = list(v.tbl_version_path.tbl_version.external_stores.values())
+        stores = list(v._tbl_version().external_stores.values())
         assert len(stores) == 2
         store0 = stores[0]
         assert isinstance(store0, MockProject)
@@ -138,3 +138,7 @@ class TestMigration:
         store1 = stores[1]
         assert isinstance(store1, LabelStudioProject)
         assert store1.project_id == 4171780
+
+        # Test that the stored proxies were retained properly
+        assert len(v._tbl_version().stored_proxies) == 1
+        assert t.base_table_image_rot.col in v._tbl_version().stored_proxies
