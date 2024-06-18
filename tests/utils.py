@@ -282,7 +282,7 @@ def get_test_video_files() -> List[str]:
 
 def get_image_files(include_bad_image: bool = False) -> List[str]:
     tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
-    glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*', recursive=True)
+    glob_result = glob.glob(f'{tests_dir}/**/imagenette2-160/*.JPEG', recursive=True)
     if not include_bad_image:
         glob_result = [f for f in glob_result if 'bad_image' not in f]
     return glob_result
