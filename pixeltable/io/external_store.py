@@ -46,7 +46,10 @@ class ExternalStore(abc.ABC):
 
 
 class Project(ExternalStore, abc.ABC):
-
+    """
+    An `ExternalStore` that represents a labeling project. Extends `ExternalStore` with a few
+    additional capabilities specific to such projects.
+    """
     def __init__(self, name: str, raw_col_mapping: Optional[dict[tuple[UUID, int], str]]):
         super().__init__(name)
         self._raw_col_mapping = raw_col_mapping
