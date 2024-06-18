@@ -234,7 +234,7 @@ def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
 @pytest.fixture(scope='session')
 def init_ls(init_env) -> None:
     skip_test_if_not_installed('label_studio_sdk')
-    ls_version = '1.11.0'
+    ls_version = '1.12.1'
     ls_port = 31713
     ls_url = f'http://localhost:{ls_port}/'
     _logger.info('Setting up a venv the Label Studio pytext fixture.')
@@ -246,7 +246,7 @@ def init_ls(init_env) -> None:
         python_binary = 'target/ls-env/bin/python'
         ls_binary = 'target/ls-env/bin/label-studio'
     subprocess.run(f'{python_binary} -m pip install --upgrade pip'.split(' '), check=True)
-    subprocess.run(f'{python_binary} -m pip install label-studio=={ls_version}'.split(' '), check=True)
+    subprocess.run(f'{python_binary} -m pip install --no-cache-dir label-studio=={ls_version}'.split(' '), check=True)
     _logger.info('Spawning Label Studio pytest fixture.')
     import label_studio_sdk.client
     ls_process = subprocess.Popen([
