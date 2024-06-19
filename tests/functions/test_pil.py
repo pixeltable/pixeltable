@@ -1,7 +1,7 @@
-from PIL.Image import Quantize, Transpose
+from PIL.Image import Quantize, Transpose, Dither
 
 from pixeltable import Table
-from pixeltable.functions.pil.image import *
+from pixeltable.functions.image import alpha_composite, blend, composite
 
 
 class TestPil:
