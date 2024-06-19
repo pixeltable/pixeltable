@@ -26,7 +26,7 @@ from . import functions, io, iterators
 from .__version__ import __version__, __version_tuple__
 
 # This is the safest / most maintainable way to do this: start with the default and "blacklist" stuff that
-# we don't want in there. (Using a "whitelist" is much harder to maintain.)
+# we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
 
 __default_dir = set(symbol for symbol in dir() if not symbol.startswith('_'))
 __removed_symbols = {'catalog', 'dataframe', 'env', 'exceptions', 'exec', 'exprs', 'func', 'globals', 'index',

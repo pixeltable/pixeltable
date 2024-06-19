@@ -56,8 +56,12 @@ def udf(*args, **kwargs):
         return_type = kwargs.pop('return_type', None)
         param_types = kwargs.pop('param_types', None)
         batch_size = kwargs.pop('batch_size', None)
-        substitute_fn = kwargs.pop('py_fn', None)
+        substitute_fn = kwargs.pop('substitute_fn', None)
         force_stored = kwargs.pop('_force_stored', False)
+        if len(kwargs) > 0:
+            raise excs.Error(f'Invalid @udf decorator kwargs: {", ".join(kwargs.keys())}')
+        if len(args) > 0:
+            raise excs.Error('Unexpected @udf decorator arguments.')
 
         def decorator(decorated_fn: Callable):
             return make_function(
