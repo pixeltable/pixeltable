@@ -136,7 +136,7 @@ class InsertableTable(Table):
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
         self._validate_input_rows(rows)
-        result = self.tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
+        result = self._tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
         if result.num_excs == 0:
             cols_with_excs_str = ''
@@ -155,8 +155,8 @@ class InsertableTable(Table):
     def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
         valid_col_names = set(self.column_names())
-        reqd_col_names = set(self.tbl_version_path.tbl_version.get_required_col_names())
-        computed_col_names = set(self.tbl_version_path.tbl_version.get_computed_col_names())
+        reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())
+        computed_col_names = set(self._tbl_version_path.tbl_version.get_computed_col_names())
         for row in rows:
             assert isinstance(row, dict)
             col_names = set(row.keys())
@@ -170,7 +170,7 @@ class InsertableTable(Table):
                     raise excs.Error(f'Value for computed column {col_name} in row {row}')
 
                 # validate data
-                col = self.tbl_version_path.get_column(col_name)
+                col = self._tbl_version_path.get_column(col_name)
                 try:
                     # basic sanity checks here
                     checked_val = col.col_type.create_literal(val)
@@ -199,7 +199,7 @@ class InsertableTable(Table):
         if where is not None:
             if not isinstance(where, Predicate):
                 raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self.tbl_version_path, where)
+            analysis_info = Planner.analyze(self._tbl_version_path, where)
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')

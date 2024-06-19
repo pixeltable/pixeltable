@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Union
+from typing import Optional, Union
 from uuid import UUID
 
 import pixeltable
+import pixeltable.catalog as catalog
 from .column import Column
 from .globals import POS_COLUMN_NAME
 from .table_version import TableVersion
@@ -59,13 +60,13 @@ class TableVersionPath:
     def is_insertable(self) -> bool:
         return self.tbl_version.is_insertable()
 
-    def get_tbl_versions(self) -> List[TableVersion]:
+    def get_tbl_versions(self) -> list[TableVersion]:
         """Return all tbl versions"""
         if self.base is None:
             return [self.tbl_version]
         return [self.tbl_version] + self.base.get_tbl_versions()
 
-    def get_bases(self) -> List[TableVersion]:
+    def get_bases(self) -> list[TableVersion]:
         """Return all tbl versions"""
         if self.base is None:
             return []
@@ -100,7 +101,7 @@ class TableVersionPath:
         from pixeltable.dataframe import DataFrame
         return DataFrame(self).__getitem__(index)
 
-    def columns(self) -> List[Column]:
+    def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
         result = list(self.tbl_version.cols_by_name.values())
         if self.base is not None:
@@ -141,3 +142,15 @@ class TableVersionPath:
             return self.base.has_column(col)
         else:
             return False
+
+    def as_dict(self) -> dict:
+        return {
+            'tbl_version': self.tbl_version.as_dict(),
+            'base': self.base.as_dict() if self.base is not None else None
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> TableVersionPath:
+        tbl_version = TableVersion.from_dict(d['tbl_version'])
+        base = TableVersionPath.from_dict(d['base']) if d['base'] is not None else None
+        return cls(tbl_version, base)

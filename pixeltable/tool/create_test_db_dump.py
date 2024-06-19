@@ -174,8 +174,8 @@ class Dumper:
             LabelStudioProject('ls_project_0', 4171780, media_import_method='file', raw_col_mapping=col_mapping)
         )
         # Sanity check that the stored proxy column did get created
-        assert len(v._tbl_version().stored_proxies) == 1
-        assert t.base_table_image_rot.col in v._tbl_version().stored_proxies
+        assert len(v._tbl_version.stored_proxies) == 1
+        assert t.base_table_image_rot.col in v._tbl_version.stored_proxies
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
         def add_column(col_name: str, col_expr: Any) -> None:
@@ -255,6 +255,20 @@ class Dumper:
         add_column('c6_back_to_json', t[f'{col_prefix}_c6_to_string'].apply(json.loads))
 
         t.add_embedding_index(f'{col_prefix}_function_call', text_embed=embed_udf.clip_text_embed)
+
+        # query()
+        @t.query
+        def q1(i: int):
+            # this breaks; TODO: why?
+            #return t.where(t.c2 < i)
+            return t.where(t.c2 < i).select(t.c1, t.c2)
+        add_column('query_output', t.q1(t.c2))
+
+        @t.query
+        def q2(s: str):
+            sim = t[f'{col_prefix}_function_call'].similarity(s)
+            return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
+        add_column('sim_output', t.q2(t.c1))
 
 
 @pxt.udf(_force_stored=True)

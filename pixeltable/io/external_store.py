@@ -141,7 +141,7 @@ class Project(ExternalStore, abc.ABC):
                     )
             if r_col in import_cols:
                 # Validate that the external column can be assigned to the table column
-                if table.tbl_version_path.get_column(t_col).is_computed:
+                if table._tbl_version_path.get_column(t_col).is_computed:
                     raise excs.Error(
                         f'Column `{t_col}` is a computed column, which cannot be populated from an external column'
                     )

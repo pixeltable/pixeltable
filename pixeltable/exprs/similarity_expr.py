@@ -18,7 +18,6 @@ class SimilarityExpr(Expr):
         super().__init__(ts.FloatType())
         self.components = [col_ref, item]
         self.id = self._create_id()
-        assert isinstance(item, Literal)
         assert item.col_type.is_string_type() or item.col_type.is_image_type()
 
         # determine index to use
@@ -47,12 +46,14 @@ class SimilarityExpr(Expr):
         return f'{self.components[0]}.similarity({self.components[1]})'
 
     def sql_expr(self) -> Optional[sql.ClauseElement]:
-        assert isinstance(self.components[1], Literal)
+        if not isinstance(self.components[1], Literal):
+             raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = self.components[1].val
         return self.idx_info.idx.similarity_clause(self.idx_info.val_col, item)
 
     def as_order_by_clause(self, is_asc: bool) -> Optional[sql.ClauseElement]:
-        assert isinstance(self.components[1], Literal)
+        if not isinstance(self.components[1], Literal):
+            raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = self.components[1].val
         return self.idx_info.idx.order_by_clause(self.idx_info.val_col, item, is_asc)
 

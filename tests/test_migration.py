@@ -80,8 +80,8 @@ class TestMigration:
                 self._run_v14_tests()
             if old_version >= 15:
                 self._run_v15_tests()
-            if old_version >= 16:
-                self._run_v16_tests()
+            if old_version >= 17:
+                self._run_v17_tests()
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, \
@@ -120,7 +120,7 @@ class TestMigration:
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
 
     @classmethod
-    def _run_v16_tests(cls) -> None:
+    def _run_v17_tests(cls) -> None:
         from pixeltable.io.external_store import MockProject
         from pixeltable.io.label_studio import LabelStudioProject
 
@@ -128,7 +128,7 @@ class TestMigration:
         v = pxt.get_table('views.view')
 
         # Test that external stores are loaded properly.
-        stores = list(v._tbl_version().external_stores.values())
+        stores = list(v._tbl_version.external_stores.values())
         assert len(stores) == 2
         store0 = stores[0]
         assert isinstance(store0, MockProject)
@@ -140,5 +140,5 @@ class TestMigration:
         assert store1.project_id == 4171780
 
         # Test that the stored proxies were retained properly
-        assert len(v._tbl_version().stored_proxies) == 1
-        assert t.base_table_image_rot.col in v._tbl_version().stored_proxies
+        assert len(v._tbl_version.stored_proxies) == 1
+        assert t.base_table_image_rot.col in v._tbl_version.stored_proxies

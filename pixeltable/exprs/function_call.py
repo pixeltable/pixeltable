@@ -54,7 +54,7 @@ class FunctionCall(Expr):
         self.arg_types: List[ts.ColumnType] = []
         self.kwarg_types: Dict[str, ts.ColumnType] = {}
         # the prefix of parameters that are bound can be passed by position
-        for param in fn.py_signature.parameters.values():
+        for param in fn.signature.py_signature.parameters.values():
             if param.name not in bound_args or param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
             arg = bound_args[param.name]
@@ -67,7 +67,7 @@ class FunctionCall(Expr):
                 self.arg_types.append(signature.parameters[param.name].col_type)
 
         # the remaining args are passed as keywords
-        kw_param_names = set(bound_args.keys()) - set(list(fn.py_signature.parameters.keys())[:len(self.args)])
+        kw_param_names = set(bound_args.keys()) - set(list(fn.signature.py_signature.parameters.keys())[:len(self.args)])
         for param_name in kw_param_names:
             arg = bound_args[param_name]
             if isinstance(arg, Expr):
@@ -75,7 +75,7 @@ class FunctionCall(Expr):
                 self.components.append(arg.copy())
             else:
                 self.kwargs[param_name] = (None, arg)
-            if fn.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
+            if fn.signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                 self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
         # window function state:
@@ -117,7 +117,7 @@ class FunctionCall(Expr):
         self.id = self._create_id()
 
     def _create_rowid_refs(self, tbl: catalog.Table) -> List[Expr]:
-        target = tbl.tbl_version_path.tbl_version
+        target = tbl._tbl_version_path.tbl_version
         return [RowidRef(target, i) for i in range(target.num_rowid_columns())]
 
     @classmethod

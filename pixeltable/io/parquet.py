@@ -63,7 +63,7 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
     # store the changes atomically
     with transactional_directory(dest_path) as temp_path:
         # dump metadata json file so we can inspect what was the source of the parquet file later on.
-        json.dump(df._as_dict(), (temp_path / '.pixeltable.json').open('w'))  # pylint: disable=protected-access
+        json.dump(df.as_dict(), (temp_path / '.pixeltable.json').open('w'))  # pylint: disable=protected-access
         json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
         batch_num = 0
