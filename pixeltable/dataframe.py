@@ -9,7 +9,7 @@ import logging
 import mimetypes
 import traceback
 from pathlib import Path
-from typing import List, Optional, Any, Dict, Generator, Tuple, Set
+from typing import List, Optional, Any, Dict, Iterator, Tuple, Set
 
 import PIL.Image
 import cv2
@@ -22,6 +22,7 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
+import pixeltable.func as func
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.env import Env
 from pixeltable.plan import Planner
@@ -344,7 +345,37 @@ class DataFrame:
         assert set(out_names) == seen_out_names
         return out_exprs, out_names
 
-    def _exec(self) -> Generator[exprs.DataRow, None, None]:
+    def _vars(self) -> dict[str, exprs.Variable]:
+        """
+        Return a dict mapping variable name to Variable for all Variables contained in any component of the DataFrame
+        """
+        all_exprs: list[exprs.Expr] = []
+        all_exprs.extend(self._select_list_exprs)
+        if self.where_clause is not None:
+            all_exprs.append(self.where_clause)
+        if self.group_by_clause is not None:
+            all_exprs.extend(self.group_by_clause)
+        if self.order_by_clause is not None:
+            all_exprs.extend([expr for expr, _ in self.order_by_clause])
+        vars = exprs.Expr.list_subexprs(all_exprs, expr_class=exprs.Variable)
+        unique_vars: dict[str, exprs.Variable] = {}
+        for var in vars:
+            if var.name not in unique_vars:
+                unique_vars[var.name] = var
+            else:
+                if unique_vars[var.name].col_type != var.col_type:
+                    raise excs.Error(f'Multiple definitions of parameter {var.name}')
+        return unique_vars
+
+    def parameters(self) -> dict[str, ColumnType]:
+        """Return a dict mapping parameter name to parameter type.
+
+        Parameters are Variables contained in any component of the DataFrame.
+        """
+        vars = self._vars()
+        return {name: var.col_type for name, var in vars.items()}
+
+    def _exec(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[exprs.DataRow]:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
@@ -361,6 +392,7 @@ class DataFrame:
 
         for item in self._select_list_exprs:
             item.bind_rel_paths(None)
+
         plan = Planner.create_query_plan(
             self.tbl,
             self._select_list_exprs,
@@ -370,8 +402,8 @@ class DataFrame:
             limit=self.limit_val if self.limit_val is not None else 0,
         )  # limit_val == 0: no limit_val
 
-        with Env.get().engine.begin() as conn:
-            plan.ctx.conn = conn
+        def exec_plan(conn: sql.engine.Connection) -> Iterator[exprs.DataRow]:
+            plan.ctx.set_conn(conn)
             plan.open()
             try:
                 for row_batch in plan:
@@ -379,7 +411,12 @@ class DataFrame:
                         yield data_row
             finally:
                 plan.close()
-            return
+
+        if conn is None:
+            with Env.get().engine.begin() as conn:
+                yield from exec_plan(conn)
+        else:
+            yield from exec_plan(conn)
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
@@ -407,10 +444,54 @@ class DataFrame:
     def get_column_types(self) -> List[ColumnType]:
         return [expr.col_type for expr in self._select_list_exprs]
 
+    def bind(self, args: dict[str, Any]) -> DataFrame:
+        """Bind arguments to parameters and return a new DataFrame."""
+        # substitute Variables with the corresponding values according to 'args', converted to Literals
+        select_list_exprs = copy.deepcopy(self._select_list_exprs)
+        where_clause = copy.deepcopy(self.where_clause)
+        group_by_clause = copy.deepcopy(self.group_by_clause)
+        order_by_exprs = [copy.deepcopy(order_by_expr) for order_by_expr, _ in self.order_by_clause] \
+            if self.order_by_clause is not None else None
+
+        var_exprs: dict[exprs.Expr, exprs.Expr] = {}
+        vars = self._vars()
+        for arg_name, arg_val in args.items():
+            if arg_name not in vars:
+                # ignore unused variables
+                continue
+            var_expr = vars[arg_name]
+            arg_expr = exprs.Expr.from_object(arg_val)
+            if arg_expr is None:
+                raise excs.Error(f'Cannot convert argument {arg_val} to a Pixeltable expression')
+            var_exprs[var_expr] = arg_expr
+
+        exprs.Expr.list_substitute(select_list_exprs, var_exprs)
+        if where_clause is not None:
+            where_clause.substitute(var_exprs)
+        if group_by_clause is not None:
+            exprs.Expr.list_substitute(group_by_clause, var_exprs)
+        if order_by_exprs is not None:
+            exprs.Expr.list_substitute(order_by_exprs, var_exprs)
+
+        select_list = list(zip(select_list_exprs, self._column_names))
+        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None
+        if order_by_exprs is not None:
+            order_by_clause = [
+                (expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])
+            ]
+
+        return DataFrame(
+            self.tbl, select_list=select_list, where_clause=where_clause,
+            group_by_clause=group_by_clause, grouping_tbl=self.grouping_tbl,
+            order_by_clause=order_by_clause, limit=self.limit_val)
+
     def collect(self) -> DataFrameResultSet:
+        return self._collect()
+
+    def _collect(self, conn: Optional[sql.engine.Connection] = None) -> DataFrameResultSet:
         try:
             result_rows = []
-            for data_row in self._exec():
+            for data_row in self._exec(conn):
                 result_row = [data_row[e.slot_idx] for e in self._select_list_exprs]
                 result_rows.append(result_row)
         except excs.ExprEvalError as e:
@@ -579,10 +660,10 @@ class DataFrame:
                 if len(grouping_items) > 1:
                     raise excs.Error(f'group_by(): only one table can be specified')
                 # we need to make sure that the grouping table is a base of self.tbl
-                base = self.tbl.find_tbl_version(item.tbl_version_path.tbl_id())
+                base = self.tbl.find_tbl_version(item._tbl_version_path.tbl_id())
                 if base is None or base.id == self.tbl.tbl_id():
                     raise excs.Error(f'group_by(): {item.name} is not a base table of {self.tbl.tbl_name()}')
-                grouping_tbl = item.tbl_version_path.tbl_version
+                grouping_tbl = item._tbl_version_path.tbl_version
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.Error(f'Invalid expression in group_by(): {item}')
@@ -615,6 +696,7 @@ class DataFrame:
         )
 
     def limit(self, n: int) -> DataFrame:
+        # TODO: allow n to be a Variable that can be substituted in bind()
         assert n is not None and isinstance(n, int)
         return DataFrame(
             self.tbl,
@@ -643,7 +725,7 @@ class DataFrame:
             return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
 
-    def _as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> Dict[str, Any]:
         """
         Returns:
             Dictionary representing this dataframe.
@@ -651,21 +733,45 @@ class DataFrame:
         tbl_versions = self.tbl.get_tbl_versions()
         d = {
             '_classname': 'DataFrame',
-            'tbl_ids': [str(t.id) for t in tbl_versions],
-            'tbl_versions': [t.version for t in tbl_versions],
-            'select_list': [(e.as_dict(), name) for (e, name) in self.select_list]
-            if self.select_list is not None
-            else None,
+            'tbl': self.tbl.as_dict(),
+            'select_list':
+                [(e.as_dict(), name) for (e, name) in self.select_list] if self.select_list is not None else None,
             'where_clause': self.where_clause.as_dict() if self.where_clause is not None else None,
-            'group_by_clause': [e.as_dict() for e in self.group_by_clause]
-            if self.group_by_clause is not None
-            else None,
-            'order_by_clause': [(e.as_dict(), asc) for (e, asc) in self.order_by_clause]
-            if self.order_by_clause is not None
-            else None,
+            'group_by_clause':
+                [e.as_dict() for e in self.group_by_clause] if self.group_by_clause is not None else None,
+            'grouping_tbl': self.grouping_tbl.as_dict() if self.grouping_tbl is not None else None,
+            'order_by_clause':
+                [(e.as_dict(), asc) for (e,asc) in self.order_by_clause] if self.order_by_clause is not None else None,
             'limit_val': self.limit_val,
         }
         return d
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> 'DataFrame':
+        tbl = catalog.TableVersionPath.from_dict(d['tbl'])
+        select_list = [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] \
+            if d['select_list'] is not None else None
+        where_clause = exprs.Predicate.from_dict(d['where_clause']) \
+            if d['where_clause'] is not None else None
+        group_by_clause = [exprs.Expr.from_dict(e) for e in d['group_by_clause']] \
+            if d['group_by_clause'] is not None else None
+        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) \
+            if d['grouping_tbl'] is not None else None
+        order_by_clause = [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']] \
+            if d['order_by_clause'] is not None else None
+        limit_val = d['limit_val']
+        return DataFrame(
+            tbl, select_list=select_list, where_clause=where_clause, group_by_clause=group_by_clause,
+            grouping_tbl=grouping_tbl, order_by_clause=order_by_clause, limit=limit_val)
+
+    def _hash_result_set(self) -> str:
+        """Return a hash that changes when the result set changes."""
+        d = self.as_dict()
+        # add list of referenced table versions (the actual versions, not the effective ones) in order to force cache
+        # invalidation when any of the referenced tables changes
+        d['tbl_versions'] = [tbl_version.version for tbl_version in self.tbl.get_tbl_versions()]
+        summary_string = json.dumps(d)
+        return hashlib.sha256(summary_string.encode()).hexdigest()
 
     def to_coco_dataset(self) -> Path:
         """Convert the dataframe to a COCO dataset.
@@ -686,9 +792,7 @@ class DataFrame:
         """
         from pixeltable.utils.coco import write_coco_dataset
 
-        summary_string = json.dumps(self._as_dict())
-        cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
-
+        cache_key = self._hash_result_set()
         dest_path = Env.get().dataset_cache_dir / f'coco_{cache_key}'
         if dest_path.exists():
             assert dest_path.is_dir()
@@ -737,8 +841,7 @@ class DataFrame:
         from pixeltable.io.parquet import save_parquet  # pylint: disable=import-outside-toplevel
         from pixeltable.utils.pytorch import PixeltablePytorchDataset  # pylint: disable=import-outside-toplevel
 
-        summary_string = json.dumps(self._as_dict())
-        cache_key = hashlib.sha256(summary_string.encode()).hexdigest()
+        cache_key = self._hash_result_set()
 
         dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet')  # pylint: disable = protected-access
         if dest_path.exists():  # fast path: use cache

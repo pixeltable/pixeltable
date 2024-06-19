@@ -9,7 +9,7 @@ import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable.func import Function, FunctionRegistry, Batch
 from pixeltable.type_system import IntType, FloatType
-from .utils import assert_resultset_eq, reload_catalog
+from .utils import assert_resultset_eq, reload_catalog, validate_update_status
 
 
 def dummy_fn(i: int) -> int:
@@ -241,6 +241,108 @@ class TestFunction:
             def f1(order_by: int) -> int:
                 return order_by
         assert 'reserved' in str(exc_info.value)
+
+    def test_query(self, reset_db) -> None:
+        t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
+        name = t.get_name()
+        rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
+        validate_update_status(t.insert(rows))
+
+        @t.query
+        def lt_x(x: int) -> int:
+            return t.where(t.c2 < x).select(t.c2, t.c1)
+
+        res1 = t.select(out=t.lt_x(t.c2)).order_by(t.c2).collect()
+        validate_update_status(t.add_column(query1=t.lt_x(t.c2)))
+        _ = t.select(t.query1).collect()
+
+        reload_catalog()
+        t = pxt.get_table(name)
+        _ = t.select(t.query1).collect()
+        # insert more rows in order to verify that lt_x() is still executable after catalog reload
+        validate_update_status(t.insert(rows))
+
+    def test_query2(self, reset_db) -> None:
+        schema = {
+            'query_text': pxt.StringType(nullable=False),
+            'i': pxt.IntType(nullable=False),
+        }
+        queries = pxt.create_table('queries', schema=schema)
+        query_rows = [
+            {'query_text': 'how much is the stock of AI companies up?', 'i': 1},
+            {'query_text': 'what happened to the term machine learning?', 'i': 2},
+        ]
+        validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
+
+        chunks = pxt.create_table('test_doc_chunks', schema={'text': pxt.StringType()})
+        chunks.insert([
+            {'text': 'the stock of artificial intelligence companies is up 1000%'},
+            {
+                'text': (
+                         'the term machine learning has fallen out of fashion now that AI has been '
+                         'rehabilitated and is now the new hotness'
+                )
+            },
+            {'text': 'machine learning is a subset of artificial intelligence'},
+            {'text': 'gas car companies are in danger of being left behind by electric car companies'},
+        ])
+
+        # # TODO: make this work
+        # @chunks.query
+        # def retrieval(n: int):
+        #     """ simply returns 2 passages from the table"""
+        #     return chunks.select(chunks.text).limit(n)
+
+        @chunks.query
+        def retrieval(s: str, n: int):
+            """ simply returns 2 passages from the table"""
+            return chunks.select(chunks.text).limit(2)
+
+        res = queries.select(queries.i, out=chunks.retrieval(queries.query_text, queries.i)).collect()
+        assert all(len(out) == 2 for out in res['out'])
+        validate_update_status(queries.add_column(chunks=chunks.retrieval(queries.query_text, queries.i)))
+        res = queries.select(queries.i, queries.chunks).collect()
+        assert all(len(c) == 2 for c in res['chunks'])
+
+        reload_catalog()
+        queries = pxt.get_table('queries')
+        res = queries.select(queries.chunks).collect()
+        assert all(len(c) == 2 for c in res['chunks'])
+        validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
+        res = queries.select(queries.chunks).collect()
+        assert all(len(c) == 2 for c in res['chunks'])
+
+    def test_query_errors(self, reset_db) -> None:
+        schema = {
+            'a': pxt.IntType(nullable=False),
+            'b': pxt.IntType(nullable=False),
+        }
+        t = pxt.create_table('test', schema=schema)
+        rows = [{'a': i, 'b': i + 1} for i in range(100)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        # query name conflicts with column name
+        with pytest.raises(excs.Error) as exc_info:
+            @t.query
+            def a(x: int, y: int) -> int:
+                return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
+        assert 'conflicts with existing column' in str(exc_info.value).lower()
+
+        @t.query
+        def c(x: int, y: int) -> int:
+            return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
+
+        # duplicate query name
+        with pytest.raises(excs.Error) as exc_info:
+            @t.query
+            def c(x: int, y: int) -> int:
+                return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
+        assert 'duplicate query name' in str(exc_info.value).lower()
+
+        # column name conflicts with query name
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_column(c=pxt.IntType(nullable=True))
+        assert 'conflicts with a registered query' in str(exc_info.value).lower()
 
     @pxt.expr_udf
     def add1(x: int) -> int:

@@ -160,7 +160,7 @@ class Dumper:
         # We're just trying to test metadata here, so reach "under the covers" and link a fake
         # Label Studio project without validation (so we don't need a real Label Studio server)
         from pixeltable.datatransfer.label_studio import LabelStudioProject
-        v.tbl_version_path.tbl_version.link(
+        v._tbl_version_path.tbl_version.link(
             LabelStudioProject(4171780),
             col_mapping={'view_function_call': 'str_format'}
         )
@@ -242,6 +242,20 @@ class Dumper:
         add_column('c6_back_to_json', t[f'{col_prefix}_c6_to_string'].apply(json.loads))
 
         t.add_embedding_index(f'{col_prefix}_function_call', text_embed=embed_udf.clip_text_embed)
+
+        # query()
+        @t.query
+        def q1(i: int):
+            # this breaks; TODO: why?
+            #return t.where(t.c2 < i)
+            return t.where(t.c2 < i).select(t.c1, t.c2)
+        add_column('query_output', t.q1(t.c2))
+
+        @t.query
+        def q2(s: str):
+            sim = t[f'{col_prefix}_function_call'].similarity(s)
+            return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
+        add_column('sim_output', t.q2(t.c1))
 
 
 @pxt.udf(_force_stored=True)

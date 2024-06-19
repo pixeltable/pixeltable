@@ -102,7 +102,7 @@ def _(self: Expr) -> ts.ColumnType:
     return self.col_type
 
 @func.udf(substitute_fn=PIL.Image.Image.entropy)
-def entropy(self: PIL.Image.Image, mask: PIL.Image.Image, extrema: Optional[list] = None) -> float:
+def entropy(self: PIL.Image.Image, mask: Optional[PIL.Image.Image] = None, extrema: Optional[list] = None) -> float:
     pass
 
 @func.udf(substitute_fn=PIL.Image.Image.getbands)
@@ -145,7 +145,7 @@ def quantize(
     pass
 
 @func.udf(substitute_fn=PIL.Image.Image.reduce)
-def reduce(self: PIL.Image.Image, factor: int, box: Optional[Tuple[int]]) -> PIL.Image.Image:
+def reduce(self: PIL.Image.Image, factor: int, box: Optional[Tuple[int]] = None) -> PIL.Image.Image:
     pass
 
 
