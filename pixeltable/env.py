@@ -67,8 +67,6 @@ class Env:
         self._httpd: Optional[http.server.HTTPServer] = None
         self._http_address: Optional[str] = None
 
-        self._registered_clients: dict[str, ApiClient] = {}
-
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
         self._logger.setLevel(logging.DEBUG)  # allow everything to pass, we filter in _log_filter()
@@ -354,11 +352,6 @@ class Env:
     def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
 
-    def _register_client(self, name: str, init_fn: Callable) -> None:
-        sig = inspect.signature(init_fn)
-        param_names = list(sig.parameters.keys())
-        self._registered_clients[name] = ApiClient(init_fn=init_fn, param_names=param_names)
-
     def get_client(self, name: str) -> Any:
         """
         Gets the client with the specified name, initializing it if necessary.
@@ -366,7 +359,7 @@ class Env:
         Args:
             - name: The name of the client
         """
-        cl = self._registered_clients[name]
+        cl = _registered_clients[name]
         if cl.client_obj is not None:
             return cl.client_obj  # Already initialized
 
@@ -537,9 +530,15 @@ def register_client(name: str) -> Callable:
         - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
     """
     def decorator(fn: Callable) -> None:
-        Env.get()._register_client(name, fn)
+        global _registered_clients
+        sig = inspect.signature(fn)
+        param_names = list(sig.parameters.keys())
+        _registered_clients[name] = ApiClient(init_fn=fn, param_names=param_names)
 
     return decorator
+
+
+_registered_clients: dict[str, ApiClient] = {}
 
 
 @dataclass

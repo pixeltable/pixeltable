@@ -1,22 +1,26 @@
 import base64
-import io
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import PIL.Image
 import numpy as np
-import together
 
+import io
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.func import Batch
+from pixeltable.utils.code import local_public_names
+
+if TYPE_CHECKING:
+    import together
 
 
 @env.register_client('together')
-def _(api_key: str) -> together.Together:
+def _(api_key: str) -> 'together.Together':
+    import together
     return together.Together(api_key=api_key)
 
 
-def _together_client() -> together.Together:
+def _together_client() -> 'together.Together':
     return env.Env.get().get_client('together')
 
 
@@ -146,3 +150,10 @@ def image_generations(
     img = PIL.Image.open(io.BytesIO(b64_bytes))
     img.load()
     return img
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__

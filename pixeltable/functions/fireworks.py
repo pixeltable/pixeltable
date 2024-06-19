@@ -1,17 +1,20 @@
-from typing import Optional
-
-import fireworks.client
+from typing import Optional, TYPE_CHECKING
 
 import pixeltable as pxt
 from pixeltable import env
+from pixeltable.utils.code import local_public_names
+
+if TYPE_CHECKING:
+    import fireworks.client
 
 
 @env.register_client('fireworks')
-def _(api_key: str) -> fireworks.client.Fireworks:
+def _(api_key: str) -> 'fireworks.client.Fireworks':
+    import fireworks.client
     return fireworks.client.Fireworks(api_key=api_key)
 
 
-def _fireworks_client() -> fireworks.client.Fireworks:
+def _fireworks_client() -> 'fireworks.client.Fireworks':
     return env.Env.get().get_client('fireworks')
 
 
@@ -37,3 +40,10 @@ def chat_completions(
         messages=messages,
         **kwargs_not_none
     ).dict()
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__

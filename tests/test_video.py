@@ -155,7 +155,7 @@ class TestVideo:
         base_t, view_t = self.create_tbls()
         base_t.insert({'video': p} for p in video_filepaths)
         # reference to the frame col requires ordering by base, pos
-        from pixeltable.functions import make_video
+        from pixeltable.functions.video import make_video
 
         _ = view_t.select(make_video(view_t.pos, view_t.frame)).group_by(base_t).show()
         # the same without frame col

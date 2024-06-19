@@ -8,6 +8,7 @@ import pixeltable.env as env
 import pixeltable.type_system as ts
 from pixeltable.func import Batch
 from pixeltable.functions.util import resolve_torch_device, normalize_image_mode
+from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
@@ -190,3 +191,10 @@ def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
 
 _model_cache = {}
 _processor_cache = {}
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__

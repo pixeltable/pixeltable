@@ -2,26 +2,30 @@ import base64
 import io
 import pathlib
 import uuid
-from typing import Optional, TypeVar, Union, Callable
+from typing import Optional, TypeVar, Union, Callable, TYPE_CHECKING
 
 import PIL.Image
 import numpy as np
-import openai
 import tenacity
-from openai._types import NOT_GIVEN, NotGiven
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
+from pixeltable.utils.code import local_public_names
+
+if TYPE_CHECKING:
+    import openai
+    from openai._types import NotGiven
 
 
 @env.register_client('openai')
-def _(api_key: str) -> openai.OpenAI:
+def _(api_key: str) -> 'openai.OpenAI':
+    import openai
     return openai.OpenAI(api_key=api_key)
 
 
-def _openai_client() -> openai.OpenAI:
+def _openai_client() -> 'openai.OpenAI':
     return env.Env.get().get_client('openai')
 
 
@@ -29,6 +33,7 @@ def _openai_client() -> openai.OpenAI:
 # TODO(aaron-siegel): Right now this hardwires random exponential backoff with defaults suggested
 # by OpenAI. Should we investigate making this more customizable in the future?
 def _retry(fn: Callable) -> Callable:
+    import openai
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(openai.RateLimitError),
         wait=tenacity.wait_random_exponential(multiplier=3, max=180),
@@ -290,5 +295,13 @@ def moderations(
 _T = TypeVar('_T')
 
 
-def _opt(arg: _T) -> Union[_T, NotGiven]:
+def _opt(arg: _T) -> Union[_T, 'NotGiven']:
+    from openai._types import NOT_GIVEN
     return arg if arg is not None else NOT_GIVEN
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__

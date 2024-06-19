@@ -1,8 +1,8 @@
 import json
 import urllib.parse
 import urllib.request
-from typing import List, Dict
 from datetime import datetime
+from typing import List, Dict
 
 import pytest
 import sqlalchemy as sql
@@ -14,12 +14,12 @@ from pixeltable import exceptions as excs
 from pixeltable import exprs
 from pixeltable.exprs import Expr, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
-from pixeltable.functions import cast, sum, count
-from pixeltable.functions.pil.image import blend
+from pixeltable.functions import cast
+from pixeltable.functions.globals import sum, count
 from pixeltable.iterators import FrameIterator
-from .utils import get_image_files, skip_test_if_not_installed, validate_update_status, reload_catalog
 from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
     VideoType
+from .utils import get_image_files, skip_test_if_not_installed, validate_update_status, reload_catalog
 
 
 class TestExprs:

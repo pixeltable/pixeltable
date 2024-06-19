@@ -1,11 +1,16 @@
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Optional
 
+import PIL.Image
 import av
+import numpy as np
 
 import pixeltable.env as env
 import pixeltable.func as func
 import pixeltable.type_system as ts
+from pixeltable.utils.code import local_public_names
 
 _format_defaults = {  # format -> (codec, ext)
     'wav': ('pcm_s16le', 'wav'),
@@ -98,3 +103,43 @@ def get_metadata(video: str) -> dict:
             'streams': video_streams_info,  # TODO: Audio streams?
         }
     return result
+
+
+@func.uda(
+    init_types=[ts.IntType()], update_types=[ts.ImageType()], value_type=ts.VideoType(),
+    requires_order_by=True, allows_window=False)
+class make_video(func.Aggregator):
+    def __init__(self, fps: int = 25):
+        """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
+        self.container: Optional[av.container.OutputContainer] = None
+        self.stream: Optional[av.stream.Stream] = None
+        self.fps = fps
+
+    def update(self, frame: PIL.Image.Image) -> None:
+        if frame is None:
+            return
+        if self.container is None:
+            (_, output_filename) = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
+            self.out_file = Path(output_filename)
+            self.container = av.open(str(self.out_file), mode='w')
+            self.stream = self.container.add_stream('h264', rate=self.fps)
+            self.stream.pix_fmt = 'yuv420p'
+            self.stream.width = frame.width
+            self.stream.height = frame.height
+
+        av_frame = av.VideoFrame.from_ndarray(np.array(frame.convert('RGB')), format='rgb24')
+        for packet in self.stream.encode(av_frame):
+            self.container.mux(packet)
+
+    def value(self) -> str:
+        for packet in self.stream.encode():
+            self.container.mux(packet)
+        self.container.close()
+        return str(self.out_file)
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__
