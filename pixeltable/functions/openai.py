@@ -45,7 +45,6 @@ def _retry(fn: Callable) -> Callable:
 # Audio Endpoints
 
 @pxt.udf(return_type=ts.AudioType())
-@_retry
 def speech(
         input: str,
         *,
@@ -54,7 +53,7 @@ def speech(
         response_format: Optional[str] = None,
         speed: Optional[float] = None
 ) -> str:
-    content = _openai_client().audio.speech.create(
+    content = _retry(_openai_client().audio.speech.create)(
         input=input,
         model=model,
         voice=voice,
@@ -71,7 +70,6 @@ def speech(
     param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True),
                  ts.StringType(nullable=True), ts.FloatType(nullable=True)]
 )
-@_retry
 def transcriptions(
         audio: str,
         *,
@@ -81,7 +79,7 @@ def transcriptions(
         temperature: Optional[float] = None
 ) -> dict:
     file = pathlib.Path(audio)
-    transcription = _openai_client().audio.transcriptions.create(
+    transcription = _retry(_openai_client().audio.transcriptions.create)(
         file=file,
         model=model,
         language=_opt(language),
@@ -94,7 +92,6 @@ def transcriptions(
 @pxt.udf(
     param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True), ts.FloatType(nullable=True)]
 )
-@_retry
 def translations(
         audio: str,
         *,
@@ -103,7 +100,7 @@ def translations(
         temperature: Optional[float] = None
 ) -> dict:
     file = pathlib.Path(audio)
-    translation = _openai_client().audio.translations.create(
+    translation = _retry(_openai_client().audio.translations.create)(
         file=file,
         model=model,
         prompt=_opt(prompt),
@@ -116,7 +113,6 @@ def translations(
 # Chat Endpoints
 
 @pxt.udf
-@_retry
 def chat_completions(
         messages: list,
         *,
@@ -137,7 +133,7 @@ def chat_completions(
         tool_choice: Optional[dict] = None,
         user: Optional[str] = None
 ) -> dict:
-    result = _openai_client().chat.completions.create(
+    result = _retry(_openai_client().chat.completions.create)(
         messages=messages,
         model=model,
         frequency_penalty=_opt(frequency_penalty),
@@ -160,7 +156,6 @@ def chat_completions(
 
 
 @pxt.udf
-@_retry
 def vision(
         prompt: str,
         image: PIL.Image.Image,
@@ -181,7 +176,7 @@ def vision(
              }}
          ]}
     ]
-    result = _openai_client().chat.completions.create(
+    result = _retry(_openai_client().chat.completions.create)(
         messages=messages,
         model=model
     )
@@ -199,7 +194,6 @@ _embedding_dimensions_cache: dict[str, int] = {
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
-@_retry
 def embeddings(
         input: Batch[str],
         *,
@@ -207,7 +201,7 @@ def embeddings(
         dimensions: Optional[int] = None,
         user: Optional[str] = None
 ) -> Batch[np.ndarray]:
-    result = _openai_client().embeddings.create(
+    result = _retry(_openai_client().embeddings.create)(
         input=input,
         model=model,
         dimensions=_opt(dimensions),
@@ -234,7 +228,6 @@ def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
 # Images Endpoints
 
 @pxt.udf
-@_retry
 def image_generations(
         prompt: str,
         *,
@@ -245,7 +238,7 @@ def image_generations(
         user: Optional[str] = None
 ) -> PIL.Image.Image:
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    result = _openai_client().images.generate(
+    result = _retry(_openai_client().images.generate)(
         prompt=prompt,
         model=_opt(model),
         quality=_opt(quality),
@@ -279,13 +272,12 @@ def _(size: Optional[str] = None) -> ts.ImageType:
 # Moderations Endpoints
 
 @pxt.udf
-@_retry
 def moderations(
         input: str,
         *,
         model: Optional[str] = None
 ) -> dict:
-    result = _openai_client().moderations.create(
+    result = _retry(_openai_client().moderations.create)(
         input=input,
         model=_opt(model)
     )
