@@ -44,20 +44,20 @@ class TestVideo:
 
         # default case: computed images are not stored
         _, view = self.create_and_insert(None, video_filepaths)
-        assert MediaStore.count(view.get_id()) == 0
+        assert MediaStore.count(view._get_id()) == 0
 
         # computed images are explicitly not stored
         _, view = self.create_and_insert(False, video_filepaths)
-        assert MediaStore.count(view.get_id()) == 0
+        assert MediaStore.count(view._get_id()) == 0
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths)
-        assert MediaStore.count(view.get_id()) == view.count()
+        assert MediaStore.count(view._get_id()) == view.count()
 
         # revert() also removes computed images
         tbl.insert({'video': p} for p in video_filepaths)
         tbl.revert()
-        assert MediaStore.count(view.get_id()) == view.count()
+        assert MediaStore.count(view._get_id()) == view.count()
 
     def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
