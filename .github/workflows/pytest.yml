@@ -83,9 +83,13 @@ jobs:
           RETRIES=3
           while (( RETRIES-- > 0 )); do
             poetry install ${{ matrix.poetry-options }}
-            [[ $? == 0 ]] && exit
+            if [[ $? == 0 ]]; then
+              echo "Poetry installation succeeded."
+              exit 0
+            fi
             echo "Poetry install failed; $RETRIES tries remaining."
           done
+          echo "Failed 3 times."
           exit 1
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
