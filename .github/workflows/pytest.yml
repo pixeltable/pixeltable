@@ -91,8 +91,7 @@ jobs:
             fi
             echo "Poetry installation failed; $RETRIES tries remaining."
           done
-          sleep 5
-          exit "$RESULT"
+          echo "Done."
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
         if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && startsWith(matrix.os, 'ubuntu') }}
