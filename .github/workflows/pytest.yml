@@ -91,6 +91,7 @@ jobs:
             fi
             echo "Poetry installation failed; $RETRIES tries remaining."
           done
+          echo "$RESULT"
           exit "$RESULT"
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
