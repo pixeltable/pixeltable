@@ -19,12 +19,12 @@ def _(engine: sql.engine.Engine) -> None:
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Function)):
             id, dir_id, md, binary_obj = row
-            md['md'] = _update_md(md['md'], binary_obj)
+            md['md'] = __update_md(md['md'], binary_obj)
             _logger.info(f'Updating function: {id}')
             conn.execute(sql.update(Function).where(Function.id == id).values(md=md))
 
 
-def _update_md(orig_d: dict, binary_obj: bytes) -> Any:
+def __update_md(orig_d: dict, binary_obj: bytes) -> Any:
     # construct dict produced by CallableFunction.to_store()
     py_fn = cloudpickle.loads(binary_obj)
     py_params = inspect.signature(py_fn).parameters
