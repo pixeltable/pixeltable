@@ -79,7 +79,7 @@ jobs:
             matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
         # Retry 3 times to be (hopefully) resilient against transient connection errors.
-        shell: bash {0}  # Don't use -e flag
+        shell: bash -l {0}  # Don't use -e flag
         run: |
           RETRIES=3
           while (( RETRIES-- > 0 )); do
@@ -91,7 +91,7 @@ jobs:
             fi
             echo "Poetry installation failed; $RETRIES tries remaining."
           done
-          echo "$RESULT"
+          sleep 5
           exit "$RESULT"
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
