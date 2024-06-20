@@ -81,6 +81,7 @@ jobs:
         # Retry 3 times to be (hopefully) resilient against transient connection errors.
         shell: bash -l {0}  # Don't use -e flag
         run: |
+          set +e
           RETRIES=3
           while (( RETRIES-- > 0 )); do
             poetry install ${{ matrix.poetry-options }}
