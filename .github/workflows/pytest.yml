@@ -84,14 +84,15 @@ jobs:
           RETRIES=3
           while (( RETRIES-- > 0 )); do
             poetry install ${{ matrix.poetry-options }}
-            RESULT=$?
-            if [[ "$RESULT" == 0 ]]; then
-              echo "Poetry installation succeeded."
+            if [[ "$?" == 0 ]]; then
               break
             fi
             echo "Poetry installation failed; $RETRIES tries remaining."
           done
-          echo "Done."
+          if [[ "$RETRIES" == 0 ]]; then
+            exit 1
+          fi
+          echo "Poetry installation succeeded."
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
         if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && startsWith(matrix.os, 'ubuntu') }}
