@@ -81,8 +81,10 @@ jobs:
         # Retry 3 times to be (hopefully) resilient against transient connection errors.
         run: |
           RETRIES=3
-          while (( RETRIES > 0 )); do
-            [[ $(poetry install ${{ matrix.poetry-options }}) == 0 ]] && exit
+          while (( RETRIES-- > 0 )); do
+            poetry install ${{ matrix.poetry-options }}
+            [[ $? == 0 ]] && exit
+            echo "Poetry install failed; $RETRIES tries remaining."
           done
           exit 1
       - name: Install yolox
