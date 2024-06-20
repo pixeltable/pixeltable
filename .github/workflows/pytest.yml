@@ -76,8 +76,10 @@ jobs:
       - name: Install the project dependencies
         # setuptools >= 69.2 has been causing problems with github actions even when its
         # version is enforced in poetry. For now, explicitly install setuptools 69.1.1 first.
+        # The `poetry config` setting is intended to improve CI stability.
         run: |
           python -m pip install setuptools==69.1.1
+          poetry config installer.max-workers=1
           poetry install ${{ matrix.poetry-options }}
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
