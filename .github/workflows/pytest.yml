@@ -84,12 +84,13 @@ jobs:
           RETRIES=3
           while (( RETRIES-- > 0 )); do
             poetry install ${{ matrix.poetry-options }}
-            if [[ "$?" == 0 ]]; then
+            RESULT="$?"
+            if [[ "$RESULT" == 0 ]]; then
               break
             fi
-            echo "Poetry installation failed; $RETRIES tries remaining."
+            echo "Poetry installation failed with exit code $RESULT; $RETRIES tries remaining."
           done
-          if [[ "$RETRIES" == 0 ]]; then
+          if [[ "$RESULT" != 0 ]]; then
             exit 1
           fi
           echo "Poetry installation succeeded."
