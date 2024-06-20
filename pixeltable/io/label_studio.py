@@ -42,7 +42,7 @@ class LabelStudioProject(Project):
             name: str,
             project_id: int,
             media_import_method: Literal['post', 'file', 'url'],
-            raw_col_mapping: Optional[dict[tuple[UUID, int], str]]
+            col_mapping: dict[Column, str]
     ):
         """
         The constructor will NOT create a new Label Studio project; it is also used when loading
@@ -51,7 +51,7 @@ class LabelStudioProject(Project):
         self.project_id = project_id
         self.media_import_method = media_import_method
         self._project: Optional[label_studio_sdk.project.Project] = None
-        super().__init__(name, raw_col_mapping)
+        super().__init__(name, col_mapping)
 
     @property
     def project(self) -> label_studio_sdk.project.Project:
@@ -393,24 +393,16 @@ class LabelStudioProject(Project):
             'name': self.name,
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
-            # We need to convert `col_mapping` to a list, since the keys of a serialized dict cannot be tuples
-            'col_mapping': [
-                {'tbl_id': str(tbl_id), 'col_id': col_id, 'r_col': r_col}
-                for (tbl_id, col_id), r_col in self._raw_col_mapping.items()
-            ]
+            'col_mapping': self._col_mapping_to_dict()
         }
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> 'LabelStudioProject':
-        col_mapping_list: list[dict[str, Any]] = md['col_mapping']
         return LabelStudioProject(
             md['name'],
             md['project_id'],
             md['media_import_method'],
-            {
-                (UUID(d['tbl_id']), d['col_id']): d['r_col']
-                for d in col_mapping_list
-            }
+            cls._col_mapping_from_dict(md['col_mapping'])
         )
 
     def __repr__(self) -> str:
@@ -552,7 +544,7 @@ class LabelStudioProject(Project):
             if local_annotations_column not in t.column_names():
                 t[local_annotations_column] = pxt.JsonType(nullable=True)
 
-        col_mapping_by_ids = cls.validate_columns(
+        resolved_col_mapping = cls.validate_columns(
             t, config.export_columns, {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}, col_mapping)
 
         # Perform some additional validation
@@ -579,7 +571,7 @@ class LabelStudioProject(Project):
                 raise  # Handle any other exception type normally
 
         project_id = project.get_params()['id']
-        return LabelStudioProject(name, project_id, media_import_method, col_mapping_by_ids)
+        return LabelStudioProject(name, project_id, media_import_method, resolved_col_mapping)
 
 
 @dataclass(frozen=True)

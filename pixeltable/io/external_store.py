@@ -50,20 +50,12 @@ class Project(ExternalStore, abc.ABC):
     An `ExternalStore` that represents a labeling project. Extends `ExternalStore` with a few
     additional capabilities specific to such projects.
     """
-    def __init__(self, name: str, raw_col_mapping: Optional[dict[tuple[UUID, int], str]]):
+    def __init__(self, name: str, col_mapping: dict[Column, str]):
         super().__init__(name)
-        self._raw_col_mapping = raw_col_mapping
-        self._col_mapping: Optional[dict[Column, str]] = None
+        self._col_mapping = col_mapping
 
     @property
     def col_mapping(self) -> dict[Column, str]:
-        # Lazily initialize the typed `col_mapping` from `_raw_col_mapping`
-        if self._col_mapping is None:
-            cat = Catalog.get()
-            self._col_mapping = {
-                cat.tbl_versions[(tbl_id, None)].cols_by_id[col_id]: r_col
-                for (tbl_id, col_id), r_col in self._raw_col_mapping.items()
-            }
         return self._col_mapping
 
     def get_local_columns(self) -> list[Column]:
@@ -94,18 +86,37 @@ class Project(ExternalStore, abc.ABC):
         """
 
     @classmethod
+    def _col_mapping_from_dict(cls, md: list[dict[str, Any]]) -> dict[Column, str]:
+        cat = Catalog.get()
+        result: dict[Column, str] = {}
+        for entry in md:
+            tbl_id = UUID(entry['tbl_id'])
+            col_id = entry['col_id']
+            r_col_name = entry['r_col']
+            col = cat.tbl_versions[(tbl_id, None)].cols_by_id[col_id]
+            result[col] = r_col_name
+        return result
+
+    def _col_mapping_to_dict(self) -> list[dict[str, Any]]:
+        # We need to serialize `col_mapping` to a list, since the keys of a serialized dict cannot be tuples
+        return [
+            {'tbl_id': str(col.tbl.id), 'col_id': col.id, 'r_col': r_col_name}
+            for col, r_col_name in self.col_mapping.items()
+        ]
+
+    @classmethod
     def validate_columns(
             cls,
             table: Table,
             export_cols: dict[str, ts.ColumnType],
             import_cols: dict[str, ts.ColumnType],
             col_mapping: Optional[dict[str, str]]
-    ) -> dict[tuple[UUID, int], str]:
+    ) -> dict[Column, str]:
         is_user_specified_col_mapping = col_mapping is not None
         if col_mapping is None:
             col_mapping = {col: col for col in itertools.chain(export_cols.keys(), import_cols.keys())}
 
-        col_mapping_by_ids: dict[tuple[UUID, int], str] = {}
+        resolved_col_mapping: dict[Column, str] = {}
 
         # Validate names
         t_cols = table.column_names()
@@ -127,7 +138,7 @@ class Project(ExternalStore, abc.ABC):
                     f'configuration has no column `{r_col}`.'
                 )
             col = table[t_col].col
-            col_mapping_by_ids[(col.tbl.id, col.id)] = r_col
+            resolved_col_mapping[col] = r_col
         # Validate column specs
         t_col_types = table.column_types()
         for t_col, r_col in col_mapping.items():
@@ -150,7 +161,7 @@ class Project(ExternalStore, abc.ABC):
                     raise excs.Error(
                         f'Column `{t_col}` cannot be imported from external column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
                     )
-        return col_mapping_by_ids
+        return resolved_col_mapping
 
 
 @dataclass(frozen=True)
@@ -183,9 +194,9 @@ class MockProject(Project):
             name: str,
             export_cols: dict[str, ts.ColumnType],
             import_cols: dict[str, ts.ColumnType],
-            raw_col_mapping: dict[tuple[UUID, int], str]
+            col_mapping: dict[Column, str]
     ):
-        super().__init__(name, raw_col_mapping)
+        super().__init__(name, col_mapping)
         self.export_cols = export_cols
         self.import_cols = import_cols
         self.__is_deleted = False
@@ -199,8 +210,8 @@ class MockProject(Project):
             import_cols: dict[str, ts.ColumnType],
             col_mapping: Optional[dict[str, str]] = None
     ) -> 'MockProject':
-        raw_col_mapping = cls.validate_columns(t, export_cols, import_cols, col_mapping)
-        return cls(name, export_cols, import_cols, raw_col_mapping)
+        col_mapping = cls.validate_columns(t, export_cols, import_cols, col_mapping)
+        return cls(name, export_cols, import_cols, col_mapping)
 
     def get_export_columns(self) -> dict[str, ts.ColumnType]:
         return self.export_cols
@@ -223,23 +234,16 @@ class MockProject(Project):
             'name': self.name,
             'export_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
             'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()},
-            'col_mapping': [
-                {'tbl_id': str(tbl_id), 'col_id': col_id, 'r_col': r_col}
-                for (tbl_id, col_id), r_col in self._raw_col_mapping.items()
-            ]
+            'col_mapping': self._col_mapping_to_dict()
         }
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> MockProject:
-        col_mapping_list: list[dict[str, Any]] = md['col_mapping']
         return cls(
             name=md['name'],
             export_cols={k: ts.ColumnType.from_dict(v) for k, v in md['export_cols'].items()},
             import_cols={k: ts.ColumnType.from_dict(v) for k, v in md['import_cols'].items()},
-            raw_col_mapping={
-                (UUID(d['tbl_id']), d['col_id']): d['r_col']
-                for d in col_mapping_list
-            }
+            col_mapping=cls._col_mapping_from_dict(md['col_mapping'])
         )
 
     def __eq__(self, other: Any) -> bool:

@@ -89,8 +89,6 @@ class TableVersion:
             self.next_idx_id = tbl_md.next_idx_id
             self.next_rowid = tbl_md.next_row_id
 
-        self.external_stores = dict(TableVersion._init_external_store(store_md) for store_md in tbl_md.external_stores)
-
         # view-specific initialization
         from pixeltable import exprs
         predicate_dict = None if not is_view or tbl_md.view_md.predicate is None else tbl_md.view_md.predicate
@@ -122,6 +120,7 @@ class TableVersion:
         self.cols: list[Column] = []  # contains complete history of columns, incl dropped ones
         self.cols_by_name: dict[str, Column] = {}  # contains only user-facing (named) columns visible in this version
         self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
+        self.external_stores = {}
 
         # A mapping from original columns to proxy columns. For each entry (k, v) in the dict, `v` is the stored
         # proxy column for `k`. The proxy column `v` must necessarily be defined in this table, but `k` need not be;
@@ -136,6 +135,9 @@ class TableVersion:
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
         self._init_schema(tbl_md, schema_version_md)
+
+        # Init external stores (this needs to happen after the schema is created)
+        self._init_external_stores(tbl_md)
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -1000,12 +1002,12 @@ class TableVersion:
             view._revert(session)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
-    @classmethod
-    def _init_external_store(cls, store_md: dict[str, Any]) -> tuple[str, pixeltable.io.ExternalStore]:
-        store_cls = resolve_symbol(store_md['class'])
-        assert isinstance(store_cls, type) and issubclass(store_cls, pixeltable.io.ExternalStore)
-        store = store_cls.from_dict(store_md['md'])
-        return store.name, store
+    def _init_external_stores(self, tbl_md: schema.TableMd) -> None:
+        for store_md in tbl_md.external_stores:
+            store_cls = resolve_symbol(store_md['class'])
+            assert isinstance(store_cls, type) and issubclass(store_cls, pixeltable.io.ExternalStore)
+            store = store_cls.from_dict(store_md['md'])
+            self.external_stores[store.name] = store
 
     def link(self, store: pixeltable.io.ExternalStore) -> None:
         # All of the media columns being linked need to either be stored, computed columns or have stored proxies.

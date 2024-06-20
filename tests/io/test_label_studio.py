@@ -400,7 +400,7 @@ class TestLabelStudio:
         # Check that we can create a LabelStudioProject on a non-existent project id
         # (this will happen if, for example, a DB reload happens after a synced project has
         # been deleted externally, or cannot be contacted due to a network error)
-        false_project = LabelStudioProject('false_project', 4171780, media_import_method='post', raw_col_mapping=None)
+        false_project = LabelStudioProject('false_project', 4171780, media_import_method='post', col_mapping={})
 
         # But trying to do anything with it raises an exception.
         with pytest.raises(excs.Error) as exc_info:
