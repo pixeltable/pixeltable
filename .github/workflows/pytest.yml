@@ -84,7 +84,7 @@ jobs:
           set +e
           RETRIES=3
           while (( RETRIES-- > 0 )); do
-            poetry instaljl ${{ matrix.poetry-options }}
+            poetry install ${{ matrix.poetry-options }}
             RESULT="$?"
             if [[ "$RESULT" == 0 ]]; then
               break
