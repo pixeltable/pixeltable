@@ -29,10 +29,11 @@ def create_label_studio_project(
     will always have a JSON-typed column `annotations` representing the output.
 
     By default, Pixeltable will link each of these columns to a column of the specified `Table`
-    with the same name. If any of the data fields are missing, an exception will be thrown. If
+    with the same name. If any of the data fields are missing, an exception will be raised. If
     the `annotations` column is missing, it will be created. The default names can be overridden
     by specifying an optional `col_mapping`, with Pixeltable column names as keys and Label
-    Studio field names as values.
+    Studio field names as values. In all cases, the Pixeltable columns must have types that are
+    consistent with their corresponding Label Studio fields; otherwise, an exception will be raised.
 
     The API key and URL for a valid Label Studio server must be specified in Pixeltable config. Either:
 
