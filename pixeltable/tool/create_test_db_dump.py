@@ -171,7 +171,7 @@ class Dumper:
             {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'}
         )
         v._link(
-            LabelStudioProject('ls_project_0', 4171780, media_import_method='file', raw_col_mapping=col_mapping)
+            LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping=col_mapping)
         )
         # Sanity check that the stored proxy column did get created
         assert len(v._tbl_version.stored_proxies) == 1

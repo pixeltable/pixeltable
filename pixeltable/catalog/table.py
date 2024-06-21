@@ -805,7 +805,8 @@ class Table(SchemaObject):
             assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
             return lambda py_fn: make_query_template(py_fn, kwargs['param_types'])
 
-    def list_external_stores(self) -> list[str]:
+    @property
+    def external_stores(self) -> list[str]:
         return list(self._tbl_version.external_stores.keys())
 
     def _link(self, store: 'pixeltable.io.ExternalStore') -> None:
@@ -813,7 +814,7 @@ class Table(SchemaObject):
         Links the specified `ExternalStore` to this table.
         """
         self._check_is_dropped()
-        if store.name in self.list_external_stores():
+        if store.name in self.external_stores:
             raise excs.Error(f'Table `{self.get_name()}` already has an external store with that name: {store.name}')
         _logger.info(f'Linking external store `{store.name}` to table `{self.get_name()}`')
         self._tbl_version.link(store)
@@ -838,7 +839,7 @@ class Table(SchemaObject):
                 is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
         """
         self._check_is_dropped()
-        all_stores = self.list_external_stores()
+        all_stores = self.external_stores
 
         if stores is None:
             stores = all_stores
@@ -872,7 +873,7 @@ class Table(SchemaObject):
             import_data: If `True`, data from the external stores will be imported to this table during synchronization.
         """
         self._check_is_dropped()
-        all_stores = self.list_external_stores()
+        all_stores = self.external_stores
 
         if stores is None:
             stores = all_stores

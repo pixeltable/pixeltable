@@ -525,7 +525,7 @@ class LabelStudioProject(Project):
 
         if name is None:
             # Create a default name that's unique to the table
-            all_stores = t.list_external_stores()
+            all_stores = t.external_stores
             n = 0
             while f'ls_project_{n}' in all_stores:
                 n += 1

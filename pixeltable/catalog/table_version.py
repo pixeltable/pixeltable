@@ -343,22 +343,30 @@ class TableVersion:
             self.store_tbl: StoreBase = StoreTable(self)
 
     def _update_md(
-            self, timestamp: float, preceding_schema_version: Optional[int], conn: sql.engine.Connection
+            self, timestamp: float, conn: sql.engine.Connection, update_tbl_version: bool = True, preceding_schema_version: Optional[int] = None
     ) -> None:
-        """Update all recorded metadata in response to a data or schema change.
+        """Writes table metadata to the database.
+
         Args:
             timestamp: timestamp of the change
-            preceding_schema_version: last schema version if schema change, else None
+            conn: database connection to use
+            update_tbl_version: if `True`, will also write `TableVersion` metadata
+            preceding_schema_version: if specified, will also write `TableSchemaVersion` metadata, recording the
+                specified preceding schema version
         """
+        assert update_tbl_version or preceding_schema_version is None
+
         conn.execute(
             sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(self._create_tbl_md())})
                 .where(schema.Table.id == self.id))
 
-        version_md = self._create_version_md(timestamp)
-        conn.execute(
-            sql.insert(schema.TableVersion.__table__)
-                .values(tbl_id=self.id, version=self.version, md=dataclasses.asdict(version_md)))
+        if update_tbl_version:
+            version_md = self._create_version_md(timestamp)
+            conn.execute(
+                sql.insert(schema.TableVersion.__table__)
+                    .values(tbl_id=self.id, version=self.version, md=dataclasses.asdict(version_md)))
+
         if preceding_schema_version is not None:
             schema_version_md = self._create_schema_version_md(preceding_schema_version)
             conn.execute(
@@ -378,7 +386,7 @@ class TableVersion:
         self.schema_version = self.version
         with Env.get().engine.begin() as conn:
             status = self._add_index(col, idx_name, idx, conn)
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
             _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
             return status
 
@@ -461,7 +469,7 @@ class TableVersion:
 
         with Env.get().engine.begin() as conn:
             self._drop_columns([idx_info.val_col, idx_info.undo_col])
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
             _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
     def add_column(self, col: Column, print_stats: bool = False) -> UpdateStatus:
@@ -487,7 +495,7 @@ class TableVersion:
             status = self._add_columns([col], conn, print_stats=print_stats)
             _ = self._add_default_index(col, conn)
             # TODO: what to do about errors?
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'Added column {col.name} to table {self.name}, new version: {self.version}')
 
         msg = (
@@ -616,7 +624,7 @@ class TableVersion:
             for idx_name in dropped_idx_names:
                 del self.idxs_by_name[idx_name]
             self._drop_columns(dropped_cols)
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'Dropped column {name} from table {self.name}, new version: {self.version}')
 
     def _drop_columns(self, cols: list[Column]) -> None:
@@ -661,7 +669,7 @@ class TableVersion:
         self.schema_version = self.version
 
         with Env.get().engine.begin() as conn:
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def set_comment(self, new_comment: Optional[str]):
@@ -680,7 +688,7 @@ class TableVersion:
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
         with Env.get().engine.begin() as conn:
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
     def insert(
@@ -707,7 +715,7 @@ class TableVersion:
         result.num_excs = num_excs
         result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows
         result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
-        self._update_md(timestamp, None, conn)
+        self._update_md(timestamp, conn)
 
         # update views
         for view in self.mutable_views:
@@ -821,7 +829,7 @@ class TableVersion:
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause, conn=conn)
-            self._update_md(timestamp, None, conn)
+            self._update_md(timestamp, conn)
 
         if cascade:
             base_versions = [None if plan is None else self.version] + base_versions  # don't update in place
@@ -871,7 +879,7 @@ class TableVersion:
         if num_rows > 0:
             # we're creating a new version
             self.version += 1
-            self._update_md(timestamp, None, conn)
+            self._update_md(timestamp, conn)
         else:
             pass
         for view in self.mutable_views:
@@ -1010,21 +1018,20 @@ class TableVersion:
             self.external_stores[store.name] = store
 
     def link(self, store: pixeltable.io.ExternalStore) -> None:
-        # All of the media columns being linked need to either be stored, computed columns or have stored proxies.
-        # This ensures that the media in those columns resides in the media cache, where it can be served.
+        # All of the media columns being linked need to either be stored computed columns, or else have stored proxies.
+        # This ensures that the media in those columns resides in the media store.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
-        stored_proxies_needed = []
+        stored_proxies_needed: list[Column] = []
         for col in store.get_local_columns():
-            if col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and col not in self.stored_proxies:
+            if col.col_type.is_media_type() and not (col.is_stored and col.is_computed) and col not in self.stored_proxies:
                 stored_proxies_needed.append(col)
         with Env.get().engine.begin() as conn:
-            self.version += 1
             self.external_stores[store.name] = store
-            preceding_schema_version = None
             if len(stored_proxies_needed) > 0:
                 _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
                 # Create stored proxies for columns that need one. Increment the schema version
                 # accordingly.
+                self.version += 1
                 preceding_schema_version = self.schema_version
                 self.schema_version = self.version
                 proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
@@ -1032,7 +1039,9 @@ class TableVersion:
                 self._add_columns(proxy_cols, conn)
                 # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
                 # invisible to the user.
-            self._update_md(time.time(), preceding_schema_version, conn)
+                self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
+            else:
+                self._update_md(time.time(), conn, update_tbl_version=False)
 
     def create_stored_proxy(self, col: Column) -> Column:
         from pixeltable import exprs
@@ -1042,7 +1051,8 @@ class TableVersion:
             name=None,
             # Force images in the proxy column to be materialized inside the media store,
             # in a normalized format.
-            # TODO This does not work for video or audio.
+            # TODO(aaron-siegel): This does not work for video or audio. We should replace this with a proper
+            # `destination` parameter for computed columns.
             computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
             stored=True,
             col_id=self.next_col_id,
@@ -1082,7 +1092,7 @@ class TableVersion:
                 for col in stored_proxy_deletions_needed:
                     assert col in self.stored_proxies and self.stored_proxies[col].proxy_base == col
                     del self.stored_proxies[col]
-            self._update_md(timestamp, preceding_schema_version, conn)
+            self._update_md(timestamp, conn, preceding_schema_version=preceding_schema_version)
 
         if delete_external_data and isinstance(store, pixeltable.io.external_store.Project):
             store.delete()

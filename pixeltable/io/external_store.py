@@ -64,10 +64,11 @@ class Project(ExternalStore, abc.ABC):
     @abc.abstractmethod
     def get_export_columns(self) -> dict[str, ts.ColumnType]:
         """
-        Returns the names and Pixeltable types that this `Project` expects to see in a data export.
+        Returns the names and Pixeltable types that this `Project` expects to see in a data export. The keys
+        of the `dict` are the names of data fields in the external store, not Pixeltable columns.
 
         Returns:
-            A `dict` mapping names of expected columns to their Pixeltable types.
+            A `dict` mapping names of external data fields to their expected Pixeltable types.
         """
 
     @abc.abstractmethod
@@ -186,9 +187,8 @@ class SyncStatus:
         return SyncStatus(0, 0, 0, 0, 0)
 
 
-# A project that cannot be synced, used mainly for testing.
 class MockProject(Project):
-
+    """A project that cannot be synced, used mainly for testing."""
     def __init__(
             self,
             name: str,
