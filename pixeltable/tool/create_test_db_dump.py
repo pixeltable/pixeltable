@@ -170,12 +170,11 @@ class Dumper:
             v, {'str_field': pxt.StringType(), 'img_field': pxt.ImageType()}, {},
             {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'}
         )
-        v._link(
-            LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping=col_mapping)
-        )
+        project = LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping=col_mapping)
+        v._link(project)
         # Sanity check that the stored proxy column did get created
-        assert len(v._tbl_version.stored_proxies) == 1
-        assert t.base_table_image_rot.col in v._tbl_version.stored_proxies
+        assert len(project.stored_proxies) == 1
+        assert t.base_table_image_rot.col in project.stored_proxies
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
         def add_column(col_name: str, col_expr: Any) -> None:

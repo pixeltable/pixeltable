@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Optional, Union, Callable, Any
+from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -87,11 +88,6 @@ class Column:
         self.is_pk = is_pk
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
-
-        # If this column is a stored proxy column, then `proxy_base` will be the column for which it is
-        # a proxy. `proxy_base` need not belong to the same table as this column, but if not, then it is
-        # necessarily in one of this column's base tables.
-        self.proxy_base: Optional[Column] = None
 
         self._records_errors = records_errors
 
@@ -195,6 +191,17 @@ class Column:
 
     def errortype_store_name(self) -> str:
         return f'{self.store_name()}_errortype'
+
+    def to_dict(self) -> dict[str, Any]:
+        return {'tbl_id': str(self.tbl.id), 'col_id': self.id}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'Column':
+        from pixeltable.catalog import Catalog
+
+        tbl_id = UUID(d['tbl_id'])
+        col_id = d['col_id']
+        return Catalog.get().tbl_versions[(tbl_id, None)].cols_by_id[col_id]
 
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'

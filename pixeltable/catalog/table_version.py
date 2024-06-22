@@ -120,20 +120,10 @@ class TableVersion:
         self.cols: list[Column] = []  # contains complete history of columns, incl dropped ones
         self.cols_by_name: dict[str, Column] = {}  # contains only user-facing (named) columns visible in this version
         self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
-        self.external_stores = {}
-
-        # A mapping from original columns to proxy columns. For each entry (k, v) in the dict, `v` is the stored
-        # proxy column for `k`. The proxy column `v` must necessarily be defined in this table, but `k` need not be;
-        # `k` might instead be defined in a base table.
-        # We need to track this here, not as a property of `Column`, because the same base column might have different
-        # more than one proxy in different views (and those proxies are not interchangeable, because the views might
-        # select different rows).
-        # Note from aaron-siegel: This methodology is inefficient in the case where a table has many views with a high
-        # proportion of overlapping rows, all proxying the same base column.
-        self.stored_proxies: dict[Column, Column] = {}
-
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
+        self.external_stores = {}
+
         self._init_schema(tbl_md, schema_version_md)
 
         # Init external stores (this needs to happen after the schema is created)
@@ -284,26 +274,6 @@ class TableVersion:
             if col_md.value_expr is not None:
                 refd_cols = exprs.Expr.get_refd_columns(col_md.value_expr)
                 self._record_refd_columns(col)
-
-            # if this is a stored proxy column, resolve the relationships with its proxy base.
-            if col_md.proxy_base is not None:
-                # proxy_base must either belong to a base table, or else have a strictly smaller id
-                # than this column. Moreover, if the proxy column is active at this version, then the
-                # proxy base must necessarily be active as well.
-                proxy_base_tbl_id = UUID(col_md.proxy_base['tbl_id'])
-                proxy_base_col_id = col_md.proxy_base['col_id']
-                if proxy_base_tbl_id == self.id:
-                    # proxy_base belongs to this table. It necessarily has a strictly smaller id than
-                    # this column, which motivates the following assertion.
-                    assert proxy_base_col_id in self.cols_by_id
-                    base_col = self.cols_by_id[proxy_base_col_id]
-                else:
-                    # proxy_base belongs to a base table. We can assume it is already deserialized in
-                    # the catalog.
-                    proxy_base_table = Catalog.get().tbl_versions[(proxy_base_tbl_id, None)]
-                    base_col = proxy_base_table.cols_by_id[proxy_base_col_id]
-                col.proxy_base = base_col
-                self.stored_proxies[base_col] = col
 
     def _init_idxs(self, tbl_md: schema.TableMd) -> None:
         self.idx_md = tbl_md.index_md
@@ -506,8 +476,9 @@ class TableVersion:
         _logger.info(f'Column {col.name}: {msg}')
         return status
 
-    def _add_columns(self, cols: List[Column], conn: sql.engine.Connection, print_stats: bool = False) -> UpdateStatus:
+    def _add_columns(self, cols: Iterable[Column], conn: sql.engine.Connection, print_stats: bool = False) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
+        cols = list(cols)
         row_count = self.store_tbl.count(conn=conn)
         for col in cols:
             if not col.col_type.nullable and not col.is_computed:
@@ -601,7 +572,6 @@ class TableVersion:
                 f'Cannot drop column `{name}` because the following external stores depend on it:\n'
                 f'{", ".join(dependent_store_names)}'
             )
-        assert col not in self.stored_proxies  # since there are no dependent stores
 
         # we're creating a new schema version
         self.version += 1
@@ -627,7 +597,7 @@ class TableVersion:
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'Dropped column {name} from table {self.name}, new version: {self.version}')
 
-    def _drop_columns(self, cols: list[Column]) -> None:
+    def _drop_columns(self, cols: Iterable[Column]) -> None:
         """Mark columns as dropped"""
         assert not self.is_snapshot
 
@@ -1018,81 +988,18 @@ class TableVersion:
             self.external_stores[store.name] = store
 
     def link(self, store: pixeltable.io.ExternalStore) -> None:
-        # All of the media columns being linked need to either be stored computed columns, or else have stored proxies.
-        # This ensures that the media in those columns resides in the media store.
-        # First determine which columns (if any) need stored proxies, but don't have one yet.
-        stored_proxies_needed: list[Column] = []
-        for col in store.get_local_columns():
-            if col.col_type.is_media_type() and not (col.is_stored and col.is_computed) and col not in self.stored_proxies:
-                stored_proxies_needed.append(col)
         with Env.get().engine.begin() as conn:
+            store.link(self, conn)  # May result in additional metadata changes
             self.external_stores[store.name] = store
-            if len(stored_proxies_needed) > 0:
-                _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
-                # Create stored proxies for columns that need one. Increment the schema version
-                # accordingly.
-                self.version += 1
-                preceding_schema_version = self.schema_version
-                self.schema_version = self.version
-                proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
-                # Add the columns; this will also update table metadata.
-                self._add_columns(proxy_cols, conn)
-                # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
-                # invisible to the user.
-                self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
-            else:
-                self._update_md(time.time(), conn, update_tbl_version=False)
-
-    def create_stored_proxy(self, col: Column) -> Column:
-        from pixeltable import exprs
-
-        assert col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and col not in self.stored_proxies
-        proxy_col = Column(
-            name=None,
-            # Force images in the proxy column to be materialized inside the media store,
-            # in a normalized format.
-            # TODO(aaron-siegel): This does not work for video or audio. We should replace this with a proper
-            # `destination` parameter for computed columns.
-            computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
-            stored=True,
-            col_id=self.next_col_id,
-            sa_col_type=col.col_type.to_sa_type(),
-            schema_version_add=self.schema_version
-        )
-        proxy_col.tbl = self
-        self.next_col_id += 1
-        self.stored_proxies[col] = proxy_col
-        proxy_col.proxy_base = col
-        return proxy_col
+            self._update_md(time.time(), conn, update_tbl_version=False)
 
     def unlink(self, store_name: str, delete_external_data: bool) -> None:
         assert store_name in self.external_stores
         store = self.external_stores[store_name]
-        timestamp = time.time()
-        this_store_cols = store.get_local_columns()
-        other_store_cols = {
-            col
-            for other_name, other_store in self.external_stores.items() if other_name != store_name
-            for col in other_store.get_local_columns()
-        }
-        stored_proxy_deletions_needed = [
-            col
-            for col in this_store_cols
-            if col not in other_store_cols and col in self.stored_proxies
-        ]
         with Env.get().engine.begin() as conn:
-            self.version += 1
-            del self.external_stores[store.name]
-            preceding_schema_version = None
-            if len(stored_proxy_deletions_needed) > 0:
-                preceding_schema_version = self.schema_version
-                self.schema_version = self.version
-                proxy_cols = [self.stored_proxies[col] for col in stored_proxy_deletions_needed]
-                self._drop_columns(proxy_cols)
-                for col in stored_proxy_deletions_needed:
-                    assert col in self.stored_proxies and self.stored_proxies[col].proxy_base == col
-                    del self.stored_proxies[col]
-            self._update_md(timestamp, conn, preceding_schema_version=preceding_schema_version)
+            store.unlink(self, conn)  # May result in additional metadata changes
+            del self.external_stores[store_name]
+            self._update_md(time.time(), conn, update_tbl_version=False)
 
         if delete_external_data and isinstance(store, pixeltable.io.external_store.Project):
             store.delete()
@@ -1198,11 +1105,10 @@ class TableVersion:
         column_md: dict[int, schema.ColumnMd] = {}
         for col in cols:
             value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
-            proxy_base_dict = {'tbl_id': str(col.proxy_base.tbl.id), 'col_id': col.proxy_base.id} if col.proxy_base else None
             column_md[col.id] = schema.ColumnMd(
                 id=col.id, col_type=col.col_type.as_dict(), is_pk=col.is_pk,
                 schema_version_add=col.schema_version_add, schema_version_drop=col.schema_version_drop,
-                value_expr=value_expr_dict, stored=col.stored, proxy_base=proxy_base_dict)
+                value_expr=value_expr_dict, stored=col.stored)
         return column_md
 
     @classmethod

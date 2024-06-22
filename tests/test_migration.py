@@ -140,5 +140,5 @@ class TestMigration:
         assert store1.project_id == 4171780
 
         # Test that the stored proxies were retained properly
-        assert len(v._tbl_version.stored_proxies) == 1
-        assert t.base_table_image_rot.col in v._tbl_version.stored_proxies
+        assert len(store1.stored_proxies) == 1
+        assert t.base_table_image_rot.col in store1.stored_proxies

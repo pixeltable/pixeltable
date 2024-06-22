@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import abc
 import itertools
+import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
@@ -9,6 +11,11 @@ from uuid import UUID
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Table, Column, Catalog
+import sqlalchemy as sql
+
+from pixeltable.catalog import TableVersion
+
+_logger = logging.getLogger('pixeltable')
 
 
 class ExternalStore(abc.ABC):
@@ -26,15 +33,27 @@ class ExternalStore(abc.ABC):
         return self.__name
 
     @abc.abstractmethod
-    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
+    def link(self, tbl_version: TableVersion, conn: sql.Connection) -> None:
         """
-        Called by `Table.sync()` to implement store-specific synchronization logic.
+        Called by `TableVersion.link()` to implement store-specific logic.
+        """
+
+    @abc.abstractmethod
+    def unlink(self, tbl_version: TableVersion, conn: sql.Connection) -> None:
+        """
+        Called by `TableVersion.unlink()` to implement store-specific logic.
         """
 
     @abc.abstractmethod
     def get_local_columns(self) -> list[Column]:
         """
-        A list of all Pixeltable column IDs that are involved in this `ExternalStore`.
+        Gets a list of all local (Pixeltable) columns that are associated with this external store.
+        """
+
+    @abc.abstractmethod
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
+        """
+        Called by `Table.sync()` to implement store-specific synchronization logic.
         """
 
     @abc.abstractmethod
@@ -50,16 +69,97 @@ class Project(ExternalStore, abc.ABC):
     An `ExternalStore` that represents a labeling project. Extends `ExternalStore` with a few
     additional capabilities specific to such projects.
     """
-    def __init__(self, name: str, col_mapping: dict[Column, str]):
+    def __init__(self, name: str, col_mapping: dict[Column, str], stored_proxies: Optional[dict[Column, Column]]):
         super().__init__(name)
         self._col_mapping = col_mapping
+
+        # A mapping from original columns to proxy columns. For each entry (k, v) in the dict, `v` is the stored
+        # proxy column for `k`. The proxy column `v` must necessarily be defined in this table, but `k` need not be;
+        # `k` might instead be defined in a base table.
+        # We need to track this here, not as a property of `Column`, because the same base column might have different
+        # more than one proxy in different views (and those proxies are not interchangeable, because the views might
+        # select different rows).
+        # Note from aaron-siegel: This methodology is inefficient in the case where a table has many views with a high
+        # proportion of overlapping rows, all proxying the same base column.
+        if stored_proxies is None:
+            self.stored_proxies = {}
+        else:
+            self.stored_proxies = stored_proxies
+
+    def get_local_columns(self) -> list[Column]:
+        return list(self.col_mapping.keys())
+
+    def link(self, tbl_version: TableVersion, conn: sql.Connection) -> None:
+        # All of the media columns being linked need to either be stored computed columns, or else have stored proxies.
+        # This ensures that the media in those columns resides in the media store.
+        # First determine which columns (if any) need stored proxies, but don't have one yet.
+        stored_proxies_needed: list[Column] = []
+        for col in self.col_mapping.keys():
+            if col.col_type.is_media_type() and not (col.is_stored and col.is_computed) and col not in self.stored_proxies:
+                # If this column is already proxied in some other Project, use the existing proxy to avoid
+                # duplication. Otherwise, we'll create a new one.
+                for store in tbl_version.external_stores.values():
+                    if isinstance(store, Project) and col in store.stored_proxies:
+                        self.stored_proxies[col] = store.stored_proxies[col]
+                        break
+                if col not in self.stored_proxies:
+                    # We didn't find it in an existing Project
+                    stored_proxies_needed.append(col)
+        if len(stored_proxies_needed) > 0:
+            _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
+            # Create stored proxies for columns that need one. Increment the schema version
+            # accordingly.
+            tbl_version.version += 1
+            preceding_schema_version = tbl_version.schema_version
+            tbl_version.schema_version = tbl_version.version
+            proxy_cols = [self.create_stored_proxy(tbl_version, col) for col in stored_proxies_needed]
+            # Add the columns; this will also update table metadata.
+            tbl_version._add_columns(proxy_cols, conn)
+            # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
+            # invisible to the user.
+            tbl_version._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
+
+    def unlink(self, tbl_version: TableVersion, conn: sql.Connection) -> None:
+        # Determine which stored proxies can be deleted. (A stored proxy can be deleted if it is not referenced by
+        # any *other* external store for this table.)
+        deletions_needed: set[Column] = set(self.stored_proxies.values())
+        for name, store in tbl_version.external_stores.items():
+            if name != self.name:
+                deletions_needed = deletions_needed.difference(set(store.stored_proxies.values()))
+        if len(deletions_needed) > 0:
+            _logger.info(f'Removing stored proxies for columns: {[col.name for col in deletions_needed]}')
+            # Delete stored proxies that are no longer needed.
+            tbl_version.version += 1
+            preceding_schema_version = tbl_version.schema_version
+            tbl_version.schema_version = tbl_version.version
+            tbl_version._drop_columns(deletions_needed)
+            self.stored_proxies.clear()
+            tbl_version._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
+
+    def create_stored_proxy(self, tbl_version: TableVersion, col: Column) -> Column:
+        from pixeltable import exprs
+
+        assert col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and col not in self.stored_proxies
+        proxy_col = Column(
+            name=None,
+            # Force images in the proxy column to be materialized inside the media store,
+            # in a normalized format.
+            # TODO(aaron-siegel): This does not work for video or audio. We should replace this with a proper
+            # `destination` parameter for computed columns.
+            computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
+            stored=True,
+            col_id=tbl_version.next_col_id,
+            sa_col_type=col.col_type.to_sa_type(),
+            schema_version_add=tbl_version.schema_version
+        )
+        proxy_col.tbl = tbl_version
+        tbl_version.next_col_id += 1
+        self.stored_proxies[col] = proxy_col
+        return proxy_col
 
     @property
     def col_mapping(self) -> dict[Column, str]:
         return self._col_mapping
-
-    def get_local_columns(self) -> list[Column]:
-        return list(self.col_mapping.keys())
 
     @abc.abstractmethod
     def get_export_columns(self) -> dict[str, ts.ColumnType]:
@@ -194,9 +294,10 @@ class MockProject(Project):
             name: str,
             export_cols: dict[str, ts.ColumnType],
             import_cols: dict[str, ts.ColumnType],
-            col_mapping: dict[Column, str]
+            col_mapping: dict[Column, str],
+            stored_proxies: Optional[dict[Column, Column]] = None
     ):
-        super().__init__(name, col_mapping)
+        super().__init__(name, col_mapping, stored_proxies)
         self.export_cols = export_cols
         self.import_cols = import_cols
         self.__is_deleted = False
@@ -234,16 +335,18 @@ class MockProject(Project):
             'name': self.name,
             'export_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
             'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()},
-            'col_mapping': self._col_mapping_to_dict()
+            'col_mapping': [[k.to_dict(), v] for k, v in self.col_mapping.items()],
+            'stored_proxies': [[k.to_dict(), v.to_dict()] for k, v in self.stored_proxies.items()]
         }
 
     @classmethod
     def from_dict(cls, md: dict[str, Any]) -> MockProject:
         return cls(
-            name=md['name'],
-            export_cols={k: ts.ColumnType.from_dict(v) for k, v in md['export_cols'].items()},
-            import_cols={k: ts.ColumnType.from_dict(v) for k, v in md['import_cols'].items()},
-            col_mapping=cls._col_mapping_from_dict(md['col_mapping'])
+            md['name'],
+            {k: ts.ColumnType.from_dict(v) for k, v in md['export_cols'].items()},
+            {k: ts.ColumnType.from_dict(v) for k, v in md['import_cols'].items()},
+            {Column.from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
+            {Column.from_dict(entry[0]): Column.from_dict(entry[1]) for entry in md['stored_proxies']}
         )
 
     def __eq__(self, other: Any) -> bool:

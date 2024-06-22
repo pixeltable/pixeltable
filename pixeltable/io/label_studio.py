@@ -4,7 +4,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Optional, Literal
-from uuid import UUID
 from xml.etree import ElementTree
 
 import PIL.Image
@@ -42,7 +41,8 @@ class LabelStudioProject(Project):
             name: str,
             project_id: int,
             media_import_method: Literal['post', 'file', 'url'],
-            col_mapping: dict[Column, str]
+            col_mapping: dict[Column, str],
+            stored_proxies: Optional[dict[Column, Column]] = None
     ):
         """
         The constructor will NOT create a new Label Studio project; it is also used when loading
@@ -51,7 +51,7 @@ class LabelStudioProject(Project):
         self.project_id = project_id
         self.media_import_method = media_import_method
         self._project: Optional[label_studio_sdk.project.Project] = None
-        super().__init__(name, col_mapping)
+        super().__init__(name, col_mapping, stored_proxies)
 
     @property
     def project(self) -> label_studio_sdk.project.Project:
@@ -247,10 +247,10 @@ class LabelStudioProject(Project):
                 if not col.col_type.is_media_type():
                     # Not a media column; query the data directly
                     expr_refs[col_name] = t[col_name]
-                elif col in t._tbl_version.stored_proxies:
+                elif col in self.stored_proxies:
                     # Media column that has a stored proxy; use it. We have to give it a name,
                     # since it's an anonymous column
-                    stored_proxy_col = t._tbl_version.stored_proxies[col]
+                    stored_proxy_col = self.stored_proxies[col]
                     expr_refs[f'{col_name}_proxy'] = ColumnRef(stored_proxy_col).localpath
                 else:
                     # Media column without a stored proxy; this means it's a stored computed column,
@@ -406,7 +406,8 @@ class LabelStudioProject(Project):
             'name': self.name,
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
-            'col_mapping': self._col_mapping_to_dict()
+            'col_mapping': [[k.to_dict(), v] for k, v in self.col_mapping.items()],
+            'stored_proxies': [[k.to_dict(), v.to_dict()] for k, v in self.stored_proxies.items()]
         }
 
     @classmethod
@@ -415,7 +416,8 @@ class LabelStudioProject(Project):
             md['name'],
             md['project_id'],
             md['media_import_method'],
-            cls._col_mapping_from_dict(md['col_mapping'])
+            {Column.from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
+            {Column.from_dict(entry[0]): Column.from_dict(entry[1]) for entry in md['stored_proxies']}
         )
 
     def __repr__(self) -> str:
