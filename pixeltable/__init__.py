@@ -3,8 +3,8 @@ from .dataframe import DataFrame
 from .datatransfer import Remote
 from .catalog import Column, Table, InsertableTable, View
 from .exceptions import Error, Error
+from .func import Function, udf, Aggregator, uda, expr_udf
 from .exprs import RELATIVE_PATH_ROOT
-from .func import Function, udf, uda, Aggregator, expr_udf
 from .globals import *
 from .type_system import (
     ColumnType,

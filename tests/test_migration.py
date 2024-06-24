@@ -74,9 +74,9 @@ class TestMigration:
             reload_catalog()
 
             # TODO(aaron-siegel) We need many more of these sorts of checks.
-            if old_version >= 13:
+            if 13 <= old_version <= 14:
                 self._run_v13_tests()
-            if old_version >= 14:
+            if old_version == 14:
                 self._run_v14_tests()
             if old_version >= 15:
                 self._run_v15_tests()
@@ -89,7 +89,7 @@ class TestMigration:
 
     @classmethod
     def _run_v13_tests(cls) -> None:
-        """Tests that apply to DB artifacts of version 13+."""
+        """Tests that apply to DB artifacts of version 13-14."""
         t = pxt.get_table('views.empty_view')
         # Test that the batched function is properly loaded as batched
         expr = t['batched'].col.value_expr
@@ -97,7 +97,7 @@ class TestMigration:
 
     @classmethod
     def _run_v14_tests(cls) -> None:
-        """Tests that apply to DB artifacts of version 14+."""
+        """Tests that apply to DB artifacts of version ==14."""
         t = pxt.get_table('views.sample_view')
         # Test that stored batched functions are properly loaded as batched
         expr = t['test_udf_batched'].col.value_expr
@@ -108,16 +108,27 @@ class TestMigration:
         """Tests that apply to DB artifacts of version 15+."""
         from pixeltable.datatransfer.remote import MockRemote
         from pixeltable.datatransfer.label_studio import LabelStudioProject
-        t = pxt.get_table('views.sample_view')
+
+        v = pxt.get_table('views.view')
+        e = pxt.get_table('views.empty_view')
+
+        # Test that batched functions are properly loaded as batched
+        expr = e['empty_view_batched'].col.value_expr
+        assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
+
+        # Test that stored batched functions are properly loaded as batched
+        expr = v['view_test_udf_batched'].col.value_expr
+        assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
+
         # Test that remotes are loaded properly.
-        remotes = t._get_remotes()
+        remotes = v._get_remotes()
         assert len(remotes) == 2
         remotes_iter = iter(remotes.items())
         remote, col_mapping = next(remotes_iter)
         assert isinstance(remote, MockRemote)
         assert remote.get_export_columns() == {'int_field': pxt.IntType()}
         assert remote.get_import_columns() == {'str_field': pxt.StringType()}
-        assert col_mapping == {'test_udf': 'int_field', 'c1': 'str_field'}
+        assert col_mapping == {'view_test_udf': 'int_field', 'c1': 'str_field'}
         remote, col_mapping = next(remotes_iter)
         assert isinstance(remote, LabelStudioProject)
         assert remote.project_id == 4171780

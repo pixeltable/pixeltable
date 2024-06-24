@@ -160,7 +160,7 @@ class ColumnType:
         if t == cls.Type.AUDIO:
             return AudioType()
         if t == cls.Type.DOCUMENT:
-            return AudioType()
+            return DocumentType()
 
     def __str__(self) -> str:
         return self._type.name.lower()
@@ -249,7 +249,6 @@ class ColumnType:
             except TypeError:
                 return None
         return None
-
 
     @classmethod
     def from_python_type(cls, t: type) -> Optional[ColumnType]:

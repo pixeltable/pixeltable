@@ -55,7 +55,7 @@ class View(Table):
 
         # verify that filter can be evaluated in the context of the base
         if predicate is not None:
-            if not predicate.is_bound_by(base.tbl_version_path):
+            if not predicate.is_bound_by(base._tbl_version_path):
                 raise excs.Error(f'Filter cannot be computed in the context of the base {base._name}')
             # create a copy that we can modify and store
             predicate = predicate.copy()
@@ -65,7 +65,7 @@ class View(Table):
             if not col.is_computed:
                 continue
             # make sure that the value can be computed in the context of the base
-            if col.value_expr is not None and not col.value_expr.is_bound_by(base.tbl_version_path):
+            if col.value_expr is not None and not col.value_expr.is_bound_by(base._tbl_version_path):
                 raise excs.Error(
                     f'Column {col.name}: value expression cannot be computed in the context of the base {base._name}')
 
@@ -83,7 +83,7 @@ class View(Table):
 
                 # construct Signature and type-check bound_args
                 params = [
-                    func.Parameter(param_name, param_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                    func.Parameter(param_name, param_type, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
                     for param_name, param_type in iterator_cls.input_schema().items()
                 ]
                 sig = func.Signature(InvalidType(), params)
@@ -114,7 +114,7 @@ class View(Table):
             iterator_args_expr = InlineDict(iterator_args) if iterator_args is not None else None
             iterator_class_fqn = f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None \
                 else None
-            base_version_path = cls._get_snapshot_path(base.tbl_version_path) if is_snapshot else base.tbl_version_path
+            base_version_path = cls._get_snapshot_path(base._tbl_version_path) if is_snapshot else base._tbl_version_path
             base_versions = [
                 (tbl_version.id.hex, tbl_version.version if is_snapshot or tbl_version.is_snapshot else None)
                 for tbl_version in base_version_path.get_tbl_versions()
@@ -127,7 +127,7 @@ class View(Table):
                     if iterator_args_expr is not None else None
                 for col in columns:
                     if col.value_expr is not None:
-                        col.value_expr = col.value_expr.retarget(base_version_path)
+                        col.set_value_expr(col.value_expr.retarget(base_version_path))
 
             view_md = md_schema.ViewMd(
                 is_snapshot=is_snapshot, predicate=predicate.as_dict() if predicate is not None else None,
@@ -148,7 +148,7 @@ class View(Table):
                 _logger.info(f'Created view `{name}`, id={tbl_version.id}')
 
                 from pixeltable.plan import Planner
-                plan, num_values_per_row = Planner.create_view_load_plan(view.tbl_version_path)
+                plan, num_values_per_row = Planner.create_view_load_plan(view._tbl_version_path)
                 num_rows, num_excs, cols_with_excs = tbl_version.store_tbl.insert_rows(
                     plan, session.connection(), v_min=tbl_version.version)
                 print(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
@@ -161,11 +161,13 @@ class View(Table):
             return view
 
     @classmethod
-    def _verify_column(cls, col: Column, existing_column_names: Set[str]) -> None:
+    def _verify_column(
+            cls, col: Column, existing_column_names: Set[str], existing_query_names: Optional[Set[str]] = None
+    ) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
             raise Error(f'Column {col.name}: non-computed columns in views must be nullable')
-        super()._verify_column(col, existing_column_names)
+        super()._verify_column(col, existing_column_names, existing_query_names)
 
     @classmethod
     def _get_snapshot_path(cls, tbl_version_path: TableVersionPath) -> TableVersionPath:

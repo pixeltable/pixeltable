@@ -19,11 +19,8 @@ class Function(abc.ABC):
     via the member self_path.
     """
 
-    def __init__(
-            self, signature: Signature, py_signature: inspect.Signature, self_path: Optional[str] = None
-    ):
+    def __init__(self, signature: Signature, self_path: Optional[str] = None):
         self.signature = signature
-        self.py_signature = py_signature
         self.self_path = self_path  # fully-qualified path to self
         self._conditional_return_type: Optional[Callable[..., ts.ColumnType]] = None
 
@@ -46,7 +43,7 @@ class Function(abc.ABC):
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'pixeltable.exprs.Expr':
         from pixeltable import exprs
-        bound_args = self.py_signature.bind(*args, **kwargs)
+        bound_args = self.signature.py_signature.bind(*args, **kwargs)
         self.validate_call(bound_args.arguments)
         return exprs.FunctionCall(self, bound_args.arguments)
 
@@ -58,7 +55,7 @@ class Function(abc.ABC):
         """Return the type of the value returned by calling this function with the given arguments"""
         if self._conditional_return_type is None:
             return self.signature.return_type
-        bound_args = self.py_signature.bind(**kwargs)
+        bound_args = self.signature.py_signature.bind(**kwargs)
         kw_args: dict[str, Any] = {}
         sig = inspect.signature(self._conditional_return_type)
         for param in sig.parameters.values():

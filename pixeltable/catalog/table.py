@@ -4,7 +4,7 @@ import itertools
 import json
 import logging
 from pathlib import Path
-from typing import Union, Any, List, Dict, Optional, Callable, Set, Tuple, Iterable, Type
+from typing import Union, Any, Optional, Callable, Set, Tuple, Iterable, overload, Type
 from uuid import UUID
 
 import pandas as pd
@@ -33,8 +33,10 @@ class Table(SchemaObject):
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
-        self.is_dropped = False
-        self.tbl_version_path = tbl_version_path
+        self._is_dropped = False
+        self._tbl_version_path = tbl_version_path
+        from pixeltable.func import QueryTemplateFunction
+        self._queries: dict[str, QueryTemplateFunction] = {}
 
     def move(self, new_name: str, new_dir_id: UUID) -> None:
         super().move(new_name, new_dir_id)
@@ -48,61 +50,76 @@ class Table(SchemaObject):
 
     def version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
-        return self.tbl_version_path.tbl_version.version
+        return self._tbl_version.version
 
+    @property
     def _tbl_version(self) -> TableVersion:
         """Return TableVersion for just this table."""
-        return self.tbl_version_path.tbl_version
+        return self._tbl_version_path.tbl_version
 
     def __hash__(self) -> int:
-        return hash(self._tbl_version().id)
+        return hash(self._tbl_version.id)
 
     def _check_is_dropped(self) -> None:
-        if self.is_dropped:
+        if self._is_dropped:
             raise excs.Error(f'{self.display_name()} {self.name} has been dropped')
 
-    def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
-        """Return a ColumnRef for the given column name.
+    def __getattr__(
+            self, name: str
+    ) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.func.QueryTemplateFunction']:
+        """Return a ColumnRef or QueryTemplateFunction for the given column name.
         """
-        return getattr(self.tbl_version_path, col_name)
+        if name in self._queries:
+            return self._queries[name]
+        return getattr(self._tbl_version_path, name)
 
-    def __getitem__(self, index: object) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame']:
+    def __getitem__(
+            self, index: object
+    ) -> Union[
+        'pixeltable.exprs.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame'
+    ]:
         """Return a ColumnRef for the given column name, or a DataFrame for the given slice.
         """
-        return self.tbl_version_path.__getitem__(index)
+        if isinstance(index, str) and index in self._queries:
+            return self._queries[index]
+        return self._tbl_version_path.__getitem__(index)
 
     def df(self) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
-        return DataFrame(self.tbl_version_path)
+        return DataFrame(self._tbl_version_path)
 
     def select(self, *items: Any, **named_items: Any) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
-        return DataFrame(self.tbl_version_path).select(*items, **named_items)
+        return DataFrame(self._tbl_version_path).select(*items, **named_items)
 
     def where(self, pred: 'exprs.Predicate') -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
-        return DataFrame(self.tbl_version_path).where(pred)
+        return DataFrame(self._tbl_version_path).where(pred)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
-        return DataFrame(self.tbl_version_path).order_by(*items, asc=asc)
+        return DataFrame(self._tbl_version_path).order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table."""
         from pixeltable.dataframe import DataFrame
-        return DataFrame(self.tbl_version_path).group_by(*items)
+        return DataFrame(self._tbl_version_path).group_by(*items)
+
+    def limit(self, n: int) -> 'pixeltable.dataframe.DataFrame':
+        from pixeltable.dataframe import DataFrame
+        return DataFrame(self._tbl_version_path).limit(n)
 
     def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return rows from this table."""
@@ -131,32 +148,36 @@ class Table(SchemaObject):
         """Return the number of rows in this table."""
         return self.df().count()
 
-    def column_names(self) -> List[str]:
+    def column_names(self) -> list[str]:
         """Return the names of the columns in this table."""
-        return [c.name for c in self.tbl_version_path.columns()]
+        return [c.name for c in self._tbl_version_path.columns()]
 
-    def column_types(self) -> Dict[str, ts.ColumnType]:
+    def column_types(self) -> dict[str, ts.ColumnType]:
         """Return the names of the columns in this table."""
-        return {c.name: c.col_type for c in self.tbl_version_path.columns()}
+        return {c.name: c.col_type for c in self._tbl_version_path.columns()}
+
+    def query_names(self) -> list[str]:
+        """Return the names of the registered queries for this table."""
+        return self._queries.keys()
 
     @property
     def comment(self) -> str:
-        return self.tbl_version.comment
+        return self._tbl_version.comment
 
     @comment.setter
     def comment(self, new_comment: Optional[str]):
-        self.tbl_version.set_comment(new_comment)
+        self._tbl_version.set_comment(new_comment)
 
     @property
     def num_retained_versions(self):
-        return self.tbl_version.num_retained_versions
+        return self._tbl_version.num_retained_versions
 
     @num_retained_versions.setter
     def num_retained_versions(self, new_num_retained_versions: int):
-        self.tbl_version.set_num_retained_versions(new_num_retained_versions)
+        self._tbl_version.set_num_retained_versions(new_num_retained_versions)
 
     def _description(self) -> pd.DataFrame:
-        cols = self.tbl_version_path.columns()
+        cols = self._tbl_version_path.columns()
         df = pd.DataFrame({
             'Column Name': [c.name for c in cols],
             'Type': [str(c.col_type) for c in cols],
@@ -194,8 +215,8 @@ class Table(SchemaObject):
 
     def _drop(self) -> None:
         self._check_is_dropped()
-        self.tbl_version_path.tbl_version.drop()
-        self.is_dropped = True
+        self._tbl_version.drop()
+        self._is_dropped = True
         # update catalog
         cat = catalog.Catalog.get()
         del cat.tbls[self._id]
@@ -207,14 +228,14 @@ class Table(SchemaObject):
             See DataFrame.to_pytorch_dataset()
         """
         from pixeltable.dataframe import DataFrame
-        return DataFrame(self.tbl_version_path).to_pytorch_dataset(image_format=image_format)
+        return DataFrame(self._tbl_version_path).to_pytorch_dataset(image_format=image_format)
 
     def to_coco_dataset(self) -> Path:
         """Return the path to a COCO json file for this table.
             See DataFrame.to_coco_dataset()
         """
         from pixeltable.dataframe import DataFrame
-        return DataFrame(self.tbl_version_path).to_coco_dataset()
+        return DataFrame(self._tbl_version_path).to_coco_dataset()
 
     def __setitem__(self, column_name: str, value: Union[ts.ColumnType, exprs.Expr, Callable, dict]) -> None:
         """Adds a column to the table
@@ -252,8 +273,8 @@ class Table(SchemaObject):
             raise excs.Error(f'Invalid column name: {column_name!r}')
 
         new_col = self._create_columns({column_name: value})[0]
-        self._verify_column(new_col, self.column_names())
-        return self.tbl_version_path.tbl_version.add_column(new_col)
+        self._verify_column(new_col, self.column_names(), self.query_names())
+        return self._tbl_version.add_column(new_col)
 
     def add_column(
             self, *,
@@ -319,7 +340,7 @@ class Table(SchemaObject):
                 f'got {len(kwargs)} instead ({", ".join(list(kwargs.keys()))})'
             ))
         col_name, spec = next(iter(kwargs.items()))
-        col_schema: Dict[str, Any] = {}
+        col_schema: dict[str, Any] = {}
         if isinstance(spec, ts.ColumnType):
             if type is not None:
                 raise excs.Error(f'add_column(): keyword argument "type" is redundant')
@@ -334,11 +355,11 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
-        self._verify_column(new_col, self.column_names())
-        return self.tbl_version_path.tbl_version.add_column(new_col, print_stats=print_stats)
+        self._verify_column(new_col, self.column_names(), self.query_names())
+        return self._tbl_version.add_column(new_col, print_stats=print_stats)
 
     @classmethod
-    def _validate_column_spec(cls, name: str, spec: Dict[str, Any]) -> None:
+    def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
         """Check integrity of user-supplied Column spec
 
         We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
@@ -378,9 +399,9 @@ class Table(SchemaObject):
             raise excs.Error(f'Column {name}: "type" is required')
 
     @classmethod
-    def _create_columns(cls, schema: Dict[str, Any]) -> List[Column]:
+    def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
         """Construct list of Columns, given schema"""
-        columns: List[Column] = []
+        columns: list[Column] = []
         for name, spec in schema.items():
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
@@ -414,25 +435,29 @@ class Table(SchemaObject):
         return columns
 
     @classmethod
-    def _verify_column(cls, col: Column, existing_column_names: Set[str]) -> None:
+    def _verify_column(
+            cls, col: Column, existing_column_names: Set[str], existing_query_names: Optional[Set[str]] = None
+    ) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         if is_system_column_name(col.name):
-            raise excs.Error(f'Column name {col.name} is reserved')
+            raise excs.Error(f'Column name {col.name!r} is reserved')
         if not is_valid_identifier(col.name):
-            raise excs.Error(f"Invalid column name: '{col.name}'")
+            raise excs.Error(f"Invalid column name: {col.name!r}")
         if col.name in existing_column_names:
-            raise excs.Error(f'Duplicate column name: {col.name}')
+            raise excs.Error(f'Duplicate column name: {col.name!r}')
+        if existing_query_names is not None and col.name in existing_query_names:
+            raise excs.Error(f'Column name conflicts with a registered query: {col.name!r}')
         if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
-            raise excs.Error(f'Column {col.name}: stored={col.stored} only applies to computed image columns')
+            raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed image columns')
         if col.stored is False and not (col.col_type.is_image_type() and not col.has_window_fn_call()):
             raise excs.Error((
-                f'Column {col.name}: stored={col.stored} is not valid for image columns computed with a streaming '
+                f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a streaming '
                 f'function'))
         if col.stored is None:
             col.stored = not (col.is_computed and col.col_type.is_image_type() and not col.has_window_fn_call())
 
     @classmethod
-    def _verify_schema(cls, schema: List[Column]) -> None:
+    def _verify_schema(cls, schema: list[Column]) -> None:
         """Check integrity of user-supplied schema and set defaults"""
         column_names: Set[str] = set()
         for col in schema:
@@ -454,7 +479,7 @@ class Table(SchemaObject):
             >>> tbl.drop_column('factorial')
         """
         self._check_is_dropped()
-        self.tbl_version_path.tbl_version.drop_column(name)
+        self._tbl_version.drop_column(name)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
@@ -472,7 +497,7 @@ class Table(SchemaObject):
             >>> tbl.rename_column('factorial', 'fac')
         """
         self._check_is_dropped()
-        self.tbl_version_path.tbl_version.rename_column(old_name, new_name)
+        self._tbl_version.rename_column(old_name, new_name)
 
     def add_embedding_index(
             self, col_name: str, *, idx_name: Optional[str] = None,
@@ -501,18 +526,18 @@ class Table(SchemaObject):
             >>> tbl.add_embedding_index(
                 'img', idx_name='clip_idx', img_embed=..., text_embed=...text_embed..., metric='ip')
         """
-        if self.tbl_version_path.is_snapshot():
+        if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
         self._check_is_dropped()
-        col = self.tbl_version_path.get_column(col_name, include_bases=True)
+        col = self._tbl_version_path.get_column(col_name, include_bases=True)
         if col is None:
             raise excs.Error(f'Column {col_name} unknown')
-        if idx_name is not None and idx_name in self.tbl_version_path.tbl_version.idxs_by_name:
+        if idx_name is not None and idx_name in self._tbl_version.idxs_by_name:
             raise excs.Error(f'Duplicate index name: {idx_name}')
         from pixeltable.index import EmbeddingIndex
         # create the EmbeddingIndex instance to verify args
         idx = EmbeddingIndex(col, metric=metric, text_embed=text_embed, img_embed=img_embed)
-        status = self.tbl_version_path.tbl_version.add_index(col, idx_name=idx_name, idx=idx)
+        status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
         # TODO: how to deal with exceptions here? drop the index and raise?
 
     def drop_embedding_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
@@ -554,25 +579,24 @@ class Table(SchemaObject):
             self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None,
             _idx_class: Optional[Type[index.IndexBase]] = None
     ) -> None:
-        if self.tbl_version_path.is_snapshot():
+        if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
         self._check_is_dropped()
         if (column_name is None) == (idx_name is None):
             raise excs.Error('Exactly one of column_name or idx_name must be provided')
-        tbl_version = self.tbl_version_path.tbl_version
 
         if idx_name is not None:
-            if idx_name not in tbl_version.idxs_by_name:
+            if idx_name not in self._tbl_version.idxs_by_name:
                 raise excs.Error(f'Index {idx_name} does not exist')
-            idx_id = tbl_version.idxs_by_name[idx_name].id
+            idx_id = self._tbl_version.idxs_by_name[idx_name].id
         else:
-            col = self.tbl_version_path.get_column(column_name, include_bases=True)
+            col = self._tbl_version_path.get_column(column_name, include_bases=True)
             if col is None:
                 raise excs.Error(f'Column {column_name} unknown')
-            if col.tbl.id != tbl_version.id:
+            if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
                     f'Column {column_name}: cannot drop index from column that belongs to base ({col.tbl.name})')
-            idx_info = [info for info in tbl_version.idxs_by_name.values() if info.col.id == col.id]
+            idx_info = [info for info in self._tbl_version.idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
                 idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
             if len(idx_info) == 0:
@@ -580,7 +604,7 @@ class Table(SchemaObject):
             if len(idx_info) > 1:
                 raise excs.Error(f'Column {column_name} has multiple indices; specify idx_name instead')
             idx_id = idx_info[0].id
-        self.tbl_version_path.tbl_version.drop_index(idx_id)
+        self._tbl_version.drop_index(idx_id)
 
     def update(
             self, value_spec: dict[str, Any], where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
@@ -609,7 +633,7 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-        if self.tbl_version_path.is_snapshot():
+        if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot update a snapshot')
         self._check_is_dropped()
 
@@ -618,12 +642,12 @@ class Table(SchemaObject):
         if where is not None:
             if not isinstance(where, exprs.Predicate):
                 raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self.tbl_version_path, where)
+            analysis_info = Planner.analyze(self._tbl_version_path, where)
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
-        return self.tbl_version_path.tbl_version.update(update_spec, where, cascade)
+        return self._tbl_version.update(update_spec, where, cascade)
 
     def batch_update(self, rows: Iterable[dict[str, Any]], cascade: bool = True) -> UpdateStatus:
         """Update rows in this table.
@@ -638,12 +662,12 @@ class Table(SchemaObject):
 
             >>> tbl.update([{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}])
         """
-        if self.tbl_version_path.is_snapshot():
+        if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot update a snapshot')
         self._check_is_dropped()
 
-        row_updates: List[Dict[Column, exprs.Expr]] = []
-        pk_col_names = set(c.name for c in self.tbl_version_path.tbl_version.primary_key_columns())
+        row_updates: list[dict[Column, exprs.Expr]] = []
+        pk_col_names = set(c.name for c in self._tbl_version.primary_key_columns())
 
         # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
         has_rowid = self.ROWID_COLUMN_NAME in rows[0]
@@ -663,7 +687,7 @@ class Table(SchemaObject):
                     missing_cols = pk_col_names - set(col.name for col in col_vals.keys())
                     raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
-        return self.tbl_version_path.tbl_version.batch_update(row_updates, rowids, cascade)
+        return self._tbl_version.batch_update(row_updates, rowids, cascade)
 
     def _validate_update_spec(
             self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
@@ -676,7 +700,7 @@ class Table(SchemaObject):
             if col_name == self.ROWID_COLUMN_NAME:
                 # ignore pseudo-column _rowid
                 continue
-            col = self.tbl_version_path.get_column(col_name, include_bases=False)
+            col = self._tbl_version_path.get_column(col_name, include_bases=False)
             if col is None:
                 # TODO: return more informative error if this is trying to update a base column
                 raise excs.Error(f'Column {col_name} unknown')
@@ -715,10 +739,48 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
-        if self.tbl_version_path.is_snapshot():
+        if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot revert a snapshot')
         self._check_is_dropped()
-        self.tbl_version_path.tbl_version.revert()
+        self._tbl_version.revert()
+
+    @overload
+    def query(self, py_fn: Callable) -> 'pixeltable.func.QueryTemplateFunction': ...
+
+    @overload
+    def query(
+            self, *, param_types: Optional[list[ts.ColumnType]] = None
+    ) -> Callable[[Callable], 'pixeltable.exprs.QueryTemplateFunction']: ...
+
+    def query(self, *args: Any, **kwargs: Any) -> Any:
+        def make_query_template(
+                py_fn: Callable, param_types: Optional[list[ts.ColumnType]]
+        ) -> 'pixeltable.func.QueryTemplateFunction':
+            if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
+                # this is a named function in a module
+                function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
+            else:
+                function_path = None
+            query_name = py_fn.__name__
+            if query_name in self.column_names():
+                raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
+            if query_name in self._queries:
+                raise excs.Error(f'Duplicate query name: {query_name!r}')
+            import pixeltable.func as func
+            query_fn = func.QueryTemplateFunction.create(
+                py_fn, param_types=param_types, path=function_path, name=query_name)
+            self._queries[query_name] = query_fn
+            return query_fn
+
+            # TODO: verify that the inferred return type matches that of the template
+            # TODO: verify that the signature doesn't contain batched parameters
+
+        if len(args) == 1:
+            assert len(kwargs) == 0 and callable(args[0])
+            return make_query_template(args[0], None)
+        else:
+            assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
+            return lambda py_fn: make_query_template(py_fn, kwargs['param_types'])
 
     def _link(
             self,
@@ -745,7 +807,7 @@ class Table(SchemaObject):
             # Use the identity mapping by default if `col_mapping` is not specified
             col_mapping = {col: col for col in itertools.chain(export_cols.keys(), import_cols.keys())}
         self._validate_remote(export_cols, import_cols, col_mapping, is_col_mapping_user_specified)
-        self.tbl_version_path.tbl_version.link(remote, col_mapping)
+        self._tbl_version.link(remote, col_mapping)
         print(f'Linked remote {remote} to table `{self.get_name()}`.')
 
     def unlink(self) -> None:
@@ -757,7 +819,7 @@ class Table(SchemaObject):
         assert len(remotes) <= 1
 
         remote = next(iter(remotes.keys()))
-        self.tbl_version_path.tbl_version.unlink(remote)
+        self._tbl_version.unlink(remote)
         # TODO: Provide an option to auto-delete the project
         print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
 
@@ -800,7 +862,7 @@ class Table(SchemaObject):
                     )
             if r_col in import_cols:
                 # Validate that the remote column can be assigned to the table column
-                if self.tbl_version_path.get_column(t_col).is_computed:
+                if self._tbl_version_path.get_column(t_col).is_computed:
                     raise excs.Error(
                         f'Column `{t_col}` is a computed column, which cannot be populated from a remote column'
                     )
@@ -814,7 +876,7 @@ class Table(SchemaObject):
         """
         Gets a `dict` of all `Remote`s linked to this table.
         """
-        return self.tbl_version_path.tbl_version.get_remotes()
+        return self._tbl_version.get_remotes()
 
     def sync(
             self,
