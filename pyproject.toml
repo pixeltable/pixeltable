@@ -89,6 +89,11 @@ sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 datasets = ">=2.15.0"
 openpyxl = ">=3.1"  # Excel (.xlsx) support
+# Whisper needs the fix in rev 8bc8860 in order to work with Poetry on non-Linux systems. As of June 2024,
+# the latest pypi release of Whisper is 7 months old and still does not include that fix. (Way to go, OpenAI!)
+# The repo-reference can be replaced by a pypi reference as soon as a new version of Whisper is published.
+# (Note that Whisper will `pip install` fine on any system.)
+openai-whisper = {git = "https://github.com/openai/whisper.git"}
 whisperx = {git = "https://github.com/m-bain/whisperX.git", rev = "f2da2f8"}
 label-studio-sdk = "^0.0.32"
 
@@ -139,6 +144,8 @@ filterwarnings = [
     "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning",
     "ignore:Pydantic V1 style `@root_validator` validators are deprecated.:DeprecationWarning",
     "ignore:`allow_reuse` is deprecated and will be ignored:DeprecationWarning",
+    # This warning is from Whisper:
+    "ignore:FP16 is not supported on CPU:UserWarning",
     # These four warnings are all from WhisperX:
     "ignore:Deprecated call to `pkg_resources:DeprecationWarning",
     "ignore:The get_cmap function was deprecated in Matplotlib 3.7:DeprecationWarning",

@@ -430,6 +430,7 @@ class Env:
         check('torchvision')
         check('transformers')
         check('sentence_transformers')
+        check('whisper')
         check('yolox')
         check('whisperx')
         check('boto3')
