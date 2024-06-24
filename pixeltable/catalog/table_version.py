@@ -987,13 +987,13 @@ class TableVersion:
             store = store_cls.from_dict(store_md['md'])
             self.external_stores[store.name] = store
 
-    def link(self, store: pixeltable.io.ExternalStore) -> None:
+    def link_external_store(self, store: pixeltable.io.ExternalStore) -> None:
         with Env.get().engine.begin() as conn:
             store.link(self, conn)  # May result in additional metadata changes
             self.external_stores[store.name] = store
             self._update_md(time.time(), conn, update_tbl_version=False)
 
-    def unlink(self, store_name: str, delete_external_data: bool) -> None:
+    def unlink_external_store(self, store_name: str, delete_external_data: bool) -> None:
         assert store_name in self.external_stores
         store = self.external_stores[store_name]
         with Env.get().engine.begin() as conn:
@@ -1116,7 +1116,7 @@ class TableVersion:
         return [
             {
                 'class': f'{type(store).__module__}.{type(store).__qualname__}',
-                'md': store.to_dict()
+                'md': store.as_dict()
             }
             for store in stores
         ]

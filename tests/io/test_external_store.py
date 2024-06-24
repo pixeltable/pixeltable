@@ -86,9 +86,9 @@ class TestProject:
         )
 
         # Duplicate link
-        t._link(MockProject.create(t, 'project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
+        t._link_external_store(MockProject.create(t, 'project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
         with pytest.raises(excs.Error) as exc_info:
-            t._link(MockProject.create(t, 'project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
+            t._link_external_store(MockProject.create(t, 'project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'}))
         assert 'Table `test_store` already has an external store with that name: project' in str(exc_info.value)
 
         # Cannot drop a linked column
@@ -97,11 +97,11 @@ class TestProject:
         assert 'Cannot drop column `col1` because the following external stores depend on it:\nproject' in str(exc_info.value)
 
         # Can drop the column after unlinking
-        t.unlink('project')
+        t.unlink_external_stores('project')
         t.drop_column('col1')
 
         v = pxt.create_view('test_view', t)
-        v._link(MockProject.create(v, 'project', export_cols, import_cols, {'col3': 'export1'}))
+        v._link_external_store(MockProject.create(v, 'project', export_cols, import_cols, {'col3': 'export1'}))
 
         # Cannot drop a column that is linked through a view
         with pytest.raises(excs.Error) as exc_info:
@@ -135,7 +135,7 @@ class TestProject:
             {'pull_str': pxt.StringType()},
             {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'}
         )
-        t._link(store1)
+        t._link_external_store(store1)
         assert len(t._tbl_version.cols_by_id) == num_cols_before_linking + 2
         assert t.rot_img.col in store1.stored_proxies  # Stored proxy
         assert store1.stored_proxies[t.rot_img.col].tbl == t._tbl_version
@@ -163,7 +163,7 @@ class TestProject:
             {'pull_str': pxt.StringType()},
             {'rot_img_renamed': 'push_img'}
         )
-        t._link(store2)
+        t._link_external_store(store2)
         # Ensure the stored proxy is created just once (for both external stores)
         assert len(t._tbl_version.cols_by_id) == num_cols_before_linking + 2
 
@@ -171,7 +171,7 @@ class TestProject:
             reload_catalog()
             t = pxt.get_table('test_store')
 
-        t.unlink('store1')
+        t.unlink_external_stores('store1')
         # Now rot_img_renamed is still linked through store2, but rot_other_img
         # is not linked to any store. So just rot_img_renamed should have a proxy
         assert len(t._tbl_version.cols_by_id) == num_cols_before_linking + 1
@@ -181,7 +181,7 @@ class TestProject:
             reload_catalog()
             t = pxt.get_table('test_store')
 
-        t.unlink('store2')
+        t.unlink_external_stores('store2')
         assert len(t._tbl_version.cols_by_id) == num_cols_before_linking
 
         # Now try linking through a view.
@@ -193,7 +193,7 @@ class TestProject:
             {'pull_str': pxt.StringType()},
             {'rot_img_renamed': 'push_img', 'rot_other_img': 'push_other_img'}
         )
-        v1._link(storev1)
+        v1._link_external_store(storev1)
 
         if with_reloads:
             reload_catalog()
@@ -213,7 +213,7 @@ class TestProject:
         )
 
         v2 = pxt.create_view('test_view_2', t)
-        v2._link(storev2)
+        v2._link_external_store(storev2)
 
         if with_reloads:
             reload_catalog()

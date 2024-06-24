@@ -57,7 +57,7 @@ class ExternalStore(abc.ABC):
         """
 
     @abc.abstractmethod
-    def to_dict(self) -> dict[str, Any]: ...
+    def as_dict(self) -> dict[str, Any]: ...
 
     @classmethod
     @abc.abstractmethod
@@ -73,16 +73,18 @@ class Project(ExternalStore, abc.ABC):
         super().__init__(name)
         self._col_mapping = col_mapping
 
-        # A mapping from original columns to proxy columns. For each entry (k, v) in the dict, `v` is the stored
-        # proxy column for `k`. The proxy column `v` must necessarily be defined in this table, but `k` need not be;
-        # `k` might instead be defined in a base table.
-        # We need to track this here, not as a property of `Column`, because the same base column might have different
-        # more than one proxy in different views (and those proxies are not interchangeable, because the views might
-        # select different rows).
+        # A mapping from original columns to proxy columns. A proxy column is an identical copy of a column that is
+        # guaranteed to be stored; the Project will dynamically create and tear down proxy columns as needed. There
+        # are two reasons this might happen:
+        # (i) to force computed media data to be persisted; or
+        # (ii) to force media data to be materialized in a particular location.
+        # For each entry (k, v) in the dict, `v` is the stored proxy column for `k`. The proxy column `v` will
+        # necessarily be a column of the table to which this project is linked, but `k` need not be; it might be a
+        # column of a base table.
         # Note from aaron-siegel: This methodology is inefficient in the case where a table has many views with a high
         # proportion of overlapping rows, all proxying the same base column.
         if stored_proxies is None:
-            self.stored_proxies = {}
+            self.stored_proxies: dict[Column, Column] = {}
         else:
             self.stored_proxies = stored_proxies
 
@@ -95,7 +97,7 @@ class Project(ExternalStore, abc.ABC):
         # First determine which columns (if any) need stored proxies, but don't have one yet.
         stored_proxies_needed: list[Column] = []
         for col in self.col_mapping.keys():
-            if col.col_type.is_media_type() and not (col.is_stored and col.is_computed) and col not in self.stored_proxies:
+            if col.col_type.is_media_type() and not (col.is_stored and col.is_computed):
                 # If this column is already proxied in some other Project, use the existing proxy to avoid
                 # duplication. Otherwise, we'll create a new one.
                 for store in tbl_version.external_stores.values():
@@ -137,15 +139,19 @@ class Project(ExternalStore, abc.ABC):
             tbl_version._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
 
     def create_stored_proxy(self, tbl_version: TableVersion, col: Column) -> Column:
+        """
+        Creates a proxy column for the specified column. The proxy column will be created in the specified
+        `TableVersion`.
+        """
         from pixeltable import exprs
 
-        assert col.col_type.is_media_type() and not (col.is_stored and col.compute_func) and col not in self.stored_proxies
+        assert col.col_type.is_media_type() and not (col.is_stored and col.is_computed) and col not in self.stored_proxies
         proxy_col = Column(
             name=None,
-            # Force images in the proxy column to be materialized inside the media store,
-            # in a normalized format.
-            # TODO(aaron-siegel): This does not work for video or audio. We should replace this with a proper
-            # `destination` parameter for computed columns.
+            # Force images in the proxy column to be materialized inside the media store, in a normalized format.
+            # TODO(aaron-siegel): This is a temporary solution and it will be replaced by a proper `destination`
+            #   parameter for computed columns. Among other things, this solution does not work for video or audio.
+            #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
             computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
             stored=True,
             col_id=tbl_version.next_col_id,
@@ -187,25 +193,6 @@ class Project(ExternalStore, abc.ABC):
         """
 
     @classmethod
-    def _col_mapping_from_dict(cls, md: list[dict[str, Any]]) -> dict[Column, str]:
-        cat = Catalog.get()
-        result: dict[Column, str] = {}
-        for entry in md:
-            tbl_id = UUID(entry['tbl_id'])
-            col_id = entry['col_id']
-            r_col_name = entry['r_col']
-            col = cat.tbl_versions[(tbl_id, None)].cols_by_id[col_id]
-            result[col] = r_col_name
-        return result
-
-    def _col_mapping_to_dict(self) -> list[dict[str, Any]]:
-        # We need to serialize `col_mapping` to a list, since the keys of a serialized dict cannot be tuples
-        return [
-            {'tbl_id': str(col.tbl.id), 'col_id': col.id, 'r_col': r_col_name}
-            for col, r_col_name in self.col_mapping.items()
-        ]
-
-    @classmethod
     def validate_columns(
             cls,
             table: Table,
@@ -213,6 +200,16 @@ class Project(ExternalStore, abc.ABC):
             import_cols: dict[str, ts.ColumnType],
             col_mapping: Optional[dict[str, str]]
     ) -> dict[Column, str]:
+        """
+        Verifies that the specified `col_mapping` is valid. In particular, checks that:
+        (i) the keys of `col_mapping` are valid columns of the specified `Table`;
+        (ii) the values of `col_mapping` are valid external columns (i.e., they appear in either `export_cols` or
+            `import_cols`; and
+        (iii) the Pixeltable types of the `col_mapping` keys are consistent with the expected types of the corresponding
+            external (import or export) columns.
+        If validation fails, an exception will be raised. If validation succeeds, a new mapping will be returned
+        in which the Pixeltable column names are resolved to the corresponding `Column` objects.
+        """
         is_user_specified_col_mapping = col_mapping is not None
         if col_mapping is None:
             col_mapping = {col: col for col in itertools.chain(export_cols.keys(), import_cols.keys())}
@@ -221,7 +218,7 @@ class Project(ExternalStore, abc.ABC):
 
         # Validate names
         t_cols = table.column_names()
-        for t_col, r_col in col_mapping.items():
+        for t_col, ext_col in col_mapping.items():
             if t_col not in t_cols:
                 if is_user_specified_col_mapping:
                     raise excs.Error(
@@ -231,36 +228,36 @@ class Project(ExternalStore, abc.ABC):
                 else:
                     raise excs.Error(
                         f'Column `{t_col}` does not exist in Table `{table.get_name()}`. Either add a column `{t_col}`, '
-                        f'or specify a `col_mapping` to associate a different column with the external field `{r_col}`.'
+                        f'or specify a `col_mapping` to associate a different column with the external field `{ext_col}`.'
                     )
-            if r_col not in export_cols and r_col not in import_cols:
+            if ext_col not in export_cols and ext_col not in import_cols:
                 raise excs.Error(
-                    f'Column name `{r_col}` appears as a value in `col_mapping`, but the external store '
-                    f'configuration has no column `{r_col}`.'
+                    f'Column name `{ext_col}` appears as a value in `col_mapping`, but the external store '
+                    f'configuration has no column `{ext_col}`.'
                 )
             col = table[t_col].col
-            resolved_col_mapping[col] = r_col
+            resolved_col_mapping[col] = ext_col
         # Validate column specs
         t_col_types = table.column_types()
-        for t_col, r_col in col_mapping.items():
+        for t_col, ext_col in col_mapping.items():
             t_col_type = t_col_types[t_col]
-            if r_col in export_cols:
+            if ext_col in export_cols:
                 # Validate that the table column can be assigned to the external column
-                r_col_type = export_cols[r_col]
-                if not r_col_type.is_supertype_of(t_col_type):
+                ext_col_type = export_cols[ext_col]
+                if not ext_col_type.is_supertype_of(t_col_type):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be exported to external column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
+                        f'Column `{t_col}` cannot be exported to external column `{ext_col}` (incompatible types; expecting `{ext_col_type}`)'
                     )
-            if r_col in import_cols:
+            if ext_col in import_cols:
                 # Validate that the external column can be assigned to the table column
                 if table._tbl_version_path.get_column(t_col).is_computed:
                     raise excs.Error(
                         f'Column `{t_col}` is a computed column, which cannot be populated from an external column'
                     )
-                r_col_type = import_cols[r_col]
-                if not t_col_type.is_supertype_of(r_col_type):
+                ext_col_type = import_cols[ext_col]
+                if not t_col_type.is_supertype_of(ext_col_type):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be imported from external column `{r_col}` (incompatible types; expecting `{r_col_type}`)'
+                        f'Column `{t_col}` cannot be imported from external column `{ext_col}` (incompatible types; expecting `{ext_col_type}`)'
                     )
         return resolved_col_mapping
 
@@ -330,13 +327,13 @@ class MockProject(Project):
     def is_deleted(self) -> bool:
         return self.__is_deleted
 
-    def to_dict(self) -> dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             'name': self.name,
             'export_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
             'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()},
-            'col_mapping': [[k.to_dict(), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [[k.to_dict(), v.to_dict()] for k, v in self.stored_proxies.items()]
+            'col_mapping': [[k.as_dict(), v] for k, v in self.col_mapping.items()],
+            'stored_proxies': [[k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()]
         }
 
     @classmethod

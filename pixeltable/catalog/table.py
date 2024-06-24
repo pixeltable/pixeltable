@@ -809,7 +809,7 @@ class Table(SchemaObject):
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.external_stores.keys())
 
-    def _link(self, store: 'pixeltable.io.ExternalStore') -> None:
+    def _link_external_store(self, store: 'pixeltable.io.ExternalStore') -> None:
         """
         Links the specified `ExternalStore` to this table.
         """
@@ -817,10 +817,10 @@ class Table(SchemaObject):
         if store.name in self.external_stores:
             raise excs.Error(f'Table `{self.get_name()}` already has an external store with that name: {store.name}')
         _logger.info(f'Linking external store `{store.name}` to table `{self.get_name()}`')
-        self._tbl_version.link(store)
+        self._tbl_version.link_external_store(store)
         print(f'Linked external store `{store.name}` to table `{self.get_name()}`.')
 
-    def unlink(
+    def unlink_external_stores(
             self,
             stores: Optional[str | list[str]] = None,
             *,
@@ -853,7 +853,7 @@ class Table(SchemaObject):
                     raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
 
         for store in stores:
-            self._tbl_version.unlink(store, delete_external_data=delete_external_data)
+            self._tbl_version.unlink_external_store(store, delete_external_data=delete_external_data)
             print(f'Unlinked external store from table `{self.get_name()}`: {store}')
 
     def sync(

@@ -154,7 +154,7 @@ class Dumper:
 
         # Add external stores
         from pixeltable.io.external_store import MockProject
-        v._link(
+        v._link_external_store(
             MockProject.create(
                 v,
                 'project',
@@ -171,7 +171,7 @@ class Dumper:
             {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'}
         )
         project = LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping=col_mapping)
-        v._link(project)
+        v._link_external_store(project)
         # Sanity check that the stored proxy column did get created
         assert len(project.stored_proxies) == 1
         assert t.base_table_image_rot.col in project.stored_proxies

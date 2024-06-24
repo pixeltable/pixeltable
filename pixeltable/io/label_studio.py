@@ -401,13 +401,13 @@ class LabelStudioProject(Project):
         else:
             return SyncStatus.empty()
 
-    def to_dict(self) -> dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             'name': self.name,
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
-            'col_mapping': [[k.to_dict(), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [[k.to_dict(), v.to_dict()] for k, v in self.stored_proxies.items()]
+            'col_mapping': [[k.as_dict(), v] for k, v in self.col_mapping.items()],
+            'stored_proxies': [[k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()]
         }
 
     @classmethod

@@ -79,7 +79,7 @@ def create_label_studio_project(
     )
 
     # Link the project to `t`, and sync if appropriate.
-    t._link(ls_project)
+    t._link_external_store(ls_project)
     if sync_immediately:
         return t.sync()
     else:

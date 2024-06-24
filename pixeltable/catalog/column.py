@@ -192,7 +192,7 @@ class Column:
     def errortype_store_name(self) -> str:
         return f'{self.store_name()}_errortype'
 
-    def to_dict(self) -> dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {'tbl_id': str(self.tbl.id), 'col_id': self.id}
 
     @classmethod

@@ -233,7 +233,7 @@ class TestLabelStudio:
         assert len(tasks) == t_count - len(rows_to_delete)
 
         # Unlink the project and verify it no longer exists
-        t.unlink(delete_external_data=True)
+        t.unlink_external_stores(delete_external_data=True)
         with pytest.raises(requests.exceptions.HTTPError) as exc_info:
             print(store.project_title)
         assert 'Not Found for url' in str(exc_info.value)
@@ -248,7 +248,7 @@ class TestLabelStudio:
             col_mapping={sync_col: r_col}
         )
         validate_sync_status(sync_status, t.count(), 0, 0, 0, 0)
-        t.unlink('custom_name', delete_external_data=True)
+        t.unlink_external_stores('custom_name', delete_external_data=True)
 
         # External store with no columns to export; will skip export
         # TODO(aaron-siegel) This should probably just be an error?
@@ -260,7 +260,7 @@ class TestLabelStudio:
             media_import_method=media_import_method,
             col_mapping={'annotations_col': 'annotations'}
         )
-        t.unlink('custom_name', delete_external_data=True)
+        t.unlink_external_stores('custom_name', delete_external_data=True)
 
     @classmethod
     def __is_expected_url(cls, url: str) -> bool:
