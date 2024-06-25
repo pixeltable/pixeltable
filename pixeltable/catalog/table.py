@@ -92,12 +92,6 @@ class Table(SchemaObject):
         else:
             return catalog.Catalog.get().tbl_dependents[self._get_id()]
 
-    @property
-    def transitive_views(self) -> list['Table']:
-        proper_transitive_views = [t for view in self.views for t in view.transitive_views]
-        proper_transitive_views.append(self)
-        return proper_transitive_views
-
     def df(self) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
