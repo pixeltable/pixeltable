@@ -66,8 +66,8 @@ f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(videos=t
 |-------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
 | Print table schema                                                | t.[`describe`][pixeltable.Table.describe]()                                                          |
 | Query a table                                                     | t.[`select`][pixeltable.Table.select](t.col2, t.col3 + 5).where(t.col1 == 'green').show()            |
-| Insert a single row into a table                                  | t.[`insert`][pixeltable.InsertableTable.insert](col1='green', ...)                                   |
-| Insert multiple rows into a table                                 | t.[`insert`][pixeltable.InsertableTable.insert]([{'col1': 'green', ...}, {'col1': 'red', ...}, ...]) |
+| Insert a single row into a table                                  | t.[`insert`][pixeltable.Table.insert](col1='green', ...)                                   |
+| Insert multiple rows into a table                                 | t.[`insert`][pixeltable.Table.insert]([{'col1': 'green', ...}, {'col1': 'red', ...}, ...]) |
 | Add a column                                                      | t.[`add_column`][pixeltable.Table.add_column](new_col_name=pxt.IntType())                            |
 | Add a column (alternate form)                                     | t[new_col_name] = pxt.IntType()                                                                      |
 | Rename a column                                                   | t.[`rename_column`][pixeltable.Table.rename_column]('col_name', 'new_col_name')                      |

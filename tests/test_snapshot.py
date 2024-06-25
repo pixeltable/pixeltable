@@ -93,6 +93,14 @@ class TestSnapshot:
         snap = pxt.create_view('snap', tbl, is_snapshot=True)
 
         with pytest.raises(pxt.Error) as excinfo:
+            _ = snap.insert({'c3': 1.0})
+        assert 'cannot insert into view' in str(excinfo.value).lower()
+
+        with pytest.raises(pxt.Error) as excinfo:
+            _ = snap.delete()
+        assert 'cannot delete from view' in str(excinfo.value).lower()
+
+        with pytest.raises(pxt.Error) as excinfo:
             _ = snap.update({'c3': snap.c3 + 1.0})
         assert 'cannot update a snapshot' in str(excinfo.value).lower()
 
