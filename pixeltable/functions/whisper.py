@@ -61,4 +61,4 @@ def _lookup_model(model_id: str, device: str) -> 'Whisper':
     return _model_cache[key]
 
 
-_model_cache = {}
+_model_cache: dict[tuple[str, str], 'Whisper'] = {}
