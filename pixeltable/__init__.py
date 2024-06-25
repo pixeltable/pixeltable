@@ -1,6 +1,5 @@
 from .catalog import Column, Table, InsertableTable, View
 from .dataframe import DataFrame
-from .datatransfer import Remote
 from .catalog import Column, Table, InsertableTable, View
 from .exceptions import Error, Error
 from .func import Function, udf, Aggregator, uda, expr_udf

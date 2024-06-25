@@ -1,3 +1,8 @@
-from pixeltable.metadata import register_converter, noop_converter
+import sqlalchemy as sql
 
-register_converter(12, noop_converter)
+from pixeltable.metadata import register_converter
+
+
+@register_converter(version=12)
+def _(engine: sql.engine.Engine) -> None:
+    pass

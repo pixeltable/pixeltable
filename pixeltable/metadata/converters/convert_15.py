@@ -1,3 +1,4 @@
+
 import inspect
 import logging
 from typing import Any
@@ -5,24 +6,25 @@ from typing import Any
 import cloudpickle
 import sqlalchemy as sql
 
+import pixeltable.func as func
+import pixeltable.type_system as ts
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.schema import Function
-import pixeltable.type_system as ts
-import pixeltable.func as func
 
 _logger = logging.getLogger('pixeltable')
 
 
-def convert_15(engine: sql.engine.Engine) -> None:
+@register_converter(version=15)
+def _(engine: sql.engine.Engine) -> None:
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Function)):
             id, dir_id, md, binary_obj = row
-            md['md'] = _update_md(md['md'], binary_obj)
+            md['md'] = __update_md(md['md'], binary_obj)
             _logger.info(f'Updating function: {id}')
             conn.execute(sql.update(Function).where(Function.id == id).values(md=md))
 
 
-def _update_md(orig_d: dict, binary_obj: bytes) -> Any:
+def __update_md(orig_d: dict, binary_obj: bytes) -> Any:
     # construct dict produced by CallableFunction.to_store()
     py_fn = cloudpickle.loads(binary_obj)
     py_params = inspect.signature(py_fn).parameters
@@ -40,5 +42,3 @@ def _update_md(orig_d: dict, binary_obj: bytes) -> Any:
         'batch_size': orig_d['batch_size'] if is_batched else None,
     }
     return d
-
-register_converter(15, convert_15)

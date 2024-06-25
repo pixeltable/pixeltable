@@ -24,6 +24,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 from .column import Column
 from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier
+from ..func.globals import resolve_symbol
 
 _logger = logging.getLogger('pixeltable')
 
@@ -88,8 +89,6 @@ class TableVersion:
             self.next_idx_id = tbl_md.next_idx_id
             self.next_rowid = tbl_md.next_row_id
 
-        self.remotes = dict(TableVersion._init_remote(remote_md) for remote_md in tbl_md.remotes)
-
         # view-specific initialization
         from pixeltable import exprs
         predicate_dict = None if not is_view or tbl_md.view_md.predicate is None else tbl_md.view_md.predicate
@@ -120,10 +119,15 @@ class TableVersion:
         # init schema after we determined whether we're a component view, and before we create the store table
         self.cols: list[Column] = []  # contains complete history of columns, incl dropped ones
         self.cols_by_name: dict[str, Column] = {}  # contains only user-facing (named) columns visible in this version
-        self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version
+        self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
+        self.external_stores: dict[str, pixeltable.io.ExternalStore] = {}
+
         self._init_schema(tbl_md, schema_version_md)
+
+        # Init external stores (this needs to happen after the schema is created)
+        self._init_external_stores(tbl_md)
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -159,7 +163,7 @@ class TableVersion:
         column_md = cls._create_column_md(cols)
         table_md = schema.TableMd(
             name=name, current_version=0, current_schema_version=0, next_col_id=len(cols),
-            next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, remotes=[], view_md=view_md)
+            next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, external_stores=[], view_md=view_md)
         # create a schema.Table here, we need it to call our c'tor;
         # don't add it to the session yet, we might add index metadata
         tbl_id = uuid.uuid4()
@@ -239,6 +243,8 @@ class TableVersion:
     def _init_cols(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
         import pixeltable.exprs as exprs
+        from pixeltable.catalog import Catalog
+
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
@@ -307,22 +313,30 @@ class TableVersion:
             self.store_tbl: StoreBase = StoreTable(self)
 
     def _update_md(
-            self, timestamp: float, preceding_schema_version: Optional[int], conn: sql.engine.Connection
+            self, timestamp: float, conn: sql.engine.Connection, update_tbl_version: bool = True, preceding_schema_version: Optional[int] = None
     ) -> None:
-        """Update all recorded metadata in response to a data or schema change.
+        """Writes table metadata to the database.
+
         Args:
             timestamp: timestamp of the change
-            preceding_schema_version: last schema version if schema change, else None
+            conn: database connection to use
+            update_tbl_version: if `True`, will also write `TableVersion` metadata
+            preceding_schema_version: if specified, will also write `TableSchemaVersion` metadata, recording the
+                specified preceding schema version
         """
+        assert update_tbl_version or preceding_schema_version is None
+
         conn.execute(
             sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(self._create_tbl_md())})
                 .where(schema.Table.id == self.id))
 
-        version_md = self._create_version_md(timestamp)
-        conn.execute(
-            sql.insert(schema.TableVersion.__table__)
-                .values(tbl_id=self.id, version=self.version, md=dataclasses.asdict(version_md)))
+        if update_tbl_version:
+            version_md = self._create_version_md(timestamp)
+            conn.execute(
+                sql.insert(schema.TableVersion.__table__)
+                    .values(tbl_id=self.id, version=self.version, md=dataclasses.asdict(version_md)))
+
         if preceding_schema_version is not None:
             schema_version_md = self._create_schema_version_md(preceding_schema_version)
             conn.execute(
@@ -342,7 +356,7 @@ class TableVersion:
         self.schema_version = self.version
         with Env.get().engine.begin() as conn:
             status = self._add_index(col, idx_name, idx, conn)
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
             _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
             return status
 
@@ -425,7 +439,7 @@ class TableVersion:
 
         with Env.get().engine.begin() as conn:
             self._drop_columns([idx_info.val_col, idx_info.undo_col])
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
             _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
     def add_column(self, col: Column, print_stats: bool = False) -> UpdateStatus:
@@ -451,7 +465,7 @@ class TableVersion:
             status = self._add_columns([col], conn, print_stats=print_stats)
             _ = self._add_default_index(col, conn)
             # TODO: what to do about errors?
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'Added column {col.name} to table {self.name}, new version: {self.version}')
 
         msg = (
@@ -462,8 +476,9 @@ class TableVersion:
         _logger.info(f'Column {col.name}: {msg}')
         return status
 
-    def _add_columns(self, cols: List[Column], conn: sql.engine.Connection, print_stats: bool = False) -> UpdateStatus:
+    def _add_columns(self, cols: Iterable[Column], conn: sql.engine.Connection, print_stats: bool = False) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
+        cols = list(cols)
         row_count = self.store_tbl.count(conn=conn)
         for col in cols:
             if not col.col_type.nullable and not col.is_computed:
@@ -527,6 +542,8 @@ class TableVersion:
     def drop_column(self, name: str) -> None:
         """Drop a column from the table.
         """
+        from pixeltable.catalog import Catalog
+
         assert not self.is_snapshot
         if name not in self.cols_by_name:
             raise excs.Error(f'Unknown column: {name}')
@@ -534,8 +551,27 @@ class TableVersion:
         dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
-                f'Cannot drop column {name} because the following columns depend on it:\n',
-                f'{", ".join([c.name for c in dependent_user_cols])}')
+                f'Cannot drop column `{name}` because the following columns depend on it:\n'
+                f'{", ".join(c.name for c in dependent_user_cols)}'
+            )
+        # See if this column has a dependent store. We need to look through all stores in all
+        # (transitive) views of this table.
+        transitive_views = Catalog.get().tbls[self.id].transitive_views
+        dependent_stores = [
+            (view, store)
+            for view in transitive_views
+            for store in view._tbl_version.external_stores.values()
+            if col in store.get_local_columns()
+        ]
+        if len(dependent_stores) > 0:
+            dependent_store_names = [
+                store.name if view.get_id() == self.id else f'{store.name} (in view `{view.get_name()}`)'
+                for view, store in dependent_stores
+            ]
+            raise excs.Error(
+                f'Cannot drop column `{name}` because the following external stores depend on it:\n'
+                f'{", ".join(dependent_store_names)}'
+            )
 
         # we're creating a new schema version
         self.version += 1
@@ -558,10 +594,10 @@ class TableVersion:
             for idx_name in dropped_idx_names:
                 del self.idxs_by_name[idx_name]
             self._drop_columns(dropped_cols)
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'Dropped column {name} from table {self.name}, new version: {self.version}')
 
-    def _drop_columns(self, cols: list[Column]) -> None:
+    def _drop_columns(self, cols: Iterable[Column]) -> None:
         """Mark columns as dropped"""
         assert not self.is_snapshot
 
@@ -603,7 +639,7 @@ class TableVersion:
         self.schema_version = self.version
 
         with Env.get().engine.begin() as conn:
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def set_comment(self, new_comment: Optional[str]):
@@ -622,7 +658,7 @@ class TableVersion:
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
         with Env.get().engine.begin() as conn:
-            self._update_md(time.time(), preceding_schema_version, conn)
+            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
     def insert(
@@ -649,7 +685,7 @@ class TableVersion:
         result.num_excs = num_excs
         result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows
         result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
-        self._update_md(timestamp, None, conn)
+        self._update_md(timestamp, conn)
 
         # update views
         for view in self.mutable_views:
@@ -763,7 +799,7 @@ class TableVersion:
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause, conn=conn)
-            self._update_md(timestamp, None, conn)
+            self._update_md(timestamp, conn)
 
         if cascade:
             base_versions = [None if plan is None else self.version] + base_versions  # don't update in place
@@ -813,7 +849,7 @@ class TableVersion:
         if num_rows > 0:
             # we're creating a new version
             self.version += 1
-            self._update_md(timestamp, None, conn)
+            self._update_md(timestamp, conn)
         else:
             pass
         for view in self.mutable_views:
@@ -944,31 +980,29 @@ class TableVersion:
             view._revert(session)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
-    @classmethod
-    def _init_remote(cls, remote_md: dict[str, Any]) -> Tuple[pixeltable.datatransfer.Remote, dict[str, str]]:
-        module = importlib.import_module(remote_md['module'])
-        remote_cls = getattr(module, remote_md['class'])
-        remote = remote_cls.from_dict(remote_md['remote_md'])
-        col_mapping = remote_md['col_mapping']
-        return remote, col_mapping
+    def _init_external_stores(self, tbl_md: schema.TableMd) -> None:
+        for store_md in tbl_md.external_stores:
+            store_cls = resolve_symbol(store_md['class'])
+            assert isinstance(store_cls, type) and issubclass(store_cls, pixeltable.io.ExternalStore)
+            store = store_cls.from_dict(store_md['md'])
+            self.external_stores[store.name] = store
 
-    def link(self, remote: pixeltable.datatransfer.Remote, col_mapping: dict[str, str]) -> None:
-        timestamp = time.time()
-        self.version += 1
-        self.remotes[remote] = col_mapping
+    def link_external_store(self, store: pixeltable.io.ExternalStore) -> None:
         with Env.get().engine.begin() as conn:
-            self._update_md(timestamp, None, conn)
+            store.link(self, conn)  # May result in additional metadata changes
+            self.external_stores[store.name] = store
+            self._update_md(time.time(), conn, update_tbl_version=False)
 
-    def unlink(self, remote: pixeltable.datatransfer.Remote) -> None:
-        assert remote in self.remotes
-        timestamp = time.time()
-        self.version += 1
-        del self.remotes[remote]
+    def unlink_external_store(self, store_name: str, delete_external_data: bool) -> None:
+        assert store_name in self.external_stores
+        store = self.external_stores[store_name]
         with Env.get().engine.begin() as conn:
-            self._update_md(timestamp, None, conn)
+            store.unlink(self, conn)  # May result in additional metadata changes
+            del self.external_stores[store_name]
+            self._update_md(time.time(), conn, update_tbl_version=False)
 
-    def get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
-        return self.remotes
+        if delete_external_data and isinstance(store, pixeltable.io.external_store.Project):
+            store.delete()
 
     def is_view(self) -> bool:
         return self.base is not None
@@ -1068,7 +1102,7 @@ class TableVersion:
 
     @classmethod
     def _create_column_md(cls, cols: List[Column]) -> dict[int, schema.ColumnMd]:
-        column_md: Dict[int, schema.ColumnMd] = {}
+        column_md: dict[int, schema.ColumnMd] = {}
         for col in cols:
             value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
             column_md[col.id] = schema.ColumnMd(
@@ -1078,15 +1112,13 @@ class TableVersion:
         return column_md
 
     @classmethod
-    def _create_remotes_md(cls, remotes: dict['pixeltable.datatransfer.Remote', dict[str, str]]) -> list[dict[str, Any]]:
+    def _create_stores_md(cls, stores: Iterable['pixeltable.io.ExternalStore']) -> list[dict[str, Any]]:
         return [
             {
-                'module': type(remote).__module__,
-                'class': type(remote).__qualname__,
-                'remote_md': remote.to_dict(),
-                'col_mapping': col_mapping
+                'class': f'{type(store).__module__}.{type(store).__qualname__}',
+                'md': store.as_dict()
             }
-            for remote, col_mapping in remotes.items()
+            for store in stores
         ]
 
     def _create_tbl_md(self) -> schema.TableMd:
@@ -1094,7 +1126,7 @@ class TableVersion:
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
             next_col_id=self.next_col_id, next_idx_id=self.next_idx_id, next_row_id=self.next_rowid,
             column_md=self._create_column_md(self.cols), index_md=self.idx_md,
-            remotes=self._create_remotes_md(self.remotes), view_md=self.view_md)
+            external_stores=self._create_stores_md(self.external_stores.values()), view_md=self.view_md)
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(created_at=timestamp, version=self.version, schema_version=self.schema_version)

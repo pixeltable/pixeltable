@@ -19,6 +19,7 @@ from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
+from pixeltable.io import SyncStatus
 from pixeltable.type_system import (
     ArrayType,
     BoolType,
@@ -367,7 +368,27 @@ def skip_test_if_not_installed(package) -> None:
 def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = None) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:
-        assert status.num_rows == expected_rows
+        assert status.num_rows == expected_rows, status
+
+
+def validate_sync_status(
+        status: SyncStatus,
+        expected_external_rows_created: Optional[int] = None,
+        expected_external_rows_updated: Optional[int] = None,
+        expected_external_rows_deleted: Optional[int] = None,
+        expected_pxt_rows_updated: Optional[int] = None,
+        expected_num_excs: Optional[int] = 0
+) -> None:
+    if expected_external_rows_created is not None:
+        assert status.external_rows_created == expected_external_rows_created, status
+    if expected_external_rows_updated is not None:
+        assert status.external_rows_updated == expected_external_rows_updated, status
+    if expected_external_rows_deleted is not None:
+        assert status.external_rows_deleted == expected_external_rows_deleted, status
+    if expected_pxt_rows_updated is not None:
+        assert status.pxt_rows_updated == expected_pxt_rows_updated, status
+    if expected_num_excs is not None:
+        assert status.num_excs == expected_num_excs, status
 
 
 def make_test_arrow_table(output_path: Path) -> None:

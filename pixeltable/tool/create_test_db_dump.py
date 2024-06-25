@@ -13,6 +13,7 @@ import pixeltable as pxt
 import pixeltable.metadata as metadata
 from pixeltable.env import Env
 from pixeltable.func import Batch
+from pixeltable.io.external_store import Project
 from pixeltable.tool import embed_udf
 from pixeltable.type_system import \
     StringType, IntType, FloatType, BoolType, TimestampType, JsonType, ImageType
@@ -151,19 +152,29 @@ class Dumper:
         assert e.count() == 0
         self.__add_expr_columns(e, 'empty_view', include_expensive_functions=True)
 
-        # Add remotes
-        from pixeltable.datatransfer.remote import MockRemote
-        v._link(
-            MockRemote({'int_field': pxt.IntType()}, {'str_field': pxt.StringType()}),
-            col_mapping={'view_test_udf': 'int_field', 'c1': 'str_field'}
+        # Add external stores
+        from pixeltable.io.external_store import MockProject
+        v._link_external_store(
+            MockProject.create(
+                v,
+                'project',
+                {'int_field': pxt.IntType()},
+                {'str_field': pxt.StringType()},
+                {'view_test_udf': 'int_field', 'c1': 'str_field'}
+            )
         )
-        # We're just trying to test metadata here, so reach "under the covers" and link a fake
-        # Label Studio project without validation (so we don't need a real Label Studio server)
-        from pixeltable.datatransfer.label_studio import LabelStudioProject
-        v._tbl_version_path.tbl_version.link(
-            LabelStudioProject(4171780),
-            col_mapping={'view_function_call': 'str_format'}
+        # We're just trying to test metadata here, so it's ok to link a false Label Studio project.
+        # We include a computed image column in order to ensure the creation of a stored proxy.
+        from pixeltable.io.label_studio import LabelStudioProject
+        col_mapping = Project.validate_columns(
+            v, {'str_field': pxt.StringType(), 'img_field': pxt.ImageType()}, {},
+            {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'}
         )
+        project = LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping=col_mapping)
+        v._link_external_store(project)
+        # Sanity check that the stored proxy column did get created
+        assert len(project.stored_proxies) == 1
+        assert t.base_table_image_rot.col in project.stored_proxies
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
         def add_column(col_name: str, col_expr: Any) -> None:
@@ -206,6 +217,7 @@ class Dumper:
 
         # image_member_access
         add_column('image_mode', t.c8.mode)
+        add_column('image_rot', t.c8.rotate(180))
 
         # in_predicate
         add_column('isin_1', t.c1.isin(['test string 1', 'test string 2', 'test string 3']))
