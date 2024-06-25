@@ -177,8 +177,6 @@ class Env:
         if self._initialized:
             return
 
-        # Disable spurious warnings
-        warnings.simplefilter('ignore', category=TqdmWarning)
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
         self._initialized = True
@@ -202,6 +200,12 @@ class Env:
                     self._config = {}
         else:
             self._config = {}
+
+        # Disable spurious warnings
+        warnings.simplefilter('ignore', category=TqdmWarning)
+        if 'hide_warnings' in self._config and self._config['hide_warnings']:
+            # Disable more warnings
+            warnings.simplefilter('ignore', category=UserWarning)
 
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')

@@ -1,4 +1,4 @@
 from .base import ComponentIterator
 from .document import DocumentSplitter
-from .text import SentenceSplitter
+from .string import StringSplitter
 from .video import FrameIterator

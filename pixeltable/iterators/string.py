@@ -2,12 +2,16 @@ from typing import Iterator, Any
 
 import spacy
 
-from pixeltable.iterators.base import ComponentIterator
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.iterators.base import ComponentIterator
 
 
-class SentenceSplitter(ComponentIterator):
-    def __init__(self, text: str):
+class StringSplitter(ComponentIterator):
+    # TODO(aaron-siegel): Merge this with `DocumentSplitter` in order to provide additional capabilities.
+    def __init__(self, text: str, *, separators: str):
+        if separators != 'sentence':
+            raise excs.Error('Only `sentence` separators are currently supported.')
         self._text = text
         self.spacy_nlp = spacy.load('en_core_web_sm')
         self.doc = self.spacy_nlp(self._text)
@@ -28,7 +32,10 @@ class SentenceSplitter(ComponentIterator):
 
     @classmethod
     def input_schema(cls, *args: Any, **kwargs: Any) -> dict[str, ts.ColumnType]:
-        return {'text': ts.StringType()}
+        return {
+            'text': ts.StringType(),
+            'separators': ts.StringType(),
+        }
 
     @classmethod
     def output_schema(cls,  *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
