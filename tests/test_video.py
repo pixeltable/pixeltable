@@ -108,26 +108,39 @@ class TestVideo:
         validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         result = base_t.where(base_t.metadata.size == 2234371).select(base_t.metadata).collect()['metadata'][0]
         assert result == {
-            'size': 2234371,
+            'bit_exact': False,
             'bit_rate': 967260,
+            'size': 2234371,
             'metadata': {
                 'encoder': 'Lavf60.16.100',
                 'major_brand': 'isom',
                 'minor_version': '512',
                 'compatible_brands': 'isomiso2avc1mp41',
             },
-            'bit_exact': False,
             'streams': [
                 {
+                    'type': 'video',
                     'width': 640,
-                    'frames': 462,
                     'height': 360,
-                    'pix_fmt': 'yuv420p',
+                    'frames': 462,
+                    'time_base': 1.0 / 12800,
                     'duration': 236544,
-                    'language': 'und',
-                    'base_rate': 25.0,
+                    'duration_seconds': 236544.0 / 12800,
                     'average_rate': 25.0,
+                    'base_rate': 25.0,
                     'guessed_rate': 25.0,
+                    'metadata': {
+                        'language': 'und',
+                        'handler_name': 'L-SMASH Video Handler',
+                        'vendor_id': '[0][0][0][0]',
+                        'encoder': 'Lavc60.31.102 libx264'
+                    },
+                    'codec_context': {
+                        'name': 'h264',
+                        'codec_tag': 'avc1',
+                        'profile': 'High',
+                        'pix_fmt': 'yuv420p'
+                    }
                 }
             ],
         }

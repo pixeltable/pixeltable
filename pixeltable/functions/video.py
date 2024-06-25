@@ -75,7 +75,7 @@ def get_metadata(video: str) -> dict:
     """
     with av.open(video) as container:
         assert isinstance(container, av.container.InputContainer)
-        streams_info = [_get_stream_metadata(stream) for stream in container.streams]
+        streams_info = [__get_stream_metadata(stream) for stream in container.streams]
         result = {
             'bit_exact': container.bit_exact,
             'bit_rate': container.bit_rate,
@@ -86,21 +86,22 @@ def get_metadata(video: str) -> dict:
     return result
 
 
-def _get_stream_metadata(stream: av.stream.Stream) -> dict:
+def __get_stream_metadata(stream: av.stream.Stream) -> dict:
     if stream.type == 'video':
         codec_context = stream.codec_context
         return {
             'type': stream.type,
-            'duration': stream.duration,
-            'time_base': str(stream.time_base),
-            'duration_seconds': float(stream.duration * stream.time_base),
+            'width': stream.width,
+            'height': stream.height,
             'frames': stream.frames,
-            'metadata': stream.metadata,
+            'time_base': float(stream.time_base) if stream.time_base is not None else None,
+            'duration': stream.duration,
+            'duration_seconds': float(stream.duration * stream.time_base)
+                if stream.duration is not None and stream.time_base is not None else None,
             'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
             'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
             'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
-            'width': stream.width,
-            'height': stream.height,
+            'metadata': stream.metadata,
             'codec_context': {
                 'name': codec_context.name,
                 # The codec tag is not always a printable string (and may even contain null characters).
@@ -115,8 +116,9 @@ def _get_stream_metadata(stream: av.stream.Stream) -> dict:
         return {
             'type': stream.type,
             'duration': stream.duration,
-            'time_base': str(stream.time_base),
-            'duration_seconds': float(stream.duration * stream.time_base),
+            'time_base': str(stream.time_base) if stream.time_base is not None else None,
+            'duration_seconds': float(stream.duration * stream.time_base)
+                if stream.duration is not None and stream.time_base is not None else None,
             'frames': stream.frames,
             'metadata': stream.metadata,
             'codec_context': {
