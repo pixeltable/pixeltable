@@ -87,46 +87,40 @@ def get_metadata(video: str) -> dict:
 
 
 def __get_stream_metadata(stream: av.stream.Stream) -> dict:
-    if stream.type == 'video':
-        codec_context = stream.codec_context
-        return {
-            'type': stream.type,
+    if stream.type != 'audio' and stream.type != 'video':
+        return {'type': stream.type}  # Currently unsupported
+
+    codec_context = stream.codec_context
+    codec_context_md = {
+        'name': codec_context.name,
+        'codec_tag': codec_context.codec_tag.encode('unicode-escape').decode('utf-8'),
+        'profile': codec_context.profile,
+    }
+    metadata = {
+        'type': stream.type,
+        'duration': stream.duration,
+        'time_base': float(stream.time_base) if stream.time_base is not None else None,
+        'duration_seconds': float(stream.duration * stream.time_base)
+            if stream.duration is not None and stream.time_base is not None else None,
+        'frames': stream.frames,
+        'metadata': stream.metadata,
+        'codec_context': codec_context_md,
+    }
+
+    if stream.type == 'audio':
+        # Additional metadata for audio
+        codec_context_md['channels'] = int(codec_context.channels) if codec_context.channels is not None else None
+    else:
+        assert stream.type == 'video'
+        # Additional metadata for video
+        codec_context_md['pix_fmt'] = getattr(stream.codec_context, 'pix_fmt', None)
+        metadata.update(**{
             'width': stream.width,
             'height': stream.height,
             'frames': stream.frames,
-            'time_base': float(stream.time_base) if stream.time_base is not None else None,
-            'duration': stream.duration,
-            'duration_seconds': float(stream.duration * stream.time_base)
-                if stream.duration is not None and stream.time_base is not None else None,
             'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
             'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
             'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
-            'metadata': stream.metadata,
-            'codec_context': {
-                'name': codec_context.name,
-                # The codec tag is not always a printable string (and may even contain null characters).
-                # See: https://en.wikipedia.org/wiki/FourCC
-                'codec_tag': codec_context.codec_tag.encode('unicode-escape').decode('utf-8'),
-                'profile': codec_context.profile,
-                'pix_fmt': getattr(stream.codec_context, 'pix_fmt', None),
-            }
-        }
-    elif stream.type == 'audio':
-        codec_context = stream.codec_context
-        return {
-            'type': stream.type,
-            'duration': stream.duration,
-            'time_base': str(stream.time_base) if stream.time_base is not None else None,
-            'duration_seconds': float(stream.duration * stream.time_base)
-                if stream.duration is not None and stream.time_base is not None else None,
-            'frames': stream.frames,
-            'metadata': stream.metadata,
-            'codec_context': {
-                'name': codec_context.name,
-                'codec_tag': codec_context.codec_tag.encode('unicode-escape').decode('utf-8'),
-                'profile': codec_context.profile,
-                'channels': int(codec_context.channels) if codec_context.channels is not None else None,
-            }
-        }
-    else:
-        return {'type': stream.type}
+        })
+
+    return metadata

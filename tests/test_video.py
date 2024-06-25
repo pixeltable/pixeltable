@@ -15,7 +15,7 @@ from .utils import get_video_files, skip_test_if_not_installed, reload_catalog, 
 
 class TestVideo:
     def create_tbls(
-        self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
+            self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         pxt.drop_table(view_name, ignore_errors=True)
         pxt.drop_table(base_name, ignore_errors=True)
@@ -24,7 +24,7 @@ class TestVideo:
         return base_t, view_t
 
     def create_and_insert(
-        self, stored: Optional[bool], paths: List[str]
+            self, stored: Optional[bool], paths: List[str]
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         base_t, view_t = self.create_tbls()
 
@@ -143,6 +143,56 @@ class TestVideo:
                     }
                 }
             ],
+        }
+        # Test a video with an audio stream and a bunch of other edge cases
+        result = base_t.where(base_t.metadata.size == 980192).select(base_t.metadata).collect()['metadata'][0]
+        assert result == {
+            'bit_exact': False,
+            'bit_rate': 521864,
+            'size': 980192,
+            'metadata': {'ENCODER': 'Lavf60.16.100'},
+            'streams': [
+                {
+                    'type': 'video',
+                    'duration': None,
+                    'time_base': 0.001,
+                    'duration_seconds': None,
+                    'frames': 0,
+                    'metadata': {
+                        'language': 'eng',
+                        'ENCODER': 'Lavc60.31.102 libvpx-vp9',
+                        'DURATION': '00:00:14.981000000'},
+                    'average_rate': 30000.0 / 1001,
+                    'base_rate': 30000.0 / 1001,
+                    'guessed_rate': 30000.0 / 1001,
+                    'width': 640,
+                    'height': 360,
+                    'codec_context': {
+                        'name': 'vp9',
+                        'codec_tag': '\\x00\\x00\\x00\\x00',
+                        'profile': 'Profile 0',
+                        'pix_fmt': 'yuv420p'
+                    }
+                },
+                {
+                    'type': 'audio',
+                    'duration': None,
+                    'time_base': 0.001,
+                    'duration_seconds': None,
+                    'frames': 0,
+                    'metadata': {
+                        'language': 'eng',
+                        'ENCODER': 'Lavc60.31.102 libopus',
+                        'DURATION': '00:00:15.026000000'
+                    },
+                    'codec_context': {
+                        'name': 'opus',
+                        'codec_tag': '\\x00\\x00\\x00\\x00',
+                        'profile': None,
+                        'channels': 2
+                    }
+                }
+            ]
         }
 
     # window function that simply passes through the frame
