@@ -12,10 +12,8 @@ def cast(expr: exprs.Expr, target_type: ts.ColumnType) -> exprs.Expr:
     return expr
 
 
-@func.uda(
-    update_types=[ts.IntType()], value_type=ts.IntType(), allows_window=True, requires_order_by=False)
+@func.uda(update_types=[ts.IntType()], value_type=ts.IntType(), allows_window=True, requires_order_by=False)
 class sum(func.Aggregator):
-
     def __init__(self):
         self.sum: Union[int, float] = 0
 
@@ -27,10 +25,8 @@ class sum(func.Aggregator):
         return self.sum
 
 
-@func.uda(
-    update_types=[ts.IntType()], value_type=ts.IntType(), allows_window = True, requires_order_by = False)
+@func.uda(update_types=[ts.IntType()], value_type=ts.IntType(), allows_window=True, requires_order_by=False)
 class count(func.Aggregator):
-
     def __init__(self):
         self.count = 0
 
@@ -42,10 +38,8 @@ class count(func.Aggregator):
         return self.count
 
 
-@func.uda(
-    update_types=[ts.IntType()], value_type=ts.FloatType(), allows_window=False, requires_order_by=False)
+@func.uda(update_types=[ts.IntType()], value_type=ts.FloatType(), allows_window=False, requires_order_by=False)
 class mean(func.Aggregator):
-
     def __init__(self):
         self.sum = 0
         self.count = 0

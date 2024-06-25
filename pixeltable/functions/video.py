@@ -36,8 +36,12 @@ _format_defaults = {  # format -> (codec, ext)
 
 
 @func.uda(
-    init_types=[ts.IntType()], update_types=[ts.ImageType()], value_type=ts.VideoType(),
-    requires_order_by=True, allows_window=False)
+    init_types=[ts.IntType()],
+    update_types=[ts.ImageType()],
+    value_type=ts.VideoType(),
+    requires_order_by=True,
+    allows_window=False,
+)
 class make_video(func.Aggregator):
     def __init__(self, fps: int = 25):
         """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
@@ -139,7 +143,8 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
         'duration': stream.duration,
         'time_base': float(stream.time_base) if stream.time_base is not None else None,
         'duration_seconds': float(stream.duration * stream.time_base)
-            if stream.duration is not None and stream.time_base is not None else None,
+        if stream.duration is not None and stream.time_base is not None
+        else None,
         'frames': stream.frames,
         'metadata': stream.metadata,
         'codec_context': codec_context_md,
@@ -152,14 +157,16 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
         assert stream.type == 'video'
         # Additional metadata for video
         codec_context_md['pix_fmt'] = getattr(stream.codec_context, 'pix_fmt', None)
-        metadata.update(**{
-            'width': stream.width,
-            'height': stream.height,
-            'frames': stream.frames,
-            'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
-            'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
-            'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
-        })
+        metadata.update(
+            **{
+                'width': stream.width,
+                'height': stream.height,
+                'frames': stream.frames,
+                'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
+                'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
+                'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
+            }
+        )
 
     return metadata
 
