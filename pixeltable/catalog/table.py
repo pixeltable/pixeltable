@@ -83,6 +83,21 @@ class Table(SchemaObject):
             return self._queries[index]
         return self._tbl_version_path.__getitem__(index)
 
+    def get_views(self, *, recursive: bool = False) -> list['Table']:
+        """
+        All views and snapshots of this `Table`.
+        """
+        if recursive:
+            return [self] + [t for view in self.get_views(recursive=False) for t in view.get_views(recursive=True)]
+        else:
+            return catalog.Catalog.get().tbl_dependents[self._get_id()]
+
+    @property
+    def transitive_views(self) -> list['Table']:
+        proper_transitive_views = [t for view in self.views for t in view.transitive_views]
+        proper_transitive_views.append(self)
+        return proper_transitive_views
+
     def df(self) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
@@ -169,19 +184,6 @@ class Table(SchemaObject):
             return None
         base_id = self._tbl_version_path.base.tbl_version.id
         return catalog.Catalog.get().tbls[base_id]
-
-    @property
-    def views(self) -> list['Table']:
-        """
-        All views and snapshots of this `Table`.
-        """
-        return catalog.Catalog.get().tbl_dependents[self._get_id()]
-
-    @property
-    def transitive_views(self) -> list['Table']:
-        proper_transitive_views = [t for view in self.views for t in view.transitive_views]
-        proper_transitive_views.append(self)
-        return proper_transitive_views
 
     @property
     def comment(self) -> str:
