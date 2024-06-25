@@ -353,8 +353,9 @@ class TestLabelStudio:
     def test_label_studio_sync_complex(self, ls_video_table: pxt.InsertableTable) -> None:
         # Test a more complex label studio project, with multiple images and other fields
         skip_test_if_not_installed('label_studio_sdk')
-        t = ls_video_table
+        from pixeltable.io.label_studio import LabelStudioProject
 
+        t = ls_video_table
         t.delete(where=(t.id != 0))  # Save just the first video
         v = pxt.create_view(
             'frames_view',
