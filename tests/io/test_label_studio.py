@@ -4,7 +4,7 @@ import platform
 import subprocess
 import time
 import uuid
-from typing import Iterator, Literal
+from typing import Literal
 
 import pytest
 import requests.exceptions
@@ -13,7 +13,6 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
 from pixeltable.functions.string import str_format
-from pixeltable.io.label_studio import LabelStudioProject
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
                      SAMPLE_IMAGE_URL, get_video_files, get_audio_files, validate_sync_status)
 
@@ -177,6 +176,8 @@ class TestLabelStudio:
             sync_col: str,
             ext_col: str
     ) -> None:
+        from pixeltable.io.label_studio import LabelStudioProject
+
         sync_status = pxt.io.create_label_studio_project(
             t,
             label_config=label_config,
@@ -273,9 +274,11 @@ class TestLabelStudio:
     def test_label_studio_sync_preannotations(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
+        from pixeltable.io.label_studio import LabelStudioProject
+
         t = ls_image_table
         t.delete(where=(t.id >= 5))  # Delete all but 5 rows so that the test isn't too slow
-        from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
 
         validate_update_status(
             t.add_column(detect=detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50'))
@@ -398,14 +401,14 @@ class TestLabelStudio:
 
     def test_label_studio_sync_errors(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
+        from pixeltable.io.label_studio import LabelStudioProject
+
         t = ls_image_table
         t['annotations_col'] = pxt.JsonType(nullable=True)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.create_label_studio_project(t, self.test_config_with_text, media_import_method='post', col_mapping={'image_col': 'image'})
         assert '`media_import_method` cannot be `post` if there is more than one data key' in str(exc_info.value)
-
-        from pixeltable.io.label_studio import LabelStudioProject
 
         # Check that we can create a LabelStudioProject on a non-existent project id
         # (this will happen if, for example, a DB reload happens after a synced project has
