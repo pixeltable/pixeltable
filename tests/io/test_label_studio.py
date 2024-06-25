@@ -13,6 +13,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
 from pixeltable.functions.string import str_format
+from pixeltable.io.label_studio import LabelStudioProject
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
                      SAMPLE_IMAGE_URL, get_video_files, get_audio_files, validate_sync_status)
 
@@ -187,6 +188,7 @@ class TestLabelStudio:
 
         # Check that the project and tasks were properly created
         store = t._tbl_version.external_stores['ls_project_0']
+        assert isinstance(store, LabelStudioProject)
         tasks = store.project.get_tasks()
         assert len(tasks) == t_count
         assert all(task['data'][ext_col] for task in tasks)
@@ -210,6 +212,8 @@ class TestLabelStudio:
         # Import the annotations back to Pixeltable
         reload_catalog()
         t = pxt.get_table('test_ls_sync')
+        store = t._tbl_version.external_stores['ls_project_0']
+        assert isinstance(store, LabelStudioProject)
         ann_count = min(10, t_count)
         sync_status = t.sync()
         validate_sync_status(sync_status, 0, 0, 0, ann_count, 0)
@@ -288,6 +292,7 @@ class TestLabelStudio:
 
         # Check that the preannotations sent to Label Studio are what we expect
         store = t._tbl_version.external_stores['ls_project_0']
+        assert isinstance(store, LabelStudioProject)
         tasks = store.project.get_tasks()
         assert len(tasks) == 5
 
@@ -368,6 +373,7 @@ class TestLabelStudio:
         sync_status = v.sync()  # Verify that this has no effect
         validate_sync_status(sync_status, 0, 0, 0, 0, 0)
         store = v._tbl_version.external_stores['complex_project']
+        assert isinstance(store, LabelStudioProject)
         tasks: list[dict] = store.project.get_tasks()
         assert len(tasks) == 10
 

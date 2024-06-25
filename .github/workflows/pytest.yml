@@ -89,12 +89,13 @@ jobs:
             if [[ "$RESULT" == 0 ]]; then
               break
             fi
-            echo "Poetry installation failed with exit code $RESULT; $RETRIES tries remaining."
+            echo "Dependencies installation failed with exit code $RESULT; $RETRIES tries remaining."
+            sleep 60
           done
           if [[ "$RESULT" != 0 ]]; then
             exit 1
           fi
-          echo "Poetry installation succeeded."
+          echo "Dependencies installation succeeded."
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
         if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && startsWith(matrix.os, 'ubuntu') }}
