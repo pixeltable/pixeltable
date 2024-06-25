@@ -59,9 +59,13 @@ jobs:
         if: ${{ matrix.poetry-options != '' }}
         run: conda install -c conda-forge libiconv ffmpeg
       - name: Install poetry
+        # setuptools >= 69.2 has been causing problems with github actions even when its
+        # version is enforced in poetry. For now, explicitly revert to setuptools 69.1.1
+        # prior to installing project dependencies.
         run: |
           python -m pip install --upgrade pip
           python -m pip install poetry==${{ matrix.poetry-version }}
+          python -m pip install setuptools==69.1.1
       - name: Define a venv cache
         uses: actions/cache@v4
         if: false
@@ -74,11 +78,24 @@ jobs:
           key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{
             matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
-        # setuptools >= 69.2 has been causing problems with github actions even when its
-        # version is enforced in poetry. For now, explicitly install setuptools 69.1.1 first.
+        # Retry 3 times to be (hopefully) resilient against transient connection errors.
+        shell: bash -l {0}  # Don't use -e flag
         run: |
-          python -m pip install setuptools==69.1.1
-          poetry install ${{ matrix.poetry-options }}
+          set +e
+          RETRIES=3
+          while (( RETRIES-- > 0 )); do
+            poetry install ${{ matrix.poetry-options }}
+            RESULT="$?"
+            if [[ "$RESULT" == 0 ]]; then
+              break
+            fi
+            echo "Dependencies installation failed with exit code $RESULT; $RETRIES tries remaining."
+            sleep 60
+          done
+          if [[ "$RESULT" != 0 ]]; then
+            exit 1
+          fi
+          echo "Dependencies installation succeeded."
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
         if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && startsWith(matrix.os, 'ubuntu') }}

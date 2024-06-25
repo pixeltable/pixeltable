@@ -39,7 +39,7 @@ class Catalog:
         # key: [id, version]
         # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
         # - snapshot versions: records the version of the snapshot
-        self.tbl_versions: Dict[Tuple[UUID, int], TableVersion] = {}
+        self.tbl_versions: Dict[Tuple[UUID, Optional[int]], TableVersion] = {}
 
         self.tbls: Dict[UUID, Table] = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
         self.tbl_dependents: Dict[UUID, List[Table]] = {}

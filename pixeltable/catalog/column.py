@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Optional, Union, Callable, Any
+from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -97,12 +98,9 @@ class Column:
         # computed cols also have storage columns for the exception string and type
         self.sa_errormsg_col: Optional[sql.schema.Column] = None
         self.sa_errortype_col: Optional[sql.schema.Column] = None
+
         from .table_version import TableVersion
         self.tbl: Optional[TableVersion] = None  # set by owning TableVersion
-
-    def __hash__(self) -> int:
-        assert self.tbl is not None
-        return hash((self.tbl.id, self.id))
 
     @property
     def value_expr(self) -> Optional['Expr']:
@@ -193,10 +191,15 @@ class Column:
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'
 
+    def __hash__(self) -> int:
+        # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column
+        #     abstraction (perhaps separating out the version-dependent properties into a different abstraction).
+        assert self.tbl is not None
+        return hash((self.tbl.id, self.id))
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Column):
             return False
         assert self.tbl is not None
         assert other.tbl is not None
         return self.tbl.id == other.tbl.id and self.id == other.id
-

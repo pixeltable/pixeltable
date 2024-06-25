@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 import json
 import logging
 from pathlib import Path
@@ -15,9 +14,9 @@ import pixeltable.catalog as catalog
 import pixeltable.env as env
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
+import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
-import pixeltable.index as index
 from .column import Column
 from .globals import is_valid_identifier, is_system_column_name, UpdateStatus
 from .schema_object import SchemaObject
@@ -159,6 +158,30 @@ class Table(SchemaObject):
     def query_names(self) -> list[str]:
         """Return the names of the registered queries for this table."""
         return list(self._queries.keys())
+
+    @property
+    def base(self) -> Optional['Table']:
+        """
+        The base table of this `Table`. If this table is a view, returns the `Table`
+        from which it was derived. Otherwise, returns `None`.
+        """
+        if self._tbl_version_path.base is None:
+            return None
+        base_id = self._tbl_version_path.base.tbl_version.id
+        return catalog.Catalog.get().tbls[base_id]
+
+    @property
+    def views(self) -> list['Table']:
+        """
+        All views and snapshots of this `Table`.
+        """
+        return catalog.Catalog.get().tbl_dependents[self._get_id()]
+
+    @property
+    def transitive_views(self) -> list['Table']:
+        proper_transitive_views = [t for view in self.views for t in view.transitive_views]
+        proper_transitive_views.append(self)
+        return proper_transitive_views
 
     @property
     def comment(self) -> str:
@@ -782,134 +805,96 @@ class Table(SchemaObject):
             assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
             return lambda py_fn: make_query_template(py_fn, kwargs['param_types'])
 
-    def _link(
+    @property
+    def external_stores(self) -> list[str]:
+        return list(self._tbl_version.external_stores.keys())
+
+    def _link_external_store(self, store: 'pixeltable.io.ExternalStore') -> None:
+        """
+        Links the specified `ExternalStore` to this table.
+        """
+        if self._tbl_version.is_snapshot:
+            raise excs.Error(f'Table `{self.get_name()}` is a snapshot, so it cannot be linked to an external store.')
+        self._check_is_dropped()
+        if store.name in self.external_stores:
+            raise excs.Error(f'Table `{self.get_name()}` already has an external store with that name: {store.name}')
+        _logger.info(f'Linking external store `{store.name}` to table `{self.get_name()}`')
+        self._tbl_version.link_external_store(store)
+        print(f'Linked external store `{store.name}` to table `{self.get_name()}`.')
+
+    def unlink_external_stores(
             self,
-            remote: 'pixeltable.datatransfer.Remote',
-            col_mapping: Optional[dict[str, str]] = None
+            stores: Optional[str | list[str]] = None,
+            *,
+            delete_external_data: bool = False,
+            ignore_errors: bool = False
     ) -> None:
         """
-        Links the specified `Remote` to this table. Once a remote is linked, it can be synchronized with
-        this `Table` by calling [`Table.sync()`]. A record of the link
-        is stored in table metadata and will persist across sessions.
+        Unlinks this table's external stores.
 
         Args:
-            remote (pixeltable.datatransfer.Remote): The `Remote` to link to this table.
-            col_mapping: An optional mapping of columns from this `Table` to columns in the `Remote`.
-        """
-        # TODO(aaron-siegel): Refactor `col_mapping`
-        if len(self._get_remotes()) > 0:
-            raise excs.Error('Linking more than one `Remote` to a table is not currently supported.')
-        self._check_is_dropped()
-        export_cols = remote.get_export_columns()
-        import_cols = remote.get_import_columns()
-        is_col_mapping_user_specified = col_mapping is not None
-        if col_mapping is None:
-            # Use the identity mapping by default if `col_mapping` is not specified
-            col_mapping = {col: col for col in itertools.chain(export_cols.keys(), import_cols.keys())}
-        self._validate_remote(export_cols, import_cols, col_mapping, is_col_mapping_user_specified)
-        self._tbl_version.link(remote, col_mapping)
-        print(f'Linked remote {remote} to table `{self.get_name()}`.')
-
-    def unlink(self) -> None:
-        """
-        Unlinks this table's `Remote`s.
+            stores: If specified, will unlink only the specified named store or list of stores. If not specified,
+                will unlink all of this table's external stores.
+            ignore_errors (bool): If `True`, no exception will be thrown if a specified store is not linked
+                to this table.
+            delete_external_data (bool): If `True`, then the external data store will also be deleted. WARNING: This
+                is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
         """
         self._check_is_dropped()
-        remotes = self._get_remotes()
-        assert len(remotes) <= 1
+        all_stores = self.external_stores
 
-        remote = next(iter(remotes.keys()))
-        self._tbl_version.unlink(remote)
-        # TODO: Provide an option to auto-delete the project
-        print(f'Unlinked remote {remote} from table `{self.get_name()}`.')
+        if stores is None:
+            stores = all_stores
+        elif isinstance(stores, str):
+            stores = [stores]
 
-    def _validate_remote(
-            self,
-            export_cols: dict[str, ts.ColumnType],
-            import_cols: dict[str, ts.ColumnType],
-            col_mapping: Optional[dict[str, str]],
-            is_col_mapping_user_specified: bool
-    ):
-        # Validate names
-        t_cols = self.column_names()
-        for t_col, r_col in col_mapping.items():
-            if t_col not in t_cols:
-                if is_col_mapping_user_specified:
-                    raise excs.Error(
-                        f'Column name `{t_col}` appears as a key in `col_mapping`, but Table `{self.get_name()}` '
-                        'contains no such column.'
-                    )
-                else:
-                    raise excs.Error(
-                        f'Column `{t_col}` does not exist in Table `{self.get_name()}`. Either add a column `{t_col}`, '
-                        f'or specify a `col_mapping` to associate a different column with the remote field `{r_col}`.'
-                    )
-            if r_col not in export_cols and r_col not in import_cols:
-                raise excs.Error(
-                    f'Column name `{r_col}` appears as a value in `col_mapping`, but the remote '
-                    f'configuration has no column `{r_col}`.'
-                )
-        # Validate column specs
-        t_col_types = self.column_types()
-        for t_col, r_col in col_mapping.items():
-            t_col_type = t_col_types[t_col]
-            if r_col in export_cols:
-                # Validate that the table column can be assigned to the remote column
-                r_col_type = export_cols[r_col]
-                if not r_col_type.is_supertype_of(t_col_type):
-                    raise excs.Error(
-                        f'Column `{t_col}` cannot be exported to remote column `{r_col}` (incompatible types)'
-                    )
-            if r_col in import_cols:
-                # Validate that the remote column can be assigned to the table column
-                if self._tbl_version_path.get_column(t_col).is_computed:
-                    raise excs.Error(
-                        f'Column `{t_col}` is a computed column, which cannot be populated from a remote column'
-                    )
-                r_col_type = import_cols[r_col]
-                if not t_col_type.is_supertype_of(r_col_type):
-                    raise excs.Error(
-                        f'Column `{t_col}` cannot be imported from remote column `{r_col}` (incompatible types)'
-                    )
+        # Validation
+        if not ignore_errors:
+            for store in stores:
+                if store not in all_stores:
+                    raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
 
-    def _get_remotes(self) -> dict[pixeltable.datatransfer.Remote, dict[str, str]]:
-        """
-        Gets a `dict` of all `Remote`s linked to this table.
-        """
-        return self._tbl_version.get_remotes()
+        for store in stores:
+            self._tbl_version.unlink_external_store(store, delete_external_data=delete_external_data)
+            print(f'Unlinked external store from table `{self.get_name()}`: {store}')
 
     def sync(
             self,
+            stores: Optional[str | list[str]] = None,
             *,
             export_data: bool = True,
             import_data: bool = True
-    ):
+    ) -> 'pixeltable.io.SyncStatus':
         """
-        Synchronizes this table with its linked `Remote`s.
+        Synchronizes this table with its linked external stores.
 
         Args:
-            export_data: If `True`, data from this table will be exported to the external store during synchronization.
-            import_data: If `True`, data from the external store will be imported to this table during synchronization.
+            stores: If specified, will synchronize only the specified named store or list of stores. If not specified,
+                will synchronize all of this table's external stores.
+            export_data: If `True`, data from this table will be exported to the external stores during synchronization.
+            import_data: If `True`, data from the external stores will be imported to this table during synchronization.
         """
-        remotes = self._get_remotes()
-        assert len(remotes) <= 1
+        self._check_is_dropped()
+        all_stores = self.external_stores
 
-        # Validation
-        for remote in remotes:
-            col_mapping = remotes[remote]
-            r_cols = set(col_mapping.values())
-            # Validate export/import
-            if export_data and not any(col in r_cols for col in remote.get_export_columns()):
-                raise excs.Error(
-                    f'Attempted to sync with export_data=True, but there are no columns to export: {remote}'
-                )
-            if import_data and not any(col in r_cols for col in remote.get_import_columns()):
-                raise excs.Error(
-                    f'Attempted to sync with import_data=True, but there are no columns to import: {remote}'
-                )
+        if stores is None:
+            stores = all_stores
+        elif isinstance(stores, str):
+            stores = [stores]
 
-        for remote in remotes:
-            remote.sync(self, remotes[remote], export_data=export_data, import_data=import_data)
+        for store in stores:
+            if store not in all_stores:
+                raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
+
+        from pixeltable.io import SyncStatus
+
+        sync_status = SyncStatus.empty()
+        for store in stores:
+            store_obj = self._tbl_version.external_stores[store]
+            store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)
+            sync_status = sync_status.combine(store_sync_status)
+
+        return sync_status
 
     def __dir__(self) -> list[str]:
         return list(super().__dir__()) + self.column_names() + self.query_names()

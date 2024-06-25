@@ -1,9 +1,8 @@
 from .catalog import Column, Table, InsertableTable, View
 from .dataframe import DataFrame
-from .datatransfer import Remote
 from .exceptions import Error
 from .exprs import RELATIVE_PATH_ROOT
-from .func import Function, udf, uda, Aggregator, expr_udf
+from .func import Function, udf, Aggregator, uda, expr_udf
 from .globals import init, create_table, create_view, get_table, move, drop_table, list_tables, create_dir, rm_dir, \
     list_dirs, list_functions, get_path, configure_logging
 from .type_system import (
