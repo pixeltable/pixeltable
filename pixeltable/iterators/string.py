@@ -12,7 +12,7 @@ class StringSplitter(ComponentIterator):
         if separators != 'sentence':
             raise excs.Error('Only `sentence` separators are currently supported.')
         self._text = text
-        self.doc = Env.get().spacy_nlp()(self._text)
+        self.doc = Env.get().spacy_nlp(self._text)
         self.iter = self._iter()
 
     def _iter(self) -> Iterator[dict[str, Any]]:

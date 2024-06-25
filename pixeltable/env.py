@@ -14,7 +14,7 @@ import uuid
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Dict, Any, List
+from typing import Callable, Optional, Dict, Any, List, TYPE_CHECKING
 
 import pgserver
 import sqlalchemy as sql
@@ -24,6 +24,9 @@ from tqdm import TqdmWarning
 import pixeltable.exceptions as excs
 from pixeltable import metadata
 from pixeltable.utils.http_server import make_server
+
+if TYPE_CHECKING:
+    import spacy
 
 
 class Env:
@@ -63,7 +66,7 @@ class Env:
         # info about installed packages that are utilized by some parts of the code;
         # package name -> version; version == []: package is installed, but we haven't determined the version yet
         self._installed_packages: Dict[str, Optional[List[int]]] = {}
-        self._spacy_nlp: Optional[Any] = None  # spacy.Language
+        self._spacy_nlp: Optional[spacy.Language] = None
         self._httpd: Optional[http.server.HTTPServer] = None
         self._http_address: Optional[str] = None
 
@@ -512,7 +515,7 @@ class Env:
         return self._sa_engine
 
     @property
-    def spacy_nlp(self) -> Any:
+    def spacy_nlp(self) -> spacy.Language:
         assert self._spacy_nlp is not None
         return self._spacy_nlp
 
