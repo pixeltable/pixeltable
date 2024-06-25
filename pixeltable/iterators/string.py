@@ -1,9 +1,8 @@
 from typing import Iterator, Any
 
-import spacy
-
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 from pixeltable.iterators.base import ComponentIterator
 
 
@@ -13,8 +12,7 @@ class StringSplitter(ComponentIterator):
         if separators != 'sentence':
             raise excs.Error('Only `sentence` separators are currently supported.')
         self._text = text
-        self.spacy_nlp = spacy.load('en_core_web_sm')
-        self.doc = self.spacy_nlp(self._text)
+        self.doc = Env.get().spacy_nlp()(self._text)
         self.iter = self._iter()
 
     def _iter(self) -> Iterator[dict[str, Any]]:
