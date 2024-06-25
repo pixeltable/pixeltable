@@ -1,16 +1,16 @@
-from PIL.Image import Quantize, Transpose
+from PIL.Image import Quantize, Transpose, Dither
 
 from pixeltable import Table
-from pixeltable.functions.pil.image import *
+from pixeltable.functions.image import alpha_composite, blend, composite
 
 
-class TestPil:
-
-    def test_pil(self, img_tbl: Table) -> None:
+class TestImage:
+    def test_image(self, img_tbl: Table) -> None:
         # mask_img = next(f for f in get_image_files() if f.endswith('n03888257_1389.JPEG'))
         t = img_tbl
         _ = t[t.img.rotate(90)].show()
-        _ = t[alpha_composite(t.img.convert(mode='RGBA'), t.img.rotate(90).convert(mode='RGBA'))].show()  # Needs RGBA images to work
+        # alpha_composite needs RGBA images to work, so we do the conversions inline
+        _ = t[alpha_composite(t.img.convert(mode='RGBA'), t.img.rotate(90).convert(mode='RGBA'))].show()
         _ = t[blend(t.img, t.img.rotate(90), 0.5)].show()
         _ = t[composite(t.img, t.img.rotate(90), mask=t.img.convert(mode='RGBA'))].show()
         _ = t[t.img.crop([0, 0, 10, 10])].show()

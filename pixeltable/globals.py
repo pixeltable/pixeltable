@@ -213,7 +213,7 @@ def move(path: str, new_path: str) -> None:
     obj = Catalog.get().paths[p]
     Catalog.get().paths.move(p, new_p)
     new_dir = Catalog.get().paths[new_p.parent]
-    obj.move(new_p.name, new_dir._id)
+    obj._move(new_p.name, new_dir._id)
 
 
 def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> None:

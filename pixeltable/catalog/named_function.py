@@ -25,8 +25,8 @@ class NamedFunction(SchemaObject):
     def display_name(cls) -> str:
         return 'function'
 
-    def move(self, new_name: str, new_dir_id: UUID) -> None:
-        super().move(new_name, new_dir_id)
+    def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        super()._move(new_name, new_dir_id)
         with Env.get().engine.begin() as conn:
             stmt = sql.text((
                 f"UPDATE {schema.Function.__table__} "

@@ -3,6 +3,7 @@ import PIL.Image
 
 def resolve_torch_device(device: str) -> str:
     import torch
+
     if device == 'auto':
         if torch.cuda.is_available():
             return 'cuda'

@@ -202,7 +202,7 @@ class TestProject:
 
         assert t.rot_img_renamed.col == v1.rot_img_renamed.col
         assert t.rot_img_renamed.col in storev1.stored_proxies
-        assert storev1.stored_proxies[t.rot_img_renamed.col].tbl.id == v1.get_id()
+        assert storev1.stored_proxies[t.rot_img_renamed.col].tbl.id == v1._get_id()
 
         storev2 = MockProject.create(
             t,
@@ -225,5 +225,5 @@ class TestProject:
         # for each view
         assert t.rot_img_renamed.col in storev1.stored_proxies
         assert t.rot_img_renamed.col in storev2.stored_proxies
-        assert storev1.stored_proxies[t.rot_img_renamed.col].tbl.id == v1.get_id()
-        assert storev2.stored_proxies[t.rot_img_renamed.col].tbl.id == v2.get_id()
+        assert storev1.stored_proxies[t.rot_img_renamed.col].tbl.id == v1._get_id()
+        assert storev2.stored_proxies[t.rot_img_renamed.col].tbl.id == v2._get_id()

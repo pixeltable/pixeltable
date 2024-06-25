@@ -10,7 +10,7 @@ from uuid import UUID
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable import Table, Column, Catalog
+from pixeltable import Table, Column
 import sqlalchemy as sql
 
 from pixeltable.catalog import TableVersion
