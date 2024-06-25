@@ -406,8 +406,8 @@ class LabelStudioProject(Project):
             'name': self.name,
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
-            'col_mapping': [[k.as_dict(), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [[k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()]
+            'col_mapping': [[self._column_as_dict(k), v] for k, v in self.col_mapping.items()],
+            'stored_proxies': [[self._column_as_dict(k), self._column_as_dict(v)] for k, v in self.stored_proxies.items()]
         }
 
     @classmethod
@@ -416,8 +416,8 @@ class LabelStudioProject(Project):
             md['name'],
             md['project_id'],
             md['media_import_method'],
-            {Column.from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
-            {Column.from_dict(entry[0]): Column.from_dict(entry[1]) for entry in md['stored_proxies']}
+            {cls._column_from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
+            {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']}
         )
 
     def __repr__(self) -> str:

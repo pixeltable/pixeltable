@@ -102,10 +102,6 @@ class Column:
         from .table_version import TableVersion
         self.tbl: Optional[TableVersion] = None  # set by owning TableVersion
 
-    def __hash__(self) -> int:
-        assert self.tbl is not None
-        return hash((self.tbl.id, self.id))
-
     @property
     def value_expr(self) -> Optional['Expr']:
         """Instantiate value_expr on-demand"""
@@ -192,19 +188,14 @@ class Column:
     def errortype_store_name(self) -> str:
         return f'{self.store_name()}_errortype'
 
-    def as_dict(self) -> dict[str, Any]:
-        return {'tbl_id': str(self.tbl.id), 'col_id': self.id}
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> 'Column':
-        from pixeltable.catalog import Catalog
-
-        tbl_id = UUID(d['tbl_id'])
-        col_id = d['col_id']
-        return Catalog.get().tbl_versions[(tbl_id, None)].cols_by_id[col_id]
-
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'
+
+    def __hash__(self) -> int:
+        # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column
+        #     abstraction (perhaps separating out the version-dependent properties into a different abstraction).
+        assert self.tbl is not None
+        return hash((self.tbl.id, self.id))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Column):
@@ -212,4 +203,3 @@ class Column:
         assert self.tbl is not None
         assert other.tbl is not None
         return self.tbl.id == other.tbl.id and self.id == other.id
-

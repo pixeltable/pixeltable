@@ -261,6 +261,18 @@ class Project(ExternalStore, abc.ABC):
                     )
         return resolved_col_mapping
 
+    @classmethod
+    def _column_as_dict(cls, col: Column) -> dict[str, Any]:
+        return {'tbl_id': str(col.tbl.id), 'col_id': col.id}
+
+    @classmethod
+    def _column_from_dict(cls, d: dict[str, Any]) -> Column:
+        from pixeltable.catalog import Catalog
+
+        tbl_id = UUID(d['tbl_id'])
+        col_id = d['col_id']
+        return Catalog.get().tbl_versions[(tbl_id, None)].cols_by_id[col_id]
+
 
 @dataclass(frozen=True)
 class SyncStatus:
@@ -332,8 +344,8 @@ class MockProject(Project):
             'name': self.name,
             'export_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
             'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()},
-            'col_mapping': [[k.as_dict(), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [[k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()]
+            'col_mapping': [[self._column_as_dict(k), v] for k, v in self.col_mapping.items()],
+            'stored_proxies': [[self._column_as_dict(k), self._column_as_dict(v)] for k, v in self.stored_proxies.items()]
         }
 
     @classmethod
@@ -342,8 +354,8 @@ class MockProject(Project):
             md['name'],
             {k: ts.ColumnType.from_dict(v) for k, v in md['export_cols'].items()},
             {k: ts.ColumnType.from_dict(v) for k, v in md['import_cols'].items()},
-            {Column.from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
-            {Column.from_dict(entry[0]): Column.from_dict(entry[1]) for entry in md['stored_proxies']}
+            {cls._column_from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
+            {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']}
         )
 
     def __eq__(self, other: Any) -> bool:
