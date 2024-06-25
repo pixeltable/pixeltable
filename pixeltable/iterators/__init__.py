@@ -1,5 +1,6 @@
 from .base import ComponentIterator
 from .document import DocumentSplitter
+from .string import StringSplitter
 from .video import FrameIterator
 
 __default_dir = set(symbol for symbol in dir() if not symbol.startswith('_'))

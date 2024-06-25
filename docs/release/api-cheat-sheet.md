@@ -40,7 +40,7 @@ Create a table with video data and view for the frames:
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 t = pxt.create_table('tbl_name', {'video': pxt.VideoType()})
-f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(videos=t, fps=0))
+f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t, fps=0))
 ```
 
 `fps=0` extracts frames at the original frame rate.

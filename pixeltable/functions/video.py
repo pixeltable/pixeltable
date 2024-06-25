@@ -35,6 +35,39 @@ _format_defaults = {  # format -> (codec, ext)
 #         output_container.mux(packet)
 
 
+@func.uda(
+    init_types=[ts.IntType()], update_types=[ts.ImageType()], value_type=ts.VideoType(),
+    requires_order_by=True, allows_window=False)
+class make_video(func.Aggregator):
+    def __init__(self, fps: int = 25):
+        """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
+        self.container: Optional[av.container.OutputContainer] = None
+        self.stream: Optional[av.stream.Stream] = None
+        self.fps = fps
+
+    def update(self, frame: PIL.Image.Image) -> None:
+        if frame is None:
+            return
+        if self.container is None:
+            (_, output_filename) = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
+            self.out_file = Path(output_filename)
+            self.container = av.open(str(self.out_file), mode='w')
+            self.stream = self.container.add_stream('h264', rate=self.fps)
+            self.stream.pix_fmt = 'yuv420p'
+            self.stream.width = frame.width
+            self.stream.height = frame.height
+
+        av_frame = av.VideoFrame.from_ndarray(np.array(frame.convert('RGB')), format='rgb24')
+        for packet in self.stream.encode(av_frame):
+            self.container.mux(packet)
+
+    def value(self) -> str:
+        for packet in self.stream.encode():
+            self.container.mux(packet)
+        self.container.close()
+        return str(self.out_file)
+
+
 _extract_audio_param_types = [
     ts.VideoType(nullable=False),
     ts.IntType(nullable=False),
@@ -80,62 +113,55 @@ def get_metadata(video: str) -> dict:
     """
     with av.open(video) as container:
         assert isinstance(container, av.container.InputContainer)
-        video_streams_info = [
-            {
-                'duration': stream.duration,
-                'frames': stream.frames,
-                'language': stream.language,
-                'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
-                'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
-                'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
-                'pix_fmt': getattr(stream.codec_context, 'pix_fmt', None),
-                'width': stream.width,
-                'height': stream.height,
-            }
-            for stream in container.streams
-            if isinstance(stream, av.video.stream.VideoStream)
-        ]
+        streams_info = [__get_stream_metadata(stream) for stream in container.streams]
         result = {
             'bit_exact': container.bit_exact,
             'bit_rate': container.bit_rate,
             'size': container.size,
             'metadata': container.metadata,
-            'streams': video_streams_info,  # TODO: Audio streams?
+            'streams': streams_info,
         }
     return result
 
 
-@func.uda(
-    init_types=[ts.IntType()], update_types=[ts.ImageType()], value_type=ts.VideoType(),
-    requires_order_by=True, allows_window=False)
-class make_video(func.Aggregator):
-    def __init__(self, fps: int = 25):
-        """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
-        self.container: Optional[av.container.OutputContainer] = None
-        self.stream: Optional[av.stream.Stream] = None
-        self.fps = fps
+def __get_stream_metadata(stream: av.stream.Stream) -> dict:
+    if stream.type != 'audio' and stream.type != 'video':
+        return {'type': stream.type}  # Currently unsupported
 
-    def update(self, frame: PIL.Image.Image) -> None:
-        if frame is None:
-            return
-        if self.container is None:
-            (_, output_filename) = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
-            self.out_file = Path(output_filename)
-            self.container = av.open(str(self.out_file), mode='w')
-            self.stream = self.container.add_stream('h264', rate=self.fps)
-            self.stream.pix_fmt = 'yuv420p'
-            self.stream.width = frame.width
-            self.stream.height = frame.height
+    codec_context = stream.codec_context
+    codec_context_md = {
+        'name': codec_context.name,
+        'codec_tag': codec_context.codec_tag.encode('unicode-escape').decode('utf-8'),
+        'profile': codec_context.profile,
+    }
+    metadata = {
+        'type': stream.type,
+        'duration': stream.duration,
+        'time_base': float(stream.time_base) if stream.time_base is not None else None,
+        'duration_seconds': float(stream.duration * stream.time_base)
+            if stream.duration is not None and stream.time_base is not None else None,
+        'frames': stream.frames,
+        'metadata': stream.metadata,
+        'codec_context': codec_context_md,
+    }
 
-        av_frame = av.VideoFrame.from_ndarray(np.array(frame.convert('RGB')), format='rgb24')
-        for packet in self.stream.encode(av_frame):
-            self.container.mux(packet)
+    if stream.type == 'audio':
+        # Additional metadata for audio
+        codec_context_md['channels'] = int(codec_context.channels) if codec_context.channels is not None else None
+    else:
+        assert stream.type == 'video'
+        # Additional metadata for video
+        codec_context_md['pix_fmt'] = getattr(stream.codec_context, 'pix_fmt', None)
+        metadata.update(**{
+            'width': stream.width,
+            'height': stream.height,
+            'frames': stream.frames,
+            'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
+            'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
+            'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
+        })
 
-    def value(self) -> str:
-        for packet in self.stream.encode():
-            self.container.mux(packet)
-        self.container.close()
-        return str(self.out_file)
+    return metadata
 
 
 __all__ = local_public_names(__name__)
