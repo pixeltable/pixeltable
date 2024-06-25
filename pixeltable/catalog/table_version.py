@@ -122,7 +122,7 @@ class TableVersion:
         self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
-        self.external_stores = {}
+        self.external_stores: dict[str, pixeltable.io.ExternalStore] = {}
 
         self._init_schema(tbl_md, schema_version_md)
 

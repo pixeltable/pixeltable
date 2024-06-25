@@ -174,13 +174,13 @@ class TestLabelStudio:
             label_config: str,
             media_import_method: Literal['post', 'file', 'url'],
             sync_col: str,
-            r_col: str
+            ext_col: str
     ) -> None:
         sync_status = pxt.io.create_label_studio_project(
             t,
             label_config=label_config,
             media_import_method=media_import_method,
-            col_mapping={sync_col: r_col, 'annotations_col': 'annotations'}
+            col_mapping={sync_col: ext_col, 'annotations_col': 'annotations'}
         )
         t_count = t.count()
         validate_sync_status(sync_status, t_count, 0, 0, 0, 0)
@@ -189,12 +189,12 @@ class TestLabelStudio:
         store = t._tbl_version.external_stores['ls_project_0']
         tasks = store.project.get_tasks()
         assert len(tasks) == t_count
-        assert all(task['data'][r_col] for task in tasks)
+        assert all(task['data'][ext_col] for task in tasks)
         if media_import_method == 'file':
             # Ensure all image filepaths are properly formatted for Label Studio file import
-            assert all(task['data'][r_col].startswith('/data/local-files/?d=media/') for task in tasks)
+            assert all(task['data'][ext_col].startswith('/data/local-files/?d=media/') for task in tasks)
         if media_import_method == 'url':
-            assert all(cls.__is_expected_url(task['data'][r_col]) for task in tasks)
+            assert all(cls.__is_expected_url(task['data'][ext_col]) for task in tasks)
 
         # Programmatically add annotations by calling the Label Studio API directly
         for task in tasks[:10]:
@@ -238,19 +238,19 @@ class TestLabelStudio:
             print(store.project_title)
         assert 'Not Found for url' in str(exc_info.value)
 
-        # External store with no `annotations` col; will skip import
+        # Project with no `annotations` col; will skip import
         sync_status = pxt.io.create_label_studio_project(
             t,
             label_config,
             name='custom_name',
             title='Custom Title',
             media_import_method=media_import_method,
-            col_mapping={sync_col: r_col}
+            col_mapping={sync_col: ext_col}
         )
         validate_sync_status(sync_status, t.count(), 0, 0, 0, 0)
         t.unlink_external_stores('custom_name', delete_external_data=True)
 
-        # External store with no columns to export; will skip export
+        # Project with no columns to export; will skip export
         # TODO(aaron-siegel) This should probably just be an error?
         pxt.io.create_label_studio_project(
             t,
@@ -273,8 +273,10 @@ class TestLabelStudio:
         t.delete(where=(t.id >= 5))  # Delete all but 5 rows so that the test isn't too slow
         from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
 
-        t['detect'] = detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50')
-        t['preannotations'] = detr_to_coco(t.image_col, t.detect)
+        validate_update_status(
+            t.add_column(detect=detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50'))
+        )
+        validate_update_status(t.add_column(preannotations=detr_to_coco(t.image_col, t.detect)))
 
         sync_status = pxt.io.create_label_studio_project(
             t,
@@ -289,14 +291,13 @@ class TestLabelStudio:
         tasks = store.project.get_tasks()
         assert len(tasks) == 5
 
-        def extract_labels() -> Iterator[str]:
-            for task in tasks:
-                for prediction in task['predictions']:
-                    for result in prediction['result']:
-                        assert len(result['value']['rectanglelabels']) == 1
-                        yield result['value']['rectanglelabels'][0]
+        found_labels: set[str] = set()
+        for task in tasks:
+            for prediction in task['predictions']:
+                for result in prediction['result']:
+                    assert len(result['value']['rectanglelabels']) == 1
+                    found_labels.add(result['value']['rectanglelabels'][0])
 
-        found_labels = set(extract_labels())
         # No labels should be present other than 'knife' and 'person', since these are
         # the only labels defined in the XML config
         assert found_labels.issubset({'knife', 'person'})
@@ -305,6 +306,8 @@ class TestLabelStudio:
 
     def test_label_studio_sync_to_base_table(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
+        from pixeltable.io.label_studio import LabelStudioProject
+
         t = ls_image_table
         t['annotations_col'] = pxt.JsonType(nullable=True)
         v1 = pxt.create_view('view_1', t, filter=t.id < 20)
@@ -320,8 +323,9 @@ class TestLabelStudio:
         )
         validate_sync_status(sync_status, v2.count(), 0, 0, 0, 0)
         store = v2._tbl_version.external_stores['ls_project_0']
+        assert isinstance(store, LabelStudioProject)
         tasks = store.project.get_tasks()
-        assert len(tasks) == 10
+        assert len(tasks) == v2.count()
         for task in tasks[:5]:
             task_id = task['id']
             assert len(store.project.get_task(task_id)['annotations']) == 0

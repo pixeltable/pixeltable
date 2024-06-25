@@ -1,5 +1,6 @@
 from typing import Any, Optional, Literal
 
+import pixeltable.exceptions as excs
 from pixeltable import Table
 from pixeltable.io.external_store import SyncStatus
 

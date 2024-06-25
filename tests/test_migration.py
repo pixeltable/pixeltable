@@ -128,6 +128,7 @@ class TestMigration:
         v = pxt.get_table('views.view')
 
         # Test that external stores are loaded properly.
+        assert len(v.external_stores) == 2
         stores = list(v._tbl_version.external_stores.values())
         assert len(stores) == 2
         store0 = stores[0]
