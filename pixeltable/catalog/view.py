@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from typing import List, Optional, Type, Dict, Set, Any
+from typing import List, Optional, Type, Dict, Set, Any, Iterable
 from uuid import UUID
 import inspect
 
@@ -11,7 +11,7 @@ from .table_version import TableVersion
 from .table_version_path import TableVersionPath
 from .column import Column
 from .catalog import Catalog
-from .globals import POS_COLUMN_NAME
+from .globals import POS_COLUMN_NAME, UpdateStatus
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.exceptions import Error
@@ -203,3 +203,11 @@ class View(Table):
         cat.tbl_dependents[self._base._id].remove(self)
         del cat.tbl_dependents[self._id]
 
+    def insert(
+            self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
+            fail_on_exception: bool = True, **kwargs: Any
+    ) -> UpdateStatus:
+        raise excs.Error(f'{self.display_name()} {self._name!r}: cannot insert into view')
+
+    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+        raise excs.Error(f'{self.display_name()} {self._name!r}: cannot delete from view')

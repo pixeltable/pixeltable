@@ -30,6 +30,21 @@ class TestView:
         t.add_column(d2=t.c3 - t.c10)
         return t
 
+    def test_errors(self, reset_db) -> None:
+        t = self.create_tbl()
+        assert t.base is None
+
+        v = pxt.create_view('test_view', t)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = v.insert([{'bad_col': 1}])
+        assert 'cannot insert into view' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = v.insert(bad_col=1)
+        assert 'cannot insert into view' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = v.delete()
+        assert 'cannot delete from view' in str(exc_info.value)
+
     def test_basic(self, reset_db) -> None:
         t = self.create_tbl()
         assert t.base is None

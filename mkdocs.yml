@@ -25,9 +25,7 @@ nav:
       - DocumentSplitter: api/iterators/document-splitter.md
       - FrameIterator: api/iterators/frame-iterator.md
     - DataFrame: api/data-frame.md
-    - InsertableTable: api/insertable-table.md
     - Table: api/table.md
-    - View: api/view.md
   - Pixeltable Functions:
     - Huggingface: api/functions/huggingface.md
 

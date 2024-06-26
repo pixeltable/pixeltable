@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from typing import Union, Any, Optional, Callable, Set, Tuple, Iterable, overload, Type
 from uuid import UUID
+import abc
 
 import pandas as pd
 import sqlalchemy as sql
@@ -213,6 +214,9 @@ class Table(SchemaObject):
             .hide(axis='index')
 
     def describe(self) -> None:
+        """
+        Print the table schema.
+        """
         try:
             __IPYTHON__
             from IPython.display import display
@@ -564,7 +568,7 @@ class Table(SchemaObject):
 
         Args:
             column_name: The name of the column whose embedding index to drop. Invalid if the column has multiple
-              embedding indices.
+                embedding indices.
             idx_name: The name of the index to drop.
 
         Raises:
@@ -624,6 +628,56 @@ class Table(SchemaObject):
                 raise excs.Error(f'Column {column_name} has multiple indices; specify idx_name instead')
             idx_id = idx_info[0].id
         self._tbl_version.drop_index(idx_id)
+
+    @overload
+    def insert(
+            self, rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True
+    ) -> UpdateStatus: ...
+
+    @overload
+    def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
+
+    @abc.abstractmethod
+    def insert(
+            self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
+            fail_on_exception: bool = True, **kwargs: Any
+    ) -> UpdateStatus:
+        """Inserts rows into this table. There are two mutually exclusive call patterns:
+
+        To insert multiple rows at a time:
+        ``insert(rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True)``
+
+        To insert just a single row, you can use the more convenient syntax:
+        ``insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
+
+        Args:
+            rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
+                names to values.
+            kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
+            print_stats: If ``True``, print statistics about the cost of computed columns.
+            fail_on_exception:
+                Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
+                are handled.
+                If ``False``, store error information (accessible as column properties 'errortype' and 'errormsg')
+                for those cases, but continue inserting rows.
+                If ``True``, raise an exception that aborts the insert.
+
+        Returns:
+            execution status
+
+        Raises:
+            Error: if a row does not match the table schema or contains values for computed columns
+
+        Examples:
+            Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Column ``c`` is nullable.
+
+            >>> tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])
+
+            Insert a single row into a table with three int columns ``a``, ``b``, and ``c``.
+
+            >>> tbl.insert(a=1, b=1, c=1)
+        """
+        raise NotImplementedError
 
     def update(
             self, value_spec: dict[str, Any], where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
@@ -751,6 +805,24 @@ class Table(SchemaObject):
             update_targets[col] = value_expr
 
         return update_targets
+
+    @abc.abstractmethod
+    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+        """Delete rows in this table.
+
+        Args:
+            where: a Predicate to filter rows to delete.
+
+        Examples:
+            Delete all rows in a table:
+
+            >>> tbl.delete()
+
+            Delete all rows in a table where column `a` is greater than 5:
+
+            >>> tbl.delete(tbl.a > 5)
+        """
+        raise NotImplementedError
 
     def revert(self) -> None:
         """Reverts the table to the previous version.
