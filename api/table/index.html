@@ -11,10 +11,10 @@
       
       
       
-        <link rel="prev" href="../insertable-table/">
+        <link rel="prev" href="../data-frame/">
       
       
-        <link rel="next" href="../view/">
+        <link rel="next" href="../functions/huggingface/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -462,27 +462,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../insertable-table/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    InsertableTable
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -532,6 +511,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Overview
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pixeltable.Table" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;Table
@@ -540,6 +528,15 @@
   
     <nav class="md-nav" aria-label=" Table">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.base" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;base
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#pixeltable.Table.__getattr__" class="md-nav__link">
@@ -560,6 +557,42 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.__setitem__" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;__setitem__
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.add_column" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_column
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.add_embedding_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_embedding_index
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.batch_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;batch_update
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.collect" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;collect
@@ -569,9 +602,36 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.column_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;column_names
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.column_types" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;column_types
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.count" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;count
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;delete
     </span>
   </a>
   
@@ -596,9 +656,108 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.display_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;display_name
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.drop_column" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;drop_column
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.drop_embedding_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;drop_embedding_index
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.drop_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;drop_index
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.get_views" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;get_views
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.group_by" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;group_by
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.head" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;head
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.insert" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;insert
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.order_by" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;order_by
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.query_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;query_names
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.rename_column" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;rename_column
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.revert" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;revert
     </span>
   </a>
   
@@ -623,9 +782,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pixeltable.Table.where" class="md-nav__link">
+  <a href="#pixeltable.Table.sync" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;where
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;sync
     </span>
   </a>
   
@@ -640,6 +799,60 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.to_coco_dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;to_coco_dataset
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.to_pytorch_dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;to_pytorch_dataset
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.unlink_external_stores" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;unlink_external_stores
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;update
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.version" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;version
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.where" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;where
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -649,27 +862,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../view/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    View
-  </span>
-  
-
-      </a>
     </li>
   
 
@@ -772,6 +964,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Overview
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pixeltable.Table" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;Table
@@ -780,6 +981,15 @@
   
     <nav class="md-nav" aria-label=" Table">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.base" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;base
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#pixeltable.Table.__getattr__" class="md-nav__link">
@@ -800,6 +1010,42 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.__setitem__" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;__setitem__
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.add_column" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_column
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.add_embedding_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_embedding_index
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.batch_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;batch_update
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.collect" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;collect
@@ -809,9 +1055,36 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.column_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;column_names
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.column_types" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;column_types
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.count" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;count
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;delete
     </span>
   </a>
   
@@ -836,9 +1109,108 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.display_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;display_name
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.drop_column" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;drop_column
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.drop_embedding_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;drop_embedding_index
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.drop_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;drop_index
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.get_views" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;get_views
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.group_by" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;group_by
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.head" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;head
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.insert" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;insert
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.order_by" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;order_by
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.query_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;query_names
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.rename_column" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;rename_column
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.revert" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;revert
     </span>
   </a>
   
@@ -863,9 +1235,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pixeltable.Table.where" class="md-nav__link">
+  <a href="#pixeltable.Table.sync" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;where
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;sync
     </span>
   </a>
   
@@ -875,6 +1247,60 @@
   <a href="#pixeltable.Table.tail" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;tail
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.to_coco_dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;to_coco_dataset
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.to_pytorch_dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;to_pytorch_dataset
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.unlink_external_stores" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;unlink_external_stores
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;update
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.version" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;version
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.where" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;where
     </span>
   </a>
   
@@ -907,8 +1333,93 @@
 
 
 <h1 id="table">Table</h1>
-<p>The <code>Table</code> base class provides convenience functions for querying tables and views
-without having to construct <a class="autorefs autorefs-internal" href="../data-frame/#pixeltable.DataFrame"><code>DataFrame</code></a> instances explicitly.</p>
+<p>Instances of class <code>Table</code> are handles to Pixeltable tables and views/snapshots.</p>
+<p>Use this handle to query and update the table and to add and drop columns.</p>
+<p>Tables are created by calling <a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.create_table"><code>pxt.create_table</code></a>.
+Views and snapshots are created by calling <a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>
+(snapshots require <code>is_snapshot=True</code>).</p>
+<p>To get a handle to an existing table/view/snapshot, call <a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.get_table"><code>pxt.get_table</code></a>.</p>
+<h2 id="overview">Overview</h2>
+<table>
+<thead>
+<tr>
+<th>Column Operations</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.add_column"><code>add_column</code></a></td>
+<td>Add a column to the table or view</td>
+</tr>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.drop_column"><code>drop_column</code></a></td>
+<td>Remove a column from the table or view</td>
+</tr>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.rename_column"><code>rename_column</code></a></td>
+<td>Rename a column</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Data Operations</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.insert"><code>insert</code></a></td>
+<td>Insert rows into table</td>
+</tr>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.update"><code>update</code></a></td>
+<td>Update rows in table or view</td>
+</tr>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.delete"><code>delete</code></a></td>
+<td>Delete rows from table</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Indexing Operations</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.add_embedding_index"><code>add_embedding_index</code></a></td>
+<td>Add embedding index on column</td>
+</tr>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.drop_embedding_index"><code>drop_embedding_index</code></a></td>
+<td>Drop embedding index from column</td>
+</tr>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.drop_index"><code>drop_index</code></a></td>
+<td>Drop index from column</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Versioning</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.revert"><code>revert</code></a></td>
+<td>Revert the last change</td>
+</tr>
+</tbody>
+</table>
 
 
 <div class="doc doc-object doc-class">
@@ -939,6 +1450,30 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
 
 
 
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pixeltable.Table.base" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">base</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">base</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s1">&#39;Table&#39;</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>The base table of this <code>Table</code>. If this table is a view, returns the <code>Table</code>
+from which it was derived. Otherwise, returns <code>None</code>.</p>
+    </div>
+
+</div>
+
 
 
 <div class="doc doc-object doc-function">
@@ -949,12 +1484,16 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="fm">__getattr__</span><span class="p">(</span><span class="nf">col_name</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pixeltable.exprs.ColumnRef&#39;</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="fm">__getattr__</span><span class="p">(</span>
+    <span class="nf">name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span>
+    <span class="s2">&quot;pixeltable.exprs.ColumnRef&quot;</span><span class="p">,</span> <span class="s2">&quot;pixeltable.func.QueryTemplateFunction&quot;</span>
+<span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return a ColumnRef for the given column name.</p>
+      <p>Return a ColumnRef or QueryTemplateFunction for the given name.</p>
 
     </div>
 
@@ -970,12 +1509,295 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="fm">__getitem__</span><span class="p">(</span>
     <span class="nf">index</span><span class="p">:</span> <span class="n">object</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="s2">&quot;pixeltable.exprs.ColumnRef&quot;</span><span class="p">,</span> <span class="s2">&quot;pixeltable.dataframe.DataFrame&quot;</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span>
+    <span class="s2">&quot;pixeltable.func.QueryTemplateFunction&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;pixeltable.exprs.ColumnRef&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;pixeltable.dataframe.DataFrame&quot;</span><span class="p">,</span>
+<span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return a ColumnRef for the given column name, or a DataFrame for the given slice.</p>
+      <p>Return a ColumnRef or QueryTemplateFunction for the given name, or a DataFrame for the given slice.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.__setitem__" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">__setitem__</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="fm">__setitem__</span><span class="p">(</span>
+    <span class="nf">column_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n"><span title="typing.Callable">Callable</span></span><span class="p">,</span> <span class="n">dict</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Adds a column to the table
+Args:
+    column_name: the name of the new column
+    value: column type or value expression or column specification dictionary:
+        column type: a Pixeltable column type (if the table already contains rows, it must be nullable)
+        value expression: a Pixeltable expression that computes the column values
+        column specification: a dictionary with possible keys 'type', 'value', 'stored'
+Examples:
+    Add an int column with <code>None</code> values:</p>
+<pre><code>&gt;&gt;&gt; tbl['new_col'] = IntType(nullable=True)
+
+For a table with int column ``int_col``, add a column that is the factorial of ``int_col``. The names of
+the parameters of the Callable must correspond to existing column names (the column values are then passed
+as arguments to the Callable). In this case, the return type cannot be inferred and needs to be specified
+explicitly:
+
+&gt;&gt;&gt; tbl['factorial'] = {'value': lambda int_col: math.factorial(int_col), 'type': IntType()}
+
+For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
+90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
+(by default, computed image columns are not stored but recomputed on demand):
+
+&gt;&gt;&gt; tbl['rotated'] = tbl.frame.rotate(90)
+
+Do the same, but now the column is stored:
+
+&gt;&gt;&gt; tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
+</code></pre>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.add_column" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">add_column</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_column</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="nb">type</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stored</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.globals.UpdateStatus">UpdateStatus</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Adds a column to the table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>kwargs</code></b>
+              (<code><span title="typing.Any">Any</span></code>, default:
+                  <code>{}</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Exactly one keyword argument of the form <code>column-name=type|value-expression</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>type</code></b>
+              (<code><span title="typing.Optional">Optional</span>[<span title="pixeltable.type_system.ColumnType">ColumnType</span>]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The type of the column. Only valid and required if <code>value-expression</code> is a Callable.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>stored</code></b>
+              (<code><span title="typing.Optional">Optional</span>[bool]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Whether the column is materialized and stored or computed on demand. Only valid for image columns.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>print_stats</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, print execution metrics.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.catalog.globals.UpdateStatus">UpdateStatus</span></code>
+          –
+          <div class="doc-md-description">
+            <p>execution status</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the column name is invalid or already exists.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add an int column with <code>None</code> values:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">new_col</span><span class="o">=</span><span class="n">IntType</span><span class="p">())</span>
+</code></pre></div>
+    <p>Alternatively, this can also be expressed as:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;new_col&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">IntType</span><span class="p">()</span>
+</code></pre></div>
+    <p>For a table with int column <code>int_col</code>, add a column that is the factorial of <code>int_col</code>. The names of
+the parameters of the Callable must correspond to existing column names (the column values are then passed
+as arguments to the Callable). In this case, the column type needs to be specified explicitly:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">factorial</span><span class="o">=</span><span class="k">lambda</span> <span class="n">int_col</span><span class="p">:</span> <span class="n">math</span><span class="o">.</span><span class="n">factorial</span><span class="p">(</span><span class="n">int_col</span><span class="p">),</span> <span class="nb">type</span><span class="o">=</span><span class="n">IntType</span><span class="p">())</span>
+</code></pre></div>
+    <p>Alternatively, this can also be expressed as:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;factorial&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">int_col</span><span class="p">:</span> <span class="n">math</span><span class="o">.</span><span class="n">factorial</span><span class="p">(</span><span class="n">int_col</span><span class="p">),</span> <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="n">IntType</span><span class="p">()}</span>
+</code></pre></div>
+    <p>For a table with an image column <code>frame</code>, add an image column <code>rotated</code> that rotates the image by
+90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
+(by default, computed image columns are not stored but recomputed on demand):</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">rotated</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">))</span>
+</code></pre></div>
+    <p>Alternatively, this can also be expressed as:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;rotated&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">)</span>
+</code></pre></div>
+    <p>Do the same, but now the column is stored:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">rotated</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">),</span> <span class="n">stored</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+    <p>Alternatively, this can also be expressed as:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;rotated&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;value&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">),</span> <span class="s1">&#39;stored&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.add_embedding_index" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">add_embedding_index</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_embedding_index</span><span class="p">(</span>
+    <span class="n">col_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">idx_name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">text_embed</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.Function">Function</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">img_embed</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.Function">Function</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">metric</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;cosine&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Add an index to the table.
+Args:
+    col_name: name of column to index
+    idx_name: name of index, which needs to be unique for the table; if not provided, a name will be generated
+    text_embed: function to embed text; required if the column is a text column
+    img_embed: function to embed images; required if the column is an image column
+    metric: distance metric to use for the index; one of 'cosine', 'ip', 'l2'; default is 'cosine'</p>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If an index with that name already exists for the table or if the column does not exist.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add an index to the <code>img</code> column:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_embedding_index</span><span class="p">(</span><span class="s1">&#39;img&#39;</span><span class="p">,</span> <span class="n">img_embed</span><span class="o">=...</span><span class="p">)</span>
+</code></pre></div>
+    <p>Add another index to the <code>img</code> column, using the inner product as the distance metric,
+and with a specific name; <code>text_embed</code> is also specified in order to search with text:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_embedding_index</span><span class="p">(</span>
+<span class="go">    &#39;img&#39;, idx_name=&#39;clip_idx&#39;, img_embed=..., text_embed=...text_embed..., metric=&#39;ip&#39;)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.batch_update" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">batch_update</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">batch_update</span><span class="p">(</span>
+    <span class="n">rows</span><span class="p">:</span> <span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span> <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.globals.UpdateStatus">UpdateStatus</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Update rows in this table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>rows</code></b>
+              (<code><span title="typing.Iterable">Iterable</span>[dict[str, <span title="typing.Any">Any</span>]]</code>)
+          –
+          <div class="doc-md-description">
+            <p>an Iterable of dictionaries containing values for the updated columns plus values for the primary key
+  columns.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>cascade</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if True, also update all computed columns that transitively depend on the updated columns.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Update the 'name' and 'age' columns for the rows with ids 1 and 2 (assuming 'id' is the primary key):</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">([{</span><span class="s1">&#39;id&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="s1">&#39;Alice&#39;</span><span class="p">,</span> <span class="s1">&#39;age&#39;</span><span class="p">:</span> <span class="mi">30</span><span class="p">},</span> <span class="p">{</span><span class="s1">&#39;id&#39;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="s1">&#39;Bob&#39;</span><span class="p">,</span> <span class="s1">&#39;age&#39;</span><span class="p">:</span> <span class="mi">40</span><span class="p">}])</span>
+</code></pre></div>
 
     </div>
 
@@ -1003,6 +1825,44 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.Table.column_names" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">column_names</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">column_names</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the names of the columns in this table.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.column_types" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">column_types</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">column_types</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the names of the columns in this table.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.Table.count" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">count</span>
 
@@ -1022,6 +1882,53 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.Table.delete" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">delete</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">delete</span><span class="p">(</span><span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s1">&#39;pixeltable.exprs.Predicate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.globals.UpdateStatus">UpdateStatus</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Delete rows in this table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>where</code></b>
+              (<code><span title="typing.Optional">Optional</span>[&#39;pixeltable.exprs.Predicate&#39;]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>a Predicate to filter rows to delete.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Delete all rows in a table:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">delete</span><span class="p">()</span>
+</code></pre></div>
+    <p>Delete all rows in a table where column <code>a</code> is greater than 5:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">a</span> <span class="o">&gt;</span> <span class="mi">5</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.Table.describe" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">describe</span>
 
@@ -1031,6 +1938,8 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
 </code></pre></div>
 
     <div class="doc doc-contents ">
+
+      <p>Print the table schema.</p>
 
     </div>
 
@@ -1058,6 +1967,247 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.Table.display_name" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">display_name</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">display_name</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return name displayed in error messages.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.drop_column" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">drop_column</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">drop_column</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Drop a column from the table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>name</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The name of the column to drop.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the column does not exist or if it is referenced by a computed column.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Drop column <code>factorial</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">drop_column</span><span class="p">(</span><span class="s1">&#39;factorial&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.drop_embedding_index" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">drop_embedding_index</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">drop_embedding_index</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span> <span class="n">column_name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">idx_name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Drop an embedding index from the table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>column_name</code></b>
+              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The name of the column whose embedding index to drop. Invalid if the column has multiple
+embedding indices.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>idx_name</code></b>
+              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The name of the index to drop.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the index does not exist.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Drop embedding index on the <code>img</code> column:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">drop_embedding_index</span><span class="p">(</span><span class="n">column_name</span><span class="o">=</span><span class="s1">&#39;img&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.drop_index" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">drop_index</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">drop_index</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span> <span class="n">column_name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">idx_name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Drop an index from the table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>column_name</code></b>
+              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The name of the column whose index to drop. Invalid if the column has multiple indices.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>idx_name</code></b>
+              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The name of the index to drop.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the index does not exist.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Drop index on the <code>img</code> column:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">drop_index</span><span class="p">(</span><span class="n">column_name</span><span class="o">=</span><span class="s1">&#39;img&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.get_views" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">get_views</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_views</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">recursive</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">list</span><span class="p">[</span><span class="s1">&#39;Table&#39;</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>All views and snapshots of this <code>Table</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.group_by" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">group_by</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">group_by</span><span class="p">(</span><span class="o">*</span><span class="n">items</span><span class="p">:</span> <span class="s1">&#39;exprs.Expr&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pixeltable.dataframe.DataFrame&#39;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a DataFrame for this table.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.Table.head" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">head</span>
 
@@ -1069,6 +2219,242 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
     <div class="doc doc-contents ">
 
       <p>Return the first n rows inserted into this table.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.insert" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">insert</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">insert</span><span class="p">(</span>
+    <span class="n">rows</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">/</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">fail_on_exception</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.globals.UpdateStatus">UpdateStatus</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Inserts rows into this table. There are two mutually exclusive call patterns:</p>
+<p>To insert multiple rows at a time:
+<code>insert(rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True)</code></p>
+<p>To insert just a single row, you can use the more convenient syntax:
+<code>insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)</code></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>rows</code></b>
+              (<code><span title="typing.Optional">Optional</span>[<span title="typing.Iterable">Iterable</span>[dict[str, <span title="typing.Any">Any</span>]]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>(if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
+names to values.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>kwargs</code></b>
+              (<code><span title="typing.Any">Any</span></code>, default:
+                  <code>{}</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>(if inserting a single row) Keyword-argument pairs representing column names and values.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>print_stats</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, print statistics about the cost of computed columns.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fail_on_exception</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
+are handled.
+If <code>False</code>, store error information (accessible as column properties 'errortype' and 'errormsg')
+for those cases, but continue inserting rows.
+If <code>True</code>, raise an exception that aborts the insert.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.catalog.globals.UpdateStatus">UpdateStatus</span></code>
+          –
+          <div class="doc-md-description">
+            <p>execution status</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>if a row does not match the table schema or contains values for computed columns</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Insert two rows into a table with three int columns <code>a</code>, <code>b</code>, and <code>c</code>. Column <code>c</code> is nullable.</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">insert</span><span class="p">([{</span><span class="s1">&#39;a&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;b&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;c&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">},</span> <span class="p">{</span><span class="s1">&#39;a&#39;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s1">&#39;b&#39;</span><span class="p">:</span> <span class="mi">2</span><span class="p">}])</span>
+</code></pre></div>
+    <p>Insert a single row into a table with three int columns <code>a</code>, <code>b</code>, and <code>c</code>.</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">a</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">b</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.order_by" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">order_by</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">order_by</span><span class="p">(</span>
+    <span class="o">*</span><span class="n">items</span><span class="p">:</span> <span class="s2">&quot;exprs.Expr&quot;</span><span class="p">,</span> <span class="n">asc</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;pixeltable.dataframe.DataFrame&quot;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a DataFrame for this table.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.query_names" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">query_names</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">query_names</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the names of the registered queries for this table.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.rename_column" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">rename_column</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rename_column</span><span class="p">(</span><span class="n">old_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">new_name</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Rename a column.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>old_name</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The current name of the column.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>new_name</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The new name of the column.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the column does not exist or if the new name is invalid or already exists.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Rename column <code>factorial</code> to <code>fac</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">rename_column</span><span class="p">(</span><span class="s1">&#39;factorial&#39;</span><span class="p">,</span> <span class="s1">&#39;fac&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.revert" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">revert</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">revert</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Reverts the table to the previous version.</p>
+<p>.. warning::
+    This operation is irreversible.</p>
 
     </div>
 
@@ -1115,17 +2501,58 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
 <div class="doc doc-object doc-function">
 
 
-<h3 id="pixeltable.Table.where" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">where</span>
+<h3 id="pixeltable.Table.sync" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">sync</span>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">where</span><span class="p">(</span><span class="n">pred</span><span class="p">:</span> <span class="s1">&#39;exprs.Predicate&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pixeltable.dataframe.DataFrame&#39;</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">sync</span><span class="p">(</span>
+    <span class="n">stores</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">export_data</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">import_data</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;pixeltable.io.SyncStatus&quot;</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return a DataFrame for this table.</p>
+      <p>Synchronizes this table with its linked external stores.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>stores</code></b>
+              (<code><span title="typing.Optional">Optional</span>[str | list[str]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If specified, will synchronize only the specified named store or list of stores. If not specified,
+will synchronize all of this table's external stores.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>export_data</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, data from this table will be exported to the external stores during synchronization.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>import_data</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, data from the external stores will be imported to this table during synchronization.</p>
+          </div>
+        </li>
+    </ul>
 
     </div>
 
@@ -1145,6 +2572,219 @@ without having to construct <a class="autorefs autorefs-internal" href="../data-
     <div class="doc doc-contents ">
 
       <p>Return the last n rows inserted into this table.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.to_coco_dataset" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">to_coco_dataset</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">to_coco_dataset</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="pathlib.Path">Path</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the path to a COCO json file for this table.
+See DataFrame.to_coco_dataset()</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.to_pytorch_dataset" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">to_pytorch_dataset</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">to_pytorch_dataset</span><span class="p">(</span>
+    <span class="n">image_format</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;pt&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;torch.utils.data.IterableDataset&quot;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a PyTorch Dataset for this table.
+See DataFrame.to_pytorch_dataset()</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.unlink_external_stores" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">unlink_external_stores</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">unlink_external_stores</span><span class="p">(</span>
+    <span class="n">stores</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">delete_external_data</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Unlinks this table's external stores.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>stores</code></b>
+              (<code><span title="typing.Optional">Optional</span>[str | list[str]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If specified, will unlink only the specified named store or list of stores. If not specified,
+will unlink all of this table's external stores.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>ignore_errors</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, no exception will be thrown if a specified store is not linked
+to this table.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>delete_external_data</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, then the external data store will also be deleted. WARNING: This
+is a destructive operation that will delete data outside Pixeltable, and cannot be undone.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.update" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">update</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">update</span><span class="p">(</span>
+    <span class="n">value_spec</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">],</span>
+    <span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s2">&quot;pixeltable.exprs.Predicate&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.globals.UpdateStatus">UpdateStatus</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Update rows in this table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>value_spec</code></b>
+              (<code>dict[str, <span title="typing.Any">Any</span>]</code>)
+          –
+          <div class="doc-md-description">
+            <p>a dictionary mapping column names to literal values or Pixeltable expressions.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>where</code></b>
+              (<code><span title="typing.Optional">Optional</span>[&#39;pixeltable.exprs.Predicate&#39;]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>a Predicate to filter rows to update.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>cascade</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if True, also update all computed columns that transitively depend on the updated columns.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Set column <code>int_col</code> to 1 for all rows:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;int_col&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">})</span>
+</code></pre></div>
+    <p>Set column <code>int_col</code> to 1 for all rows where <code>int_col</code> is 0:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;int_col&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">},</span> <span class="n">where</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">int_col</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+    <p>Set <code>int_col</code> to the value of <code>other_int_col</code> + 1:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;int_col&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">other_int_col</span> <span class="o">+</span> <span class="mi">1</span><span class="p">})</span>
+</code></pre></div>
+    <p>Increment <code>int_col</code> by 1 for all rows where <code>int_col</code> is 0:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;int_col&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">int_col</span> <span class="o">+</span> <span class="mi">1</span><span class="p">},</span> <span class="n">where</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">int_col</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.version" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">version</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">version</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the version of this table. Used by tests to ascertain version changes.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.where" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">where</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">where</span><span class="p">(</span><span class="n">pred</span><span class="p">:</span> <span class="s1">&#39;exprs.Predicate&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pixeltable.dataframe.DataFrame&#39;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a DataFrame for this table.</p>
 
     </div>
 

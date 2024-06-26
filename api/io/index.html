@@ -369,6 +369,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#pixeltable.io.create_label_studio_project" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;create_label_studio_project
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.io.import_csv" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;import_csv
@@ -543,53 +552,11 @@
   
   
     <li class="md-nav__item">
-      <a href="../insertable-table/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    InsertableTable
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     Table
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../view/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    View
   </span>
   
 
@@ -704,6 +671,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#pixeltable.io.create_label_studio_project" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;create_label_studio_project
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.io.import_csv" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;import_csv
@@ -785,6 +761,150 @@
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.io.create_label_studio_project" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">create_label_studio_project</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_label_studio_project</span><span class="p">(</span>
+    <span class="n">t</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">,</span>
+    <span class="n">label_config</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">title</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">media_import_method</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;post&quot;</span><span class="p">,</span> <span class="s2">&quot;file&quot;</span><span class="p">,</span> <span class="s2">&quot;url&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;post&quot;</span><span class="p">,</span>
+    <span class="n">col_mapping</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">sync_immediately</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.io.external_store.SyncStatus">SyncStatus</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Creates a new Label Studio project and links it to the specified <code>Table</code>.</p>
+<p>The required parameter <code>label_config</code> specifies the Label Studio project configuration,
+in XML format, as described in the Label Studio documentation. The linked project will
+have one column for each data field in the configuration; for example, if the
+configuration has an entry</p>
+<pre><code>&lt;Image name=&quot;image_obj&quot; value=&quot;$image&quot;/&gt;
+</code></pre>
+<p>then the linked project will have a column named <code>image</code>. In addition, the linked project
+will always have a JSON-typed column <code>annotations</code> representing the output.</p>
+<p>By default, Pixeltable will link each of these columns to a column of the specified <code>Table</code>
+with the same name. If any of the data fields are missing, an exception will be raised. If
+the <code>annotations</code> column is missing, it will be created. The default names can be overridden
+by specifying an optional <code>col_mapping</code>, with Pixeltable column names as keys and Label
+Studio field names as values. In all cases, the Pixeltable columns must have types that are
+consistent with their corresponding Label Studio fields; otherwise, an exception will be raised.</p>
+<p>The API key and URL for a valid Label Studio server must be specified in Pixeltable config. Either:</p>
+<ul>
+<li>Set the <code>LABEL_STUDIO_API_KEY</code> and <code>LABEL_STUDIO_URL</code> environment variables; or</li>
+<li>Specify <code>api_key</code> and <code>url</code> fields in the <code>label-studio</code> section of <code>$PIXELTABLE_HOME/config.yaml</code>.</li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>t</code></b>
+              (<code><a class="autorefs autorefs-internal" title="pixeltable.Table" href="../table/#pixeltable.Table">Table</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>The Table to link to.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>label_config</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The Label Studio project configuration, in XML format.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>name</code></b>
+              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional name for the new project in Pixeltable. If specified, must be a valid
+Pixeltable identifier and must not be the name of any other external data store
+linked to <code>t</code>. If not specified, a default name will be used of the form
+<code>ls_project_0</code>, <code>ls_project_1</code>, etc.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>title</code></b>
+              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional title for the Label Studio project. This is the title that annotators
+will see inside Label Studio. Unlike <code>name</code>, it does not need to be an identifier and
+does not need to be unique. If not specified, the table name <code>t.get_name()</code> will be used.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>media_import_method</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;post&#39;, &#39;file&#39;, &#39;url&#39;]</code>, default:
+                  <code>&#39;post&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The method to use when transferring media files to Label Studio:
+- <code>post</code>: Media will be sent to Label Studio via HTTP post. This should generally only be used for
+    prototyping; due to restrictions in Label Studio, it can only be used with projects that have
+    just one data field, and does not scale well.
+- <code>file</code>: Media will be sent to Label Studio as a file on the local filesystem. This method can be
+    used if Pixeltable and Label Studio are running on the same host.
+- <code>url</code>: Media will be sent to Label Studio as externally accessible URLs. This method cannot be
+    used with local media files or with media generated by computed columns.
+The default is <code>post</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>col_mapping</code></b>
+              (<code><span title="typing.Optional">Optional</span>[dict[str, str]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional mapping of local column names to Label Studio fields.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>sync_immediately</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, immediately perform an initial synchronization by
+exporting all rows of the <code>Table</code> as Label Studio tasks.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>kwargs</code></b>
+              (<code><span title="typing.Any">Any</span></code>, default:
+                  <code>{}</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional keyword arguments are passed to the <code>start_project</code> method in the Label
+Studio SDK, as described here:
+https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_project</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.io.import_csv" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">import_csv</span>
 
@@ -795,7 +915,7 @@
     <span class="n">filepath_or_buffer</span><span class="p">,</span>
     <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.InsertableTable" href="../insertable-table/#pixeltable.InsertableTable">InsertableTable</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.InsertableTable">InsertableTable</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -822,7 +942,7 @@ See the Pandas documentation for <code>read_csv</code> for more details.</p>
     <span class="o">*</span><span class="n">args</span><span class="p">,</span>
     <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.InsertableTable" href="../insertable-table/#pixeltable.InsertableTable">InsertableTable</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.InsertableTable">InsertableTable</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -848,7 +968,7 @@ See the Pandas documentation for <code>read_excel</code> for more details.</p>
     <span class="n">df</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.InsertableTable" href="../insertable-table/#pixeltable.InsertableTable">InsertableTable</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.InsertableTable">InsertableTable</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

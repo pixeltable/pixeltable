@@ -599,53 +599,11 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/insertable-table/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    InsertableTable
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../api/table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     Table
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/view/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    View
   </span>
   
 
@@ -963,7 +921,7 @@ import pixeltable.functions as pxtf
 <pre><code class="language-python">import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 t = pxt.create_table('tbl_name', {'video': pxt.VideoType()})
-f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(videos=t, fps=0))
+f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t, fps=0))
 </code></pre>
 <p><code>fps=0</code> extracts frames at the original frame rate.</p>
 <h2 id="pixeltable-types">Pixeltable types</h2>
@@ -1036,15 +994,15 @@ f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(videos=t
 </tr>
 <tr>
 <td>Insert a single row into a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.insert"><code>insert</code></a>(col1='green', ...)</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.insert"><code>insert</code></a>(col1='green', ...)</td>
 </tr>
 <tr>
 <td>Insert multiple rows into a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.insert"><code>insert</code></a>([{'col1': 'green', ...}, {'col1': 'red', ...}, ...])</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.insert"><code>insert</code></a>([{'col1': 'green', ...}, {'col1': 'red', ...}, ...])</td>
 </tr>
 <tr>
 <td>Add a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.add_column"><code>add_column</code></a>(new_col_name=pxt.IntType())</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.add_column"><code>add_column</code></a>(new_col_name=pxt.IntType())</td>
 </tr>
 <tr>
 <td>Add a column (alternate form)</td>
@@ -1052,15 +1010,15 @@ f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(videos=t
 </tr>
 <tr>
 <td>Rename a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.rename_column"><code>rename_column</code></a>('col_name', 'new_col_name')</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.rename_column"><code>rename_column</code></a>('col_name', 'new_col_name')</td>
 </tr>
 <tr>
 <td>Drop a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.drop_column"><code>drop_column</code></a>('col_name')</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.drop_column"><code>drop_column</code></a>('col_name')</td>
 </tr>
 <tr>
 <td>Undo the last update operation (add/rename/drop column or insert)</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/insertable-table/#pixeltable.InsertableTable.revert"><code>revert</code></a>()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.revert"><code>revert</code></a>()</td>
 </tr>
 </tbody>
 </table>
