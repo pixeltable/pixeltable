@@ -10,6 +10,11 @@ echo -e "\n============= Running pixeltable release script.\n"
 echo "Project root: $PROJECT_ROOT"
 cd "$PROJECT_ROOT"
 
+if [[ ! $(gh --version) ]]; then
+  echo "You must have Github commandline utilities installed to run this script. See: https://cli.github.com/"
+  exit 1
+fi
+
 if [ "$(git remote get-url home)" != 'https://github.com/pixeltable/pixeltable' ]; then
   echo "Unexpected home repo: $(git remote get-url home)"
   exit 1
@@ -26,6 +31,9 @@ if [ -z "$PYPI_API_KEY" ]; then
     python -c "import yaml,sys; y = yaml.safe_load(sys.stdin); print(y['pypi']['api_key'])" < ~/.pixeltable/config.yaml
   )
 fi
+
+git fetch home
+git checkout home/master
 
 echo -n "Enter version number for release: "
 read VERSION
