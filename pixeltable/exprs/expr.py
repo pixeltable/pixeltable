@@ -434,7 +434,7 @@ class Expr(abc.ABC):
         if self.col_type.is_array_type():
             from .array_slice import ArraySlice
             return ArraySlice(self, index)
-        raise excs.Error(f'Type {self.col_type} is not subscriptable')
+        raise AttributeError(f'Type {self.col_type} is not subscriptable')
 
     def __getattr__(self, name: str) -> Union['pixeltable.exprs.ImageMemberAccess', 'pixeltable.exprs.JsonPath']:
         """
@@ -446,7 +446,7 @@ class Expr(abc.ABC):
         if self.col_type.is_json_type():
             from .json_path import JsonPath
             return JsonPath(self).__getattr__(name)
-        raise excs.Error(f'Member access not supported on type {self.col_type}: {name}')
+        raise AttributeError(f'Member access not supported on type {self.col_type}: {name}')
 
     def __bool__(self) -> bool:
         raise TypeError(
