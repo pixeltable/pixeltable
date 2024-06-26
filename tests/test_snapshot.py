@@ -93,7 +93,11 @@ class TestSnapshot:
         snap = pxt.create_view('snap', tbl, is_snapshot=True)
 
         with pytest.raises(pxt.Error) as excinfo:
-            _ = snap.insert({'c3': 1.0})
+            _ = snap.insert([{'c3': 1.0}])
+        assert 'cannot insert into view' in str(excinfo.value).lower()
+
+        with pytest.raises(pxt.Error) as excinfo:
+            _ = snap.insert(c3=1.0)
         assert 'cannot insert into view' in str(excinfo.value).lower()
 
         with pytest.raises(pxt.Error) as excinfo:

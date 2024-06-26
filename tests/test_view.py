@@ -39,6 +39,9 @@ class TestView:
             _ = v.insert([{'bad_col': 1}])
         assert 'cannot insert into view' in str(exc_info.value)
         with pytest.raises(excs.Error) as exc_info:
+            _ = v.insert(bad_col=1)
+        assert 'cannot insert into view' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
             _ = v.delete()
         assert 'cannot delete from view' in str(exc_info.value)
 

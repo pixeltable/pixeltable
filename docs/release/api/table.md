@@ -12,45 +12,29 @@ To get a handle to an existing table/view/snapshot, call [`pxt.get_table`][pixel
 
 
 ## Overview
-| Column Operations                                           |                                        |
-|-------------------------------------------------------------|----------------------------------------|
-| [`add_column`][pixeltable.Table.add_column]       | Add a column to the table or view      |
-| [`drop_column`][pixeltable.Table.drop_column]     | Remove a column from the table or view |
-| [`rename_column`][pixeltable.Table.rename_column] | Rename a column                        |
+| Column Operations                                  |                                        |
+|----------------------------------------------------|----------------------------------------|
+| [`add_column`][pixeltable.Table.add_column]        | Add a column to the table or view      |
+| [`drop_column`][pixeltable.Table.drop_column]      | Remove a column from the table or view |
+| [`rename_column`][pixeltable.Table.rename_column]  | Rename a column                        |
 
-| Data Operations                               |                             |
-|-----------------------------------------------|-----------------------------|
-| [`insert`][pixeltable.Table.insert] | Insert rows into table      |
-| [`update`][pixeltable.Table.update] | Upate rows in table or view |
-| [`delete`][pixeltable.Table.delete] | Delete rows from table      |
+| Data Operations                       |                              |
+|---------------------------------------|------------------------------|
+| [`insert`][pixeltable.Table.insert]   | Insert rows into table       |
+| [`update`][pixeltable.Table.update]   | Update rows in table or view |
+| [`delete`][pixeltable.Table.delete]   | Delete rows from table       |
 
-| Versioning                                    |                        |
-|-----------------------------------------------|------------------------|
-| [`revert`][pixeltable.Table.revert] | Revert the last change |
+| Indexing Operations                                             |                                  |
+|-----------------------------------------------------------------|----------------------------------|
+| [`add_embedding_index`][pixeltable.Table.add_embedding_index]   | Add embedding index on column    |
+| [`drop_embedding_index`][pixeltable.Table.drop_embedding_index] | Drop embedding index from column |
+| [`drop_index`][pixeltable.Table.drop_index]                     | Drop index from column           |
+
+| Versioning                            |                        |
+|---------------------------------------|------------------------|
+| [`revert`][pixeltable.Table.revert]   | Revert the last change |
 
 ## ::: pixeltable.Table
     options:
       inherited_members: true
-      members:
-      - __getattr__
-      - __getitem__
-      - collect
-      - count
-      - describe
-      - df
-      - head
-      - link
-      - unlink
-      - sync
-      - get_remotes
-      - select
-      - show
-      - where
-      - tail
-      - add_column
-      - delete
-      - drop_column
-      - insert
-      - rename_column
-      - revert
-      - update
+

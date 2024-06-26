@@ -214,6 +214,9 @@ class Table(SchemaObject):
             .hide(axis='index')
 
     def describe(self) -> None:
+        """
+        Print the table schema.
+        """
         try:
             __IPYTHON__
             from IPython.display import display
@@ -565,7 +568,7 @@ class Table(SchemaObject):
 
         Args:
             column_name: The name of the column whose embedding index to drop. Invalid if the column has multiple
-              embedding indices.
+                embedding indices.
             idx_name: The name of the index to drop.
 
         Raises:
@@ -674,21 +677,7 @@ class Table(SchemaObject):
 
             >>> tbl.insert(a=1, b=1, c=1)
         """
-        # The commented code is the intended implementation, with signature (*args, **kwargs).
-        # That signature cannot be used currently, due to a present limitation in mkdocs.
-        # See: https://github.com/mkdocstrings/mkdocstrings/issues/669
-
-        # print_stats = kwargs.pop('print_stats', False)
-        # fail_on_exception = kwargs.pop('fail_on_exception', True)
-        # if len(args) > 0:
-        #     # There's a positional argument; this means `rows` is expressed as a
-        #     # list of dicts (multi-insert)
-        #     rows = list(args[0])
-        # else:
-        #     # No positional argument; this means we're inserting a single row
-        #     # using kwargs syntax
-        #     rows = [kwargs]
-        pass
+        raise NotImplementedError
 
     def update(
             self, value_spec: dict[str, Any], where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
@@ -833,7 +822,7 @@ class Table(SchemaObject):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        pass
+        raise NotImplementedError
 
     def revert(self) -> None:
         """Reverts the table to the previous version.
