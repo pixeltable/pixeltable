@@ -595,7 +595,7 @@ class DataFrame:
                 raise excs.Error(f'Invalid name: {name}')
         base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
         if len(base_list) == 0:
-            raise excs.Error(f'Empty select list')
+            return self
 
         # analyze select list; wrap literals with the corresponding expressions
         select_list = []

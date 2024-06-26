@@ -93,7 +93,7 @@ class Table(SchemaObject):
         else:
             return catalog.Catalog.get().tbl_dependents[self._get_id()]
 
-    def df(self) -> 'pixeltable.dataframe.DataFrame':
+    def _df(self) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
@@ -132,30 +132,30 @@ class Table(SchemaObject):
 
     def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return rows from this table."""
-        return self.df().collect()
+        return self._df().collect()
 
     def show(
             self, *args, **kwargs
     ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
-        return self.df().show(*args, **kwargs)
+        return self._df().show(*args, **kwargs)
 
     def head(
             self, *args, **kwargs
     ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return the first n rows inserted into this table."""
-        return self.df().head(*args, **kwargs)
+        return self._df().head(*args, **kwargs)
 
     def tail(
             self, *args, **kwargs
     ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return the last n rows inserted into this table."""
-        return self.df().tail(*args, **kwargs)
+        return self._df().tail(*args, **kwargs)
 
     def count(self) -> int:
         """Return the number of rows in this table."""
-        return self.df().count()
+        return self._df().count()
 
     def column_names(self) -> list[str]:
         """Return the names of the columns in this table."""

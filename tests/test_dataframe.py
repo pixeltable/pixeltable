@@ -20,6 +20,10 @@ class TestDataFrame:
 
     def test_select_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
+        res1 = t.show(0)
+        res2 = t.select().show(0)
+        assert res1 == res2
+
         res1 = t[t.c1, t.c2, t.c3].show(0)
         res2 = t.select(t.c1, t.c2, t.c3).show(0)
         assert res1 == res2
