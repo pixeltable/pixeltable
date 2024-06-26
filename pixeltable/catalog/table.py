@@ -29,7 +29,7 @@ _logger = logging.getLogger('pixeltable')
 class Table(SchemaObject):
     """Base class for all tabular SchemaObjects."""
 
-    ROWID_COLUMN_NAME = '_rowid'
+    __ROWID_COLUMN_NAME = '_rowid'
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -38,8 +38,8 @@ class Table(SchemaObject):
         from pixeltable.func import QueryTemplateFunction
         self._queries: dict[str, QueryTemplateFunction] = {}
 
-    def move(self, new_name: str, new_dir_id: UUID) -> None:
-        super().move(new_name, new_dir_id)
+    def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        super()._move(new_name, new_dir_id)
         with env.Env.get().engine.begin() as conn:
             stmt = sql.text((
                 f"UPDATE {schema.Table.__table__} "
@@ -67,7 +67,7 @@ class Table(SchemaObject):
     def __getattr__(
             self, name: str
     ) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.func.QueryTemplateFunction']:
-        """Return a ColumnRef or QueryTemplateFunction for the given column name.
+        """Return a ColumnRef or QueryTemplateFunction for the given name.
         """
         if name in self._queries:
             return self._queries[name]
@@ -76,13 +76,22 @@ class Table(SchemaObject):
     def __getitem__(
             self, index: object
     ) -> Union[
-        'pixeltable.exprs.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame'
+        'pixeltable.func.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame'
     ]:
-        """Return a ColumnRef for the given column name, or a DataFrame for the given slice.
+        """Return a ColumnRef or QueryTemplateFunction for the given name, or a DataFrame for the given slice.
         """
         if isinstance(index, str) and index in self._queries:
             return self._queries[index]
         return self._tbl_version_path.__getitem__(index)
+
+    def get_views(self, *, recursive: bool = False) -> list['Table']:
+        """
+        All views and snapshots of this `Table`.
+        """
+        if recursive:
+            return [self] + [t for view in self.get_views(recursive=False) for t in view.get_views(recursive=True)]
+        else:
+            return catalog.Catalog.get().tbl_dependents[self._get_id()]
 
     def df(self) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
@@ -158,7 +167,7 @@ class Table(SchemaObject):
 
     def query_names(self) -> list[str]:
         """Return the names of the registered queries for this table."""
-        return self._queries.keys()
+        return list(self._queries.keys())
 
     @property
     def base(self) -> Optional['Table']:
@@ -170,19 +179,6 @@ class Table(SchemaObject):
             return None
         base_id = self._tbl_version_path.base.tbl_version.id
         return catalog.Catalog.get().tbls[base_id]
-
-    @property
-    def views(self) -> list['Table']:
-        """
-        All views and snapshots of this `Table`.
-        """
-        return catalog.Catalog.get().tbl_dependents[self.get_id()]
-
-    @property
-    def transitive_views(self) -> list['Table']:
-        proper_transitive_views = [t for view in self.views for t in view.transitive_views]
-        proper_transitive_views.append(self)
-        return proper_transitive_views
 
     @property
     def comment(self) -> str:
@@ -758,7 +754,7 @@ class Table(SchemaObject):
         pk_col_names = set(c.name for c in self._tbl_version.primary_key_columns())
 
         # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
-        has_rowid = self.ROWID_COLUMN_NAME in rows[0]
+        has_rowid = self.__ROWID_COLUMN_NAME in rows[0]
         rowids: list[Tuple[int, ...]] = []
         if len(pk_col_names) == 0 and not has_rowid:
             raise excs.Error('Table must have primary key for batch update')
@@ -767,8 +763,8 @@ class Table(SchemaObject):
             col_vals = self._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
             if has_rowid:
                 # we expect the _rowid column to be present for each row
-                assert self.ROWID_COLUMN_NAME in row_spec
-                rowids.append(row_spec[self.ROWID_COLUMN_NAME])
+                assert self.__ROWID_COLUMN_NAME in row_spec
+                rowids.append(row_spec[self.__ROWID_COLUMN_NAME])
             else:
                 col_names = set(col.name for col in col_vals.keys())
                 if any(pk_col_name not in col_names for pk_col_name in pk_col_names):
@@ -785,7 +781,7 @@ class Table(SchemaObject):
         for col_name, val in value_spec.items():
             if not isinstance(col_name, str):
                 raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
-            if col_name == self.ROWID_COLUMN_NAME:
+            if col_name == self.__ROWID_COLUMN_NAME:
                 # ignore pseudo-column _rowid
                 continue
             col = self._tbl_version_path.get_column(col_name, include_bases=False)
@@ -856,7 +852,7 @@ class Table(SchemaObject):
     @overload
     def query(
             self, *, param_types: Optional[list[ts.ColumnType]] = None
-    ) -> Callable[[Callable], 'pixeltable.exprs.QueryTemplateFunction']: ...
+    ) -> Callable[[Callable], 'pixeltable.func.QueryTemplateFunction']: ...
 
     def query(self, *args: Any, **kwargs: Any) -> Any:
         def make_query_template(
@@ -978,3 +974,9 @@ class Table(SchemaObject):
             sync_status = sync_status.combine(store_sync_status)
 
         return sync_status
+
+    def __dir__(self) -> list[str]:
+        return list(super().__dir__()) + self.column_names() + self.query_names()
+
+    def _ipython_key_completions_(self) -> list[str]:
+        return self.column_names() + self.query_names()

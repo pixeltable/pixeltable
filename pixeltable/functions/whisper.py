@@ -6,26 +6,40 @@ if TYPE_CHECKING:
     from whisper import Whisper
 
 
-@pxt.udf(param_types=[pxt.AudioType(), pxt.StringType(), pxt.JsonType(nullable=True), pxt.FloatType(nullable=True),
-                      pxt.FloatType(nullable=True), pxt.FloatType(nullable=True),
-                      pxt.BoolType(), pxt.StringType(nullable=True), pxt.BoolType(), pxt.StringType(),
-                      pxt.StringType(), pxt.StringType(), pxt.FloatType(nullable=True), pxt.JsonType(nullable=True)])
+@pxt.udf(
+    param_types=[
+        pxt.AudioType(),
+        pxt.StringType(),
+        pxt.JsonType(nullable=True),
+        pxt.FloatType(nullable=True),
+        pxt.FloatType(nullable=True),
+        pxt.FloatType(nullable=True),
+        pxt.BoolType(),
+        pxt.StringType(nullable=True),
+        pxt.BoolType(),
+        pxt.StringType(),
+        pxt.StringType(),
+        pxt.StringType(),
+        pxt.FloatType(nullable=True),
+        pxt.JsonType(nullable=True),
+    ]
+)
 def transcribe(
-        audio: str,
-        *,
-        model: str,
-        temperature: Optional[list[float]] = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-        compression_ratio_threshold: Optional[float] = 2.4,
-        logprob_threshold: Optional[float] = -1.0,
-        no_speech_threshold: Optional[float] = 0.6,
-        condition_on_previous_text: bool = True,
-        initial_prompt: Optional[str] = None,
-        word_timestamps: bool = False,
-        prepend_punctuations: str = "\"'“¿([{-",
-        append_punctuations: str = "\"'.。,，!！?？:：”)]}、",
-        clip_timestamps: str = "0",
-        hallucination_silence_threshold: Optional[float] = None,
-        decode_options: Optional[dict] = None
+    audio: str,
+    *,
+    model: str,
+    temperature: Optional[list[float]] = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+    compression_ratio_threshold: Optional[float] = 2.4,
+    logprob_threshold: Optional[float] = -1.0,
+    no_speech_threshold: Optional[float] = 0.6,
+    condition_on_previous_text: bool = True,
+    initial_prompt: Optional[str] = None,
+    word_timestamps: bool = False,
+    prepend_punctuations: str = '"\'“¿([{-',
+    append_punctuations: str = '"\'.。,，!！?？:：”)]}、',
+    clip_timestamps: str = '0',
+    hallucination_silence_threshold: Optional[float] = None,
+    decode_options: Optional[dict] = None,
 ) -> dict:
     import torch
 
@@ -46,7 +60,7 @@ def transcribe(
         append_punctuations=append_punctuations,
         clip_timestamps=clip_timestamps,
         hallucination_silence_threshold=hallucination_silence_threshold,
-        **decode_options
+        **decode_options,
     )
     return result
 

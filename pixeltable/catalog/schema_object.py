@@ -14,7 +14,7 @@ class SchemaObject:
         self._name = name
         self._dir_id = dir_id
 
-    def get_id(self) -> UUID:
+    def _get_id(self) -> UUID:
         return self._id
 
     def get_name(self) -> str:
@@ -28,12 +28,7 @@ class SchemaObject:
         """
         pass
 
-    @property
-    def fqn(self) -> str:
-        return f'{self.parent_dir().fqn}.{self._name}'
-
-    def move(self, new_name: str, new_dir_id: UUID) -> None:
+    def _move(self, new_name: str, new_dir_id: UUID) -> None:
         """Subclasses need to override this to make the change persistent"""
         self._name = new_name
         self._dir_id = new_dir_id
-

@@ -8,11 +8,12 @@ import pixeltable.env as env
 import pixeltable.type_system as ts
 from pixeltable.func import Batch
 from pixeltable.functions.util import resolve_torch_device, normalize_image_mode
+from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
 def sentence_transformer(
-        sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False
+    sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False
 ) -> Batch[np.ndarray]:
     """Runs the specified sentence transformer model."""
     env.Env.get().require_package('sentence_transformers')
@@ -28,6 +29,7 @@ def sentence_transformer(
 def _(model_id: str) -> ts.ArrayType:
     try:
         from sentence_transformers import SentenceTransformer
+
         model = _lookup_model(model_id, SentenceTransformer)
         return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
     except ImportError:
@@ -109,6 +111,7 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
 def _(model_id: str) -> ts.ArrayType:
     try:
         from transformers import CLIPModel
+
         model = _lookup_model(model_id, CLIPModel.from_pretrained)
         return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
     except ImportError:
@@ -124,7 +127,8 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
     from transformers import DetrImageProcessor, DetrForObjectDetection
 
     model = _lookup_model(
-        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'), device=device)
+        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'), device=device
+    )
     processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision='no_timm'))
     normalized_images = [normalize_image_mode(img) for img in image]
 
@@ -140,7 +144,7 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
             'scores': [score.item() for score in result['scores']],
             'labels': [label.item() for label in result['labels']],
             'label_text': [model.config.id2label[label.item()] for label in result['labels']],
-            'boxes': [box.tolist() for box in result['boxes']]
+            'boxes': [box.tolist() for box in result['boxes']],
         }
         for result in results
     ]
@@ -150,19 +154,10 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
 def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str, Any]:
     bboxes, labels = detr_info['boxes'], detr_info['labels']
     annotations = [
-        {
-            'bbox': [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]],
-            'category': label
-        }
+        {'bbox': [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]], 'category': label}
         for bbox, label in zip(bboxes, labels)
     ]
-    return {
-        'image': {
-            'width': image.width,
-            'height': image.height
-        },
-        'annotations': annotations
-    }
+    return {'image': {'width': image.width, 'height': image.height}, 'annotations': annotations}
 
 
 T = TypeVar('T')
@@ -170,6 +165,7 @@ T = TypeVar('T')
 
 def _lookup_model(model_id: str, create: Callable[[str], T], device: Optional[str] = None) -> T:
     from torch import nn
+
     key = (model_id, create, device)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
         model = create(model_id)
@@ -190,3 +186,10 @@ def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
 
 _model_cache = {}
 _processor_cache = {}
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__

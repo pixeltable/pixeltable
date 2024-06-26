@@ -1,11 +1,16 @@
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Optional
 
+import PIL.Image
 import av
+import numpy as np
 
 import pixeltable.env as env
 import pixeltable.func as func
 import pixeltable.type_system as ts
+from pixeltable.utils.code import local_public_names
 
 _format_defaults = {  # format -> (codec, ext)
     'wav': ('pcm_s16le', 'wav'),
@@ -28,6 +33,43 @@ _format_defaults = {  # format -> (codec, ext)
 #     # Flush remaining packets
 #     for packet in output_stream.encode():
 #         output_container.mux(packet)
+
+
+@func.uda(
+    init_types=[ts.IntType()],
+    update_types=[ts.ImageType()],
+    value_type=ts.VideoType(),
+    requires_order_by=True,
+    allows_window=False,
+)
+class make_video(func.Aggregator):
+    def __init__(self, fps: int = 25):
+        """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
+        self.container: Optional[av.container.OutputContainer] = None
+        self.stream: Optional[av.stream.Stream] = None
+        self.fps = fps
+
+    def update(self, frame: PIL.Image.Image) -> None:
+        if frame is None:
+            return
+        if self.container is None:
+            (_, output_filename) = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
+            self.out_file = Path(output_filename)
+            self.container = av.open(str(self.out_file), mode='w')
+            self.stream = self.container.add_stream('h264', rate=self.fps)
+            self.stream.pix_fmt = 'yuv420p'
+            self.stream.width = frame.width
+            self.stream.height = frame.height
+
+        av_frame = av.VideoFrame.from_ndarray(np.array(frame.convert('RGB')), format='rgb24')
+        for packet in self.stream.encode(av_frame):
+            self.container.mux(packet)
+
+    def value(self) -> str:
+        for packet in self.stream.encode():
+            self.container.mux(packet)
+        self.container.close()
+        return str(self.out_file)
 
 
 _extract_audio_param_types = [
@@ -101,7 +143,8 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
         'duration': stream.duration,
         'time_base': float(stream.time_base) if stream.time_base is not None else None,
         'duration_seconds': float(stream.duration * stream.time_base)
-            if stream.duration is not None and stream.time_base is not None else None,
+        if stream.duration is not None and stream.time_base is not None
+        else None,
         'frames': stream.frames,
         'metadata': stream.metadata,
         'codec_context': codec_context_md,
@@ -114,13 +157,22 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
         assert stream.type == 'video'
         # Additional metadata for video
         codec_context_md['pix_fmt'] = getattr(stream.codec_context, 'pix_fmt', None)
-        metadata.update(**{
-            'width': stream.width,
-            'height': stream.height,
-            'frames': stream.frames,
-            'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
-            'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
-            'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
-        })
+        metadata.update(
+            **{
+                'width': stream.width,
+                'height': stream.height,
+                'frames': stream.frames,
+                'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
+                'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
+                'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
+            }
+        )
 
     return metadata
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__
