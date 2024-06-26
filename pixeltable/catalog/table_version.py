@@ -703,13 +703,6 @@ class TableVersion:
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
-    def update(
-            self, update_targets: dict[Column, 'pixeltable.exprs.Expr'],
-            where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
-    ) -> UpdateStatus:
-        with Env.get().engine.begin() as conn:
-            return self._update(conn, update_targets, where_clause, cascade)
-
     def batch_update(
             self, batch: list[dict[Column, 'pixeltable.exprs.Expr']], rowids: list[Tuple[int, ...]],
             cascade: bool = True

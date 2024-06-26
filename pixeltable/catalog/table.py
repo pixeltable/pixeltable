@@ -706,21 +706,8 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-        if self._tbl_version_path.is_snapshot():
-            raise excs.Error('Cannot update a snapshot')
         self._check_is_dropped()
-
-        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
-        from pixeltable.plan import Planner
-        if where is not None:
-            if not isinstance(where, exprs.Predicate):
-                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self._tbl_version_path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
-
-        return self._tbl_version.update(update_spec, where, cascade)
+        return self._tbl_version_path.update(value_spec, where, cascade)
 
     def batch_update(self, rows: Iterable[dict[str, Any]], cascade: bool = True) -> UpdateStatus:
         """Update rows in this table.

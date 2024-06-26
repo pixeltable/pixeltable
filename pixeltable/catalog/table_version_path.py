@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union
+from typing import Optional, Union, Any
 from uuid import UUID
 
 import pixeltable
-import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
+from pixeltable import exprs
+from pixeltable.env import Env
 from .column import Column
-from .globals import POS_COLUMN_NAME
+from .globals import POS_COLUMN_NAME, UpdateStatus
 from .table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
@@ -23,6 +25,8 @@ class TableVersionPath:
     TableVersionPath contains all metadata needed to execute queries and updates against a particular version of a
     table/view.
     """
+
+    __ROWID_COLUMN_NAME = '_rowid'
 
     def __init__(self, tbl_version: TableVersion, base: Optional[TableVersionPath] = None):
         assert tbl_version is not None
@@ -142,6 +146,69 @@ class TableVersionPath:
             return self.base.has_column(col)
         else:
             return False
+
+    def update(
+        self, value_spec: dict[str, Any], where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
+    ) -> UpdateStatus:
+        if self.is_snapshot():
+            raise excs.Error('Cannot update a snapshot')
+
+        from pixeltable.plan import Planner
+
+        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
+        if where is not None:
+            if not isinstance(where, exprs.Predicate):
+                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            analysis_info = Planner.analyze(self, where)
+            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+            if analysis_info.filter is not None:
+                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+
+        with Env.get().engine.begin() as conn:
+            return self.tbl_version._update(conn, update_spec, where, cascade)
+
+    def _validate_update_spec(
+            self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
+    ) -> dict[Column, 'pixeltable.exprs.Expr']:
+        update_targets: dict[Column, exprs.Expr] = {}
+        for col_name, val in value_spec.items():
+            if not isinstance(col_name, str):
+                raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
+            if col_name == self.__ROWID_COLUMN_NAME:
+                # ignore pseudo-column _rowid
+                continue
+            col = self.get_column(col_name, include_bases=False)
+            if col is None:
+                # TODO: return more informative error if this is trying to update a base column
+                raise excs.Error(f'Column {col_name} unknown')
+            if col.is_computed:
+                raise excs.Error(f'Column {col_name} is computed and cannot be updated')
+            if col.is_pk and not allow_pk:
+                raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
+            if col.col_type.is_media_type():
+                raise excs.Error(f'Column {col_name} has type image/video/audio/document and cannot be updated')
+
+            # make sure that the value is compatible with the column type
+            try:
+                # check if this is a literal
+                value_expr = exprs.Literal(val, col_type=col.col_type)
+            except TypeError:
+                if not allow_exprs:
+                    raise excs.Error(
+                        f'Column {col_name}: value {val!r} is not a valid literal for this column '
+                        f'(expected {col.col_type})')
+                # it's not a literal, let's try to create an expr from it
+                value_expr = exprs.Expr.from_object(val)
+                if value_expr is None:
+                    raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
+                if not col.col_type.matches(value_expr.col_type):
+                    raise excs.Error((
+                        f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
+                        f'{col_name} ({col.col_type})'
+                    ))
+            update_targets[col] = value_expr
+
+        return update_targets
 
     def as_dict(self) -> dict:
         return {
