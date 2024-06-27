@@ -124,7 +124,6 @@ def create_view(
     """
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
-        # assert base._name == tbl_version_path.tbl_name()
     elif isinstance(base, DataFrame):
         base._validate_writable('create_view')
         tbl_version_path = base.tbl
