@@ -110,6 +110,18 @@ class TestView:
         assert t.count() == 110
         check_view(t, v)
 
+        # check alternate view creation syntax (via a DataFrame)
+        v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), schema=schema)
+        validate_update_status(v2.add_column(v3=v2.v1 * 2.0), expected_rows=10)
+        validate_update_status(v2.add_column(v4=v2.v2[0]), expected_rows=10)
+        check_view(t, v2)
+
+        # combination of filter + dataframe
+        v3 = pxt.create_view('test_view_alt2', t.where(t.c2 < 10), filter=t.c2 >= 8, schema=schema)
+        assert v3.count() == 4
+        validate_update_status(v3.add_column(v3=v3.v1 * 2.0), expected_rows=4)
+        validate_update_status(v3.add_column(v4=v3.v2[0]), expected_rows=4)
+
         # test delete view
         pxt.drop_table('test_view')
         with pytest.raises(excs.Error) as exc_info:
