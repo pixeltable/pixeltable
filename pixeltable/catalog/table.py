@@ -736,7 +736,7 @@ class Table(SchemaObject):
             raise excs.Error('Table must have primary key for batch update')
 
         for row_spec in rows:
-            col_vals = self._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
+            col_vals = self._tbl_version_path._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
             if has_rowid:
                 # we expect the _rowid column to be present for each row
                 assert self.__ROWID_COLUMN_NAME in row_spec
@@ -747,51 +747,7 @@ class Table(SchemaObject):
                     missing_cols = pk_col_names - set(col.name for col in col_vals.keys())
                     raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
-        return self._tbl_version.batch_update(row_updates, rowids, cascade)
-
-    def _validate_update_spec(
-            self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
-    ) -> dict[Column, 'pixeltable.exprs.Expr']:
-        from pixeltable import exprs
-        update_targets: dict[Column, exprs.Expr] = {}
-        for col_name, val in value_spec.items():
-            if not isinstance(col_name, str):
-                raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
-            if col_name == self.__ROWID_COLUMN_NAME:
-                # ignore pseudo-column _rowid
-                continue
-            col = self._tbl_version_path.get_column(col_name, include_bases=False)
-            if col is None:
-                # TODO: return more informative error if this is trying to update a base column
-                raise excs.Error(f'Column {col_name} unknown')
-            if col.is_computed:
-                raise excs.Error(f'Column {col_name} is computed and cannot be updated')
-            if col.is_pk and not allow_pk:
-                raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
-            if col.col_type.is_media_type():
-                raise excs.Error(f'Column {col_name} has type image/video/audio/document and cannot be updated')
-
-            # make sure that the value is compatible with the column type
-            try:
-                # check if this is a literal
-                value_expr = exprs.Literal(val, col_type=col.col_type)
-            except TypeError:
-                if not allow_exprs:
-                    raise excs.Error(
-                        f'Column {col_name}: value {val!r} is not a valid literal for this column '
-                        f'(expected {col.col_type})')
-                # it's not a literal, let's try to create an expr from it
-                value_expr = exprs.Expr.from_object(val)
-                if value_expr is None:
-                    raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
-                if not col.col_type.matches(value_expr.col_type):
-                    raise excs.Error((
-                        f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
-                        f'{col_name} ({col.col_type})'
-                    ))
-            update_targets[col] = value_expr
-
-        return update_targets
+        return self._tbl_version_path.batch_update(row_updates, rowids, cascade)
 
     @abc.abstractmethod
     def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:

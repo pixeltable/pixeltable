@@ -24,6 +24,7 @@ import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
 import pixeltable.func as func
 from pixeltable.catalog import is_valid_identifier
+from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
@@ -707,6 +708,20 @@ class DataFrame:
             order_by_clause=self.order_by_clause,
             limit=n,
         )
+
+    def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
+        self._validate_writable('update')
+        return self.tbl.update(value_spec, where=self.where_clause, cascade=cascade)
+    
+    def _validate_writable(self, op_name: str) -> None:
+        if self.select_list is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `select`')
+        if self.group_by_clause is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
+        if self.order_by_clause is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `order_by`')
+        if self.limit is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `limit`')
 
     def __getitem__(self, index: object) -> DataFrame:
         """
