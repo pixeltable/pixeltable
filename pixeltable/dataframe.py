@@ -721,11 +721,9 @@ class DataFrame:
             raise excs.Error(f'Cannot use `{op_name}` after `select`')
         if self.group_by_clause is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
-        if self.grouping_tbl is not None:
-            raise excs.Error(f'Cannot use `{op_name}` with aggregate')
         if self.order_by_clause is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `order_by`')
-        if self.limit is not None:
+        if self.limit_val is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `limit`')
 
     def __getitem__(self, index: object) -> DataFrame:
