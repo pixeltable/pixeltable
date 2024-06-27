@@ -749,7 +749,6 @@ class Table(SchemaObject):
             row_updates.append(col_vals)
         return self._tbl_version_path.batch_update(row_updates, rowids, cascade)
 
-    @abc.abstractmethod
     def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
         """Delete rows in this table.
 

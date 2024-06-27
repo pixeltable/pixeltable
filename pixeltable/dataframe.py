@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import copy
 import hashlib
-import io
 import json
 import logging
 import mimetypes
@@ -18,11 +17,11 @@ import pandas.io.formats.style
 import sqlalchemy as sql
 from PIL import Image
 
+import io
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
-import pixeltable.func as func
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
@@ -712,12 +711,18 @@ class DataFrame:
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
         self._validate_writable('update')
         return self.tbl.update(value_spec, where=self.where_clause, cascade=cascade)
-    
+
+    def delete(self) -> UpdateStatus:
+        self._validate_writable('delete')
+        return self.tbl.delete(where=self.where_clause)
+
     def _validate_writable(self, op_name: str) -> None:
         if self.select_list is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `select`')
         if self.group_by_clause is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
+        if self.grouping_tbl is not None:
+            raise excs.Error(f'Cannot use `{op_name}` with aggregate')
         if self.order_by_clause is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `order_by`')
         if self.limit is not None:

@@ -704,7 +704,7 @@ class TableVersion:
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
-    def _propagate_update(
+    def propagate_update(
             self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ClauseElement],
             recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
             timestamp: float, cascade: bool, show_progress: bool = True
@@ -729,7 +729,7 @@ class TableVersion:
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner
                     plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
-                status = view._propagate_update(
+                status = view.propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, conn=conn, timestamp=timestamp, cascade=True)
                 result.num_rows += status.num_rows
                 result.num_excs += status.num_excs
@@ -738,21 +738,7 @@ class TableVersion:
         result.cols_with_excs = list(dict.fromkeys(result.cols_with_excs).keys())  # remove duplicates
         return result
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
-        """Delete rows in this table.
-        Args:
-            where: a Predicate to filter rows to delete.
-        """
-        assert self.is_insertable()
-        from pixeltable.plan import Planner
-        analysis_info = Planner.analyze(self, where)
-        with Env.get().engine.begin() as conn:
-            num_rows = self._delete(analysis_info.sql_where_clause, base_versions=[], conn=conn, timestamp=time.time())
-
-        status = UpdateStatus(num_rows=num_rows)
-        return status
-
-    def _delete(
+    def propagate_delete(
             self, where: Optional['pixeltable.exprs.Predicate'], base_versions: List[Optional[int]],
             conn: sql.engine.Connection, timestamp: float) -> int:
         """Delete rows in this table and propagate to views.
@@ -772,7 +758,7 @@ class TableVersion:
         else:
             pass
         for view in self.mutable_views:
-            num_rows += view._delete(
+            num_rows += view.propagate_delete(
                 where=None, base_versions=[self.version] + base_versions, conn=conn, timestamp=timestamp)
         return num_rows
 

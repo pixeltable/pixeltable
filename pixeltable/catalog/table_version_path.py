@@ -240,7 +240,7 @@ class TableVersionPath:
         plan, updated_cols, recomputed_cols = (
             Planner.create_update_plan(self, update_targets, [], where_clause, cascade)
         )
-        result = self.tbl_version._propagate_update(
+        result = self.tbl_version.propagate_update(
             plan, where_clause.sql_expr() if where_clause is not None else None, recomputed_cols,
             base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade, show_progress=show_progress)
         result.updated_cols = updated_cols
@@ -288,6 +288,29 @@ class TableVersionPath:
             update_targets[col] = value_expr
 
         return update_targets
+
+    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+        """Delete rows in this table.
+        Args:
+            where: a Predicate to filter rows to delete.
+        """
+        assert self.is_insertable()
+        from pixeltable.exprs import Predicate
+        from pixeltable.plan import Planner
+        if where is not None:
+            if not isinstance(where, Predicate):
+                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            analysis_info = Planner.analyze(self, where)
+            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+            if analysis_info.filter is not None:
+                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+
+        analysis_info = Planner.analyze(self, where)
+        with Env.get().engine.begin() as conn:
+            num_rows = self.tbl_version.propagate_delete(analysis_info.sql_where_clause, base_versions=[], conn=conn, timestamp=time.time())
+
+        status = UpdateStatus(num_rows=num_rows)
+        return status
 
     def as_dict(self) -> dict:
         return {
