@@ -57,7 +57,7 @@ class TestHfDatasets:
                 schema_override=rec.get('schema_override', None),
             )
             if isinstance(hf_dataset, datasets.Dataset):
-                self._assert_hf_dataset_equal(hf_dataset, tab._df(), split_column_name)
+                self._assert_hf_dataset_equal(hf_dataset, tab.select(), split_column_name)
             elif isinstance(hf_dataset, datasets.DatasetDict):
                 assert tab.count() == sum(hf_dataset.num_rows.values())
                 assert split_column_name in tab.column_names()

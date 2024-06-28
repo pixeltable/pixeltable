@@ -85,14 +85,14 @@ class TestPandas:
         t4 = import_excel('fin_sample', 'tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
         assert t4.column_types()['Date'] == pxt.TimestampType()
-        entry = t4._df().limit(1).collect()[0]
+        entry = t4.limit(1).collect()[0]
         assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0)
 
         t5 = import_excel('sale_data', 'tests/data/datasets/SaleData.xlsx')
         assert t5.count() == 45
         assert t5.column_types()['OrderDate'] == pxt.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
-        assert t5._df().collect()[43]['OrderDate'] is None
+        assert t5.collect()[43]['OrderDate'] is None
 
     def test_pandas_errors(self, reset_db) -> None:
         from pixeltable.io import import_csv
