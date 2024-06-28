@@ -217,7 +217,7 @@ class TestDataFrame:
         opurl_img = urllib.request.urlopen(url=thumb)
         PIL.Image.open(opurl_img)
 
-    def test_update_where(self, test_tbl: catalog.Table) -> None:
+    def test_update_delete_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         old: list[int] = t.select(t.c3).collect()['c3']
 
@@ -279,6 +279,18 @@ class TestDataFrame:
         with pytest.raises(excs.Error) as exc_info:
             t.limit(10).delete()
         assert 'Cannot use `delete` after `limit`' in str(exc_info.value)
+
+        # grouping_tbl
+
+        t2 = pxt.create_table('test_tbl_2', {'name': pxt.StringType(), 'video': pxt.VideoType()})
+        v2 = pxt.create_view('test_view_2', t2, iterator=FrameIterator.create(video=t2.video, fps=1))
+        with pytest.raises(excs.Error) as exc_info:
+            v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
+        assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).delete()
+        assert 'Cannot use `delete` after `group_by`' in str(exc_info.value)
 
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
         """ tests all types are handled correctly in this conversion

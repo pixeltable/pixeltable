@@ -717,12 +717,12 @@ class DataFrame:
         return self.tbl.delete(where=self.where_clause)
 
     def _validate_writable(self, op_name: str) -> None:
-        if self.select_list is not None:
-            raise excs.Error(f'Cannot use `{op_name}` after `select`')
-        if self.group_by_clause is not None:
+        if self.group_by_clause is not None or self.grouping_tbl is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
         if self.order_by_clause is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `order_by`')
+        if self.select_list is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `select`')
         if self.limit_val is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `limit`')
 
