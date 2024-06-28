@@ -127,11 +127,12 @@ class FunctionRegistry:
     #         assert fqn in self.module_fns, f'{fqn} not found'
     #         return self.module_fns[fqn]
 
-    def get_type_methods(self, name: str, base_type: ts.ColumnType.Type) -> List[Function]:
+    def get_type_methods(self, base_type: ts.ColumnType.Type, name: Optional[str] = None) -> List[Function]:
         return [
             fn for fn in self.module_fns.values()
-            if fn.self_path is not None and fn.self_path.endswith('.' + name) \
-               and fn.signature.parameters_by_pos[0].col_type.type_enum == base_type
+            if fn.self_path is not None
+            and (name is None or fn.self_path.endswith(f'.{name}'))
+            and fn.signature.parameters_by_pos[0].col_type.type_enum == base_type
         ]
 
     #def create_function(self, md: schema.FunctionMd, binary_obj: bytes, dir_id: Optional[UUID] = None) -> UUID:

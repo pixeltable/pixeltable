@@ -44,11 +44,11 @@ class ImageMemberAccess(Expr):
         if member_name in self.attr_info:
             super().__init__(self.attr_info[member_name])
         else:
-            candidates = func.FunctionRegistry.get().get_type_methods(member_name, ts.ColumnType.Type.IMAGE)
+            candidates = func.FunctionRegistry.get().get_type_methods(ts.ColumnType.Type.IMAGE, member_name)
             if len(candidates) == 0:
-                raise excs.Error(f'Unknown Image member: {member_name}')
+                raise AttributeError(f'Unknown Image member: {member_name}')
             if len(candidates) > 1:
-                raise excs.Error(f'Ambiguous Image method: {member_name}')
+                raise AttributeError(f'Ambiguous Image method: {member_name}')
             self.img_method = candidates[0]
             super().__init__(ts.InvalidType())  # requires FunctionCall to return value
         self.member_name = member_name

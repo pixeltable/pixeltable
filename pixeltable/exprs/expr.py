@@ -7,7 +7,6 @@ import inspect
 import json
 import sys
 import typing
-from itertools import islice
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Type
 from uuid import UUID
 
@@ -16,8 +15,8 @@ import sqlalchemy as sql
 import pixeltable
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 import pixeltable.func as func
+import pixeltable.type_system as ts
 from .data_row import DataRow
 from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
 
@@ -426,6 +425,15 @@ class Expr(abc.ABC):
         function = self._make_applicator_function(fn, col_type)
         # Return a `FunctionCall` obtained by passing this `Expr` to the new `function`.
         return function(self)
+
+    def __dir__(self) -> list[str]:
+        attrs = ['isin', 'astype', 'apply']
+        if self.col_type.is_image_type():
+            attrs += [
+                f.name
+                for f in func.FunctionRegistry.get().get_type_methods(ts.ColumnType.Type.IMAGE)
+            ]
+        return attrs
 
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
