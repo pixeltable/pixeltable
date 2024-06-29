@@ -37,8 +37,6 @@ def transcribe(
     word_timestamps: bool = False,
     prepend_punctuations: str = '"\'“¿([{-',
     append_punctuations: str = '"\'.。,，!！?？:：”)]}、',
-    clip_timestamps: str = '0',
-    hallucination_silence_threshold: Optional[float] = None,
     decode_options: Optional[dict] = None,
 ) -> dict:
     import torch
@@ -58,8 +56,6 @@ def transcribe(
         word_timestamps=word_timestamps,
         prepend_punctuations=prepend_punctuations,
         append_punctuations=append_punctuations,
-        clip_timestamps=clip_timestamps,
-        hallucination_silence_threshold=hallucination_silence_threshold,
         **decode_options,
     )
     return result
