@@ -662,7 +662,7 @@ class DataFrame:
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self.tbl.find_tbl_version(item._tbl_version_path.tbl_id())
                 if base is None or base.id == self.tbl.tbl_id():
-                    raise excs.Error(f'group_by(): {item.name} is not a base table of {self.tbl.tbl_name()}')
+                    raise excs.Error(f'group_by(): {item.get_name()} is not a base table of {self.tbl.tbl_name()}')
                 grouping_tbl = item._tbl_version_path.tbl_version
                 break
             if not isinstance(item, exprs.Expr):
