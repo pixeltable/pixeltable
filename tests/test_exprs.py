@@ -782,7 +782,7 @@ class TestExprs:
         assert 'group_by(): test_tbl is not a base table of test_tbl' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            # group_by with non-ancestor table
+            # group_by with non-singleton table
             _ = t.select(t.c2).group_by(t, t.c2)
         assert 'group_by(): only one table can be specified' in str(exc_info.value)
 
