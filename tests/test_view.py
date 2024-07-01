@@ -116,12 +116,6 @@ class TestView:
         validate_update_status(v2.add_column(v4=v2.v2[0]), expected_rows=10)
         check_view(t, v2)
 
-        # combination of filter + dataframe
-        v3 = pxt.create_view('test_view_alt2', t.where(t.c2 < 10), filter=t.c2 >= 8, schema=schema)
-        assert v3.count() == 4
-        validate_update_status(v3.add_column(v3=v3.v1 * 2.0), expected_rows=4)
-        validate_update_status(v3.add_column(v4=v3.v2[0]), expected_rows=4)
-
         # test delete view
         pxt.drop_table('test_view')
         with pytest.raises(excs.Error) as exc_info:
@@ -157,6 +151,11 @@ class TestView:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_view('test_view', t.limit(10))
         assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
+
+        # combination of filter + dataframe
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.where(t.c2 < 10), filter=t.c2 >= 8)
+        assert 'Cannot specify a `filter` directly' in str(exc_info.value)
 
     def test_parallel_views(self, reset_db) -> None:
         """Two views over the same base table, with non-overlapping filters"""

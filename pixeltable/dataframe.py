@@ -709,14 +709,17 @@ class DataFrame:
         )
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
-        self._validate_writable('update')
+        self._validate_mutable('update')
         return self.tbl.update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
-        self._validate_writable('delete')
+        self._validate_mutable('delete')
+        if not self.tbl.is_insertable():
+            raise excs.Error(f'Cannot delete from view')
         return self.tbl.delete(where=self.where_clause)
 
-    def _validate_writable(self, op_name: str) -> None:
+    def _validate_mutable(self, op_name: str) -> None:
+        """Tests whether this `DataFrame` can be mutated (such as by an update operation)."""
         if self.group_by_clause is not None or self.grouping_tbl is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
         if self.order_by_clause is not None:

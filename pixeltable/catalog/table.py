@@ -19,7 +19,7 @@ import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
 from .column import Column
-from .globals import is_valid_identifier, is_system_column_name, UpdateStatus
+from .globals import _ROWID_COLUMN_NAME, is_valid_identifier, is_system_column_name, UpdateStatus
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -28,8 +28,6 @@ _logger = logging.getLogger('pixeltable')
 
 class Table(SchemaObject):
     """Base class for all tabular SchemaObjects."""
-
-    __ROWID_COLUMN_NAME = '_rowid'
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -725,12 +723,13 @@ class Table(SchemaObject):
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot update a snapshot')
         self._check_is_dropped()
+        rows = list(rows)
 
         row_updates: list[dict[Column, exprs.Expr]] = []
         pk_col_names = set(c.name for c in self._tbl_version.primary_key_columns())
 
         # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
-        has_rowid = self.__ROWID_COLUMN_NAME in rows[0]
+        has_rowid = _ROWID_COLUMN_NAME in rows[0]
         rowids: list[Tuple[int, ...]] = []
         if len(pk_col_names) == 0 and not has_rowid:
             raise excs.Error('Table must have primary key for batch update')
@@ -739,8 +738,8 @@ class Table(SchemaObject):
             col_vals = self._tbl_version_path._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
             if has_rowid:
                 # we expect the _rowid column to be present for each row
-                assert self.__ROWID_COLUMN_NAME in row_spec
-                rowids.append(row_spec[self.__ROWID_COLUMN_NAME])
+                assert _ROWID_COLUMN_NAME in row_spec
+                rowids.append(row_spec[_ROWID_COLUMN_NAME])
             else:
                 col_names = set(col.name for col in col_vals.keys())
                 if any(pk_col_name not in col_names for pk_col_name in pk_col_names):

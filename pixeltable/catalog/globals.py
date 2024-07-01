@@ -7,6 +7,8 @@ _logger = logging.getLogger('pixeltable')
 
 # name of the position column in a component view
 POS_COLUMN_NAME = 'pos'
+_ROWID_COLUMN_NAME = '_rowid'
+
 
 @dataclasses.dataclass
 class UpdateStatus:

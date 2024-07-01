@@ -12,7 +12,7 @@ import pixeltable.exceptions as excs
 from pixeltable import exprs
 from pixeltable.env import Env
 from .column import Column
-from .globals import POS_COLUMN_NAME, UpdateStatus
+from .globals import POS_COLUMN_NAME, _ROWID_COLUMN_NAME, UpdateStatus
 from .table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
@@ -29,8 +29,6 @@ class TableVersionPath:
     TableVersionPath contains all metadata needed to execute queries and updates against a particular version of a
     table/view.
     """
-
-    __ROWID_COLUMN_NAME = '_rowid'
 
     def __init__(self, tbl_version: TableVersion, base: Optional[TableVersionPath] = None):
         assert tbl_version is not None
@@ -253,7 +251,7 @@ class TableVersionPath:
         for col_name, val in value_spec.items():
             if not isinstance(col_name, str):
                 raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
-            if col_name == self.__ROWID_COLUMN_NAME:
+            if col_name == _ROWID_COLUMN_NAME:
                 # ignore pseudo-column _rowid
                 continue
             col = self.get_column(col_name, include_bases=False)

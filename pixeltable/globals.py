@@ -125,9 +125,13 @@ def create_view(
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
     elif isinstance(base, DataFrame):
-        base._validate_writable('create_view')
+        base._validate_mutable('create_view')
         tbl_version_path = base.tbl
-        filter = base.where_clause if filter is None else base.where_clause & filter
+        if base.where_clause is not None and filter is not None:
+            raise excs.Error(
+                'Cannot specify a `filter` directly if one is already declared in a `DataFrame.where` clause'
+            )
+        filter = base.where_clause
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, catalog.Table) or isinstance(base, DataFrame)

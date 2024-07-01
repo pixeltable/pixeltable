@@ -292,6 +292,22 @@ class TestDataFrame:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).delete()
         assert 'Cannot use `delete` after `group_by`' in str(exc_info.value)
 
+        # delete from view
+        with pytest.raises(excs.Error) as exc_info:
+            v2.where(t.c2 < 10).delete()
+        assert 'Cannot delete from view' in str(exc_info.value)
+
+        # update snapshot
+        snap = pxt.create_view('test_snapshot', t, is_snapshot=True)
+        with pytest.raises(excs.Error) as exc_info:
+            snap.where(t.c2 < 10).update({'c3': 0.0})
+        assert 'Cannot update a snapshot' in str(exc_info.value)
+
+        # delete from snapshot
+        with pytest.raises(excs.Error) as exc_info:
+            snap.where(t.c2 < 10).delete()
+        assert 'Cannot delete from view' in str(exc_info.value)
+
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
         """ tests all types are handled correctly in this conversion
         """
