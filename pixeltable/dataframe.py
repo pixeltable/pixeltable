@@ -710,13 +710,13 @@ class DataFrame:
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
         self._validate_mutable('update')
-        return self.tbl.update(value_spec, where=self.where_clause, cascade=cascade)
+        return self.tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
         self._validate_mutable('delete')
         if not self.tbl.is_insertable():
             raise excs.Error(f'Cannot delete from view')
-        return self.tbl.delete(where=self.where_clause)
+        return self.tbl.tbl_version.delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str) -> None:
         """Tests whether this `DataFrame` can be mutated (such as by an update operation)."""

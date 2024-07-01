@@ -705,7 +705,7 @@ class Table(SchemaObject):
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
         self._check_is_dropped()
-        return self._tbl_version_path.update(value_spec, where, cascade)
+        return self._tbl_version.update(value_spec, where, cascade)
 
     def batch_update(self, rows: Iterable[dict[str, Any]], cascade: bool = True) -> UpdateStatus:
         """Update rows in this table.
@@ -735,7 +735,7 @@ class Table(SchemaObject):
             raise excs.Error('Table must have primary key for batch update')
 
         for row_spec in rows:
-            col_vals = self._tbl_version_path._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
+            col_vals = self._tbl_version._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
             if has_rowid:
                 # we expect the _rowid column to be present for each row
                 assert _ROWID_COLUMN_NAME in row_spec
@@ -746,7 +746,7 @@ class Table(SchemaObject):
                     missing_cols = pk_col_names - set(col.name for col in col_vals.keys())
                     raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
-        return self._tbl_version_path.batch_update(row_updates, rowids, cascade)
+        return self._tbl_version.batch_update(row_updates, rowids, cascade)
 
     def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
         """Delete rows in this table.

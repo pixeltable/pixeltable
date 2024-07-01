@@ -144,4 +144,4 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        return self._tbl_version_path.delete(where=where)
+        return self._tbl_version.delete(where=where)
