@@ -11,6 +11,7 @@ help:
 	@echo "Targets:"
 	@echo "  install       Install the development environment"
 	@echo "  test          Run pytest"
+	@echo "  nbtest        Run notebook tests"
 	@echo "  lint          Run linting tools against changed files"
 	@echo "  format        Format changed files with ruff (updates .py files in place)"
 	@echo "  notebooks     Execute notebooks (updates .ipynb files in place)"
@@ -58,6 +59,16 @@ test: install
 	@echo "Running pytest ..."
 	@ulimit -n 4000; pytest -v
 
+NB_CELL_TIMEOUT := 3600
+# We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal
+# to the timeout. This ensures it will pretty-print if --overwrite is set on nbmake.
+# see: https://github.com/tqdm/tqdm?tab=readme-ov-file#faq-and-known-issues
+.PHONY: nbtest
+nbtest: install
+	@export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
+	@echo "Running pytest on notebooks ..."
+	@ulimit -n 4000; pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) docs/release/**/*.ipynb
+
 .PHONY: lint
 lint: install
 	@scripts/lint-changed-files.sh
@@ -65,19 +76,6 @@ lint: install
 .PHONY: format
 format: install
 	@scripts/format-changed-files.sh
-
-NB_CELL_TIMEOUT := 3600
-# for non-interactive running and rendering of notebooks
-# we ensure the tqdm progress bar is updated exactly once per cell execution by setting the refresh rate to the timeout
-# if it is executed more than once, every update gets its own line (due to ignored \r characters)
-# see: https://github.com/tqdm/tqdm?tab=readme-ov-file#faq-and-known-issues
-%.ipynb: export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
-%.ipynb: install
-	@echo "Running and over-writing notebook $@ ..."
-	@pytest --overwrite --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) $@
-
-.PHONY: notebooks
-notebooks: docs/release/**/*.ipynb
 
 .PHONY: release
 release: install
