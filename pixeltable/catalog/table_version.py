@@ -5,28 +5,30 @@ import importlib
 import inspect
 import logging
 import time
-from typing import Optional, List, Dict, Any, Tuple, Type, Set, Iterable
 import uuid
+from typing import Optional, List, Dict, Any, Tuple, Type, Iterable
 from uuid import UUID
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
 import pixeltable
-import pixeltable.func as func
-import pixeltable.type_system as ts
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
+import pixeltable.func as func
 import pixeltable.index as index
+import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 from .column import Column
-from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier
+from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier, _ROWID_COLUMN_NAME
 from ..func.globals import resolve_symbol
 
 _logger = logging.getLogger('pixeltable')
+
 
 class TableVersion:
     """
@@ -243,7 +245,6 @@ class TableVersion:
     def _init_cols(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
         import pixeltable.exprs as exprs
-        from pixeltable.catalog import Catalog
 
         self.cols = []
         self.cols_by_name = {}
@@ -704,15 +705,34 @@ class TableVersion:
         return result
 
     def update(
-            self, update_targets: dict[Column, 'pixeltable.exprs.Expr'],
-            where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
+        self, value_spec: dict[str, Any], where: Optional['exprs.Predicate'] = None, cascade: bool = True
     ) -> UpdateStatus:
+        """Update rows in this TableVersionPath.
+        Args:
+            value_spec: a list of (column, value) pairs specifying the columns to update and their new values.
+            where: a Predicate to filter rows to update.
+            cascade: if True, also update all computed columns that transitively depend on the updated columns,
+                including within views.
+        """
+        if self.is_snapshot:
+            raise excs.Error('Cannot update a snapshot')
+
+        from pixeltable.plan import Planner
+
+        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
+        if where is not None:
+            if not isinstance(where, exprs.Predicate):
+                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            analysis_info = Planner.analyze(self.path, where)
+            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+            if analysis_info.filter is not None:
+                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+
         with Env.get().engine.begin() as conn:
-            return self._update(conn, update_targets, where_clause, cascade)
+            return self._update(conn, update_spec, where, cascade)
 
     def batch_update(
-            self, batch: list[dict[Column, 'pixeltable.exprs.Expr']], rowids: list[Tuple[int, ...]],
-            cascade: bool = True
+            self, batch: list[dict[Column, 'exprs.Expr']], rowids: list[tuple[int, ...]], cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in batch.
         Args:
@@ -721,7 +741,6 @@ class TableVersion:
         """
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-        import pixeltable.exprs as exprs
         result_status = UpdateStatus()
         cols_with_excs: set[str] = set()
         updated_cols: set[str] = set()
@@ -768,24 +787,61 @@ class TableVersion:
             where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True,
             show_progress: bool = True
     ) -> UpdateStatus:
-        """Update rows in this table.
-        Args:
-            update_targets: a list of (column, value) pairs specifying the columns to update and their new values.
-            where_clause: a Predicate to filter rows to update.
-            cascade: if True, also update all computed columns that transitively depend on the updated columns,
-                including within views.
-        """
-        assert not self.is_snapshot
         from pixeltable.plan import Planner
-        plan, updated_cols, recomputed_cols = \
+
+        plan, updated_cols, recomputed_cols = (
             Planner.create_update_plan(self.path, update_targets, [], where_clause, cascade)
-        result = self._propagate_update(
+        )
+        result = self.propagate_update(
             plan, where_clause.sql_expr() if where_clause is not None else None, recomputed_cols,
             base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade, show_progress=show_progress)
         result.updated_cols = updated_cols
         return result
 
-    def _propagate_update(
+    def _validate_update_spec(
+            self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
+    ) -> dict[Column, 'exprs.Expr']:
+        update_targets: dict[Column, exprs.Expr] = {}
+        for col_name, val in value_spec.items():
+            if not isinstance(col_name, str):
+                raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
+            if col_name == _ROWID_COLUMN_NAME:
+                # ignore pseudo-column _rowid
+                continue
+            col = self.path.get_column(col_name, include_bases=False)
+            if col is None:
+                # TODO: return more informative error if this is trying to update a base column
+                raise excs.Error(f'Column {col_name} unknown')
+            if col.is_computed:
+                raise excs.Error(f'Column {col_name} is computed and cannot be updated')
+            if col.is_pk and not allow_pk:
+                raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
+            if col.col_type.is_media_type():
+                raise excs.Error(f'Column {col_name} has type image/video/audio/document and cannot be updated')
+
+            # make sure that the value is compatible with the column type
+            try:
+                # check if this is a literal
+                value_expr = exprs.Literal(val, col_type=col.col_type)
+            except TypeError:
+                if not allow_exprs:
+                    raise excs.Error(
+                        f'Column {col_name}: value {val!r} is not a valid literal for this column '
+                        f'(expected {col.col_type})')
+                # it's not a literal, let's try to create an expr from it
+                value_expr = exprs.Expr.from_object(val)
+                if value_expr is None:
+                    raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
+                if not col.col_type.matches(value_expr.col_type):
+                    raise excs.Error((
+                        f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
+                        f'{col_name} ({col.col_type})'
+                    ))
+            update_targets[col] = value_expr
+
+        return update_targets
+
+    def propagate_update(
             self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ClauseElement],
             recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
             timestamp: float, cascade: bool, show_progress: bool = True
@@ -810,7 +866,7 @@ class TableVersion:
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner
                     plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
-                status = view._propagate_update(
+                status = view.propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, conn=conn, timestamp=timestamp, cascade=True)
                 result.num_rows += status.num_rows
                 result.num_excs += status.num_excs
@@ -819,22 +875,31 @@ class TableVersion:
         result.cols_with_excs = list(dict.fromkeys(result.cols_with_excs).keys())  # remove duplicates
         return result
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['exprs.Predicate'] = None) -> UpdateStatus:
         """Delete rows in this table.
         Args:
             where: a Predicate to filter rows to delete.
         """
         assert self.is_insertable()
+        from pixeltable.exprs import Predicate
         from pixeltable.plan import Planner
-        analysis_info = Planner.analyze(self, where)
+        if where is not None:
+            if not isinstance(where, Predicate):
+                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            analysis_info = Planner.analyze(self.path, where)
+            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+            if analysis_info.filter is not None:
+                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+
+        analysis_info = Planner.analyze(self.path, where)
         with Env.get().engine.begin() as conn:
-            num_rows = self._delete(analysis_info.sql_where_clause, base_versions=[], conn=conn, timestamp=time.time())
+            num_rows = self.propagate_delete(analysis_info.sql_where_clause, base_versions=[], conn=conn, timestamp=time.time())
 
         status = UpdateStatus(num_rows=num_rows)
         return status
 
-    def _delete(
-            self, where: Optional['pixeltable.exprs.Predicate'], base_versions: List[Optional[int]],
+    def propagate_delete(
+            self, where: Optional['exprs.Predicate'], base_versions: List[Optional[int]],
             conn: sql.engine.Connection, timestamp: float) -> int:
         """Delete rows in this table and propagate to views.
         Args:
@@ -853,7 +918,7 @@ class TableVersion:
         else:
             pass
         for view in self.mutable_views:
-            num_rows += view._delete(
+            num_rows += view.propagate_delete(
                 where=None, base_versions=[self.version] + base_versions, conn=conn, timestamp=timestamp)
         return num_rows
 

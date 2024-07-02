@@ -583,7 +583,7 @@ class TestTable:
 
         t.insert([{'c1': 'this is a python\x00string'}])
         assert t.count() == 1
-        for tup in t.df().collect():
+        for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
 
     def test_query(self, reset_db) -> None:
