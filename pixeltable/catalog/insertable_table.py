@@ -144,14 +144,4 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        from pixeltable.exprs import Predicate
-        from pixeltable.plan import Planner
-        if where is not None:
-            if not isinstance(where, Predicate):
-                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self._tbl_version_path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
-
-        return self.tbl_version.delete(where)
+        return self._tbl_version.delete(where=where)

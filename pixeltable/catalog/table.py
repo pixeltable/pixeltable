@@ -19,7 +19,7 @@ import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
 from .column import Column
-from .globals import is_valid_identifier, is_system_column_name, UpdateStatus
+from .globals import _ROWID_COLUMN_NAME, is_valid_identifier, is_system_column_name, UpdateStatus
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -28,8 +28,6 @@ _logger = logging.getLogger('pixeltable')
 
 class Table(SchemaObject):
     """Base class for all tabular SchemaObjects."""
-
-    __ROWID_COLUMN_NAME = '_rowid'
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -93,7 +91,7 @@ class Table(SchemaObject):
         else:
             return catalog.Catalog.get().tbl_dependents[self._get_id()]
 
-    def df(self) -> 'pixeltable.dataframe.DataFrame':
+    def _df(self) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
@@ -132,30 +130,30 @@ class Table(SchemaObject):
 
     def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return rows from this table."""
-        return self.df().collect()
+        return self._df().collect()
 
     def show(
             self, *args, **kwargs
     ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
-        return self.df().show(*args, **kwargs)
+        return self._df().show(*args, **kwargs)
 
     def head(
             self, *args, **kwargs
     ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return the first n rows inserted into this table."""
-        return self.df().head(*args, **kwargs)
+        return self._df().head(*args, **kwargs)
 
     def tail(
             self, *args, **kwargs
     ) -> 'pixeltable.dataframe.DataFrameResultSet':
         """Return the last n rows inserted into this table."""
-        return self.df().tail(*args, **kwargs)
+        return self._df().tail(*args, **kwargs)
 
     def count(self) -> int:
         """Return the number of rows in this table."""
-        return self.df().count()
+        return self._df().count()
 
     def column_names(self) -> list[str]:
         """Return the names of the columns in this table."""
@@ -706,21 +704,8 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-        if self._tbl_version_path.is_snapshot():
-            raise excs.Error('Cannot update a snapshot')
         self._check_is_dropped()
-
-        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
-        from pixeltable.plan import Planner
-        if where is not None:
-            if not isinstance(where, exprs.Predicate):
-                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self._tbl_version_path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
-
-        return self._tbl_version.update(update_spec, where, cascade)
+        return self._tbl_version.update(value_spec, where, cascade)
 
     def batch_update(self, rows: Iterable[dict[str, Any]], cascade: bool = True) -> UpdateStatus:
         """Update rows in this table.
@@ -738,22 +723,23 @@ class Table(SchemaObject):
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot update a snapshot')
         self._check_is_dropped()
+        rows = list(rows)
 
         row_updates: list[dict[Column, exprs.Expr]] = []
         pk_col_names = set(c.name for c in self._tbl_version.primary_key_columns())
 
         # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
-        has_rowid = self.__ROWID_COLUMN_NAME in rows[0]
+        has_rowid = _ROWID_COLUMN_NAME in rows[0]
         rowids: list[Tuple[int, ...]] = []
         if len(pk_col_names) == 0 and not has_rowid:
             raise excs.Error('Table must have primary key for batch update')
 
         for row_spec in rows:
-            col_vals = self._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
+            col_vals = self._tbl_version._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
             if has_rowid:
                 # we expect the _rowid column to be present for each row
-                assert self.__ROWID_COLUMN_NAME in row_spec
-                rowids.append(row_spec[self.__ROWID_COLUMN_NAME])
+                assert _ROWID_COLUMN_NAME in row_spec
+                rowids.append(row_spec[_ROWID_COLUMN_NAME])
             else:
                 col_names = set(col.name for col in col_vals.keys())
                 if any(pk_col_name not in col_names for pk_col_name in pk_col_names):
@@ -762,51 +748,6 @@ class Table(SchemaObject):
             row_updates.append(col_vals)
         return self._tbl_version.batch_update(row_updates, rowids, cascade)
 
-    def _validate_update_spec(
-            self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
-    ) -> dict[Column, 'pixeltable.exprs.Expr']:
-        from pixeltable import exprs
-        update_targets: dict[Column, exprs.Expr] = {}
-        for col_name, val in value_spec.items():
-            if not isinstance(col_name, str):
-                raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
-            if col_name == self.__ROWID_COLUMN_NAME:
-                # ignore pseudo-column _rowid
-                continue
-            col = self._tbl_version_path.get_column(col_name, include_bases=False)
-            if col is None:
-                # TODO: return more informative error if this is trying to update a base column
-                raise excs.Error(f'Column {col_name} unknown')
-            if col.is_computed:
-                raise excs.Error(f'Column {col_name} is computed and cannot be updated')
-            if col.is_pk and not allow_pk:
-                raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
-            if col.col_type.is_media_type():
-                raise excs.Error(f'Column {col_name} has type image/video/audio/document and cannot be updated')
-
-            # make sure that the value is compatible with the column type
-            try:
-                # check if this is a literal
-                value_expr = exprs.Literal(val, col_type=col.col_type)
-            except TypeError:
-                if not allow_exprs:
-                    raise excs.Error(
-                        f'Column {col_name}: value {val!r} is not a valid literal for this column '
-                        f'(expected {col.col_type})')
-                # it's not a literal, let's try to create an expr from it
-                value_expr = exprs.Expr.from_object(val)
-                if value_expr is None:
-                    raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
-                if not col.col_type.matches(value_expr.col_type):
-                    raise excs.Error((
-                        f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
-                        f'{col_name} ({col.col_type})'
-                    ))
-            update_targets[col] = value_expr
-
-        return update_targets
-
-    @abc.abstractmethod
     def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
         """Delete rows in this table.
 

@@ -13,13 +13,17 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from .utils import get_video_files, get_audio_files, get_documents, skip_test_if_not_installed
+from .utils import get_video_files, get_audio_files, get_documents, skip_test_if_not_installed, validate_update_status
 
 
 class TestDataFrame:
 
     def test_select_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
+        res1 = t.show(0)
+        res2 = t.select().show(0)
+        assert res1 == res2
+
         res1 = t[t.c1, t.c2, t.c3].show(0)
         res2 = t.select(t.c1, t.c2, t.c3).show(0)
         assert res1 == res2
@@ -213,8 +217,98 @@ class TestDataFrame:
         opurl_img = urllib.request.urlopen(url=thumb)
         PIL.Image.open(opurl_img)
 
+    def test_update_delete_where(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        old: list[int] = t.select(t.c3).collect()['c3']
 
-    def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table):
+        # Update with where
+        validate_update_status(t.where(t.c2 >= 50).update({'c3': 4171780.0}), expected_rows=50)
+        new: list[int] = t.select(t.c3).collect()['c3']
+        assert new[:50] == old[:50]
+        assert all(new[i] == 4171780.0 for i in range(51, len(new)))
+
+        # Update without where
+        validate_update_status(t.select().update({'c3': 94.0}))
+        new: list[int] = t.select(t.c3).collect()['c3']
+        assert all(new[i] == 94.0 for i in range(len(new)))
+
+        # Delete with where
+        validate_update_status(t.where((t.c2 >= 50) & (t.c2 < 75)).delete())
+        assert t.count() == 75
+
+        # Delete without where
+        validate_update_status(t.select().delete())
+        assert t.count() == 0
+
+        # select_list
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.select(t.c2).update({'c3': 0.0})
+        assert 'Cannot use `update` after `select`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.select(t.c2).delete()
+        assert 'Cannot use `delete` after `select`' in str(exc_info.value)
+
+        # group_by
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.group_by(t.c2).update({'c3': 0.0})
+        assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.group_by(t.c2).delete()
+        assert 'Cannot use `delete` after `group_by`' in str(exc_info.value)
+
+        # order_by
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.order_by(t.c2).update({'c3': 0.0})
+        assert 'Cannot use `update` after `order_by`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.order_by(t.c2).delete()
+        assert 'Cannot use `delete` after `order_by`' in str(exc_info.value)
+
+        # limit
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.limit(10).update({'c3': 0.0})
+        assert 'Cannot use `update` after `limit`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.limit(10).delete()
+        assert 'Cannot use `delete` after `limit`' in str(exc_info.value)
+
+        # grouping_tbl
+
+        t2 = pxt.create_table('test_tbl_2', {'name': pxt.StringType(), 'video': pxt.VideoType()})
+        v2 = pxt.create_view('test_view_2', t2, iterator=FrameIterator.create(video=t2.video, fps=1))
+        with pytest.raises(excs.Error) as exc_info:
+            v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
+        assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).delete()
+        assert 'Cannot use `delete` after `group_by`' in str(exc_info.value)
+
+        # delete from view
+        with pytest.raises(excs.Error) as exc_info:
+            v2.where(t.c2 < 10).delete()
+        assert 'Cannot delete from view' in str(exc_info.value)
+
+        # update snapshot
+        snap = pxt.create_view('test_snapshot', t, is_snapshot=True)
+        with pytest.raises(excs.Error) as exc_info:
+            snap.where(t.c2 < 10).update({'c3': 0.0})
+        assert 'Cannot update a snapshot' in str(exc_info.value)
+
+        # delete from snapshot
+        with pytest.raises(excs.Error) as exc_info:
+            snap.where(t.c2 < 10).delete()
+        assert 'Cannot delete from view' in str(exc_info.value)
+
+    def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
         """ tests all types are handled correctly in this conversion
         """
         skip_test_if_not_installed('torch')

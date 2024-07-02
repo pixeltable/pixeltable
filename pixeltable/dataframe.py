@@ -17,6 +17,7 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 from pixeltable.catalog import is_valid_identifier
+from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
@@ -490,7 +491,7 @@ class DataFrame:
                 raise excs.Error(f'Invalid name: {name}')
         base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
         if len(base_list) == 0:
-            raise excs.Error(f'Empty select list')
+            return self
 
         # analyze select list; wrap literals with the corresponding expressions
         select_list = []
@@ -602,6 +603,27 @@ class DataFrame:
             order_by_clause=self.order_by_clause,
             limit=n,
         )
+
+    def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
+        self._validate_mutable('update')
+        return self.tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
+
+    def delete(self) -> UpdateStatus:
+        self._validate_mutable('delete')
+        if not self.tbl.is_insertable():
+            raise excs.Error(f'Cannot delete from view')
+        return self.tbl.tbl_version.delete(where=self.where_clause)
+
+    def _validate_mutable(self, op_name: str) -> None:
+        """Tests whether this `DataFrame` can be mutated (such as by an update operation)."""
+        if self.group_by_clause is not None or self.grouping_tbl is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
+        if self.order_by_clause is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `order_by`')
+        if self.select_list is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `select`')
+        if self.limit_val is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `limit`')
 
     def __getitem__(self, index: object) -> DataFrame:
         """

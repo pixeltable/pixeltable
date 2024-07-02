@@ -5,12 +5,12 @@ from typing import Optional, Union
 from uuid import UUID
 
 import pixeltable
-import pixeltable.catalog as catalog
 from .column import Column
 from .globals import POS_COLUMN_NAME
 from .table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
+
 
 class TableVersionPath:
     """
