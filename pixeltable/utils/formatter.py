@@ -27,6 +27,7 @@ class Formatter:
         num_cols: Number of columns in the DataFrame being rendered.
         http_address: Root address of the Pixeltable HTTP server (used to construct URLs for media references).
     """
+
     __FLOAT_PRECISION = 3
     __LIST_THRESHOLD = 16
     __LIST_EDGEITEMS = 6
@@ -86,8 +87,12 @@ class Formatter:
     @classmethod
     def format_array(cls, arr: np.ndarray) -> str:
         return np.array2string(
-            arr, precision=cls.__FLOAT_PRECISION, threshold=cls.__LIST_THRESHOLD, edgeitems=cls.__LIST_EDGEITEMS,
-            max_line_width=1000000)
+            arr,
+            precision=cls.__FLOAT_PRECISION,
+            threshold=cls.__LIST_THRESHOLD,
+            edgeitems=cls.__LIST_EDGEITEMS,
+            max_line_width=1000000,
+        )
 
     @classmethod
     def format_json(cls, val: Any) -> str:
@@ -112,9 +117,9 @@ class Formatter:
             if len(val) < cls.__LIST_THRESHOLD:
                 components = [cls.__format_json_rec(x) for x in val]
             else:
-                components = [cls.__format_json_rec(x) for x in val[:cls.__LIST_EDGEITEMS]]
+                components = [cls.__format_json_rec(x) for x in val[: cls.__LIST_EDGEITEMS]]
                 components.append('...')
-                components.extend(cls.__format_json_rec(x) for x in val[-cls.__LIST_EDGEITEMS:])
+                components.extend(cls.__format_json_rec(x) for x in val[-cls.__LIST_EDGEITEMS :])
             return '[' + ', '.join(components) + ']'
         if isinstance(val, dict):
             kv_pairs = (f'{cls.__format_json_rec(k)}: {cls.__format_json_rec(v)}' for k, v in val.items())

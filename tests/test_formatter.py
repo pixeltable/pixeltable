@@ -4,7 +4,6 @@ from pixeltable.utils.formatter import Formatter
 
 
 class TestFormatter:
-
     def test_format(self, init_env):
         formatter = Formatter(10, 10, Env.get().http_address)
         float_formatter = formatter.get_pandas_formatter(ts.FloatType())
@@ -22,7 +21,7 @@ class TestFormatter:
         assert json_formatter(test_string) == escaped
 
         # Test string shortening: build an irregular string of length 1001
-        long_string = "abcdefghijklm" * 77
+        long_string = 'abcdefghijklm' * 77
         assert len(long_string) == 1001
         result = string_formatter(long_string)
         assert len(result) == 1000
