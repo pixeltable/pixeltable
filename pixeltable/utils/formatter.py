@@ -119,7 +119,12 @@ class Formatter:
         if isinstance(val, dict):
             kv_pairs = (f'{cls.__format_json_rec(k)}: {cls.__format_json_rec(v)}' for k, v in val.items())
             return '{' + ', '.join(kv_pairs) + '}'
-        return json.dumps(val)
+
+        # Everything else
+        try:
+            return json.dumps(val)
+        except TypeError:  # Not JSON serializable
+            return str(val)
 
     def format_img(self, img: Image.Image) -> str:
         """
