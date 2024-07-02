@@ -16,17 +16,10 @@ from pixeltable.utils.http_server import get_file_uri
 
 _logger = logging.getLogger('pixeltable')
 
-_FLOAT_PRECISION = 3
-_LIST_THRESHOLD = 16
-_LIST_EDGEITEMS = 6
-_STRING_SEP = ' ...... '
-_STRING_MAX_LEN = 1000
-_NESTED_STRING_MAX_LEN = 300
 
-
-class PixeltableFormatter:
+class Formatter:
     """
-    A factory for constructing Pandas HTML formatters for Pixeltable data. The formatters are used to customize
+    A factory for constructing HTML formatters for Pixeltable data. The formatters are used to customize
     the rendering of `DataFrameResultSet`s in notebooks.
 
     Args:
@@ -34,6 +27,13 @@ class PixeltableFormatter:
         num_cols: Number of columns in the DataFrame being rendered.
         http_address: Root address of the Pixeltable HTTP server (used to construct URLs for media references).
     """
+    __FLOAT_PRECISION = 3
+    __LIST_THRESHOLD = 16
+    __LIST_EDGEITEMS = 6
+    __STRING_SEP = ' ...... '
+    __STRING_MAX_LEN = 1000
+    __NESTED_STRING_MAX_LEN = 300
+
     def __init__(self, num_rows: int, num_cols: int, http_address: str):
         self.__num_rows = num_rows
         self.__num_cols = num_cols
@@ -63,13 +63,13 @@ class PixeltableFormatter:
         """
         Escapes special characters in `val`, and abbreviates `val` if its length exceeds `_STRING_MAX_LEN`.
         """
-        return cls.__escape(cls.__abbreviate(val, _STRING_MAX_LEN))
+        return cls.__escape(cls.__abbreviate(val, cls.__STRING_MAX_LEN))
 
     @classmethod
     def __abbreviate(cls, val: str, max_len: int) -> str:
         if len(val) > max_len:
-            edgeitems = (max_len - len(_STRING_SEP)) // 2
-            return f'{val[:edgeitems]}{_STRING_SEP}{val[-edgeitems:]}'
+            edgeitems = (max_len - len(cls.__STRING_SEP)) // 2
+            return f'{val[:edgeitems]}{cls.__STRING_SEP}{val[-edgeitems:]}'
         return val
 
     @classmethod
@@ -81,12 +81,12 @@ class PixeltableFormatter:
     @classmethod
     def format_float(cls, val: float) -> str:
         # stay consistent with numpy formatting (0-D array has no brackets)
-        return np.array2string(np.array(val), precision=_FLOAT_PRECISION)
+        return np.array2string(np.array(val), precision=cls.__FLOAT_PRECISION)
 
     @classmethod
     def format_array(cls, arr: np.ndarray) -> str:
         return np.array2string(
-            arr, precision=_FLOAT_PRECISION, threshold=_LIST_THRESHOLD, edgeitems=_LIST_EDGEITEMS,
+            arr, precision=cls.__FLOAT_PRECISION, threshold=cls.__LIST_THRESHOLD, edgeitems=cls.__LIST_EDGEITEMS,
             max_line_width=1000000)
 
     @classmethod
@@ -103,18 +103,18 @@ class PixeltableFormatter:
     @classmethod
     def __format_json_rec(cls, val: Any) -> str:
         if isinstance(val, str):
-            return cls.__escape(json.dumps(cls.__abbreviate(val, _NESTED_STRING_MAX_LEN)))
+            return cls.__escape(json.dumps(cls.__abbreviate(val, cls.__NESTED_STRING_MAX_LEN)))
         if isinstance(val, float):
             return cls.format_float(val)
         if isinstance(val, np.ndarray):
             return cls.format_array(val)
         if isinstance(val, list):
-            if len(val) < _LIST_THRESHOLD:
+            if len(val) < cls.__LIST_THRESHOLD:
                 components = [cls.__format_json_rec(x) for x in val]
             else:
-                components = [cls.__format_json_rec(x) for x in val[:_LIST_EDGEITEMS]]
+                components = [cls.__format_json_rec(x) for x in val[:cls.__LIST_EDGEITEMS]]
                 components.append('...')
-                components.extend(cls.__format_json_rec(x) for x in val[-_LIST_EDGEITEMS:])
+                components.extend(cls.__format_json_rec(x) for x in val[-cls.__LIST_EDGEITEMS:])
             return '[' + ', '.join(components) + ']'
         if isinstance(val, dict):
             kv_pairs = (f'{cls.__format_json_rec(k)}: {cls.__format_json_rec(v)}' for k, v in val.items())

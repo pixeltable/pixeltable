@@ -21,7 +21,7 @@ from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
-from pixeltable.utils.formatter import PixeltableFormatter
+from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.http_server import get_file_uri
 
 __all__ = ['DataFrame']
@@ -42,7 +42,7 @@ class DataFrameResultSet:
         self._rows = rows
         self._col_names = col_names
         self._col_types = col_types
-        self.__formatter = PixeltableFormatter(len(self._rows), len(self._col_names), Env.get().http_address)
+        self.__formatter = Formatter(len(self._rows), len(self._col_names), Env.get().http_address)
 
     def __len__(self) -> int:
         return len(self._rows)
