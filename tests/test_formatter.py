@@ -27,6 +27,8 @@ class TestFormatter:
 
         # Test a JSON list
         items = [0.4171780, test_string, long_string, 84, True]
+        # Inside a JSON struct, the strings are rendered differently
+        # (quote the string; escape any quotes inside the string; shorter abbreviations).
         escaped_json = '&lt;div&gt;\\&quot;bacon &amp; eggs\\&quot;, \\$9\\n&lt;/div&gt;'
         long_string_json = f'{long_string[:146]} ...... {long_string[-146:]}'
         expected = f'[0.417, &quot;{escaped_json}&quot;, &quot;{long_string_json}&quot;, 84, true]'

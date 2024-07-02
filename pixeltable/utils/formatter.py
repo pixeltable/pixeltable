@@ -25,6 +25,15 @@ _NESTED_STRING_MAX_LEN = 300
 
 
 class PixeltableFormatter:
+    """
+    A factory for constructing Pandas HTML formatters for Pixeltable data. The formatters are used to customize
+    the rendering of `DataFrameResultSet`s in notebooks.
+
+    Args:
+        num_rows: Number of rows in the DataFrame being rendered.
+        num_cols: Number of columns in the DataFrame being rendered.
+        http_address: Root address of the Pixeltable HTTP server (used to construct URLs for media references).
+    """
     def __init__(self, num_rows: int, num_cols: int, http_address: str):
         self.__num_rows = num_rows
         self.__num_cols = num_cols
@@ -65,6 +74,8 @@ class PixeltableFormatter:
 
     @classmethod
     def __escape(cls, val: str) -> str:
+        # HTML-escape the specified string, then escape $ signs to suppress MathJax formatting
+        # TODO(aaron-siegel): The '$' escaping isn't perfect; it will fail on '$' that are already escaped
         return html.escape(val).replace('$', r'\$')
 
     @classmethod
@@ -74,7 +85,9 @@ class PixeltableFormatter:
 
     @classmethod
     def format_array(cls, arr: np.ndarray) -> str:
-        return np.array2string(arr, precision=_FLOAT_PRECISION, threshold=_LIST_THRESHOLD, edgeitems=_LIST_EDGEITEMS, max_line_width=1000000)
+        return np.array2string(
+            arr, precision=_FLOAT_PRECISION, threshold=_LIST_THRESHOLD, edgeitems=_LIST_EDGEITEMS,
+            max_line_width=1000000)
 
     @classmethod
     def format_json(cls, val: Any) -> str:
