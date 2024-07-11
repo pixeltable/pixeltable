@@ -110,6 +110,12 @@ class TestView:
         assert t.count() == 110
         check_view(t, v)
 
+        # check alternate view creation syntax (via a DataFrame)
+        v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), schema=schema)
+        validate_update_status(v2.add_column(v3=v2.v1 * 2.0), expected_rows=10)
+        validate_update_status(v2.add_column(v4=v2.v2[0]), expected_rows=10)
+        check_view(t, v2)
+
         # test delete view
         pxt.drop_table('test_view')
         with pytest.raises(excs.Error) as exc_info:
@@ -125,6 +131,31 @@ class TestView:
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, schema={'v1': lambda c3: c3 * 2.0})
         assert 'computed with a callable' in str(exc_info.value).lower()
+
+    def test_from_dataframe(self, reset_db) -> None:
+        t = self.create_tbl()
+
+        # TODO(aaron-siegel): We actually do want to support this one
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.select(t.c2))
+        assert 'Cannot use `create_view` after `select`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.group_by(t.c2))
+        assert 'Cannot use `create_view` after `group_by`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.order_by(t.c2))
+        assert 'Cannot use `create_view` after `order_by`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.limit(10))
+        assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
+
+        # combination of filter + dataframe
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.where(t.c2 < 10), filter=t.c2 >= 8)
+        assert 'Cannot specify a `filter` directly' in str(exc_info.value)
 
     def test_parallel_views(self, reset_db) -> None:
         """Two views over the same base table, with non-overlapping filters"""
@@ -487,11 +518,11 @@ class TestView:
 
         with pytest.raises(excs.Error) as exc_info:
             v = pxt.create_view('test_view', s, schema={'v1': t.c3 * 2.0})
-        assert 'value expression cannot be computed in the context of the base test_snap' in str(exc_info.value)
+        assert 'value expression cannot be computed in the context of the base test_tbl' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             v = pxt.create_view('test_view', s, filter=t.c2 < 10)
-        assert 'filter cannot be computed in the context of the base test_snap' in str(exc_info.value).lower()
+        assert 'filter cannot be computed in the context of the base test_tbl' in str(exc_info.value).lower()
 
         # create view with filter and computed columns
         schema = {

@@ -1,13 +1,13 @@
 import dataclasses
 import logging
-from typing import Any, Optional, Union, Type
+from typing import Any, Optional, Union
 
 import pandas as pd
 import sqlalchemy as sql
 from sqlalchemy.util.preloaded import orm
 
 import pixeltable.exceptions as excs
-from pixeltable import catalog, func
+from pixeltable import catalog, func, DataFrame
 from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 from pixeltable.exprs import Predicate
@@ -78,7 +78,7 @@ def create_table(
 
 def create_view(
     path_str: str,
-    base: catalog.Table,
+    base: Union[catalog.Table, DataFrame],
     *,
     schema: Optional[dict[str, Any]] = None,
     filter: Optional[Predicate] = None,
@@ -92,7 +92,7 @@ def create_view(
 
     Args:
         path_str: Path to the view.
-        base: Table (ie, table or view or snapshot) to base the view on.
+        base: Table (i.e., table or view or snapshot) or DataFrame to base the view on.
         schema: dictionary mapping column names to column types, value expressions, or to column specifications.
         filter: Predicate to filter rows of the base table.
         is_snapshot: Whether the view is a snapshot.
@@ -122,7 +122,19 @@ def create_view(
         >>> snapshot_view = cl.create_view(
             'my_snapshot', base, schema={'col3': base.col2 + 1}, filter=base.col1 > 10, is_snapshot=True)
     """
-    assert isinstance(base, catalog.Table)
+    if isinstance(base, catalog.Table):
+        tbl_version_path = base._tbl_version_path
+    elif isinstance(base, DataFrame):
+        base._validate_mutable('create_view')
+        tbl_version_path = base.tbl
+        if base.where_clause is not None and filter is not None:
+            raise excs.Error(
+                'Cannot specify a `filter` directly if one is already declared in a `DataFrame.where` clause'
+            )
+        filter = base.where_clause
+    else:
+        raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
+    assert isinstance(base, catalog.Table) or isinstance(base, DataFrame)
     path = catalog.Path(path_str)
     try:
         Catalog.get().paths.check_is_valid(path, expected=None)
@@ -139,10 +151,11 @@ def create_view(
         iterator_class, iterator_args = None, None
     else:
         iterator_class, iterator_args = iterator
+
     view = catalog.View.create(
         dir._id,
         path.name,
-        base=base,
+        base=tbl_version_path,
         schema=schema,
         predicate=filter,
         is_snapshot=is_snapshot,

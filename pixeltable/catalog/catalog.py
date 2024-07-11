@@ -120,7 +120,7 @@ class Catalog:
                     base = base_version
                 assert base_path is not None
 
-                base_tbl = self.tbls[base_path.tbl_version.id]
+                base_tbl_id = base_path.tbl_id()
                 is_snapshot = view_md is not None and view_md.is_snapshot
                 snapshot_only = is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
                 if snapshot_only:
@@ -134,9 +134,9 @@ class Catalog:
                     view_path = TableVersionPath(tbl_version, base=base_path)
 
                 tbl = View(
-                    tbl_record.id, tbl_record.dir_id, tbl_md.name, view_path, base_tbl,
+                    tbl_record.id, tbl_record.dir_id, tbl_md.name, view_path, base_tbl_id,
                     snapshot_only=snapshot_only)
-                self.tbl_dependents[base_tbl._id].append(tbl)
+                self.tbl_dependents[base_tbl_id].append(tbl)
 
             else:
                 tbl_version = TableVersion(tbl_record.id, tbl_md, tbl_md.current_version, schema_version_md)
