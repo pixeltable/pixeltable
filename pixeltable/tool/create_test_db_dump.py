@@ -253,7 +253,7 @@ class Dumper:
         add_column('c6_to_string', t.c6.apply(json.dumps))
         add_column('c6_back_to_json', t[f'{col_prefix}_c6_to_string'].apply(json.loads))
 
-        t.add_embedding_index(f'{col_prefix}_function_call', text_embed=embed_udf.clip_text_embed)
+        t.add_embedding_index(f'{col_prefix}_function_call', string_embed=embed_udf.clip_text_embed)
 
         # query()
         @t.query
