@@ -124,6 +124,15 @@ class TestTable:
         with pytest.raises(excs.Error):
             pxt.drop_table('.test2')
 
+    def test_names(self, reset_db) -> None:
+        pxt.create_dir('dir')
+        pxt.create_dir('dir.subdir')
+        for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
+            tbl = pxt.create_table(tbl_path, {'col': pxt.StringType()})
+            assert tbl.get_path() == tbl_path
+            assert tbl.get_name() == tbl_path.split('.')[-1]
+            assert tbl.parent.get_path() == '.'.join(tbl_path.split('.')[:-1])
+
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('empty_table', {})

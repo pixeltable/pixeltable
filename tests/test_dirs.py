@@ -9,7 +9,10 @@ class TestDirs:
     def test_create(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
-            pxt.create_dir(name)
+            dir = pxt.create_dir(name)
+            assert dir.get_path() == name
+            assert dir.get_name() == name.split('.')[-1]
+            assert dir.parent.get_path() == '.'.join(name.split('.')[:-1])
 
         # invalid names
         with pytest.raises(excs.Error):

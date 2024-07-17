@@ -254,7 +254,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
             raise e
     tbl = Catalog.get().paths[path_obj]
     if len(Catalog.get().tbl_dependents[tbl._id]) > 0:
-        dependent_paths = [get_path(dep) for dep in Catalog.get().tbl_dependents[tbl._id]]
+        dependent_paths = [dep.get_path() for dep in Catalog.get().tbl_dependents[tbl._id]]
         raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
     tbl._drop()
     del Catalog.get().paths[path_obj]
@@ -291,7 +291,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in Catalog.get().paths.get_children(path, child_type=catalog.Table, recursive=recursive)]
 
 
-def create_dir(path_str: str, ignore_errors: bool = False) -> None:
+def create_dir(path_str: str, ignore_errors: bool = False) -> catalog.Dir:
     """Create a directory.
 
     Args:
@@ -319,10 +319,12 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> None:
             session.add(dir_record)
             session.flush()
             assert dir_record.id is not None
-            Catalog.get().paths[path] = catalog.Dir(dir_record.id, parent._id, path.name)
+            dir = catalog.Dir(dir_record.id, parent._id, path.name)
+            Catalog.get().paths[path] = dir
             session.commit()
             _logger.info(f'Created directory `{path_str}`.')
             print(f'Created directory `{path_str}`.')
+            return dir
     except excs.Error as e:
         if ignore_errors:
             return
@@ -414,28 +416,6 @@ def list_functions() -> pd.DataFrame:
         [dict(selector='th', props=[('text-align', 'center')])]
     )  # center-align headings
     return pd_df.hide(axis='index')
-
-
-def get_path(schema_obj: catalog.SchemaObject) -> str:
-    """Returns the path to a SchemaObject.
-
-    Args:
-        schema_obj: SchemaObject to get the path for.
-
-    Returns:
-        Path to the SchemaObject.
-    """
-    path_elements: list[str] = []
-    dir_id = schema_obj._dir_id
-    while dir_id is not None:
-        dir = Catalog.get().paths.get_schema_obj(dir_id)
-        if dir._dir_id is None:
-            # this is the root dir with name '', which we don't want to include in the path
-            break
-        path_elements.insert(0, dir._name)
-        dir_id = dir._dir_id
-    path_elements.append(schema_obj._name)
-    return '.'.join(path_elements)
 
 
 def configure_logging(

@@ -557,7 +557,7 @@ class TableVersion:
             )
         # See if this column has a dependent store. We need to look through all stores in all
         # (transitive) views of this table.
-        transitive_views = Catalog.get().tbls[self.id].get_views(recursive=True)
+        transitive_views = Catalog.get().tbls[self.id]._get_views(recursive=True)
         dependent_stores = [
             (view, store)
             for view in transitive_views

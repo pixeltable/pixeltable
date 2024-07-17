@@ -82,14 +82,22 @@ class Table(SchemaObject):
             return self._queries[index]
         return self._tbl_version_path.__getitem__(index)
 
-    def get_views(self, *, recursive: bool = False) -> list['Table']:
+    def list_views(self, *, recursive: bool = True) -> list[str]:
         """
-        All views and snapshots of this `Table`.
+        Returns a list of all views and snapshots of this `Table`.
+
+        Args:
+            recursive: If `False`, returns only the immediate successor views of this `Table`. If `True`, returns
+                all sub-views, including this `Table` itself.
         """
+        return [t.get_path() for t in self._get_views(recursive=recursive)]
+        
+    def _get_views(self, *, recursive: bool = True) -> list['Table']:
+        dependents = catalog.Catalog.get().tbl_dependents[self._get_id()]
         if recursive:
-            return [self] + [t for view in self.get_views(recursive=False) for t in view.get_views(recursive=True)]
+            return [self] + [t for view in dependents for t in view._get_views(recursive=True)]
         else:
-            return catalog.Catalog.get().tbl_dependents[self._get_id()]
+            return dependents
 
     def _df(self) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
