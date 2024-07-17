@@ -88,6 +88,25 @@ class TestDirs:
         reload_catalog()
         assert pxt.list_dirs('dir1.sub1') == []
 
+    def test_rm_force(self, reset_db) -> None:
+        pxt.create_dir('dir1')
+        pxt.create_dir('dir2')
+        pxt.create_dir('dir1.subdir')
+        pxt.create_dir('dir1.subdir.subsub')
+        # Create lots of views all over the place
+        t = pxt.create_table('dir1.subdir.tbl', {'col': pxt.StringType()})
+        v = pxt.create_view('dir1.subdir.subsub.v1', t)
+        _ = pxt.create_view('dir1.v2', t)
+        _ = pxt.create_view('dir2.v3', t)
+        v4 = pxt.create_view('dir1.v4', v)
+        _ = pxt.create_view('dir1.subdir.subsub.v5', v4)
+        _ = pxt.create_view('dir2.v6', v4)
+        assert len(pxt.list_tables()) == 7
+        assert len(pxt.list_dirs()) == 4
+        pxt.rm_dir('dir1', force=True)
+        assert len(pxt.list_tables()) == 0
+        assert len(pxt.list_dirs()) == 1
+
     def test_move(self, reset_db) -> None:
         pxt.create_dir('dir1')
         pxt.create_dir('dir1.sub1')
