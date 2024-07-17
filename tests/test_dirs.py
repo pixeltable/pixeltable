@@ -10,9 +10,9 @@ class TestDirs:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             dir = pxt.create_dir(name)
-            assert dir.get_path() == name
-            assert dir.get_name() == name.split('.')[-1]
-            assert dir.parent.get_path() == '.'.join(name.split('.')[:-1])
+            assert dir.path == name
+            assert dir.name == name.split('.')[-1]
+            assert dir.parent.path == '.'.join(name.split('.')[:-1])
 
         # invalid names
         with pytest.raises(excs.Error):

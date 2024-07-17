@@ -21,7 +21,13 @@ class SchemaObject:
         return self._id
 
     @property
+    def name(self) -> str:
+        """Returns the name of this schema object."""
+        return self._name
+
+    @property
     def parent(self) -> Optional['catalog.Dir']:
+        """Returns the parent directory of this schema object."""
         from pixeltable import catalog
         if self._dir_id is None:
             return None
@@ -29,20 +35,16 @@ class SchemaObject:
         assert isinstance(dir, catalog.Dir)
         return dir
 
-    def get_name(self) -> str:
-        """Returns the name of this `SchemaObject`."""
-        return self._name
-
-    def get_path(self) -> str:
-        """Returns the path to this `SchemaObject`."""
-        from pixeltable.catalog import Catalog
-        if self._dir_id is None:
-            return ''  # It's the root directory, with empty path
-        dir = Catalog.get().paths.get_schema_obj(self._dir_id)
-        if dir._dir_id is None:
-            return self.get_name()  # It belongs to the root directory
+    @property
+    def path(self) -> str:
+        """Returns the path to this schema object."""
+        parent = self.parent
+        if parent is None or parent.parent is None:
+            # Either this is the root directory, with empty path, or its parent is the
+            # root directory. Either way, we return just the name.
+            return self.name
         else:
-            return f'{dir.get_path()}.{self.get_name()}'
+            return f'{parent.path}.{self.name}'
 
     @classmethod
     @abstractmethod

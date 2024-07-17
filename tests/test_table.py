@@ -129,9 +129,9 @@ class TestTable:
         pxt.create_dir('dir.subdir')
         for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
             tbl = pxt.create_table(tbl_path, {'col': pxt.StringType()})
-            assert tbl.get_path() == tbl_path
-            assert tbl.get_name() == tbl_path.split('.')[-1]
-            assert tbl.parent.get_path() == '.'.join(tbl_path.split('.')[:-1])
+            assert tbl.path == tbl_path
+            assert tbl.name == tbl_path.split('.')[-1]
+            assert tbl.parent.path == '.'.join(tbl_path.split('.')[:-1])
 
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
@@ -676,7 +676,7 @@ class TestTable:
         for col_name, literal in test_cases:
             status = t.update({col_name: literal}, where=t.c3 < 10.0, cascade=False)
             assert status.num_rows == 10
-            assert status.updated_cols == [f'{t.get_name()}.{col_name}']
+            assert status.updated_cols == [f'{t.name}.{col_name}']
             assert t.count() == count
             t.revert()
 
@@ -715,7 +715,7 @@ class TestTable:
 
         # revert, then verify that we're back to where we started
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
@@ -803,7 +803,7 @@ class TestTable:
 
         # revert, then verify that we're back where we started
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
         assert cnt == 10
@@ -953,7 +953,7 @@ class TestTable:
 
         # test loading from store
         reload_catalog()
-        t2 = pxt.get_table(t.get_name())
+        t2 = pxt.get_table(t.name)
         assert len(t.columns()) == len(t2.columns())
         for i in range(len(t.columns())):
             if t.columns()[i].value_expr is not None:
@@ -1082,7 +1082,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols + 1
 
         # revert() works
@@ -1091,7 +1091,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
@@ -1133,7 +1133,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols + 2
 
         # revert() works
@@ -1143,7 +1143,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
     def test_drop_column(self, test_tbl: catalog.Table) -> None:
@@ -1157,7 +1157,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols - 1
 
         # revert() works
@@ -1166,7 +1166,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
     def test_rename_column(self, test_tbl: catalog.Table) -> None:
@@ -1195,7 +1195,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         check_rename(t, 'c1_renamed', 'c1')
 
         # revert() works
@@ -1206,7 +1206,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         check_rename(t, 'c1', 'c1_renamed')
 
     def test_add_computed_column(self, test_tbl: catalog.Table) -> None:

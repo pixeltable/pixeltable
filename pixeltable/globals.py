@@ -254,7 +254,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
             raise e
     tbl = Catalog.get().paths[path_obj]
     if len(Catalog.get().tbl_dependents[tbl._id]) > 0:
-        dependent_paths = [dep.get_path() for dep in Catalog.get().tbl_dependents[tbl._id]]
+        dependent_paths = [dep.path for dep in Catalog.get().tbl_dependents[tbl._id]]
         raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
     tbl._drop()
     del Catalog.get().paths[path_obj]

@@ -222,12 +222,12 @@ class Project(ExternalStore, abc.ABC):
             if t_col not in t_cols:
                 if is_user_specified_col_mapping:
                     raise excs.Error(
-                        f'Column name `{t_col}` appears as a key in `col_mapping`, but Table `{table.get_name()}` '
+                        f'Column name `{t_col}` appears as a key in `col_mapping`, but Table `{table.name}` '
                         'contains no such column.'
                     )
                 else:
                     raise excs.Error(
-                        f'Column `{t_col}` does not exist in Table `{table.get_name()}`. Either add a column `{t_col}`, '
+                        f'Column `{t_col}` does not exist in Table `{table.name}`. Either add a column `{t_col}`, '
                         f'or specify a `col_mapping` to associate a different column with the external field `{ext_col}`.'
                     )
             if ext_col not in export_cols and ext_col not in import_cols:

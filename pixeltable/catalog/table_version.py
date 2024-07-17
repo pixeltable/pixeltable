@@ -566,7 +566,7 @@ class TableVersion:
         ]
         if len(dependent_stores) > 0:
             dependent_store_names = [
-                store.name if view._get_id() == self.id else f'{store.name} (in view `{view.get_name()}`)'
+                store.name if view._get_id() == self.id else f'{store.name} (in view `{view.name}`)'
                 for view, store in dependent_stores
             ]
             raise excs.Error(

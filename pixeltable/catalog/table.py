@@ -90,8 +90,8 @@ class Table(SchemaObject):
             recursive: If `False`, returns only the immediate successor views of this `Table`. If `True`, returns
                 all sub-views, including this `Table` itself.
         """
-        return [t.get_path() for t in self._get_views(recursive=recursive)]
-        
+        return [t.path for t in self._get_views(recursive=recursive)]
+
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
         dependents = catalog.Catalog.get().tbl_dependents[self._get_id()]
         if recursive:
@@ -831,13 +831,13 @@ class Table(SchemaObject):
         Links the specified `ExternalStore` to this table.
         """
         if self._tbl_version.is_snapshot:
-            raise excs.Error(f'Table `{self.get_name()}` is a snapshot, so it cannot be linked to an external store.')
+            raise excs.Error(f'Table `{self.name}` is a snapshot, so it cannot be linked to an external store.')
         self._check_is_dropped()
         if store.name in self.external_stores:
-            raise excs.Error(f'Table `{self.get_name()}` already has an external store with that name: {store.name}')
-        _logger.info(f'Linking external store `{store.name}` to table `{self.get_name()}`')
+            raise excs.Error(f'Table `{self.name}` already has an external store with that name: {store.name}')
+        _logger.info(f'Linking external store `{store.name}` to table `{self.name}`')
         self._tbl_version.link_external_store(store)
-        print(f'Linked external store `{store.name}` to table `{self.get_name()}`.')
+        print(f'Linked external store `{store.name}` to table `{self.name}`.')
 
     def unlink_external_stores(
             self,
@@ -869,11 +869,11 @@ class Table(SchemaObject):
         if not ignore_errors:
             for store in stores:
                 if store not in all_stores:
-                    raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
+                    raise excs.Error(f'Table `{self.name}` has no external store with that name: {store}')
 
         for store in stores:
             self._tbl_version.unlink_external_store(store, delete_external_data=delete_external_data)
-            print(f'Unlinked external store from table `{self.get_name()}`: {store}')
+            print(f'Unlinked external store from table `{self.name}`: {store}')
 
     def sync(
             self,
@@ -901,7 +901,7 @@ class Table(SchemaObject):
 
         for store in stores:
             if store not in all_stores:
-                raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
+                raise excs.Error(f'Table `{self.name}` has no external store with that name: {store}')
 
         from pixeltable.io import SyncStatus
 
