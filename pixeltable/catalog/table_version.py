@@ -748,6 +748,15 @@ class TableVersion:
         use_rowids = len(rowids) > 0
 
         with Env.get().engine.begin() as conn:
+            from pixeltable.plan import Planner
+
+            plan, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
+                self.path, batch, rowids, cascade=cascade)
+            result = self.propagate_update(
+                plan, None, recomputed_cols, base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade)
+            result.updated_cols = updated_cols
+            return result
+
             for i, row in enumerate(batch):
                 where_clause: Optional[exprs.Expr] = None
                 if use_rowids:

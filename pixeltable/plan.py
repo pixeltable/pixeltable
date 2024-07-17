@@ -289,6 +289,74 @@ class Planner:
         return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
+    def create_batch_update_plan(
+            cls, tbl: catalog.TableVersionPath,
+            batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
+            cascade: bool
+    ) -> Tuple[exec.ExecNode, List[str], List[catalog.Column]]:
+        """
+        Returns:
+        - root node of the plan
+        - list of qualified column names that are getting updated
+        - list of user-visible columns that are being recomputed
+        """
+        assert isinstance(tbl, catalog.TableVersionPath)
+        target = tbl.tbl_version  # the one we need to update
+        sa_key_cols: list[sql.Column] = []
+        key_vals: list[tuple] = []
+        if len(rowids) > 0:
+            sa_key_cols = target.store_tbl.rowid_columns()
+            key_vals = rowids
+        else:
+            pk_cols = target.primary_key_columns()
+            sa_key_cols = [c.sa_col for c in pk_cols]
+            key_vals = [tuple(row[col].val for col in pk_cols) for row in batch]
+
+        # retrieve all stored cols and all target exprs
+        updated_cols = batch[0].keys() - target.primary_key_columns()
+        recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
+        # regardless of cascade, we need to update all indices on any updated column
+        idx_val_cols = target.get_idx_val_columns(updated_cols)
+        recomputed_cols.update(idx_val_cols)
+        # we only need to recompute stored columns (unstored ones are substituted away)
+        recomputed_cols = {c for c in recomputed_cols if c.is_stored}
+        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
+        copied_cols = [
+            col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
+        ]
+        select_list = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list.extend([exprs.ColumnRef(col) for col in updated_cols])
+
+        recomputed_exprs = \
+            [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
+        # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further sustitution is needed
+        select_list.extend(recomputed_exprs)
+
+        # ExecNode tree:
+        # - SqlLookupNode to retrieve the existing rows
+        # - ExprEvalNode to evaluate the remaining output exprs
+        analyzer = Analyzer(tbl, select_list)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], analyzer.sql_exprs)
+        analyzer.finalize(row_builder)
+        plan = exec.SqlLookupNode(tbl, row_builder, analyzer.sql_exprs, sa_key_cols, key_vals)
+        col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
+        plan = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, plan)
+        if not cls._is_contained_in(analyzer.select_list, analyzer.sql_exprs):
+            # we need an ExprEvalNode to evaluate the remaining output exprs
+            plan = exec.ExprEvalNode(row_builder, analyzer.select_list, analyzer.sql_exprs, input=plan)
+        # update row builder with column information
+        all_base_cols = copied_cols + list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
+        row_builder.substitute_exprs(select_list)
+        [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
+
+        ctx = exec.ExecContext(row_builder)
+        # we're returning everything to the user, so we might as well do it in a single batch
+        ctx.batch_size = 0
+        plan.set_ctx(ctx)
+        recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
+        return plan, [f'{c.tbl.name}.{c.name}' for c in list(updated_cols) + recomputed_user_cols], recomputed_user_cols
+
+    @classmethod
     def create_view_update_plan(
             cls, view: catalog.TableVersionPath, recompute_targets: List[catalog.Column]
     ) -> exec.ExecNode:

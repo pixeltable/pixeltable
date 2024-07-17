@@ -602,6 +602,7 @@ class TestTable:
     def test_batch_update(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         validate_update_status(t.batch_update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]), expected_rows=2)
+        _ = t.where(t.c2 == 1).collect()
         assert t.where(t.c2 == 1).collect()[0]['c1'] == '1'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == '2'
         validate_update_status(
