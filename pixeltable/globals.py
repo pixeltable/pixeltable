@@ -336,7 +336,7 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> None:
             raise e
 
 
-def rm_dir(path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
+def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
     """Remove a directory.
 
     Args:
@@ -346,11 +346,11 @@ def rm_dir(path_str: str, force: bool = False, ignore_errors: bool = False) -> N
         Error: If the path does not exist or does not designate a directory or if the directory is not empty.
 
     Examples:
-        >>> cl.rm_dir('my_dir')
+        >>> cl.drop_dir('my_dir')
 
         Remove a subdirectory:
 
-        >>> cl.rm_dir('my_dir.sub_dir')
+        >>> cl.drop_dir('my_dir.sub_dir')
     """
     cat = Catalog.get()
     path = catalog.Path(path_str)
@@ -375,7 +375,7 @@ def rm_dir(path_str: str, force: bool = False, ignore_errors: bool = False) -> N
             except excs.Error:
                 continue
             if isinstance(obj, catalog.Dir):
-                rm_dir(str(child), force=True)
+                drop_dir(str(child), force=True)
             else:
                 assert isinstance(obj, catalog.Table)
                 assert not obj._is_dropped  # else it should have been removed from `cat.paths` already

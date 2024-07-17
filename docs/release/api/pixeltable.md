@@ -21,7 +21,7 @@ below.
 |-------------------------------------------|-------------------------------------|
 | [`pxt.create_dir`][pixeltable.create_dir] | Create a directory                  |
 | [`pxt.list_dirs`][pixeltable.list_dirs]   | List the directories in a directory |
-| [`pxt.rm_dir`][pixeltable.rm_dir]         | Remove a directory                  |
+| [`pxt.drop_dir`][pixeltable.drop_dir]     | Remove a directory                  |
 
 | Misc                                                    |                                                                       |
 |---------------------------------------------------------|-----------------------------------------------------------------------|
@@ -43,4 +43,4 @@ below.
       - list_tables
       - list_dirs
       - move
-      - rm_dir
+      - drop_dir

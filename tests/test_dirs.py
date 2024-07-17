@@ -70,18 +70,18 @@ class TestDirs:
 
         # bad name
         with pytest.raises(excs.Error):
-            pxt.rm_dir('1dir')
+            pxt.drop_dir('1dir')
         # bad path
         with pytest.raises(excs.Error):
-            pxt.rm_dir('dir1..sub1')
+            pxt.drop_dir('dir1..sub1')
         # doesn't exist
         with pytest.raises(excs.Error):
-            pxt.rm_dir('dir2')
+            pxt.drop_dir('dir2')
         # not empty
         with pytest.raises(excs.Error):
-            pxt.rm_dir('dir1')
+            pxt.drop_dir('dir1')
 
-        pxt.rm_dir('dir1.sub1.subsub1')
+        pxt.drop_dir('dir1.sub1.subsub1')
         assert pxt.list_dirs('dir1.sub1') == []
 
         # check after reloading
@@ -103,7 +103,7 @@ class TestDirs:
         _ = pxt.create_view('dir2.v6', v4)
         assert len(pxt.list_tables()) == 7
         assert len(pxt.list_dirs()) == 4
-        pxt.rm_dir('dir1', force=True)
+        pxt.drop_dir('dir1', force=True)
         assert len(pxt.list_tables()) == 0
         assert len(pxt.list_dirs()) == 1
 

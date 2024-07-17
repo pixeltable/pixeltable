@@ -37,4 +37,3 @@ To get a handle to an existing table/view/snapshot, call [`pxt.get_table`][pixel
 ## ::: pixeltable.Table
     options:
       inherited_members: true
-
