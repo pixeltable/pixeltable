@@ -141,7 +141,7 @@ def chat_completions(
 
 
 @pxt.udf
-def vision(prompt: str, image: PIL.Image.Image, *, model: str = 'gpt-4-vision-preview') -> str:
+def vision(prompt: str, image: PIL.Image.Image, *, model: str) -> str:
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     bytes_arr = io.BytesIO()
     image.save(bytes_arr, format='png')
