@@ -234,7 +234,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
 
     Args:
         path: Path to the table.
-        force: Whether to drop the table even if it has unsaved changes.
+        force: If `True`, will also drop all views or sub-views of this table.
         ignore_errors: Whether to ignore errors if the table does not exist.
 
     Raises:
@@ -243,21 +243,27 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
     Examples:
         >>> cl.drop_table('my_table')
     """
+    cat = Catalog.get()
     path_obj = catalog.Path(path)
     try:
-        Catalog.get().paths.check_is_valid(path_obj, expected=catalog.Table)
+        cat.paths.check_is_valid(path_obj, expected=catalog.Table)
     except Exception as e:
         if ignore_errors:
             _logger.info(f'Skipped table `{path}` (does not exist).')
             return
         else:
             raise e
-    tbl = Catalog.get().paths[path_obj]
-    if len(Catalog.get().tbl_dependents[tbl._id]) > 0:
-        dependent_paths = [get_path(dep) for dep in Catalog.get().tbl_dependents[tbl._id]]
-        raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
+    tbl = cat.paths[path_obj]
+    assert isinstance(tbl, catalog.Table)
+    if len(cat.tbl_dependents[tbl._id]) > 0:
+        dependent_paths = [get_path(dep) for dep in cat.tbl_dependents[tbl._id]]
+        if force:
+            for dependent_path in dependent_paths:
+                drop_table(dependent_path, force=True)
+        else:
+            raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
     tbl._drop()
-    del Catalog.get().paths[path_obj]
+    del cat.paths[path_obj]
     _logger.info(f'Dropped table `{path}`.')
 
 
@@ -330,7 +336,7 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> None:
             raise e
 
 
-def rm_dir(path_str: str) -> None:
+def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
     """Remove a directory.
 
     Args:
@@ -340,31 +346,50 @@ def rm_dir(path_str: str) -> None:
         Error: If the path does not exist or does not designate a directory or if the directory is not empty.
 
     Examples:
-        >>> cl.rm_dir('my_dir')
+        >>> cl.drop_dir('my_dir')
 
         Remove a subdirectory:
 
-        >>> cl.rm_dir('my_dir.sub_dir')
+        >>> cl.drop_dir('my_dir.sub_dir')
     """
+    cat = Catalog.get()
     path = catalog.Path(path_str)
-    Catalog.get().paths.check_is_valid(path, expected=catalog.Dir)
 
-    # make sure it's empty
-    if len(Catalog.get().paths.get_children(path, child_type=None, recursive=True)) > 0:
-        raise excs.Error(f'Directory {path_str} is not empty')
-    # TODO: figure out how to make force=True work in the presence of snapshots
-    #        # delete tables
-    #        for tbl_path in self.paths.get_children(path, child_type=MutableTable, recursive=True):
-    #            self.drop_table(str(tbl_path), force=True)
-    #        # rm subdirs
-    #        for dir_path in self.paths.get_children(path, child_type=Dir, recursive=False):
-    #            self.rm_dir(str(dir_path), force=True)
+    try:
+        cat.paths.check_is_valid(path, expected=catalog.Dir)
+    except Exception as e:
+        if ignore_errors:
+            _logger.info(f'Skipped directory `{path}` (does not exist).')
+            return
+        else:
+            raise e
+
+    children = cat.paths.get_children(path, child_type=None, recursive=True)
+
+    if len(children) > 0 and not force:
+        raise excs.Error(f'Directory `{path_str}` is not empty.')
+
+    if force:
+        for child in children:
+            assert isinstance(child, catalog.Path)
+            # We need to check that the child is still in `cat.paths`, since it is possible it was
+            # already deleted as a dependent of a preceding child in the iteration.
+            try:
+                obj = cat.paths[child]
+            except excs.Error:
+                continue
+            if isinstance(obj, catalog.Dir):
+                drop_dir(str(child), force=True)
+            else:
+                assert isinstance(obj, catalog.Table)
+                assert not obj._is_dropped  # else it should have been removed from `cat.paths` already
+                drop_table(str(child), force=True)
 
     with Env.get().engine.begin() as conn:
         dir = Catalog.get().paths[path]
         conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir._id))
     del Catalog.get().paths[path]
-    _logger.info(f'Removed directory {path_str}')
+    _logger.info(f'Removed directory `{path_str}`.')
 
 
 def list_dirs(path_str: str = '', recursive: bool = True) -> list[str]:
