@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Any
 
 import sqlalchemy as sql
 import PIL.Image
@@ -14,33 +14,44 @@ from .row_builder import RowBuilder
 
 class SimilarityExpr(Expr):
 
-    def __init__(self, col_ref: ColumnRef, item: Expr):
+    def __init__(self, col_ref: ColumnRef, item: Any, idx_name: Optional[str] = None):
         super().__init__(ts.FloatType())
-        self.components = [col_ref, item]
+        item_expr = Expr.from_object(item)
+        if item_expr is None or not(item_expr.col_type.is_string_type() or item_expr.col_type.is_image_type()):
+            raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not a {type(item)}')
+        assert item_expr.col_type.is_string_type() or item_expr.col_type.is_image_type()
+
+        self.components = [col_ref, item_expr]
         self.id = self._create_id()
-        assert item.col_type.is_string_type() or item.col_type.is_image_type()
 
         # determine index to use
         idx_info = col_ref.col.get_idx_info()
         import pixeltable.index as index
-        embedding_idx_info = [info for info in idx_info.values() if isinstance(info.idx, index.EmbeddingIndex)]
+        embedding_idx_info = {
+            info.name: info for info in idx_info.values() if isinstance(info.idx, index.EmbeddingIndex)
+        }
         if len(embedding_idx_info) == 0:
-            raise excs.Error(f'No index found for column {col_ref.col}')
+            raise excs.Error(f'No index found for column {col_ref.col!r}')
+        if idx_name is not None and idx_name not in embedding_idx_info:
+            raise excs.Error(f'Index {idx_name!r} not found for column {col_ref.col.name!r}')
         if len(embedding_idx_info) > 1:
-            raise excs.Error(
-                f'Column {col_ref.col.name} has multiple indices; use the index name to disambiguate, '
-                f'e.g., `{col_ref.col.name}.<index-name>.similarity(...)`')
-        self.idx_info = embedding_idx_info[0]
+            if idx_name is None:
+                raise excs.Error(
+                    f'Column {col_ref.col.name!r} has multiple indices; use the index name to disambiguate: '
+                    f'`{col_ref.col.name}.similarity(..., idx=<name>)`')
+            self.idx_info = embedding_idx_info[idx_name]
+        else:
+            self.idx_info = next(iter(embedding_idx_info.values()))
         idx = self.idx_info.idx
 
-        if item.col_type.is_string_type() and idx.txt_embed is None:
+        if item_expr.col_type.is_string_type() and idx.string_embed is None:
             raise excs.Error(
-                f'Embedding index {self.idx_info.name} on column {self.idx_info.col.name} was created without the '
-                f'text_embed parameter and does not support text queries')
-        if item.col_type.is_image_type() and idx.img_embed is None:
+                f'Embedding index {self.idx_info.name!r} on column {self.idx_info.col.name!r} was created without the '
+                f"'string_embed' parameter and does not support string queries")
+        if item_expr.col_type.is_image_type() and idx.image_embed is None:
             raise excs.Error(
-                f'Embedding index {self.idx_info.name} on column {self.idx_info.col.name} was created without the '
-                f'img_embed parameter and does not support image queries')
+                f'Embedding index {self.idx_info.name!r} on column {self.idx_info.col.name!r} was created without the '
+                f"'image_embed' parameter and does not support image queries")
 
     def __str__(self) -> str:
         return f'{self.components[0]}.similarity({self.components[1]})'

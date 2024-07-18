@@ -146,6 +146,19 @@ class TestTable:
         with pytest.raises(excs.Error):
             _ = t.show(1)
 
+    def test_drop_table_force(self, test_tbl: pxt.Table) -> None:
+        t = pxt.get_table('test_tbl')
+        v1 = pxt.create_view('v1', t)
+        v2 = pxt.create_view('v2', t)
+        v3 = pxt.create_view('v3', v1)
+        v4 = pxt.create_view('v4', v2)
+        v5 = pxt.create_view('v5', t)
+        assert len(pxt.list_tables()) == 6
+        pxt.drop_table('v2', force=True)  # Drops v2 and v4, but not the others
+        assert len(pxt.list_tables()) == 4
+        pxt.drop_table('test_tbl', force=True)  # Drops everything else
+        assert len(pxt.list_tables()) == 0
+
     def test_table_attrs(self, reset_db) -> None:
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20

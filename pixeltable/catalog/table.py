@@ -530,15 +530,15 @@ class Table(SchemaObject):
 
     def add_embedding_index(
             self, col_name: str, *, idx_name: Optional[str] = None,
-            text_embed: Optional[pixeltable.Function] = None, img_embed: Optional[pixeltable.Function] = None,
+            string_embed: Optional[pixeltable.Function] = None, image_embed: Optional[pixeltable.Function] = None,
             metric: str = 'cosine'
     ) -> None:
         """Add an index to the table.
         Args:
             col_name: name of column to index
             idx_name: name of index, which needs to be unique for the table; if not provided, a name will be generated
-            text_embed: function to embed text; required if the column is a text column
-            img_embed: function to embed images; required if the column is an image column
+            string_embed: function to embed text; required if the column is a text column
+            image_embed: function to embed images; required if the column is an image column
             metric: distance metric to use for the index; one of 'cosine', 'ip', 'l2'; default is 'cosine'
 
         Raises:
@@ -547,7 +547,7 @@ class Table(SchemaObject):
         Examples:
             Add an index to the ``img`` column:
 
-            >>> tbl.add_embedding_index('img', img_embed=...)
+            >>> tbl.add_embedding_index('img', image_embed=...)
 
             Add another index to the ``img`` column, using the inner product as the distance metric,
             and with a specific name; ``text_embed`` is also specified in order to search with text:
@@ -565,7 +565,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Duplicate index name: {idx_name}')
         from pixeltable.index import EmbeddingIndex
         # create the EmbeddingIndex instance to verify args
-        idx = EmbeddingIndex(col, metric=metric, text_embed=text_embed, img_embed=img_embed)
+        idx = EmbeddingIndex(col, metric=metric, string_embed=string_embed, image_embed=image_embed)
         status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
         # TODO: how to deal with exceptions here? drop the index and raise?
 
@@ -612,26 +612,26 @@ class Table(SchemaObject):
             raise excs.Error('Cannot drop an index from a snapshot')
         self._check_is_dropped()
         if (column_name is None) == (idx_name is None):
-            raise excs.Error('Exactly one of column_name or idx_name must be provided')
+            raise excs.Error("Exactly one of 'column_name' or 'idx_name' must be provided")
 
         if idx_name is not None:
             if idx_name not in self._tbl_version.idxs_by_name:
-                raise excs.Error(f'Index {idx_name} does not exist')
+                raise excs.Error(f'Index {idx_name!r} does not exist')
             idx_id = self._tbl_version.idxs_by_name[idx_name].id
         else:
             col = self._tbl_version_path.get_column(column_name, include_bases=True)
             if col is None:
-                raise excs.Error(f'Column {column_name} unknown')
+                raise excs.Error(f'Column {column_name!r} unknown')
             if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {column_name}: cannot drop index from column that belongs to base ({col.tbl.name})')
+                    f'Column {column_name!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)')
             idx_info = [info for info in self._tbl_version.idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
                 idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
             if len(idx_info) == 0:
-                raise excs.Error(f'Column {column_name} does not have an index')
+                raise excs.Error(f'Column {column_name!r} does not have an index')
             if len(idx_info) > 1:
-                raise excs.Error(f'Column {column_name} has multiple indices; specify idx_name instead')
+                raise excs.Error(f"Column {column_name!r} has multiple indices; specify 'idx_name' instead")
             idx_id = idx_info[0].id
         self._tbl_version.drop_index(idx_id)
 

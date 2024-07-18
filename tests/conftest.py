@@ -148,5 +148,5 @@ def small_img_tbl(reset_db) -> catalog.Table:
 def indexed_img_tbl(reset_db) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
-    t.add_embedding_index('img', metric='cosine', img_embed=clip_img_embed, text_embed=clip_text_embed)
+    t.add_embedding_index('img', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
     return t

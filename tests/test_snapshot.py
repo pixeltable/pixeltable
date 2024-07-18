@@ -119,7 +119,7 @@ class TestSnapshot:
         with pytest.raises(pxt.Error) as excinfo:
             img_tbl = create_img_tbl()
             snap = pxt.create_view('img_snap', img_tbl, is_snapshot=True)
-            snap.add_embedding_index('img', img_embed=clip_img_embed)
+            snap.add_embedding_index('img', image_embed=clip_img_embed)
         assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
     def test_views_of_snapshots(self, reset_db) -> None:

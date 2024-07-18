@@ -4,6 +4,7 @@ import urllib.request
 from datetime import datetime
 from typing import List, Dict
 
+import PIL.Image
 import pytest
 import sqlalchemy as sql
 
@@ -16,6 +17,7 @@ from pixeltable.exprs import Expr, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import cast
 from pixeltable.functions.globals import sum, count
+from pixeltable.functions.huggingface import clip_image, clip_text
 from pixeltable.iterators import FrameIterator
 from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
     VideoType
@@ -553,8 +555,28 @@ class TestExprs:
         result = t[t.img, t.img.height, t.img.rotate(90)].show(n=100)
         _ = result._repr_html_()
 
+    def test_ext_imgs(self, reset_db) -> None:
+        t = pxt.create_table('img_test', {'img': pxt.ImageType()})
+        img_urls = [
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000030.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000034.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000042.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000049.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000057.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000061.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000063.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000064.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000069.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000071.jpg',
+        ]
+        t.insert({'img': url} for url in img_urls)
+        # this fails with an assertion
+        # TODO: fix it
+        #res = t.where(t.img.width < 600).collect()
+
     def test_img_exprs(self, img_tbl) -> None:
         t = img_tbl
+        _ = t.where(t.img.width < 600).collect()
         _ = (t.img.entropy() > 1) & (t.split == 'train')
         _ = (t.img.entropy() > 1) & (t.split == 'train') & (t.split == 'val')
         _ = (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
