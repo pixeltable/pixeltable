@@ -24,7 +24,7 @@ The following functions apply to tables, views, and snapshots.
 | Move a table                     | [`pxt.move`][pixeltable.move]('video_data', 'experiments.video_data') |
 | List tables                      | [`pxt.list_tables`][pixeltable.list_tables]()                         |
 | Delete a table                   | [`pxt.drop_table`][pixeltable.drop_table]('video_data')               |
-| Deleta a table and all its views | [`pxt.drop_table`][pixeltable.drop_table]('video_data', force=True)   |
+| Delete a table and all its views | [`pxt.drop_table`][pixeltable.drop_table]('video_data', force=True)   |
 
 
 ### Directories
@@ -33,7 +33,7 @@ The following functions apply to tables, views, and snapshots.
 | Create a directory                      | [`pxt.create_dir`][pixeltable.create_dir]('experiments')              |
 | Rename or move a directory              | [`pxt.move`][pixeltable.move]('experiments', 'project_x.experiments') |
 | Delete a directory                      | [`pxt.drop_dir`][pixeltable.drop_dir]('experiments')                  |
-| Deleta a directory and all its contents | [`pxt.drop_dir`][pixeltable.drop_dir]('experiments', force=True)      |
+| Delete a directory and all its contents | [`pxt.drop_dir`][pixeltable.drop_dir]('experiments', force=True)      |
 | List directories                        | [`pxt.list_dirs`][pixeltable.list_dirs]('project_x')                  |
 
 ## Frame extraction for video data
