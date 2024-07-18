@@ -248,7 +248,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
     try:
         cat.paths.check_is_valid(path_obj, expected=catalog.Table)
     except Exception as e:
-        if ignore_errors:
+        if ignore_errors or force:
             _logger.info(f'Skipped table `{path}` (does not exist).')
             return
         else:
@@ -360,7 +360,7 @@ def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) ->
     try:
         cat.paths.check_is_valid(path, expected=catalog.Dir)
     except Exception as e:
-        if ignore_errors:
+        if ignore_errors or force:
             _logger.info(f'Skipped directory `{path}` (does not exist).')
             return
         else:
