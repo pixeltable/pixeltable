@@ -371,21 +371,20 @@ def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) ->
     if len(children) > 0 and not force:
         raise excs.Error(f'Directory `{path_str}` is not empty.')
 
-    if force:
-        for child in children:
-            assert isinstance(child, catalog.Path)
-            # We need to check that the child is still in `cat.paths`, since it is possible it was
-            # already deleted as a dependent of a preceding child in the iteration.
-            try:
-                obj = cat.paths[child]
-            except excs.Error:
-                continue
-            if isinstance(obj, catalog.Dir):
-                drop_dir(str(child), force=True)
-            else:
-                assert isinstance(obj, catalog.Table)
-                assert not obj._is_dropped  # else it should have been removed from `cat.paths` already
-                drop_table(str(child), force=True)
+    for child in children:
+        assert isinstance(child, catalog.Path)
+        # We need to check that the child is still in `cat.paths`, since it is possible it was
+        # already deleted as a dependent of a preceding child in the iteration.
+        try:
+            obj = cat.paths[child]
+        except excs.Error:
+            continue
+        if isinstance(obj, catalog.Dir):
+            drop_dir(str(child), force=True)
+        else:
+            assert isinstance(obj, catalog.Table)
+            assert not obj._is_dropped  # else it should have been removed from `cat.paths` already
+            drop_table(str(child), force=True)
 
     with Env.get().engine.begin() as conn:
         dir = Catalog.get().paths[path]
