@@ -14,6 +14,9 @@ theme:
   name: material
   custom_dir: docs/overrides
 
+extra_css:
+  - css/mkdocstrings.css
+
 nav:
   - Home: index.md
   - 'API Cheat Sheet': api-cheat-sheet.md
@@ -28,6 +31,9 @@ nav:
     - Table: api/table.md
   - Pixeltable Functions:
     - Huggingface: api/functions/huggingface.md
+
+hooks:
+  - pixeltable/tool/mkdocs_plugin.py
 
 plugins:
   - search
@@ -56,3 +62,6 @@ plugins:
               show_symbol_type_toc: true
               separate_signature: true
               signature_crossrefs: true
+              extensions:
+                pixeltable/tool/mkdocs_plugin.py:PxtGriffeExtension:
+                  paths: []
