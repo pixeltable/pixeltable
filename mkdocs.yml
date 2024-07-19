@@ -32,9 +32,6 @@ nav:
   - Pixeltable Functions:
     - Huggingface: api/functions/huggingface.md
 
-hooks:
-  - pixeltable/tool/mkdocs_plugin.py
-
 plugins:
   - search
   - autorefs
@@ -64,4 +61,3 @@ plugins:
               signature_crossrefs: true
               extensions:
                 pixeltable/tool/mkdocs_plugin.py:PxtGriffeExtension:
-                  paths: []

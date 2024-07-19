@@ -98,9 +98,6 @@ openai-whisper = {git = "https://github.com/openai/whisper.git"}
 whisperx = {git = "https://github.com/m-bain/whisperX.git", rev = "f2da2f8"}
 label-studio-sdk = "^0.0.32"
 
-# [tool.poetry.plugins."mkdocs.plugins"]
-# pixeltable = "pixeltable.tool.mkdocs_plugin:PxtPlugin"
-
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "pixeltable.tool.mkdocs_plugin:get_templates_path"
 

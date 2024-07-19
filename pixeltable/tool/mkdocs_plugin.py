@@ -12,20 +12,14 @@ from mkdocs.structure.pages import Page
 
 import pixeltable as pxt
 
-def on_page_markdown(markdown: str, /, *, page: Page, config: MkDocsConfig, files: Files) -> Optional[str]:
-    pass
-
-def on_page_content(html: str, /, *, page: Page, config: MkDocsConfig, files: Files) -> Optional[str]:
-    pass
-
 def get_templates_path() -> Path:
+    """Implementation of the 'mkdocstrings.python.templates' plugin for custom jinja templates."""
     return Path(__file__).parent / "templates"
 
 logger = griffe.get_logger(__name__)
 
 class PxtGriffeExtension(Extension):
-    def __init__(self, object_paths: Optional[list[str]] = None) -> None:
-        self.object_paths = object_paths
+    """Implementation of a Pixeltable custom griffe extension."""
 
     def on_instance(self, node: Union[ast.AST, ObjectNode], obj: Object) -> None:
         if obj.docstring is None:
