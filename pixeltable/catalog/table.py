@@ -542,10 +542,10 @@ class Table(SchemaObject):
             >>> tbl.add_embedding_index('img', image_embed=...)
 
             Add another index to the ``img`` column, using the inner product as the distance metric,
-            and with a specific name; ``text_embed`` is also specified in order to search with text:
+            and with a specific name; ``string_embed`` is also specified in order to search with text:
 
             >>> tbl.add_embedding_index(
-                'img', idx_name='clip_idx', img_embed=..., text_embed=...text_embed..., metric='ip')
+                'img', idx_name='clip_idx', image_embed=..., string_embed=..., metric='ip')
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
