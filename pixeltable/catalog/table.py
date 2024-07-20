@@ -88,7 +88,7 @@ class Table(SchemaObject):
 
         Args:
             recursive: If `False`, returns only the immediate successor views of this `Table`. If `True`, returns
-                all sub-views, including this `Table` itself.
+                all sub-views (including views of views, etc.)
         """
         return [t.path for t in self._get_views(recursive=recursive)]
 
