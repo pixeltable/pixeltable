@@ -12,10 +12,6 @@ from mkdocs.structure.pages import Page
 
 import pixeltable as pxt
 
-def get_templates_path() -> Path:
-    """Implementation of the 'mkdocstrings.python.templates' plugin for custom jinja templates."""
-    return Path(__file__).parent / "templates"
-
 logger = griffe.get_logger(__name__)
 
 class PxtGriffeExtension(Extension):

@@ -60,4 +60,4 @@ plugins:
               separate_signature: true
               signature_crossrefs: true
               extensions:
-                pixeltable/tool/mkdocs_plugin.py:PxtGriffeExtension:
+                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:
