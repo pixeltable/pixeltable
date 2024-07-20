@@ -251,5 +251,5 @@ class TestVideo:
 
         # reload from store
         reload_catalog()
-        base_t, view_t = pxt.get_table(base_t.get_name()), pxt.get_table(view_t.get_name())
+        base_t, view_t = pxt.get_table(base_t.name), pxt.get_table(view_t.name)
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
