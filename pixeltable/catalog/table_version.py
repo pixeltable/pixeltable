@@ -540,39 +540,12 @@ class TableVersion:
             num_rows=row_count, num_computed_values=row_count, num_excs=num_excs,
             cols_with_excs=[f'{col.tbl.name}.{col.name}'for col in cols_with_excs if col.name is not None])
 
-    def drop_column(self, name: str) -> None:
+    def drop_column(self, col: Column) -> None:
         """Drop a column from the table.
         """
         from pixeltable.catalog import Catalog
 
         assert not self.is_snapshot
-        if name not in self.cols_by_name:
-            raise excs.Error(f'Unknown column: {name}')
-        col = self.cols_by_name[name]
-        dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
-        if len(dependent_user_cols) > 0:
-            raise excs.Error(
-                f'Cannot drop column `{name}` because the following columns depend on it:\n'
-                f'{", ".join(c.name for c in dependent_user_cols)}'
-            )
-        # See if this column has a dependent store. We need to look through all stores in all
-        # (transitive) views of this table.
-        transitive_views = Catalog.get().tbls[self.id]._get_views(recursive=True)
-        dependent_stores = [
-            (view, store)
-            for view in transitive_views
-            for store in view._tbl_version.external_stores.values()
-            if col in store.get_local_columns()
-        ]
-        if len(dependent_stores) > 0:
-            dependent_store_names = [
-                store.name if view._get_id() == self.id else f'{store.name} (in view `{view.name}`)'
-                for view, store in dependent_stores
-            ]
-            raise excs.Error(
-                f'Cannot drop column `{name}` because the following external stores depend on it:\n'
-                f'{", ".join(dependent_store_names)}'
-            )
 
         # we're creating a new schema version
         self.version += 1
@@ -596,7 +569,7 @@ class TableVersion:
                 del self.idxs_by_name[idx_name]
             self._drop_columns(dropped_cols)
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
-        _logger.info(f'Dropped column {name} from table {self.name}, new version: {self.version}')
+        _logger.info(f'Dropped column {col.name} from table {self.name}, new version: {self.version}')
 
     def _drop_columns(self, cols: Iterable[Column]) -> None:
         """Mark columns as dropped"""

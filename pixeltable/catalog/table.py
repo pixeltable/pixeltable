@@ -95,7 +95,7 @@ class Table(SchemaObject):
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
         dependents = catalog.Catalog.get().tbl_dependents[self._get_id()]
         if recursive:
-            return [self] + [t for view in dependents for t in view._get_views(recursive=True)]
+            return dependents + [t for view in dependents for t in view._get_views(recursive=True)]
         else:
             return dependents
 
@@ -508,7 +508,37 @@ class Table(SchemaObject):
             >>> tbl.drop_column('factorial')
         """
         self._check_is_dropped()
-        self._tbl_version.drop_column(name)
+
+        if name not in self._tbl_version.cols_by_name:
+            raise excs.Error(f'Unknown column: {name}')
+        col = self._tbl_version.cols_by_name[name]
+
+        dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
+        if len(dependent_user_cols) > 0:
+            raise excs.Error(
+                f'Cannot drop column `{name}` because the following columns depend on it:\n'
+                f'{", ".join(c.name for c in dependent_user_cols)}'
+            )
+
+        # See if this column has a dependent store. We need to look through all stores in all
+        # (transitive) views of this table.
+        dependent_stores = [
+            (view, store)
+            for view in [self] + self._get_views(recursive=True)
+            for store in view._tbl_version.external_stores.values()
+            if col in store.get_local_columns()
+        ]
+        if len(dependent_stores) > 0:
+            dependent_store_names = [
+                store.name if view._get_id() == self._get_id() else f'{store.name} (in view `{view.name}`)'
+                for view, store in dependent_stores
+            ]
+            raise excs.Error(
+                f'Cannot drop column `{name}` because the following external stores depend on it:\n'
+                f'{", ".join(dependent_store_names)}'
+            )
+
+        self._tbl_version.drop_column(col)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
