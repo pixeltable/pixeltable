@@ -82,14 +82,22 @@ class Table(SchemaObject):
             return self._queries[index]
         return self._tbl_version_path.__getitem__(index)
 
-    def get_views(self, *, recursive: bool = False) -> list['Table']:
+    def list_views(self, *, recursive: bool = True) -> list[str]:
         """
-        All views and snapshots of this `Table`.
+        Returns a list of all views and snapshots of this `Table`.
+
+        Args:
+            recursive: If `False`, returns only the immediate successor views of this `Table`. If `True`, returns
+                all sub-views (including views of views, etc.)
         """
+        return [t.path for t in self._get_views(recursive=recursive)]
+
+    def _get_views(self, *, recursive: bool = True) -> list['Table']:
+        dependents = catalog.Catalog.get().tbl_dependents[self._get_id()]
         if recursive:
-            return [self] + [t for view in self.get_views(recursive=False) for t in view.get_views(recursive=True)]
+            return dependents + [t for view in dependents for t in view._get_views(recursive=True)]
         else:
-            return catalog.Catalog.get().tbl_dependents[self._get_id()]
+            return dependents
 
     def _df(self) -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
@@ -500,7 +508,37 @@ class Table(SchemaObject):
             >>> tbl.drop_column('factorial')
         """
         self._check_is_dropped()
-        self._tbl_version.drop_column(name)
+
+        if name not in self._tbl_version.cols_by_name:
+            raise excs.Error(f'Unknown column: {name}')
+        col = self._tbl_version.cols_by_name[name]
+
+        dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
+        if len(dependent_user_cols) > 0:
+            raise excs.Error(
+                f'Cannot drop column `{name}` because the following columns depend on it:\n'
+                f'{", ".join(c.name for c in dependent_user_cols)}'
+            )
+
+        # See if this column has a dependent store. We need to look through all stores in all
+        # (transitive) views of this table.
+        dependent_stores = [
+            (view, store)
+            for view in [self] + self._get_views(recursive=True)
+            for store in view._tbl_version.external_stores.values()
+            if col in store.get_local_columns()
+        ]
+        if len(dependent_stores) > 0:
+            dependent_store_names = [
+                store.name if view._get_id() == self._get_id() else f'{store.name} (in view `{view.name}`)'
+                for view, store in dependent_stores
+            ]
+            raise excs.Error(
+                f'Cannot drop column `{name}` because the following external stores depend on it:\n'
+                f'{", ".join(dependent_store_names)}'
+            )
+
+        self._tbl_version.drop_column(col)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
@@ -542,10 +580,10 @@ class Table(SchemaObject):
             >>> tbl.add_embedding_index('img', image_embed=...)
 
             Add another index to the ``img`` column, using the inner product as the distance metric,
-            and with a specific name; ``text_embed`` is also specified in order to search with text:
+            and with a specific name; ``string_embed`` is also specified in order to search with text:
 
             >>> tbl.add_embedding_index(
-                'img', idx_name='clip_idx', img_embed=..., text_embed=...text_embed..., metric='ip')
+                'img', idx_name='clip_idx', image_embed=..., string_embed=..., metric='ip')
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
@@ -823,13 +861,13 @@ class Table(SchemaObject):
         Links the specified `ExternalStore` to this table.
         """
         if self._tbl_version.is_snapshot:
-            raise excs.Error(f'Table `{self.get_name()}` is a snapshot, so it cannot be linked to an external store.')
+            raise excs.Error(f'Table `{self.name}` is a snapshot, so it cannot be linked to an external store.')
         self._check_is_dropped()
         if store.name in self.external_stores:
-            raise excs.Error(f'Table `{self.get_name()}` already has an external store with that name: {store.name}')
-        _logger.info(f'Linking external store `{store.name}` to table `{self.get_name()}`')
+            raise excs.Error(f'Table `{self.name}` already has an external store with that name: {store.name}')
+        _logger.info(f'Linking external store `{store.name}` to table `{self.name}`')
         self._tbl_version.link_external_store(store)
-        print(f'Linked external store `{store.name}` to table `{self.get_name()}`.')
+        print(f'Linked external store `{store.name}` to table `{self.name}`.')
 
     def unlink_external_stores(
             self,
@@ -861,11 +899,11 @@ class Table(SchemaObject):
         if not ignore_errors:
             for store in stores:
                 if store not in all_stores:
-                    raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
+                    raise excs.Error(f'Table `{self.name}` has no external store with that name: {store}')
 
         for store in stores:
             self._tbl_version.unlink_external_store(store, delete_external_data=delete_external_data)
-            print(f'Unlinked external store from table `{self.get_name()}`: {store}')
+            print(f'Unlinked external store from table `{self.name}`: {store}')
 
     def sync(
             self,
@@ -893,7 +931,7 @@ class Table(SchemaObject):
 
         for store in stores:
             if store not in all_stores:
-                raise excs.Error(f'Table `{self.get_name()}` has no external store with that name: {store}')
+                raise excs.Error(f'Table `{self.name}` has no external store with that name: {store}')
 
         from pixeltable.io import SyncStatus
 

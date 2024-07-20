@@ -248,7 +248,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
     try:
         cat.paths.check_is_valid(path_obj, expected=catalog.Table)
     except Exception as e:
-        if ignore_errors:
+        if ignore_errors or force:
             _logger.info(f'Skipped table `{path}` (does not exist).')
             return
         else:
@@ -256,7 +256,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
     tbl = cat.paths[path_obj]
     assert isinstance(tbl, catalog.Table)
     if len(cat.tbl_dependents[tbl._id]) > 0:
-        dependent_paths = [get_path(dep) for dep in cat.tbl_dependents[tbl._id]]
+        dependent_paths = [dep.path for dep in cat.tbl_dependents[tbl._id]]
         if force:
             for dependent_path in dependent_paths:
                 drop_table(dependent_path, force=True)
@@ -297,7 +297,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in Catalog.get().paths.get_children(path, child_type=catalog.Table, recursive=recursive)]
 
 
-def create_dir(path_str: str, ignore_errors: bool = False) -> None:
+def create_dir(path_str: str, ignore_errors: bool = False) -> catalog.Dir:
     """Create a directory.
 
     Args:
@@ -325,10 +325,12 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> None:
             session.add(dir_record)
             session.flush()
             assert dir_record.id is not None
-            Catalog.get().paths[path] = catalog.Dir(dir_record.id, parent._id, path.name)
+            dir = catalog.Dir(dir_record.id, parent._id, path.name)
+            Catalog.get().paths[path] = dir
             session.commit()
             _logger.info(f'Created directory `{path_str}`.')
             print(f'Created directory `{path_str}`.')
+            return dir
     except excs.Error as e:
         if ignore_errors:
             return
@@ -358,7 +360,7 @@ def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) ->
     try:
         cat.paths.check_is_valid(path, expected=catalog.Dir)
     except Exception as e:
-        if ignore_errors:
+        if ignore_errors or force:
             _logger.info(f'Skipped directory `{path}` (does not exist).')
             return
         else:
@@ -369,21 +371,20 @@ def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) ->
     if len(children) > 0 and not force:
         raise excs.Error(f'Directory `{path_str}` is not empty.')
 
-    if force:
-        for child in children:
-            assert isinstance(child, catalog.Path)
-            # We need to check that the child is still in `cat.paths`, since it is possible it was
-            # already deleted as a dependent of a preceding child in the iteration.
-            try:
-                obj = cat.paths[child]
-            except excs.Error:
-                continue
-            if isinstance(obj, catalog.Dir):
-                drop_dir(str(child), force=True)
-            else:
-                assert isinstance(obj, catalog.Table)
-                assert not obj._is_dropped  # else it should have been removed from `cat.paths` already
-                drop_table(str(child), force=True)
+    for child in children:
+        assert isinstance(child, catalog.Path)
+        # We need to check that the child is still in `cat.paths`, since it is possible it was
+        # already deleted as a dependent of a preceding child in the iteration.
+        try:
+            obj = cat.paths[child]
+        except excs.Error:
+            continue
+        if isinstance(obj, catalog.Dir):
+            drop_dir(str(child), force=True)
+        else:
+            assert isinstance(obj, catalog.Table)
+            assert not obj._is_dropped  # else it should have been removed from `cat.paths` already
+            drop_table(str(child), force=True)
 
     with Env.get().engine.begin() as conn:
         dir = Catalog.get().paths[path]
@@ -439,28 +440,6 @@ def list_functions() -> pd.DataFrame:
         [dict(selector='th', props=[('text-align', 'center')])]
     )  # center-align headings
     return pd_df.hide(axis='index')
-
-
-def get_path(schema_obj: catalog.SchemaObject) -> str:
-    """Returns the path to a SchemaObject.
-
-    Args:
-        schema_obj: SchemaObject to get the path for.
-
-    Returns:
-        Path to the SchemaObject.
-    """
-    path_elements: list[str] = []
-    dir_id = schema_obj._dir_id
-    while dir_id is not None:
-        dir = Catalog.get().paths.get_schema_obj(dir_id)
-        if dir._dir_id is None:
-            # this is the root dir with name '', which we don't want to include in the path
-            break
-        path_elements.insert(0, dir._name)
-        dir_id = dir._dir_id
-    path_elements.append(schema_obj._name)
-    return '.'.join(path_elements)
 
 
 def configure_logging(

@@ -14,7 +14,7 @@ class TestSnapshot:
             self, tbl: pxt.Table, snap: pxt.Table, extra_items: Dict[str, Any], filter: Any,
             reload_md: bool
     ) -> None:
-        tbl_path, snap_path = pxt.get_path(tbl), pxt.get_path(snap)
+        tbl_path, snap_path = tbl.path, snap.path
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
         tbl_select_list = [tbl[col_name] for col_name in tbl.column_names()]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])

@@ -95,7 +95,7 @@ class LabelStudioProject(Project):
         return {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}
 
     def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
-        _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.get_name()}`'
+        _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t.name}`'
                      f' (export: {export_data}, import: {import_data}).')
         # Collect all existing tasks into a dict with entries `rowid: task`
         tasks = {tuple(task['meta']['rowid']): task for task in self.__fetch_all_tasks()}
@@ -386,7 +386,7 @@ class LabelStudioProject(Project):
         updates = [{'_rowid': rowid, local_annotations_col.name: ann} for rowid, ann in annotations.items()]
         if len(updates) > 0:
             _logger.info(
-                f'Updating table `{t.get_name()}`, column `{local_annotations_col.name}` with {len(updates)} total annotations.'
+                f'Updating table `{t.name}`, column `{local_annotations_col.name}` with {len(updates)} total annotations.'
             )
             # batch_update currently doesn't propagate from views to base tables. As a workaround, we call
             # batch_update on the actual ancestor table that holds the annotations column.
@@ -554,7 +554,7 @@ class LabelStudioProject(Project):
 
         if title is None:
             # `title` defaults to table name
-            title = t.get_name()
+            title = t.name
 
         # Create a column to hold the annotations, if one does not yet exist
         if col_mapping is None or ANNOTATIONS_COLUMN in col_mapping.values():
