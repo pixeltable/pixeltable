@@ -14,10 +14,10 @@ class TestFireworks:
         from pixeltable.functions.fireworks import chat_completions
 
         messages = [{'role': 'user', 'content': t.input}]
-        t['output'] = chat_completions(messages=messages, model='accounts/fireworks/models/llama-v2-7b-chat')
+        t['output'] = chat_completions(messages=messages, model='accounts/fireworks/models/mixtral-8x22b-instruct')
         t['output_2'] = chat_completions(
             messages=messages,
-            model='accounts/fireworks/models/llama-v2-7b-chat',
+            model='accounts/fireworks/models/mixtral-8x22b-instruct',
             max_tokens=300,
             top_k=40,
             top_p=0.9,

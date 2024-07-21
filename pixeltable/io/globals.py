@@ -50,7 +50,7 @@ def create_label_studio_project(
             `ls_project_0`, `ls_project_1`, etc.
         title: An optional title for the Label Studio project. This is the title that annotators
             will see inside Label Studio. Unlike `name`, it does not need to be an identifier and
-            does not need to be unique. If not specified, the table name `t.get_name()` will be used.
+            does not need to be unique. If not specified, the table name `t.name` will be used.
         media_import_method: The method to use when transferring media files to Label Studio:
             - `post`: Media will be sent to Label Studio via HTTP post. This should generally only be used for
                 prototyping; due to restrictions in Label Studio, it can only be used with projects that have
