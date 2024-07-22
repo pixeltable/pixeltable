@@ -21,7 +21,7 @@ Today’s solutions for AI app development require extensive custom coding and i
 ## 💾 Installation
 
 ```python
-%pip install pixeltable
+pip install pixeltable
 ```
 > [!NOTE]
 > Check out the [Pixeltable Basics](https://pixeltable.readme.io/docs/pixeltable-basics) tutorial for a tour of its most important features.
@@ -31,16 +31,16 @@ Learn how to create tables, populate them with data, and enhance them with built
 
 | Topic | Notebook |
 |:--------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
-| 10-minute tour of Pixeltable    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/tutorials/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a>
+| 10-Minute Tour of Pixeltable    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/tutorials/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a>
 | User-Defined Functions (UDFs)    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/howto/udfs-in-pixeltable.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a>
 | Comparing Object Detection Models | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/tutorials/object-detection-in-videos.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a>
 | Experimenting with Chunking (RAG) | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/tutorials/rag-operations.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 | Working with External Files    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/master/docs/release/howto/working-with-external-files.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a>
-| Integrationg with Label Studio for Annotations    | <a target="_blank" href="https://pixeltable.readme.io/docs/label-studio"> <img src="https://img.shields.io/badge/Docs-Label Studio-blue" alt="Visit our documentation"/></a>
+| Integrating with Label Studio for Annotations    | <a target="_blank" href="https://pixeltable.readme.io/docs/label-studio"> <img src="https://img.shields.io/badge/Docs-Label Studio-blue" alt="Visit our documentation"/></a>
 
 ## 🧱 Code Samples
 
-### All media data (videos, images, audio) resides in external files, and Pixeltable stores references to those
+### Import media data into Pixeltable (videos, images, audio...)
 ```python
 # The files can be local or remote (e.g., in S3). For the latter, Pixeltable automatically caches the files locally on access.
 v = pxt.create_table('external_data.videos', {'video': pxt.VideoType()})
@@ -53,29 +53,28 @@ paths = [
 ]
 v.insert({'video': prefix + p} for p in paths)
 ```
-Learn more on how to [access the original file paths and work with your data](https://pixeltable.readme.io/docs/working-with-external-files).
+Learn how to [work with data in Pixeltable](https://pixeltable.readme.io/docs/working-with-external-files).
 
-### Create a computed column based on a function calling an object detection model
+### Add an object detection model to your workflow
 ```python
 # Pixeltable is downloading the model from Huggingface (if necessary), instantiating it, and caching it for later use
 t['detections'] = huggingface.detr_for_object_detection(t.input_image, model_id='facebook/detr-resnet-50')
 ```
-Learn more on how to use computed colums through the example of [comparing object detection models](https://pixeltable.readme.io/docs/object-detection-in-videos).
+Learn about computed columns and object detection: [Comparing object detection models](https://pixeltable.readme.io/docs/object-detection-in-videos).
 
-### Build User-Defined Functions to expand Pixeltable
+### Extend Pixeltable's capabilities with user-defined functions
 ```python
-# The longest_word Python function isn't a Pixeltable UDF (yet); Adding the decorator turns it into a UDF:
 @pxt.udf
-def longest_word(sentence: str, strip_punctuation: bool = False) -> str:
-    words = sentence.split()
-    if strip_punctuation:  # Remove non-alphanumeric characters from each word
-        words = [''.join(filter(str.isalnum, word)) for word in words]
-    i = np.argmax([len(word) for word in words])
-    return words[i]
+def draw_boxes(img: PIL.Image.Image, boxes: list[list[float]]) -> PIL.Image.Image:
+    result = img.copy()  # Create a copy of `img`
+    d = PIL.ImageDraw.Draw(result)
+    for box in boxes:
+        d.rectangle(box, width=3)  # Draw bounding box rectangles on the copied image
+    return result
 ```
-Learn more on how to leverage [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+Learn more about user-defined functions: [UDFs in Pixeltable](https://pixeltable.readme.io/docs/user-defined-functions-udfs).
 
-### Automate data operations with Views
+### Automate data operations with views
 ```python
 # In this example, the view is defined by iteration over the chunks of a DocumentSplitter.
 chunks_t = pxt.create_view(
@@ -86,16 +85,16 @@ chunks_t = pxt.create_view(
         separators='token_limit', limit=300)
 )
 ```
-Learn more on how to leverage Views to build your [RAG workflow](https://pixeltable.readme.io/docs/document-indexing-and-rag).
+Learn how to leverage views to build your [RAG workflow](https://pixeltable.readme.io/docs/document-indexing-and-rag).
 
-### Evaluate models performance
+### Evaluate model performance
 ```python
-# The computation of the mAP metric can simply become query over the evaluation output, aggregated with the mean_ap() function.
+# The computation of the mAP metric can simply become a query over the evaluation output, aggregated with the mean_ap() function.
 frames_view.select(mean_ap(frames_view.eval_yolox_tiny), mean_ap(frames_view.eval_yolox_m)).show()
 ```
 Learn more on how to leverage Pixeltable for [Model analytics](https://pixeltable.readme.io/docs/object-detection-in-videos).
 
-### Working with inference APIs
+### Working with inference services such as Together AI
 ```python
 chat_t = pxt.create_table('together_demo.chat', {'input': pxt.StringType()})
 
