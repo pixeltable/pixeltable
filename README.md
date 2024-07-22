@@ -94,7 +94,7 @@ frames_view.select(mean_ap(frames_view.eval_yolox_tiny), mean_ap(frames_view.eva
 ```
 Learn how to leverage Pixeltable for [Model analytics](https://pixeltable.readme.io/docs/object-detection-in-videos).
 
-### Working with inference services such as Together AI
+### Working with inference services
 ```python
 chat_t = pxt.create_table('together_demo.chat', {'input': pxt.StringType()})
 
@@ -123,8 +123,7 @@ chat_t.insert([
 ])
 chat_t.select(chat_t.input, chat_t.response).head()
 ```
-Learn more on how to leverage LLms such as [Together AI](https://pixeltable.readme.io/docs/together-ai) in Pixeltable.
-
+Learn how to interact with inference services such as [Together AI](https://pixeltable.readme.io/docs/together-ai) in Pixeltable.
 
 ## ❓ FAQ
 
