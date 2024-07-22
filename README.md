@@ -92,7 +92,7 @@ Learn how to leverage views to build your [RAG workflow](https://pixeltable.read
 # The computation of the mAP metric can simply become a query over the evaluation output, aggregated with the mean_ap() function.
 frames_view.select(mean_ap(frames_view.eval_yolox_tiny), mean_ap(frames_view.eval_yolox_m)).show()
 ```
-Learn more on how to leverage Pixeltable for [Model analytics](https://pixeltable.readme.io/docs/object-detection-in-videos).
+Learn how to leverage Pixeltable for [Model analytics](https://pixeltable.readme.io/docs/object-detection-in-videos).
 
 ### Working with inference services such as Together AI
 ```python
