@@ -25,6 +25,7 @@ class CallableFunction(Function):
         self.py_fn = py_fn
         self.self_name = self_name
         self.batch_size = batch_size
+        self.__doc__ = py_fn.__doc__
         super().__init__(signature, self_path=self_path)
 
     @property
