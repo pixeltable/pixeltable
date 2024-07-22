@@ -1,14 +1,9 @@
 import ast
-from pathlib import Path
-import griffe
-import inspect
 from typing import Optional, Union
-from griffe import Docstring, Extension, Object, ObjectNode
+
+import griffe
 import griffe.expressions
-from mkdocs.config.defaults import MkDocsConfig
-from mkdocs.plugins import BasePlugin
-from mkdocs.structure.files import Files
-from mkdocs.structure.pages import Page
+from griffe import Extension, Object, ObjectNode
 
 import pixeltable as pxt
 

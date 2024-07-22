@@ -5,5 +5,5 @@ code.doc-symbol-udf {
 }
 
 code.doc-symbol-udf::after {
-  content: "@udf";
+  content: "udf";
 }
