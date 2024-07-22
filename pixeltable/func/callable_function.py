@@ -114,3 +114,6 @@ class CallableFunction(Function):
                         f'{self.display_name}(): '
                         f'parameter {param.name} must be a constant value, not a Pixeltable expression'
                     )
+
+    def __repr__(self) -> str:
+        return f'<Pixeltable UDF {self.name}>'

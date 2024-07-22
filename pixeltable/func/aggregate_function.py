@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import abc
-import importlib
 import inspect
-from typing import Optional, Any, Type, List, Dict, Callable
-import itertools
+from typing import Any, Callable, Dict, List, Optional, Type
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .function import Function
-from .signature import Signature, Parameter
 from .globals import validate_symbol_path
+from .signature import Parameter, Signature
 
 
 class Aggregator(abc.ABC):
@@ -40,6 +39,7 @@ class AggregateFunction(Function):
         self.requires_order_by = requires_order_by
         self.allows_std_agg = allows_std_agg
         self.allows_window = allows_window
+        self.__doc__ = aggregator_class.__doc__
 
         # our signature is the signature of 'update', but without self,
         # plus the parameters of 'init' as keyword-only parameters
@@ -134,6 +134,9 @@ class AggregateFunction(Function):
                     f'{self.display_name}(): init() parameter {param_name} needs to be a constant, not a Pixeltable '
                     f'expression'
                 )
+
+    def __repr__(self) -> str:
+        return f'<Pixeltable Aggregator {self.name}>'
 
 
 def uda(
