@@ -642,6 +642,8 @@ class TestTable:
         validate_update_status(
             t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}, {'c1': '2', 'c2': 2, 'c3': 3.0}]), expected_rows=2
         )
+        assert t.where(t.c2 == 1).collect()[0]['c3'] == 2.0
+        assert t.where(t.c2 == 2).collect()[0]['c3'] == 3.0
 
         with pytest.raises(excs.Error) as exc_info:
             # can't mix _rowid with primary key

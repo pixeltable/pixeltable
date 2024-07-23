@@ -730,40 +730,6 @@ class TableVersion:
             result.updated_cols = updated_cols
             return result
 
-            for i, row in enumerate(batch):
-                where_clause: Optional[exprs.Expr] = None
-                if use_rowids:
-                    # construct Where clause to match rowid
-                    num_rowid_cols = len(self.store_tbl.rowid_columns())
-                    for col_idx in range(num_rowid_cols):
-                        assert len(rowids[i]) == num_rowid_cols, f'len({rowids[i]}) != {num_rowid_cols}'
-                        clause = exprs.RowidRef(self, col_idx) == rowids[i][col_idx]
-                        if where_clause is None:
-                            where_clause = clause
-                        else:
-                            where_clause = where_clause & clause
-                else:
-                    # construct Where clause for primary key columns
-                    for col in pk_cols:
-                        assert col in row
-                        clause = exprs.ColumnRef(col) == row[col]
-                        if where_clause is None:
-                            where_clause = clause
-                        else:
-                            where_clause = where_clause & clause
-
-                update_targets = {col: row[col] for col in row if col not in pk_cols}
-                status = self._update(conn, update_targets, where_clause, cascade, show_progress=False)
-                result_status.num_rows += status.num_rows
-                result_status.num_excs += status.num_excs
-                result_status.num_computed_values += status.num_computed_values
-                cols_with_excs.update(status.cols_with_excs)
-                updated_cols.update(status.updated_cols)
-
-            result_status.cols_with_excs = list(cols_with_excs)
-            result_status.updated_cols = list(updated_cols)
-            return result_status
-
     def _update(
             self, conn: sql.engine.Connection, update_targets: dict[Column, 'pixeltable.exprs.Expr'],
             where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True,
@@ -788,7 +754,9 @@ class TableVersion:
             if not isinstance(col_name, str):
                 raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
             if col_name == _ROWID_COLUMN_NAME:
-                # ignore pseudo-column _rowid
+                assert len(val) == len(self.store_tbl.rowid_columns())
+                for el in val:
+                    assert isinstance(el, int)
                 continue
             col = self.path.get_column(col_name, include_bases=False)
             if col is None:

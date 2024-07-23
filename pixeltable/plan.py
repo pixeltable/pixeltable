@@ -346,7 +346,7 @@ class Planner:
             plan = exec.ExprEvalNode(row_builder, analyzer.select_list, analyzer.sql_exprs, input=plan)
         # update row builder with column information
         all_base_cols = copied_cols + list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
-        row_builder.substitute_exprs(select_list)
+        row_builder.substitute_exprs(select_list, remove_duplicates=False)
         [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
 
         ctx = exec.ExecContext(row_builder)

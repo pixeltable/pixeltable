@@ -13,7 +13,9 @@ class RowUpdateNode(ExecNode):
     """
     Update individual rows in the input batches, identified by key columns.
 
-    Populates the slots of the columns present in the update list
+    The updates for a row are provided as a dict of column names to new values.
+    The node assumes that all update dicts contain the same keys, and it populates the slots of the columns present in
+    the update list.
     """
     def __init__(
             self, tbl: catalog.TableVersionPath, key_vals_batch: list[tuple], is_rowid_key: bool,
@@ -34,7 +36,8 @@ class RowUpdateNode(ExecNode):
     def __next__(self) -> DataRowBatch:
         batch = next(self.input)
         for row in batch:
-            key_vals = tuple(row[slot_idx] for slot_idx in self.key_slot_idxs.values())
+            key_vals = row.rowid if self.is_rowid_key else \
+                tuple(row[slot_idx] for slot_idx in self.key_slot_idxs.values())
             if key_vals not in self.updates:
                 continue
             col_vals = self.updates[key_vals]

@@ -5,8 +5,7 @@ from .exec_context import ExecContext
 from .exec_node import ExecNode
 from .expr_eval_node import ExprEvalNode
 from .in_memory_data_node import InMemoryDataNode
-from .sql_scan_node import SqlScanNode
-from .sql_lookup_node import SqlLookupNode
+from .sql_node import SqlScanNode, SqlLookupNode
 from .row_update_node import RowUpdateNode
 from .media_validation_node import MediaValidationNode
 from .data_row_batch import DataRowBatch
