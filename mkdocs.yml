@@ -14,6 +14,9 @@ theme:
   name: material
   custom_dir: docs/overrides
 
+extra_css:
+  - css/mkdocstrings.css
+
 nav:
   - Home: index.md
   - 'API Cheat Sheet': api-cheat-sheet.md
@@ -56,3 +59,5 @@ plugins:
               show_symbol_type_toc: true
               separate_signature: true
               signature_crossrefs: true
+              extensions:
+                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:
