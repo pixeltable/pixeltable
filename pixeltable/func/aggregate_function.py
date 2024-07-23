@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -10,6 +10,9 @@ import pixeltable.type_system as ts
 from .function import Function
 from .globals import validate_symbol_path
 from .signature import Parameter, Signature
+
+if TYPE_CHECKING:
+    import pixeltable
 
 
 class Aggregator(abc.ABC):
