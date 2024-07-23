@@ -42,7 +42,8 @@ Learn how to create tables, populate them with data, and enhance them with built
 
 ### Import media data into Pixeltable (videos, images, audio...)
 ```python
-# The files can be local or remote (e.g., in S3). For the latter, Pixeltable automatically caches the files locally on access.
+import pixeltable as pxt
+
 v = pxt.create_table('external_data.videos', {'video': pxt.VideoType()})
 
 prefix = 's3://multimedia-commons/'
@@ -57,8 +58,7 @@ Learn how to [work with data in Pixeltable](https://pixeltable.readme.io/docs/wo
 
 ### Add an object detection model to your workflow
 ```python
-# Pixeltable is downloading the model from Huggingface (if necessary), instantiating it, and caching it for later use
-t['detections'] = huggingface.detr_for_object_detection(t.input_image, model_id='facebook/detr-resnet-50')
+table['detections'] = huggingface.detr_for_object_detection(table.input_image, model_id='facebook/detr-resnet-50')
 ```
 Learn about computed columns and object detection: [Comparing object detection models](https://pixeltable.readme.io/docs/object-detection-in-videos).
 
@@ -77,11 +77,11 @@ Learn more about user-defined functions: [UDFs in Pixeltable](https://pixeltable
 ### Automate data operations with views
 ```python
 # In this example, the view is defined by iteration over the chunks of a DocumentSplitter.
-chunks_t = pxt.create_view(
+chunks_table = pxt.create_view(
     'rag_demo.chunks',
-    documents_t,
+    documents_table,
     iterator=DocumentSplitter.create(
-        document=documents_t.document,
+        document=documents_table.document,
         separators='token_limit', limit=300)
 )
 ```
@@ -96,13 +96,13 @@ Learn how to leverage Pixeltable for [Model analytics](https://pixeltable.readme
 
 ### Working with inference services
 ```python
-chat_t = pxt.create_table('together_demo.chat', {'input': pxt.StringType()})
+chat_table = pxt.create_table('together_demo.chat', {'input': pxt.StringType()})
 
 # The chat-completions API expects JSON-formatted input:
-messages = [{'role': 'user', 'content': chat_t.input}]
+messages = [{'role': 'user', 'content': chat_table.input}]
 
 # This example shows how additional parameters from the Together API can be used in Pixeltable to customize the model behavior.
-chat_t['output'] = chat_completions(
+chat_table['output'] = chat_completions(
     messages=messages,
     model='mistralai/Mixtral-8x7B-Instruct-v0.1',
     max_tokens=300,
@@ -114,14 +114,14 @@ chat_t['output'] = chat_completions(
     logprobs=1,
     echo=True
 )
-chat_t['response'] = chat_t.output.choices[0].message.content
+chat_table['response'] = chat_table.output.choices[0].message.content
 
 # Start a conversation
-chat_t.insert([
+chat_table.insert([
     {'input': 'How many species of felids have been classified?'},
     {'input': 'Can you make me a coffee?'}
 ])
-chat_t.select(chat_t.input, chat_t.response).head()
+chat_table.select(chat_table.input, chat_table.response).head()
 ```
 Learn how to interact with inference services such as [Together AI](https://pixeltable.readme.io/docs/together-ai) in Pixeltable.
 
