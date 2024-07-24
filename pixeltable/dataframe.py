@@ -319,8 +319,6 @@ class DataFrame:
         return self.limit(n).collect()
 
     def head(self, n: int = 10) -> DataFrameResultSet:
-        if self.order_by_clause is not None:
-            raise excs.Error(f'head() cannot be used with order_by()')
         num_rowid_cols = len(self.tbl.tbl_version.store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self.tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
