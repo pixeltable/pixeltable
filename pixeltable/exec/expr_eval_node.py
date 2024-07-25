@@ -50,7 +50,14 @@ class ExprEvalNode(ExecNode):
 
     def _open(self) -> None:
         warnings.simplefilter("ignore", category=TqdmWarning)
-        if self.ctx.show_pbar:
+        # This is a temporary hack. When indexable strings were introduced via new (anonymous) computed columns,
+        # it resulted in frivolous progress bars appearing on every insertion. This simply special-cases
+        # `str_filter` expressions to suppress the corresponding progress bar.
+        # TODO(aaron-siegel) Remove this hack once we clean up progress bars more generally.
+        is_str_filter_node = all(
+            isinstance(expr, exprs.FunctionCall) and expr.fn.name == 'str_filter' for expr in self.output_exprs
+        )
+        if self.ctx.show_pbar and not is_str_filter_node:
             self.pbar = tqdm(
                 total=len(self.target_exprs) * self.ctx.num_rows,
                 desc='Computing cells',
