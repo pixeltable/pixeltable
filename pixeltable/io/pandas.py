@@ -1,4 +1,4 @@
-from typing import Optional, Any, Iterable
+from typing import Optional, Any, Iterable, Union
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,10 @@ import pixeltable.type_system as ts
 
 
 def import_pandas(
-    tbl_name: str, df: pd.DataFrame, *, schema_overrides: Optional[dict[str, pxt.ColumnType]] = None
+    tbl_name: str, df: pd.DataFrame, *, schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
+    primary_key: Optional[Union[str, list[str]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = ''
 ) -> pxt.catalog.InsertableTable:
     """Creates a new `Table` from a Pandas `DataFrame`, with the specified name. The schema of the table
     will be inferred from the `DataFrame`, unless `schema` is specified.
@@ -31,13 +34,17 @@ def import_pandas(
     """
     schema = _df_to_pxt_schema(df, schema_overrides)
     tbl_rows = (dict(_df_row_to_pxt_row(row, schema)) for row in df.itertuples())
-    table = pxt.create_table(tbl_name, schema)
+    table = pxt.create_table(tbl_name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
     table.insert(tbl_rows)
     return table
 
 
 def import_csv(
-    table_path: str, filepath_or_buffer, schema_overrides: Optional[dict[str, ts.ColumnType]] = None, **kwargs
+    tbl_name: str, filepath_or_buffer, schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+    primary_key: Optional[Union[str, list[str]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    **kwargs
 ) -> pxt.catalog.InsertableTable:
     """
     Creates a new `Table` from a csv file. This is a convenience method and is equivalent
@@ -45,11 +52,15 @@ def import_csv(
     See the Pandas documentation for `read_csv` for more details.
     """
     df = pd.read_csv(filepath_or_buffer, **kwargs)
-    return import_pandas(table_path, df, schema_overrides=schema_overrides)
+    return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
 
 
 def import_excel(
-    table_path: str, io, *args, schema_overrides: Optional[dict[str, ts.ColumnType]] = None, **kwargs
+    tbl_name: str, io, *args, schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+    primary_key: Optional[Union[str, list[str]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    **kwargs
 ) -> pxt.catalog.InsertableTable:
     """
     Creates a new `Table` from an excel (.xlsx) file. This is a convenience method and is equivalent
@@ -57,7 +68,7 @@ def import_excel(
     See the Pandas documentation for `read_excel` for more details.
     """
     df = pd.read_excel(io, *args, **kwargs)
-    return import_pandas(table_path, df, schema_overrides=schema_overrides)
+    return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
 
 
 def _df_to_pxt_schema(
