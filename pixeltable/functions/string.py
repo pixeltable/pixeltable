@@ -14,6 +14,11 @@ def str_format(format_str: str, *args: Any, **kwargs: Any) -> str:
     return format_str.format(*args, **kwargs)
 
 
+@func.udf
+def contains(string: str, substr: str) -> bool:
+    return substr in string
+
+
 __all__ = local_public_names(__name__)
 
 
