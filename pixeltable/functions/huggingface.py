@@ -217,7 +217,41 @@ def _(model_id: str) -> ts.ArrayType:
 
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
-    """Runs the specified DETR model."""
+    """
+    Runs the specified DETR object detection model. `model_id` should be a reference to a pretrained
+    [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr).
+
+    __Requirements:__
+
+    - `pip install transformers`
+
+    Args:
+        image: The image to embed.
+        model_id: The pretrained model to use for the embedding.
+
+    Returns:
+        A dictionary containing the output of the object detection model, in the following format:
+
+    ```python
+    {
+        'scores': [0.99, 0.999],  # list of confidence scores for each detected object
+        'labels': [25, 25],  # list of COCO class labels for each detected object
+        'label_text': ['giraffe', 'giraffe'],  # corresponding text names of class labels
+        'boxes': [[51.942, 356.174, 181.481, 413.975], [383.225, 58.66, 605.64, 361.346]]
+            # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
+    }
+    ```
+
+    Examples:
+        Add a computed column that applies the model `facebook/detr-resnet-50` to an existing
+        Pixeltable column `tbl.image` of the table `tbl`:
+
+        >>> tbl['detections'] = detr_for_object_detection(
+                tbl.image,
+                model_id='facebook/detr-resnet-50',
+                threshold=0.8
+            )
+    """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
