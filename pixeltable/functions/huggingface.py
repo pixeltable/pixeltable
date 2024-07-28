@@ -1,3 +1,11 @@
+"""
+A collection of Pixeltable UDFs that wrap various models from the Huggingface transformers libraries.
+
+These UDFs will cause Pixeltable to invoke the relevant models locally. In order to use them, you must
+first `pip install transformers` (or in some cases, `sentence-transformers`, as noted in the specific
+UDFs).
+"""
+
 from typing import Callable, TypeVar, Optional, Any
 
 import PIL.Image
@@ -13,15 +21,39 @@ from pixeltable.utils.code import local_public_names
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
 def sentence_transformer(
-    sentences: Batch[str], *, model_id: str, normalize_embeddings: bool = False
+    sentence: Batch[str], *, model_id: str, normalize_embeddings: bool = False
 ) -> Batch[np.ndarray]:
-    """Runs the specified sentence transformer model."""
+    """
+    Runs the specified pretrained sentence-transformers model. `model_id` should be a pretrained model, as described
+    in the [Sentence Transformers Pretrained Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html)
+    documentation.
+
+    __Requirements:__
+
+    - `pip install sentence-transformers`
+
+    Args:
+        sentence: The sentence to embed.
+        model_id: The pretrained model to use for the encoding.
+        normalize_embeddings: If `True`, normalizes embeddings to length 1; see the
+            [Sentence Transformers API Docs](https://sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html)
+            for more details
+
+    Returns:
+        An array containing the output of the embedding model.
+
+    Examples:
+        Add a computed column that applies the model `all-mpnet-base-2` to an existing Pixeltable column `tbl.sentence`
+        of the table `tbl`:
+
+        >>> tbl['result'] = sentence_transformer(tbl.sentence, model_id='all-mpnet-base-v2')
+    """
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import SentenceTransformer
 
     model = _lookup_model(model_id, SentenceTransformer)
 
-    array = model.encode(sentences, normalize_embeddings=normalize_embeddings)
+    array = model.encode(sentence, normalize_embeddings=normalize_embeddings)
     return [array[i] for i in range(array.shape[0])]
 
 
@@ -49,7 +81,32 @@ def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embed
 
 @pxt.udf(batch_size=32)
 def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
-    """Runs the specified cross-encoder model."""
+    """
+    Runs the specified cross-encoder model to compute similarity scores for pairs of sentences.
+    `model_id` should be a pretrained model, as described in the
+    [Cross-Encoder Pretrained Models](https://www.sbert.net/docs/cross_encoder/pretrained_models.html)
+    documentation.
+
+    __Requirements:__
+
+    - `pip install sentence-transformers`
+
+    Parameters:
+        sentences1: The first sentence to be paired.
+        sentences2: The second sentence to be paired.
+        model_id: The identifier of the cross-encoder model to use.
+
+    Returns:
+        The similarity score between the inputs.
+
+    Examples:
+        Add a computed column that applies the model `ms-marco-MiniLM-L-4-v2` to the sentences in
+        columns `tbl.sentence1` and `tbl.sentence2`:
+
+        >>> tbl['result'] = sentence_transformer(
+                tbl.sentence1, tbl.sentence2, model_id='ms-marco-MiniLM-L-4-v2'
+            )
+    """
     env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import CrossEncoder
 

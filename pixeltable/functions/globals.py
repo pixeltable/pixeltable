@@ -14,6 +14,7 @@ def cast(expr: exprs.Expr, target_type: ts.ColumnType) -> exprs.Expr:
 
 @func.uda(update_types=[ts.IntType()], value_type=ts.IntType(), allows_window=True, requires_order_by=False)
 class sum(func.Aggregator):
+    """Sums the selected integers or floats."""
     def __init__(self):
         self.sum: Union[int, float] = 0
 
