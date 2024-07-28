@@ -18,10 +18,12 @@ def dummy_fn(i: int) -> int:
 class TestFunction:
     @pxt.udf(return_type=IntType(), param_types=[IntType()])
     def func(x: int) -> int:
+        """A UDF."""
         return x + 1
 
     @pxt.uda(value_type=IntType(), update_types=[IntType()])
     class agg:
+        """An aggregator."""
         def __init__(self):
             self.sum = 0
         def update(self, val: int) -> None:
@@ -436,6 +438,10 @@ class TestFunction:
             def _(wrong_param: str) -> pxt.ColumnType:
                 return pxt.StringType()
         assert '`wrong_param` that is not in the signature' in str(exc_info.value).lower()
+
+    def test_udf_docstring(self) -> None:
+        assert self.func.__doc__ == "A UDF."
+        assert self.agg.__doc__ == "An aggregator."
 
 
 @pxt.udf

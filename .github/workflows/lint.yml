@@ -24,6 +24,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install mypy sqlalchemy[mypy] pylint ruff
         python -m pip install mkdocs mkdocs-material mkdocstrings-python black
+        python -m pip install -e .
     # These steps will check ONLY the files that are affected by the PR.
     # For the time being, failures will be ignored (report-only).
     - name: Analyze code with mypy
