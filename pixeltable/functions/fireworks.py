@@ -29,6 +29,7 @@ def chat_completions(
     top_p: Optional[float] = None,
     temperature: Optional[float] = None,
 ) -> dict:
+    """Pixeltable UDF for the Fireworks `chat/completions` API endpoint."""
     kwargs = {'max_tokens': max_tokens, 'top_k': top_k, 'top_p': top_p, 'temperature': temperature}
     kwargs_not_none = {k: v for k, v in kwargs.items() if v is not None}
     return _fireworks_client().chat.completions.create(model=model, messages=messages, **kwargs_not_none).dict()

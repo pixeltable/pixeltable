@@ -58,6 +58,7 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
 
 @pxt.udf
 def yolo_to_coco(detections: dict) -> list:
+    """Converts YOLOX detection results to COCO format."""
     bboxes, labels = detections['bboxes'], detections['labels']
     num_annotations = len(detections['bboxes'])
     assert num_annotations == len(detections['labels'])

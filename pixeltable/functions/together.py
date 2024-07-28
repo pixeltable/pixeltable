@@ -41,6 +41,7 @@ def completions(
     n: Optional[int] = None,
     safety_model: Optional[str] = None,
 ) -> dict:
+    """Pixeltable UDF for the Together `completions` API endpoint."""
     return (
         _together_client()
         .completions.create(
@@ -80,6 +81,7 @@ def chat_completions(
     tools: Optional[dict] = None,
     tool_choice: Optional[dict] = None,
 ) -> dict:
+    """Pixeltable UDF for the Together `chat/completions` API endpoint."""
     return (
         _together_client()
         .chat.completions.create(
@@ -141,6 +143,7 @@ def image_generations(
     width: Optional[int] = None,
     negative_prompt: Optional[str] = None,
 ) -> PIL.Image.Image:
+    """Pixeltable UDF for the Together `images/generate` API endpoint."""
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     result = _together_client().images.generate(
         prompt=prompt, model=model, steps=steps, seed=seed, height=height, width=width, negative_prompt=negative_prompt

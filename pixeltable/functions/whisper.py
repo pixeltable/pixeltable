@@ -39,6 +39,7 @@ def transcribe(
     append_punctuations: str = '"\'.。,，!！?？:：”)]}、',
     decode_options: Optional[dict] = None,
 ) -> dict:
+    """Runs the Whisper model on the given audio and returns the transcribed text."""
     import torch
 
     if decode_options is None:

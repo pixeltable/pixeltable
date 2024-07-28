@@ -11,6 +11,7 @@ import pixeltable as pxt
 def transcribe(
     audio: str, *, model: str, compute_type: Optional[str] = None, language: Optional[str] = None, chunk_size: int = 30
 ) -> dict:
+    """Runs the WhisperX model on the given audio and returns the transcribed text."""
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     compute_type = compute_type or ('float16' if device == 'cuda' else 'int8')
     model = _lookup_model(model, device, compute_type)

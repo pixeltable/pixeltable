@@ -29,8 +29,15 @@ nav:
       - FrameIterator: api/iterators/frame-iterator.md
     - DataFrame: api/data-frame.md
     - Table: api/table.md
-  - Pixeltable Functions:
+  - Built-in UDFs:
+    - Fireworks: api/functions/fireworks.md
     - Huggingface: api/functions/huggingface.md
+    - OpenAI: api/functions/openai.md
+    - Together: api/functions/together.md
+    - Whisper: api/functions/whisper.md
+  - Built-in Extended UDFs:
+    - WhisperX: api/ext/functions/whisperx.md
+    - YOLOX: api/ext/functions/yolox.md
 
 plugins:
   - search
