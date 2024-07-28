@@ -9,15 +9,15 @@ from .data_row import DataRow
 from .expr import Expr
 from .globals import ComparisonOperator
 from .literal import Literal
-from .predicate import Predicate
 from .row_builder import RowBuilder
 import pixeltable.exceptions as excs
 import pixeltable.index as index
+import pixeltable.type_system as ts
 
 
-class Comparison(Predicate):
+class Comparison(Expr):
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
-        super().__init__()
+        super().__init__(ts.BoolType())
         self.operator = operator
 
         # if this is a comparison of a column to a literal (ie, could be used as a search argument in an index lookup),
