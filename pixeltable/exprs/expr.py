@@ -539,7 +539,7 @@ class Expr(abc.ABC):
         return CompoundPredicate(LogicalOperator.NOT, [self])
 
     def split_conjuncts(
-            self, condition: Callable[[Expr], bool]) -> Tuple[List[Expr], Optional[Expr]]:
+            self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
         """
         Returns clauses of a conjunction that meet condition in the first element.
         The second element contains remaining clauses, rolled into a conjunction.

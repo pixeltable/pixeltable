@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import operator
-from typing import Optional, List, Any, Dict, Tuple, Callable
+from typing import Optional, List, Any, Dict, Callable
 
 import sqlalchemy as sql
 
@@ -55,11 +55,11 @@ class CompoundPredicate(Expr):
     def _equals(self, other: CompoundPredicate) -> bool:
         return self.operator == other.operator
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('operator', self.operator.value)]
 
     def split_conjuncts(
-            self, condition: Callable[[Expr], bool]) -> Tuple[List[Expr], Optional[Expr]]:
+            self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
         if self.operator == LogicalOperator.OR or self.operator == LogicalOperator.NOT:
             return super().split_conjuncts(condition)
         matches = [op for op in self.components if condition(op)]

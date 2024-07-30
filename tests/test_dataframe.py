@@ -51,6 +51,11 @@ class TestDataFrame:
             _ = t.where(t.c1).select(t.c2).show(0)
         assert 'needs to return bool' in str(exc_info.value)
 
+        # where clause needs to be a predicate
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.where(15).select(t.c2).show(0)
+        assert 'requires a pixeltable expression' in str(exc_info.value).lower()
+
         # duplicate select list
         with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c1).select(t.c2).show(0)

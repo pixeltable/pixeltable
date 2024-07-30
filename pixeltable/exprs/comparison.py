@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Optional, List, Any, Dict
 
 import sqlalchemy as sql
 
@@ -50,7 +50,7 @@ class Comparison(Expr):
     def _equals(self, other: Comparison) -> bool:
         return self.operator == other.operator
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('operator', self.operator.value)]
 
     @property
