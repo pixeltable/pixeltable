@@ -1,4 +1,4 @@
-from typing import Any, Optional, Literal
+from typing import TYPE_CHECKING, Any, Optional, Literal
 
 import pixeltable.exceptions as excs
 from pixeltable import Table
@@ -13,6 +13,7 @@ def create_label_studio_project(
         media_import_method: Literal['post', 'file', 'url'] = 'post',
         col_mapping: Optional[dict[str, str]] = None,
         sync_immediately: bool = True,
+        s3_configuration: Optional[dict[str, Any]] = None,
         **kwargs: Any
 ) -> SyncStatus:
     # TODO(aaron-siegel): Add link in docstring to a Label Studio howto
@@ -76,6 +77,7 @@ def create_label_studio_project(
         title,
         media_import_method,
         col_mapping,
+        s3_configuration,
         **kwargs
     )
 
