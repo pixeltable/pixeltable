@@ -582,25 +582,20 @@ class LabelStudioProject(Project):
                 raise excs.Error('`s3_configuration` must contain a `bucket` field')
             if not 'title' in s3_configuration:
                 s3_configuration['title'] = 'Pixeltable-S3-Import-Storage'
-            if (not 'aws_access_key_id' in s3_configuration or
-                not 'aws_secret_access_key' in s3_configuration or
-                not 'aws_session_token' in s3_configuration):
+            if ('aws_access_key_id' not in s3_configuration and
+                'aws_secret_access_key' not in s3_configuration and
+                'aws_session_token' not in s3_configuration):
                 # Attempt to fill any missing credentials from the environment
                 try:
                     import boto3
                     s3_credentials = boto3.Session().get_credentials().get_frozen_credentials()
-                    if s3_credentials.access_key is not None:
-                        _logger.debug('Using AWS access key from environment')
-                        s3_configuration['aws_access_key_id'] = s3_credentials.access_key
-                    if s3_credentials.secret_key is not None:
-                        _logger.debug('Using AWS secret key from environment')
-                        s3_configuration['aws_secret_access_key'] = s3_credentials.secret_key
-                    if s3_credentials.token is not None:
-                        _logger.debug('Using AWS session token from environment')
-                        s3_configuration['aws_session_token'] = s3_credentials.token
+                    _logger.info(f'Using AWS credentials from the environment for Label Studio project: {title}')
+                    s3_configuration['aws_access_key_id'] = s3_credentials.access_key
+                    s3_configuration['aws_secret_access_key'] = s3_credentials.secret_key
+                    s3_configuration['aws_session_token'] = s3_credentials.token
                 except Exception as exc:
                     # This is not necessarily a problem, but we should log that it happened
-                    _logger.debug(f'Unable to retrieve AWS credentials from environment: {exc}')
+                    _logger.debug(f'Unable to retrieve AWS credentials from the environment: {exc}')
                     pass
 
         _logger.info(f'Creating Label Studio project: {title}')
