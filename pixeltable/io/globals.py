@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Optional, Literal
+from typing import Any, Optional, Literal
 
 import pixeltable.exceptions as excs
 from pixeltable import Table
@@ -16,9 +16,8 @@ def create_label_studio_project(
         s3_configuration: Optional[dict[str, Any]] = None,
         **kwargs: Any
 ) -> SyncStatus:
-    # TODO(aaron-siegel): Add link in docstring to a Label Studio howto
     """
-    Creates a new Label Studio project and links it to the specified `Table`.
+    Create a new Label Studio project and link it to the specified `Table`.
 
     - A tutorial notebook with fully worked examples can be found here:
       [Using Label Studio for Annotations with Pixeltable](https://pixeltable.readme.io/docs/label-studio)
@@ -74,17 +73,20 @@ def create_label_studio_project(
         sync_immediately: If `True`, immediately perform an initial synchronization by
             exporting all rows of the `Table` as Label Studio tasks.
         s3_configuration: If specified, S3 import storage will be configured for the new project. This can only
-            be used with `media_import_method='url'`, and it must be specified if any of the media data is
-            referenced by `s3://` URLs. The items in the `s3_configuration` dictionary correspond to kwarg
+            be used with `media_import_method='url'`, and if `media_import_method='url'` and any of the media data is
+            referenced by `s3://` URLs, then it must be specified in order for such media to display correctly
+            in the Label Studio interface.
+
+            The items in the `s3_configuration` dictionary correspond to kwarg
             parameters of the Label Studio `connect_s3_import_storage` method, as described in the
-            [Label Studio API](https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.connect_s3_import_storage).
-            `bucket` must be specified; all other parameters are optional. If creditials are not specified explicitly,
-            Pixeltable will attempt to retrieve them from the environment (e.g., `~/.aws/credentials`). If a title is not
-            specified, Pixeltable will use the default `Pixeltable-S3-Import-Storage`. All other parameters use their Label
+            [Label Studio connect_s3_import_storage docs](https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.connect_s3_import_storage).
+            `bucket` must be specified; all other parameters are optional. If credentials are not specified explicitly,
+            Pixeltable will attempt to retrieve them from the environment (such as from `~/.aws/credentials`). If a title is not
+            specified, Pixeltable will use the default `'Pixeltable-S3-Import-Storage'`. All other parameters use their Label
             Studio defaults.
         kwargs: Additional keyword arguments are passed to the `start_project` method in the Label
-            Studio SDK, as described here:
-            https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_project
+            Studio SDK, as described in the
+            [Label Studio start_project docs](https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_project).
 
     Returns:
         A `SyncStatus` representing the status of any synchronization operations that occurred.
@@ -103,7 +105,8 @@ def create_label_studio_project(
             </View>\"\"\"
             create_label_studio_project(tbl, config)
 
-        Create a Label Studio project with the same configuration, whose media are stored in an S3 bucket:
+        Create a Label Studio project with the same configuration, using `media_import_method='url'`,
+        whose media are stored in an S3 bucket:
 
         >>> create_label_studio_project(
                 tbl,
