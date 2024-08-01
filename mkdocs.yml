@@ -35,9 +35,6 @@ nav:
     - OpenAI: api/functions/openai.md
     - Together: api/functions/together.md
     - Whisper: api/functions/whisper.md
-  - Built-in Extended UDFs:
-    - WhisperX: api/ext/functions/whisperx.md
-    - YOLOX: api/ext/functions/yolox.md
 
 plugins:
   - search
