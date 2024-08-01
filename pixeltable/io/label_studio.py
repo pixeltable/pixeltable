@@ -18,6 +18,15 @@ from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project, SyncStatus
 from pixeltable.utils import coco
 
+# label_studio_sdk>=1 and label_studio_sdk<1 are not compatible, so we need to try
+# the import two different ways to insure intercompatibility
+try:
+    # label_studio_sdk<1 compatibility
+    import label_studio_sdk.project as ls_project  # type: ignore
+except ImportError:
+    # label_studio_sdk>=1 compatibility
+    import label_studio_sdk._legacy.project as ls_project  # type: ignore
+
 _logger = logging.getLogger('pixeltable')
 
 
@@ -50,11 +59,11 @@ class LabelStudioProject(Project):
         """
         self.project_id = project_id
         self.media_import_method = media_import_method
-        self._project: Optional[label_studio_sdk.project.Project] = None
+        self._project: Optional[ls_project.Project] = None
         super().__init__(name, col_mapping, stored_proxies)
 
     @property
-    def project(self) -> label_studio_sdk.project.Project:
+    def project(self) -> ls_project.Project:
         """The `Project` object corresponding to this Label Studio project."""
         if self._project is None:
             try:
