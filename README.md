@@ -56,6 +56,9 @@ v.insert({'video': prefix + p} for p in paths)
 ```
 Learn how to [work with data in Pixeltable](https://pixeltable.readme.io/docs/working-with-external-files).
 
+> [!IMPORTANT]
+> Pixeltable is persistent. Unlike in-memory Python libraries such as Pandas, Pixeltable is a database. When working locally or against an hosted version of Pixeltable, use [get_table](https://pixeltable.github.io/pixeltable/api/pixeltable/#pixeltable.get_table) at any time to retrieve an existing table.
+
 ### Add an object detection model to your workflow
 ```python
 table['detections'] = huggingface.detr_for_object_detection(table.input_image, model_id='facebook/detr-resnet-50')
@@ -156,7 +159,6 @@ Pixeltable unifies data storage, versioning, and indexing with orchestration and
 
 - Pixeltable is not a low-code, prescriptive AI solution. We empower you to use the best frameworks and techniques for your specific needs.
 - We do not aim to replace your existing AI toolkit, but rather enhance it by streamlining the underlying data infrastructure and orchestration.
-- Pixeltable is persistent. Unlike in-memory Python libraries such as Pandas, Pixeltable is a database. When working locally or against an hosted version of Pixeltable, use [get_table](https://pixeltable.github.io/pixeltable/api/pixeltable/#pixeltable.get_table) at any time to retrieve an existing table.
 
 > [!TIP]
 > Check out the [Integrations](https://pixeltable.readme.io/docs/working-with-openai) section, and feel free to submit a request for additional ones.
