@@ -41,6 +41,9 @@ class PxtGriffeExtension(Extension):
         # Convert the parameter types to Pixeltable type references
         for griffe_param in func.parameters:
             assert isinstance(griffe_param.annotation, griffe.expressions.Expr)
+            if griffe_param.name not in udf.signature.parameters:
+                logger.warning(f'Parameter `{griffe_param.name}` not found in signature for UDF: {udf.display_name}')
+                continue
             pxt_param = udf.signature.parameters[griffe_param.name]
             griffe_param.annotation = self.__column_type_to_display_str(pxt_param.col_type)
 
