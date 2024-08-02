@@ -9,7 +9,7 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.exprs import Expr
 
 
-@func.udf
+@func.udf(member_access='method')
 def b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str:
     # Encode this image as a b64-encoded png.
     import io
@@ -20,17 +20,17 @@ def b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str:
     return b64_bytes.decode('utf-8')
 
 
-@func.udf(substitute_fn=PIL.Image.alpha_composite)
+@func.udf(substitute_fn=PIL.Image.alpha_composite, member_access='method')
 def alpha_composite(im1: PIL.Image.Image, im2: PIL.Image.Image) -> PIL.Image.Image:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.blend)
+@func.udf(substitute_fn=PIL.Image.blend, member_access='method')
 def blend(im1: PIL.Image.Image, im2: PIL.Image.Image, alpha: float) -> PIL.Image.Image:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.composite)
+@func.udf(substitute_fn=PIL.Image.composite, member_access='method')
 def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.Image) -> PIL.Image.Image:
     pass
 
@@ -39,7 +39,7 @@ def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.
 
 
 # Image.convert()
-@func.udf
+@func.udf(member_access='method')
 def convert(self: PIL.Image.Image, mode: str) -> PIL.Image.Image:
     return self.convert(mode)
 
@@ -52,7 +52,7 @@ def _(self: Expr, mode: str) -> ts.ColumnType:
 
 
 # Image.crop()
-@func.udf(substitute_fn=PIL.Image.Image.crop, param_types=[ts.ImageType(), ts.ArrayType((4,), dtype=ts.IntType())])
+@func.udf(substitute_fn=PIL.Image.Image.crop, param_types=[ts.ImageType(), ts.ArrayType((4,), dtype=ts.IntType())], member_access='method')
 def crop(self: PIL.Image.Image, box: Tuple[int, int, int, int]) -> PIL.Image.Image:
     pass
 
@@ -67,7 +67,7 @@ def _(self: Expr, box: Tuple[int, int, int, int]) -> ts.ColumnType:
 
 
 # Image.getchannel()
-@func.udf(substitute_fn=PIL.Image.Image.getchannel)
+@func.udf(substitute_fn=PIL.Image.Image.getchannel, member_access='method')
 def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     pass
 
@@ -80,7 +80,7 @@ def _(self: Expr) -> ts.ColumnType:
 
 
 # Image.resize()
-@func.udf(param_types=[ts.ImageType(), ts.ArrayType((2,), dtype=ts.IntType())])
+@func.udf(param_types=[ts.ImageType(), ts.ArrayType((2,), dtype=ts.IntType())], member_access='method')
 def resize(self: PIL.Image.Image, size: Tuple[int, int]) -> PIL.Image.Image:
     return self.resize(size)
 
@@ -93,17 +93,17 @@ def _(self: Expr, size: Tuple[int, int]) -> ts.ColumnType:
 
 
 # Image.rotate()
-@func.udf
+@func.udf(member_access='method')
 def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
     return self.rotate(angle)
 
 
-@func.udf(substitute_fn=PIL.Image.Image.effect_spread)
+@func.udf(substitute_fn=PIL.Image.Image.effect_spread, member_access='method')
 def effect_spread(self: PIL.Image.Image, distance: int) -> PIL.Image.Image:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.transpose)
+@func.udf(substitute_fn=PIL.Image.Image.transpose, member_access='method')
 def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
     pass
 
@@ -115,53 +115,53 @@ def _(self: Expr) -> ts.ColumnType:
     return self.col_type
 
 
-@func.udf(substitute_fn=PIL.Image.Image.entropy)
+@func.udf(substitute_fn=PIL.Image.Image.entropy, member_access='method')
 def entropy(self: PIL.Image.Image, mask: Optional[PIL.Image.Image] = None, extrema: Optional[list] = None) -> float:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getbands)
+@func.udf(substitute_fn=PIL.Image.Image.getbands, member_access='method')
 def getbands(self: PIL.Image.Image) -> Tuple[str]:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getbbox)
+@func.udf(substitute_fn=PIL.Image.Image.getbbox, member_access='method')
 def getbbox(self: PIL.Image.Image) -> Tuple[int, int, int, int]:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getcolors)
+@func.udf(substitute_fn=PIL.Image.Image.getcolors, member_access='method')
 def getcolors(self: PIL.Image.Image, maxcolors: int) -> Tuple[Tuple[int, int, int], int]:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getextrema)
+@func.udf(substitute_fn=PIL.Image.Image.getextrema, member_access='method')
 def getextrema(self: PIL.Image.Image) -> Tuple[int, int]:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getpalette)
+@func.udf(substitute_fn=PIL.Image.Image.getpalette, member_access='method')
 def getpalette(self: PIL.Image.Image, mode: Optional[str] = None) -> Tuple[int]:
     pass
 
 
-@func.udf(param_types=[ts.ImageType(), ts.ArrayType((2,), dtype=ts.IntType())])
+@func.udf(param_types=[ts.ImageType(), ts.ArrayType((2,), dtype=ts.IntType())], member_access='method')
 def getpixel(self: PIL.Image.Image, xy: tuple[int, int]) -> Tuple[int]:
     # `xy` will be a list; `tuple(xy)` is necessary for pillow 9 compatibility
     return self.getpixel(tuple(xy))
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getprojection)
+@func.udf(substitute_fn=PIL.Image.Image.getprojection, member_access='method')
 def getprojection(self: PIL.Image.Image) -> Tuple[int]:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.histogram)
+@func.udf(substitute_fn=PIL.Image.Image.histogram, member_access='method')
 def histogram(self: PIL.Image.Image, mask: PIL.Image.Image, extrema: Optional[list] = None) -> Tuple[int]:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.quantize)
+@func.udf(substitute_fn=PIL.Image.Image.quantize, member_access='method')
 def quantize(
     self: PIL.Image.Image,
     colors: int = 256,
@@ -173,22 +173,22 @@ def quantize(
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.reduce)
+@func.udf(substitute_fn=PIL.Image.Image.reduce, member_access='method')
 def reduce(self: PIL.Image.Image, factor: int, box: Optional[Tuple[int]] = None) -> PIL.Image.Image:
     pass
 
 
-@func.udf(is_property=True)
+@func.udf(member_access='property')
 def width(self: PIL.Image.Image) -> int:
     return self.width
 
 
-@func.udf(is_property=True)
+@func.udf(member_access='property')
 def height(self: PIL.Image.Image) -> int:
     return self.height
 
 
-@func.udf(is_property=True)
+@func.udf(member_access='property')
 def mode(self: PIL.Image.Image) -> str:
     return self.mode
 

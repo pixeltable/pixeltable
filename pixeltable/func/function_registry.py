@@ -4,11 +4,9 @@ import dataclasses
 import importlib
 import logging
 import sys
-import types
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 from uuid import UUID
 
-import cloudpickle
 import sqlalchemy as sql
 
 import pixeltable.env as env
@@ -36,6 +34,7 @@ class FunctionRegistry:
     def __init__(self):
         self.stored_fns_by_id: Dict[UUID, Function] = {}
         self.module_fns: Dict[str, Function] = {}  # fqn -> Function
+        self.type_methods: dict[ts.ColumnType.Type, dict[str, Function]] = {}
 
     def clear_cache(self) -> None:
         """
@@ -65,8 +64,15 @@ class FunctionRegistry:
     #             fn_path = f'{caller_path}.{name}'  # fully-qualified name
     #             self.module_fns[fn_path] = obj
 
-    def register_function(self, fqn: str, fn: Function) -> None:
+    def register_function(self, fqn: str, fn: Function, register_as_method: bool) -> None:
         self.module_fns[fqn] = fn
+        if register_as_method:
+            base_type = fn.signature.parameters_by_pos[0].col_type.type_enum
+            if base_type not in self.type_methods:
+                self.type_methods[base_type] = {}
+            if fn.name in self.type_methods[base_type]:
+                raise excs.Error(f'Duplicate method name for type {base_type}: {fn.name}')
+            self.type_methods[base_type][fn.name] = fn
 
     def list_functions(self) -> List[Function]:
         # retrieve Function.Metadata data for all existing stored functions from store directly
@@ -127,12 +133,10 @@ class FunctionRegistry:
     #         assert fqn in self.module_fns, f'{fqn} not found'
     #         return self.module_fns[fqn]
 
-    def get_type_methods(self, name: str, base_type: ts.ColumnType.Type) -> List[Function]:
-        return [
-            fn for fn in self.module_fns.values()
-            if fn.self_path is not None and fn.self_path.endswith('.' + name) \
-               and fn.signature.parameters_by_pos[0].col_type.type_enum == base_type
-        ]
+    def lookup_type_method(self, base_type: ts.ColumnType.Type, name: str) -> Optional[Function]:
+        if base_type in self.type_methods and name in self.type_methods[base_type]:
+            return self.type_methods[base_type][name]
+        return None
 
     #def create_function(self, md: schema.FunctionMd, binary_obj: bytes, dir_id: Optional[UUID] = None) -> UUID:
     def create_stored_function(self, pxt_fn: Function, dir_id: Optional[UUID] = None) -> UUID:

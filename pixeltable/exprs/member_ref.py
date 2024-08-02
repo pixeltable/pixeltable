@@ -16,13 +16,9 @@ class MemberRef(Expr):
         super().__init__(ts.InvalidType())  # type is not defined until it's instantiated
         self.base_expr = base_expr
         self.member_name = member_name
-        candidates = FunctionRegistry.get().get_type_methods(member_name, base_expr.col_type.type_enum)
-        if len(candidates) == 0:
+        self.member = FunctionRegistry.get().lookup_type_method(base_expr.col_type.type_enum, member_name)
+        if self.member is None:
             raise excs.Error(f'Unknown member (of type {base_expr.col_type}): {member_name}')
-        if len(candidates) > 1:
-            raise excs.Error(f'Ambiguous member (of type {base_expr.col_type}): {member_name}')
-        assert isinstance(candidates[0], CallableFunction)
-        self.member = candidates[0]
         self.components = [base_expr]
         self.id = self._create_id()
 

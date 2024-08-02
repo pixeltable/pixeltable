@@ -19,9 +19,10 @@ class Function(abc.ABC):
     via the member self_path.
     """
 
-    def __init__(self, signature: Signature, self_path: Optional[str] = None, is_property: bool = False):
+    def __init__(self, signature: Signature, self_path: Optional[str] = None, allow_member_access: bool = False, is_property: bool = False):
         self.signature = signature
         self.self_path = self_path  # fully-qualified path to self
+        self.allow_member_access = allow_member_access
         self.is_property = is_property
         self._conditional_return_type: Optional[Callable[..., ts.ColumnType]] = None
 
