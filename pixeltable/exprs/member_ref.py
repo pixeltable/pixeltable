@@ -11,13 +11,18 @@ from .row_builder import RowBuilder
 
 
 class MemberRef(Expr):
+    """
+    A method reference. This represents access to an unevaluated method of a Pixeltable expression, such as
+    `t.img_col.rotate` or `t.str_col.contains`. Equivalently, it represents a `Function` instance with its
+    first parameter bound to a base expression.
+    """
 
     def __init__(self, base_expr: Expr, member_name: str):
         super().__init__(ts.InvalidType())  # type is not defined until it's instantiated
         self.base_expr = base_expr
         self.member_name = member_name
-        self.member = FunctionRegistry.get().lookup_type_method(base_expr.col_type.type_enum, member_name)
-        if self.member is None:
+        self.fn = FunctionRegistry.get().lookup_type_method(base_expr.col_type.type_enum, member_name)
+        if self.fn is None:
             raise excs.Error(f'Unknown member (of type {base_expr.col_type}): {member_name}')
         self.components = [base_expr]
         self.id = self._create_id()
@@ -32,7 +37,7 @@ class MemberRef(Expr):
         return cls(d['member_name'], components[0])
 
     def __call__(self, *args, **kwargs) -> FunctionCall:
-        result = self.member(*[self.base_expr, *args], **kwargs)
+        result = self.fn(*[self.base_expr, *args], **kwargs)
         assert isinstance(result, FunctionCall)
         result.is_method_call = True
         return result

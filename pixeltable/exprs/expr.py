@@ -443,10 +443,10 @@ class Expr(abc.ABC):
             return pixeltable.exprs.JsonPath(self).__getattr__(name)
         else:
             member_ref = pixeltable.exprs.MemberRef(self, name)
-            if member_ref.member.is_property:
+            if member_ref.fn.is_property:
                 # Marked as a property, so autoinvoke into a `FunctionCall`
-                assert member_ref.member.arity == 1
-                return member_ref.member(member_ref.base_expr)
+                assert member_ref.fn.arity == 1
+                return member_ref.fn(member_ref.base_expr)
             else:
                 # Return the `MemberRef` object itself; it requires arguments to become a `FunctionCall`
                 return member_ref
