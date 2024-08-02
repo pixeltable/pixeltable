@@ -19,9 +19,10 @@ class Function(abc.ABC):
     via the member self_path.
     """
 
-    def __init__(self, signature: Signature, self_path: Optional[str] = None):
+    def __init__(self, signature: Signature, self_path: Optional[str] = None, is_property: bool = False):
         self.signature = signature
         self.self_path = self_path  # fully-qualified path to self
+        self.is_property = is_property
         self._conditional_return_type: Optional[Callable[..., ts.ColumnType]] = None
 
     @property
@@ -37,6 +38,10 @@ class Function(abc.ABC):
         if self.self_path.startswith(ptf_prefix):
             return self.self_path[len(ptf_prefix):]
         return self.self_path
+
+    @property
+    def arity(self) -> int:
+        return len(self.signature.parameters)
 
     def help_str(self) -> str:
         return self.display_name + str(self.signature)

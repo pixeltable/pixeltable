@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Optional, Callable, Tuple, Any
+from typing import Any, Callable, Optional
 from uuid import UUID
 
 import cloudpickle
@@ -20,13 +20,13 @@ class CallableFunction(Function):
 
     def __init__(
             self, signature: Signature, py_fn: Callable, self_path: Optional[str] = None,
-            self_name: Optional[str] = None, batch_size: Optional[int] = None):
+            self_name: Optional[str] = None, batch_size: Optional[int] = None, is_property: bool = False):
         assert py_fn is not None
         self.py_fn = py_fn
         self.self_name = self_name
         self.batch_size = batch_size
         self.__doc__ = py_fn.__doc__
-        super().__init__(signature, self_path=self_path)
+        super().__init__(signature, self_path=self_path, is_property=is_property)
 
     @property
     def is_batched(self) -> bool:

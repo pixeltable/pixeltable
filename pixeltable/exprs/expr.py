@@ -7,7 +7,6 @@ import inspect
 import json
 import sys
 import typing
-from itertools import islice
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Type
 from uuid import UUID
 
@@ -91,8 +90,8 @@ class Expr(abc.ABC):
 
     def default_column_name(self) -> Optional[str]:
         """
-        Returns: 
-            None if this expression lacks a default name, 
+        Returns:
+            None if this expression lacks a default name,
             or a valid identifier (according to catalog.is_valid_identifer) otherwise.
         """
         return None
@@ -436,17 +435,21 @@ class Expr(abc.ABC):
             return ArraySlice(self, index)
         raise excs.Error(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> Union['pixeltable.exprs.ImageMemberAccess', 'pixeltable.exprs.JsonPath']:
+    def __getattr__(self, name: str) -> Union['pixeltable.exprs.MemberRef', 'pixeltable.exprs.FunctionCall', 'pixeltable.exprs.JsonPath']:
         """
         ex.: <img col>.rotate(60)
         """
-        if self.col_type.is_image_type():
-            from .image_member_access import ImageMemberAccess
-            return ImageMemberAccess(name, self)
         if self.col_type.is_json_type():
-            from .json_path import JsonPath
-            return JsonPath(self).__getattr__(name)
-        raise excs.Error(f'Member access not supported on type {self.col_type}: {name}')
+            return pixeltable.exprs.JsonPath(self).__getattr__(name)
+        else:
+            member_ref = pixeltable.exprs.MemberRef(self, name)
+            if member_ref.member.is_property:
+                # Marked as a property, so autoinvoke into a `FunctionCall`
+                assert member_ref.member.arity == 1
+                return member_ref.member(member_ref.base_expr)
+            else:
+                # Return the `MemberRef` object itself; it requires arguments to become a `FunctionCall`
+                return member_ref
 
     def __bool__(self) -> bool:
         raise TypeError(

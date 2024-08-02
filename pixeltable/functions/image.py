@@ -178,6 +178,21 @@ def reduce(self: PIL.Image.Image, factor: int, box: Optional[Tuple[int]] = None)
     pass
 
 
+@func.udf(is_property=True)
+def width(self: PIL.Image.Image) -> int:
+    return self.width
+
+
+@func.udf(is_property=True)
+def height(self: PIL.Image.Image) -> int:
+    return self.height
+
+
+@func.udf(is_property=True)
+def mode(self: PIL.Image.Image) -> str:
+    return self.mode
+
+
 __all__ = local_public_names(__name__)
 
 
