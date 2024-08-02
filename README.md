@@ -23,8 +23,8 @@ Today’s solutions for AI app development require extensive custom coding and i
 ```python
 pip install pixeltable
 ```
-> [!NOTE]
-> Check out the [Pixeltable Basics](https://pixeltable.readme.io/docs/pixeltable-basics) tutorial for a tour of its most important features.
+> [!IMPORTANT]
+> Pixeltable is persistent. Unlike in-memory Python libraries such as Pandas, Pixeltable is a database. When working locally or against an hosted version of Pixeltable, use [get_table](https://pixeltable.github.io/pixeltable/api/pixeltable/#pixeltable.get_table) at any time to retrieve an existing table.
 
 ## 💡 Getting Started
 Learn how to create tables, populate them with data, and enhance them with built-in or user-defined transformations and AI operations.
@@ -53,9 +53,6 @@ paths = [
 v.insert({'video': prefix + p} for p in paths)
 ```
 Learn how to [work with data in Pixeltable](https://pixeltable.readme.io/docs/working-with-external-files).
-
-> [!IMPORTANT]
-> Pixeltable is persistent. Unlike in-memory Python libraries such as Pandas, Pixeltable is a database. When working locally or against an hosted version of Pixeltable, use [get_table](https://pixeltable.github.io/pixeltable/api/pixeltable/#pixeltable.get_table) at any time to retrieve an existing table.
 
 ### Add an object detection model to your workflow
 ```python
