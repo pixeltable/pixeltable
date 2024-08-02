@@ -46,7 +46,7 @@ class MethodRef(Expr):
         return result
 
     def _equals(self, other: 'MethodRef') -> bool:
-        return self.method_name == other.method_name
+        return self.base_expr == other.base_expr and self.method_name == other.method_name
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('method_name', self.method_name)]
