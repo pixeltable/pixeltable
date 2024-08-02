@@ -244,6 +244,27 @@ class TestFunction:
                 return order_by
         assert 'reserved' in str(exc_info.value)
 
+    @pxt.udf(member_access='method')
+    def increment(n: int) -> int:
+        return n + 1
+
+    @pxt.udf(member_access='property')
+    def successor(n: int) -> int:
+        return n + 1
+
+    @pxt.udf(member_access='method')
+    def append(s: str, suffix: str) -> str:
+        return s + suffix
+
+    def test_member_access_udf(self, reset_db) -> None:
+        t = pxt.create_table('test', {'c1': pxt.StringType(), 'c2': pxt.IntType()})
+        rows = [{'c1': 'a', 'c2': 1}, {'c1': 'b', 'c2': 2}]
+        validate_update_status(t.insert(rows))
+        result = t.select(t.c2.increment(), t.c2.successor, t.c1.append('x')).collect()
+        # properties have a default column name; methods do not
+        assert result[0] == {'col_0': 2, 'successor': 2, 'col_2': 'ax'}
+        assert result[1] == {'col_0': 3, 'successor': 3, 'col_2': 'bx'}
+
     def test_query(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
         name = t.name
