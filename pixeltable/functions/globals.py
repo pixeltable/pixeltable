@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional, Union
 
 import pixeltable.func as func
 import pixeltable.type_system as ts
@@ -37,6 +37,40 @@ class count(func.Aggregator):
 
     def value(self) -> int:
         return self.count
+
+
+@func.uda(update_types=[ts.FloatType()], value_type=ts.FloatType(nullable=True), allows_window=True, requires_order_by=False)
+class max(func.Aggregator):
+    def __init__(self):
+        self.val = None
+
+    def update(self, val: Optional[float]) -> None:
+        if val is not None:
+            if self.val is None:
+                self.val = val
+            else:
+                import builtins
+                self.val = builtins.max(self.val, val)
+
+    def value(self) -> Optional[float]:
+        return self.val
+
+
+@func.uda(update_types=[ts.FloatType()], value_type=ts.FloatType(nullable=True), allows_window=True, requires_order_by=False)
+class min(func.Aggregator):
+    def __init__(self):
+        self.val = None
+
+    def update(self, val: Optional[float]) -> None:
+        if val is not None:
+            if self.val is None:
+                self.val = val
+            else:
+                import builtins
+                self.val = builtins.min(self.val, val)
+
+    def value(self) -> Optional[float]:
+        return self.val
 
 
 @func.uda(update_types=[ts.IntType()], value_type=ts.FloatType(), allows_window=False, requires_order_by=False)

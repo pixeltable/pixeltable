@@ -1,0 +1,1824 @@
+id,magnitude,location,timestamp,longitude,latitude
+0,1.15,"10 km NW of Belfair, Washington",2023-01-01 08:10:37.050,-122.93,47.51
+1,0.29,"23 km ENE of Ashford, Washington",2023-01-02 01:02:43.950,-121.76,46.85
+2,0.20,"23 km ENE of Ashford, Washington",2023-01-02 12:05:01.420,-121.75,46.86
+3,0.52,"15 km NNE of Ashford, Washington",2023-01-02 12:45:14.220,-121.95,46.89
+4,1.56,"0 km WSW of Esperance, Washington",2023-01-02 13:19:27.200,-122.36,47.79
+5,0.72,"8 km ESE of Buckley, Washington",2023-01-03 05:51:24.760,-121.93,47.14
+6,1.90,"1 km ENE of Enetai, Washington",2023-01-03 05:56:23.780,-122.58,47.59
+7,1.36,"6 km SE of Black Diamond, Washington",2023-01-03 06:34:56.990,-121.93,47.28
+8,1.47,"2 km NE of Kapowsin, Washington",2023-01-03 20:41:01.760,-122.20,47.01
+9,0.97,"4 km NW of Picnic Point, Washington",2023-01-03 22:40:42.400,-122.36,47.91
+10,1.12,"2 km WSW of Wauna, Washington",2023-01-04 01:21:43.530,-122.68,47.37
+11,1.54,"2 km SW of Gorst, Washington",2023-01-04 06:34:33.520,-122.74,47.51
+12,0.95,Washington,2023-01-04 07:06:10.640,-121.95,46.90
+13,1.05,"17 km NNE of Ashford, Washington",2023-01-04 07:33:31.720,-121.96,46.90
+14,1.56,"5 km W of Burley, Washington",2023-01-04 22:36:04.240,-122.71,47.41
+15,1.66,"4 km SSW of Port Ludlow, Washington",2023-01-04 22:38:55.520,-122.71,47.89
+16,1.64,"11 km NE of North Bend, Washington",2023-01-06 04:07:53.070,-121.69,47.57
+17,1.08,"8 km ESE of Enumclaw, Washington",2023-01-06 19:29:11.650,-121.89,47.17
+18,1.19,"6 km WSW of North Bend, Washington",2023-01-07 03:10:07.520,-121.86,47.48
+19,1.32,"6 km W of Lake Cavanaugh, Washington",2023-01-09 06:46:22.450,-122.10,48.32
+20,1.12,"7 km W of Lake Cavanaugh, Washington",2023-01-09 09:39:41.850,-122.12,48.31
+21,1.41,"13 km E of Lake Marcel-Stillwater, Washington",2023-01-09 16:17:53.820,-121.74,47.72
+22,0.89,"19 km SE of Carbonado, Washington",2023-01-09 19:10:04.880,-121.86,46.96
+23,0.46,"13 km N of Ashford, Washington",2023-01-09 20:03:05.450,-122.00,46.88
+24,0.54,"22 km ENE of Ashford, Washington",2023-01-10 18:32:14.510,-121.76,46.85
+25,1.71,"4 km NNE of White Center, Washington",2023-01-11 12:36:27.420,-122.34,47.56
+26,0.59,"15 km NNE of Ashford, Washington",2023-01-12 08:05:45.840,-121.94,46.88
+27,2.19,"7 km WSW of Seattle, Washington",2023-01-13 06:13:04.210,-122.42,47.58
+28,1.40,"7 km S of Shelton, Washington",2023-01-13 22:28:39.450,-123.11,47.15
+29,0.78,"17 km SSE of Carbonado, Washington",2023-01-15 14:46:31.250,-121.92,46.95
+30,0.53,Washington,2023-01-15 18:42:47.400,-121.93,46.94
+31,0.37,"6 km ENE of Ashford, Washington",2023-01-16 05:39:18.670,-121.94,46.77
+32,1.24,"12 km W of Greenwater, Washington",2023-01-16 18:55:57.770,-121.82,47.16
+33,1.32,"3 km SW of Bryant, Washington",2023-01-16 22:21:16.140,-122.19,48.21
+34,0.66,Washington,2023-01-17 05:00:39.040,-121.93,46.88
+35,0.43,"17 km SSE of Carbonado, Washington",2023-01-17 22:18:53.050,-121.96,46.93
+36,0.81,"18 km SSE of Carbonado, Washington",2023-01-18 00:18:37.490,-121.95,46.93
+37,0.36,"23 km ENE of Ashford, Washington",2023-01-18 05:23:48.810,-121.76,46.85
+38,1.67,"1 km E of Granite Falls, Washington",2023-01-18 23:10:04.210,-121.95,48.09
+39,1.42,"3 km SSE of Mount Vernon, Washington",2023-01-19 21:35:27.970,-122.31,48.39
+40,1.22,"11 km SSE of Rainier, Washington",2023-01-19 21:52:29.910,-122.65,46.79
+41,1.56,"15 km NNE of Ashford, Washington",2023-01-20 08:35:16.440,-121.95,46.88
+42,1.22,"21 km W of Skokomish, Washington",2023-01-21 00:17:50.680,-123.44,47.34
+43,0.79,"19 km NNE of Ashford, Washington",2023-01-21 01:15:14.580,-121.92,46.91
+44,0.75,"9 km N of Ashford, Washington",2023-01-21 08:03:21.940,-122.02,46.85
+45,0.12,"22 km ENE of Ashford, Washington",2023-01-21 09:15:49.460,-121.76,46.85
+46,0.53,"14 km NNE of Ashford, Washington",2023-01-21 20:18:51.500,-121.95,46.88
+47,1.40,"17 km SSE of Friday Harbor, Washington",2023-01-22 08:29:43.990,-122.93,48.39
+48,0.40,"5 km SSE of Carbonado, Washington",2023-01-22 11:10:40.580,-122.02,47.04
+49,0.94,"4 km S of Quilcene, Washington",2023-01-22 14:20:25.730,-122.87,47.78
+50,1.14,"13 km NE of Ashford, Washington",2023-01-23 02:11:53.580,-121.91,46.85
+51,-0.05,"22 km ENE of Ashford, Washington",2023-01-24 06:16:20.480,-121.76,46.85
+52,1.66,"Puget Sound region, Washington",2023-01-25 02:53:23.520,-122.65,47.63
+53,0.43,Washington,2023-01-25 03:19:48.810,-121.77,46.85
+54,0.49,"24 km ENE of Ashford, Washington",2023-01-25 05:28:18.500,-121.75,46.87
+55,1.31,"Olympic Peninsula, Washington",2023-01-25 10:15:03.140,-123.39,47.68
+56,0.82,"14 km SSE of Carbonado, Washington",2023-01-26 05:24:22.780,-121.98,46.96
+57,0.58,"4 km S of Quilcene, Washington",2023-01-26 17:01:12.440,-122.88,47.78
+58,-0.02,"14 km NE of Ashford, Washington",2023-01-26 23:22:02.120,-121.92,46.87
+59,1.49,"3 km NE of Granite Falls, Washington",2023-01-26 23:59:53.440,-121.94,48.11
+60,1.50,"Puget Sound region, Washington",2023-01-27 06:44:57.030,-122.33,47.55
+61,0.91,Washington,2023-01-27 15:17:20.210,-121.90,46.86
+62,0.32,"24 km ENE of Ashford, Washington",2023-01-28 08:17:52.560,-121.76,46.87
+63,0.53,"15 km NE of Ashford, Washington",2023-01-28 20:49:26.730,-121.90,46.86
+64,0.37,"24 km ENE of Ashford, Washington",2023-01-29 01:42:46.690,-121.76,46.87
+65,0.21,"23 km ENE of Ashford, Washington",2023-01-29 02:30:10.430,-121.76,46.85
+66,0.29,"14 km S of Carbonado, Washington",2023-01-29 02:43:14.040,-122.03,46.95
+67,0.45,"24 km ENE of Ashford, Washington",2023-01-29 04:22:54.810,-121.73,46.85
+68,0.54,"12 km NE of Ashford, Washington",2023-01-29 16:25:23.410,-121.92,46.85
+69,0.36,"23 km ENE of Ashford, Washington",2023-01-29 19:41:06.370,-121.75,46.84
+70,0.27,Washington,2023-01-29 23:14:34.740,-121.75,46.85
+71,-0.14,"22 km ENE of Ashford, Washington",2023-01-30 09:39:41.580,-121.77,46.85
+72,1.38,"0 km SE of Eatonville, Washington",2023-01-30 21:38:10.510,-122.26,46.87
+73,1.51,"6 km WSW of Port Ludlow, Washington",2023-01-31 00:10:54.070,-122.75,47.90
+74,0.11,"23 km ENE of Ashford, Washington",2023-01-31 07:09:20.350,-121.76,46.85
+75,1.61,"11 km S of Shelton, Washington",2023-01-31 21:59:55.860,-123.12,47.12
+76,1.14,"3 km NE of Swede Heaven, Washington",2023-01-31 22:25:38.250,-121.69,48.30
+77,1.20,"12 km ESE of Enumclaw, Washington",2023-01-31 22:44:10.680,-121.84,47.16
+78,0.43,Washington,2023-02-01 01:18:52.930,-121.76,46.85
+79,1.36,"4 km WNW of Burlington, Washington",2023-02-01 04:01:56.640,-122.38,48.50
+80,0.94,Washington,2023-02-01 10:40:49.490,-121.94,46.85
+81,1.56,"0 km SW of Esperance, Washington",2023-02-01 20:09:47.230,-122.36,47.79
+82,1.22,"2 km E of Tracyton, Washington",2023-02-02 06:16:12.520,-122.62,47.61
+83,0.24,"22 km ENE of Ashford, Washington",2023-02-02 11:24:59.700,-121.77,46.85
+84,1.11,"4 km SW of Swede Heaven, Washington",2023-02-02 19:17:34.010,-121.77,48.26
+85,1.45,"10 km SSE of Rainier, Washington",2023-02-02 20:08:27.810,-122.65,46.79
+86,0.46,"15 km S of Carbonado, Washington",2023-02-03 12:23:06.620,-122.02,46.94
+87,0.40,"22 km ENE of Ashford, Washington",2023-02-03 15:52:50.900,-121.76,46.85
+88,0.60,"22 km ENE of Ashford, Washington",2023-02-03 18:20:33.350,-121.76,46.85
+89,0.75,"23 km ENE of Ashford, Washington",2023-02-04 23:42:26.650,-121.76,46.85
+90,1.53,"3 km ENE of Lake Marcel-Stillwater, Washington",2023-02-05 05:26:27.160,-121.88,47.70
+91,0.70,"25 km ENE of Ashford, Washington",2023-02-05 11:10:56.090,-121.74,46.87
+92,1.60,Washington,2023-02-05 11:11:05.960,-121.74,46.86
+93,0.44,"25 km ENE of Ashford, Washington",2023-02-05 11:12:49.550,-121.73,46.87
+94,0.78,"10 km SSE of Carbonado, Washington",2023-02-05 20:00:29.820,-122.00,46.99
+95,1.35,"2 km NNW of Redmond, Washington",2023-02-06 08:32:03.010,-122.14,47.70
+96,1.36,"13 km NNE of Ashford, Washington",2023-02-07 10:31:11.810,-121.96,46.87
+97,1.69,"3 km SSE of Quilcene, Washington",2023-02-07 16:50:11.930,-122.86,47.79
+98,0.97,"11 km SSE of Carbonado, Washington",2023-02-08 04:56:01.510,-121.98,46.99
+99,1.07,"15 km NE of Ashford, Washington",2023-02-09 10:25:00.550,-121.92,46.87
+100,0.33,"22 km ENE of Ashford, Washington",2023-02-09 22:25:13.760,-121.76,46.85
+101,0.57,"14 km NE of Ashford, Washington",2023-02-10 07:19:42.700,-121.92,46.87
+102,0.47,Washington,2023-02-10 17:35:52.360,-121.92,46.84
+103,1.34,"Puget Sound region, Washington",2023-02-10 20:52:14.270,-122.21,47.00
+104,0.77,"4 km N of Prairie Heights, Washington",2023-02-11 00:43:28.910,-122.11,47.19
+105,1.17,"23 km ENE of Ashford, Washington",2023-02-11 01:46:23.390,-121.76,46.85
+106,0.95,"23 km ENE of Ashford, Washington",2023-02-11 02:09:08.160,-121.76,46.85
+107,0.83,"23 km ENE of Ashford, Washington",2023-02-11 02:29:35.450,-121.76,46.85
+108,0.32,Washington,2023-02-11 05:22:46.980,-121.76,46.85
+109,0.61,"23 km N of Packwood, Washington",2023-02-11 09:18:50.290,-121.70,46.82
+110,0.21,"9 km NE of Ashford, Washington",2023-02-11 11:20:57.330,-121.94,46.82
+111,0.37,"23 km ENE of Ashford, Washington",2023-02-11 15:10:40.650,-121.76,46.85
+112,1.46,"5 km N of Enumclaw, Washington",2023-02-13 03:07:04.600,-121.98,47.25
+113,2.30,"16 km SSE of Friday Harbor, Washington",2023-02-13 19:23:31.080,-122.93,48.40
+114,0.17,"22 km ENE of Ashford, Washington",2023-02-13 22:39:55.250,-121.76,46.85
+115,1.01,"4 km W of Quilcene, Washington",2023-02-13 23:23:46.960,-122.93,47.83
+116,0.42,"25 km ENE of Ashford, Washington",2023-02-14 14:02:18.060,-121.74,46.86
+117,1.46,"1 km W of Mount Vernon, Washington",2023-02-14 22:04:41.870,-122.36,48.42
+118,0.03,"16 km NE of Ashford, Washington",2023-02-14 22:48:35.530,-121.90,46.87
+119,1.13,"Puget Sound region, Washington",2023-02-15 19:09:55.550,-122.73,47.73
+120,1.17,"11 km W of Greenwater, Washington",2023-02-16 00:21:03.520,-121.80,47.16
+121,1.87,"1 km WNW of Bonney Lake, Washington",2023-02-16 16:07:52.300,-122.21,47.18
+122,0.34,"3 km ENE of Lake Roesiger, Washington",2023-02-16 18:41:36.890,-121.89,48.00
+123,1.23,"7 km SW of Rainier, Washington",2023-02-17 00:28:25.460,-122.75,46.84
+124,0.13,"24 km ENE of Ashford, Washington",2023-02-17 03:54:11.930,-121.74,46.84
+125,0.29,"25 km ENE of Ashford, Washington",2023-02-17 04:29:44.190,-121.74,46.86
+126,1.48,Washington,2023-02-17 20:40:28.500,-122.20,46.98
+127,0.63,"24 km NE of Ashford, Washington",2023-02-17 21:28:55.390,-121.77,46.88
+128,1.54,"4 km SSW of Snoqualmie, Washington",2023-02-18 02:47:33.310,-121.85,47.49
+129,0.70,Washington,2023-02-18 06:38:03.510,-121.75,46.85
+130,0.39,Washington,2023-02-19 08:09:54.170,-121.95,46.97
+131,0.46,"11 km NNE of Ashford, Washington",2023-02-19 21:10:20.900,-121.97,46.86
+132,0.62,"2 km NW of Bangor Trident Base, Washington",2023-02-20 20:46:18.340,-122.74,47.73
+133,2.03,"3 km WNW of Gorst, Washington",2023-02-20 23:18:43.970,-122.75,47.54
+134,0.55,"16 km NE of Ashford, Washington",2023-02-20 23:21:13.810,-121.90,46.88
+135,1.60,"4 km ENE of Lake Marcel-Stillwater, Washington",2023-02-21 00:38:47.050,-121.86,47.71
+136,1.75,"23 km ENE of Ashford, Washington",2023-02-21 12:54:59.510,-121.76,46.85
+137,0.34,"23 km ENE of Ashford, Washington",2023-02-21 12:57:24.630,-121.76,46.85
+138,0.48,"23 km ENE of Ashford, Washington",2023-02-21 13:05:08.910,-121.76,46.85
+139,1.16,"23 km ENE of Ashford, Washington",2023-02-21 13:06:40.600,-121.76,46.85
+140,0.67,"23 km ENE of Ashford, Washington",2023-02-21 13:13:51.910,-121.76,46.85
+141,0.88,"23 km ENE of Ashford, Washington",2023-02-21 13:16:00.570,-121.76,46.85
+142,1.17,"5 km NE of Ashford, Washington",2023-02-21 13:28:13.850,-121.97,46.79
+143,0.63,Washington,2023-02-21 13:31:23.220,-121.76,46.85
+144,1.19,"23 km ENE of Ashford, Washington",2023-02-21 13:42:14.430,-121.76,46.85
+145,0.97,"23 km ENE of Ashford, Washington",2023-02-21 14:22:25.550,-121.76,46.85
+146,0.55,Washington,2023-02-21 19:35:15.880,-121.75,46.86
+147,0.54,Washington,2023-02-21 19:36:41.870,-121.76,46.86
+148,1.08,"5 km SSE of Monroe, Washington",2023-02-21 20:00:24.620,-121.94,47.81
+149,0.69,"23 km ENE of Ashford, Washington",2023-02-21 20:24:13.470,-121.76,46.85
+150,0.78,"15 km NE of Ashford, Washington",2023-02-22 01:47:17.790,-121.91,46.88
+151,-0.35,"23 km SSW of Greenwater, Washington",2023-02-22 12:20:52.310,-121.72,46.95
+152,1.07,"25 km ENE of Ashford, Washington",2023-02-22 15:35:30.540,-121.71,46.84
+153,1.17,"11 km W of Greenwater, Washington",2023-02-22 23:39:13.210,-121.81,47.16
+154,1.25,"5 km SE of Quilcene, Washington",2023-02-23 08:56:20.540,-122.83,47.78
+155,1.73,"2 km SSW of Burien, Washington",2023-02-23 10:36:49.820,-122.36,47.45
+156,2.44,"0 km NW of Des Moines, Washington",2023-02-23 10:37:31.760,-122.33,47.41
+157,2.00,"Puget Sound region, Washington",2023-02-23 11:55:28.920,-122.33,47.41
+158,1.95,"1 km NNW of Des Moines, Washington",2023-02-23 13:28:24.100,-122.34,47.42
+159,1.50,Washington,2023-02-24 07:50:50.840,-121.96,47.74
+160,1.58,"4 km ESE of Quilcene, Washington",2023-02-24 15:19:41.700,-122.81,47.81
+161,0.31,"21 km ENE of Ashford, Washington",2023-02-24 17:03:34.470,-121.79,46.86
+162,0.18,"26 km ENE of Ashford, Washington",2023-02-25 03:50:21.320,-121.73,46.87
+163,0.07,"24 km ENE of Ashford, Washington",2023-02-25 10:14:51.500,-121.73,46.85
+164,0.22,"9 km ENE of Ashford, Washington",2023-02-26 00:04:09.930,-121.92,46.79
+165,0.68,"16 km SSE of Carbonado, Washington",2023-02-26 18:09:31.160,-121.97,46.94
+166,1.02,"3 km S of Quilcene, Washington",2023-02-26 21:05:20.500,-122.87,47.79
+167,0.39,"23 km ENE of Ashford, Washington",2023-02-27 13:08:33.850,-121.75,46.85
+168,0.54,"12 km NE of Ashford, Washington",2023-02-28 10:55:57.440,-121.94,46.85
+169,0.95,Washington,2023-02-28 14:10:34.820,-122.16,46.75
+170,0.72,Washington,2023-02-28 15:36:42.420,-121.91,47.15
+171,0.37,"17 km NNE of Ashford, Washington",2023-02-28 20:15:54.680,-121.95,46.91
+172,0.90,"3 km SSE of Quilcene, Washington",2023-02-28 22:21:06.530,-122.85,47.79
+173,1.53,"4 km SW of Port Ludlow, Washington",2023-03-01 19:08:55.520,-122.72,47.89
+174,1.58,"2 km NNE of Woods Creek, Washington",2023-03-01 21:18:50.140,-121.89,47.90
+175,0.36,"16 km NE of Ashford, Washington",2023-03-02 06:38:35.930,-121.89,46.87
+176,1.72,"1 km ENE of Granite Falls, Washington",2023-03-02 22:44:27.530,-121.94,48.09
+177,1.28,"1 km W of Chico, Washington",2023-03-03 11:36:30.290,-122.73,47.61
+178,1.85,"4 km ENE of La Conner, Washington",2023-03-04 06:42:45.810,-122.44,48.41
+179,1.42,"3 km SSE of Quilcene, Washington",2023-03-04 23:23:54.030,-122.85,47.79
+180,0.23,"23 km ENE of Ashford, Washington",2023-03-05 03:52:28.020,-121.76,46.85
+181,0.35,"15 km NNE of Ashford, Washington",2023-03-06 20:08:50.370,-121.92,46.88
+182,-0.03,"23 km ENE of Ashford, Washington",2023-03-07 00:17:02.520,-121.76,46.85
+183,0.54,"7 km E of Ashford, Washington",2023-03-07 10:16:47.800,-121.94,46.75
+184,0.83,"23 km ENE of Ashford, Washington",2023-03-07 12:03:52.980,-121.76,46.85
+185,0.41,"23 km ENE of Ashford, Washington",2023-03-07 14:47:09.200,-121.76,46.85
+186,1.13,"14 km NNE of Jamestown, Washington",2023-03-07 15:25:26.220,-123.05,48.26
+187,0.42,"14 km NNE of Ashford, Washington",2023-03-07 18:07:46.860,-121.93,46.87
+188,1.37,"13 km W of Greenwater, Washington",2023-03-07 19:18:30.330,-121.83,47.16
+189,1.09,"4 km SSE of Quilcene, Washington",2023-03-08 09:42:56.780,-122.85,47.79
+190,-0.16,"22 km ENE of Ashford, Washington",2023-03-08 21:20:17.910,-121.76,46.85
+191,0.44,"6 km S of Crocker, Washington",2023-03-09 04:42:32.240,-122.10,47.02
+192,1.67,"4 km SE of Quilcene, Washington",2023-03-11 00:45:24.600,-122.84,47.79
+193,-0.09,Washington,2023-03-11 09:34:11.110,-121.75,46.85
+194,0.82,"3 km SE of Enumclaw, Washington",2023-03-11 11:12:19.310,-121.96,47.18
+195,1.70,"2 km ESE of Enetai, Washington",2023-03-11 13:20:36.090,-122.56,47.58
+196,0.49,Washington,2023-03-12 03:30:41.640,-121.73,46.83
+197,-0.07,Washington,2023-03-12 09:21:00.880,-121.76,46.85
+198,1.24,"4 km NNE of White Center, Washington",2023-03-12 12:03:29.410,-122.33,47.55
+199,1.01,"8 km NNW of Quilcene, Washington",2023-03-12 20:42:51.300,-122.91,47.89
+200,1.09,"1 km ENE of Tracyton, Washington",2023-03-12 22:24:10.390,-122.64,47.61
+201,1.28,"Puget Sound region, Washington",2023-03-13 04:21:25.610,-122.33,47.81
+202,1.25,"5 km S of Quilcene, Washington",2023-03-13 12:54:16.630,-122.86,47.77
+203,1.41,"1 km NNE of Kapowsin, Washington",2023-03-13 22:39:08.690,-122.22,47.00
+204,0.79,"2 km NNW of Lake Marcel-Stillwater, Washington",2023-03-15 04:32:29.520,-121.93,47.71
+205,0.53,"13 km NNE of Ashford, Washington",2023-03-15 11:53:46.110,-121.94,46.86
+206,0.52,"12 km NNE of Ashford, Washington",2023-03-15 11:55:50.720,-121.94,46.86
+207,0.34,"12 km NNE of Ashford, Washington",2023-03-15 12:24:49.830,-121.95,46.86
+208,1.22,Washington,2023-03-16 00:35:12.220,-121.87,47.91
+209,1.53,"12 km ESE of Riverbend, Washington",2023-03-17 01:13:44.560,-121.60,47.42
+210,2.02,"4 km SSE of Quilcene, Washington",2023-03-17 10:27:15.870,-122.85,47.79
+211,0.77,"5 km SE of Enumclaw, Washington",2023-03-18 05:00:00.310,-121.95,47.17
+212,-0.18,"24 km ENE of Ashford, Washington",2023-03-18 09:00:05.460,-121.76,46.87
+213,0.09,"14 km NNE of Ashford, Washington",2023-03-19 00:36:25.230,-121.94,46.88
+214,0.49,"24 km ENE of Ashford, Washington",2023-03-19 00:39:42.420,-121.76,46.87
+215,0.02,"20 km ENE of Ashford, Washington",2023-03-19 01:58:20.200,-121.79,46.84
+216,0.11,"17 km NNE of Ashford, Washington",2023-03-19 05:06:50.590,-121.94,46.90
+217,-0.19,"23 km ENE of Ashford, Washington",2023-03-19 08:44:11.930,-121.76,46.85
+218,0.45,"6 km NE of Duvall, Washington",2023-03-19 10:22:05.260,-121.92,47.78
+219,0.14,"25 km ENE of Ashford, Washington",2023-03-19 13:54:46.290,-121.75,46.87
+220,1.21,"11 km NE of Ashford, Washington",2023-03-20 02:25:57.710,-121.92,46.83
+221,0.89,"1 km SSW of Pacific, Washington",2023-03-20 05:40:02.320,-122.26,47.25
+222,0.73,"0 km N of Lakeland South, Washington",2023-03-20 05:41:09.350,-122.28,47.29
+223,0.54,"0 km ENE of Lakeland South, Washington",2023-03-20 06:36:38.860,-122.27,47.28
+224,0.73,"27 km N of Packwood, Washington",2023-03-20 12:04:17.680,-121.67,46.85
+225,1.21,"2 km WNW of Keyport, Washington",2023-03-20 12:13:58.540,-122.65,47.71
+226,1.84,"0 km WSW of Enetai, Washington",2023-03-20 16:24:05.050,-122.60,47.58
+227,1.64,"2 km S of Kapowsin, Washington",2023-03-20 18:43:08.600,-122.22,46.97
+228,1.43,"0 km WSW of Burien, Washington",2023-03-20 21:18:04.330,-122.35,47.47
+229,0.77,"3 km S of Quilcene, Washington",2023-03-21 11:37:26.530,-122.88,47.80
+230,0.10,Washington,2023-03-21 17:21:02.840,-121.76,46.85
+231,0.24,"23 km ENE of Ashford, Washington",2023-03-22 06:00:00.700,-121.76,46.85
+232,0.25,Washington,2023-03-22 15:56:45.010,-121.94,46.82
+233,1.79,"Puget Sound region, Washington",2023-03-22 16:18:28.050,-122.40,47.32
+234,0.16,"14 km NE of Ashford, Washington",2023-03-22 23:56:43.530,-121.92,46.86
+235,1.43,"5 km SE of Riverbend, Washington",2023-03-23 05:25:28.020,-121.70,47.43
+236,0.54,"7 km SW of Lyman, Washington",2023-03-23 10:06:21.020,-122.13,48.48
+237,0.22,"26 km ENE of Ashford, Washington",2023-03-23 14:22:36.390,-121.73,46.88
+238,0.90,"9 km ESE of Enumclaw, Washington",2023-03-24 05:51:24.150,-121.87,47.18
+239,2.40,"11 km NE of Hoodsport, Washington",2023-03-24 08:45:10.800,-123.04,47.49
+240,0.72,"23 km ENE of Ashford, Washington",2023-03-24 22:56:07.600,-121.76,46.85
+241,1.09,"23 km ENE of Ashford, Washington",2023-03-25 02:04:50.510,-121.75,46.85
+242,0.38,"23 km ENE of Ashford, Washington",2023-03-25 05:59:38.030,-121.76,46.86
+243,1.17,"2 km SW of Issaquah, Washington",2023-03-25 08:24:59.730,-122.06,47.52
+244,1.69,"0 km ESE of Grapeview, Washington",2023-03-25 08:28:42.150,-122.83,47.33
+245,1.10,"6 km SSW of Swede Heaven, Washington",2023-03-26 10:51:35.340,-121.76,48.23
+246,1.04,"15 km NNE of Ashford, Washington",2023-03-26 12:13:38.620,-121.94,46.89
+247,-0.02,"10 km NE of Ashford, Washington",2023-03-26 14:21:16.750,-121.95,46.83
+248,1.35,Washington,2023-03-27 03:17:25.680,-121.87,48.30
+249,1.80,"1 km W of Suquamish, Washington",2023-03-27 20:27:45.060,-122.57,47.73
+250,1.46,"2 km E of Kapowsin, Washington",2023-03-27 23:11:03.920,-122.19,46.98
+251,0.69,"7 km E of Verlot, Washington",2023-03-28 13:42:23.480,-121.67,48.10
+252,0.62,"6 km NE of Oso, Washington",2023-03-28 18:32:55.790,-121.87,48.31
+253,1.89,"2 km SSW of Esperance, Washington",2023-03-29 13:04:52.270,-122.37,47.77
+254,1.49,"4 km SW of Port Ludlow, Washington",2023-03-29 20:46:21.240,-122.73,47.90
+255,1.68,"2 km SSW of Gorst, Washington",2023-03-29 22:26:26.830,-122.72,47.51
+256,0.82,"1 km S of Erlands Point-Kitsap Lake, Washington",2023-03-30 04:27:50.960,-122.70,47.58
+257,0.35,"24 km ENE of Ashford, Washington",2023-03-30 06:27:10.360,-121.75,46.87
+258,1.19,"7 km SW of Verlot, Washington",2023-03-30 19:54:44.770,-121.85,48.04
+259,1.65,"4 km NNW of White Center, Washington",2023-03-31 04:50:29.670,-122.37,47.56
+260,0.18,"22 km ENE of Ashford, Washington",2023-03-31 13:13:55.760,-121.77,46.86
+261,1.40,"5 km W of Darrington, Washington",2023-03-31 15:13:52.660,-121.67,48.25
+262,0.80,"24 km ENE of Ashford, Washington",2023-04-01 04:03:58.030,-121.76,46.88
+263,1.11,"0 km N of Alderton, Washington",2023-04-01 06:28:38.430,-122.23,47.17
+264,0.04,"23 km ENE of Ashford, Washington",2023-04-01 20:01:40.640,-121.75,46.85
+265,0.85,"2 km WNW of Hoodsport, Washington",2023-04-02 11:32:01.950,-123.17,47.41
+266,0.59,"24 km ENE of Ashford, Washington",2023-04-02 21:26:39.570,-121.76,46.87
+267,1.59,"3 km SSE of Quilcene, Washington",2023-04-03 18:17:11.280,-122.86,47.79
+268,1.42,"4 km ENE of Swede Heaven, Washington",2023-04-03 18:45:18.910,-121.68,48.30
+269,0.24,"24 km NE of Ashford, Washington",2023-04-03 19:30:15.310,-121.77,46.89
+270,0.88,"9 km E of Lake Marcel-Stillwater, Washington",2023-04-04 02:55:39.360,-121.80,47.68
+271,0.34,"26 km ENE of Ashford, Washington",2023-04-04 07:05:42.090,-121.74,46.88
+272,0.88,"3 km SE of Enumclaw, Washington",2023-04-04 09:10:36.670,-121.96,47.18
+273,0.78,Washington,2023-04-04 10:25:25.820,-121.94,47.19
+274,1.20,"11 km S of Shelton, Washington",2023-04-04 18:31:18.920,-123.11,47.11
+275,0.56,"10 km SSE of Carbonado, Washington",2023-04-04 19:29:45.000,-122.00,46.99
+276,0.77,"24 km ENE of Ashford, Washington",2023-04-04 19:36:32.960,-121.75,46.86
+277,0.74,"3 km SE of Big Lake, Washington",2023-04-04 19:51:59.910,-122.20,48.38
+278,1.32,"11 km W of Greenwater, Washington",2023-04-04 22:35:33.520,-121.81,47.16
+279,0.35,"24 km ENE of Ashford, Washington",2023-04-05 08:40:35.180,-121.74,46.86
+280,0.34,Washington,2023-04-05 08:40:51.150,-121.74,46.86
+281,0.88,"9 km N of Belfair, Washington",2023-04-05 15:25:03.800,-122.84,47.54
+282,0.72,"3 km SSW of Wilderness Rim, Washington",2023-04-06 02:45:52.520,-121.79,47.42
+283,0.22,"22 km ENE of Ashford, Washington",2023-04-06 12:18:43.180,-121.77,46.85
+284,2.02,"13 km W of Ault Field, Washington",2023-04-06 22:59:05.830,-122.86,48.34
+285,1.90,"1 km ENE of Granite Falls, Washington",2023-04-07 19:42:31.030,-121.95,48.09
+286,0.50,"25 km NE of Ashford, Washington",2023-04-08 07:25:35.710,-121.76,46.89
+287,0.42,"22 km ENE of Ashford, Washington",2023-04-08 11:21:00.980,-121.76,46.84
+288,0.46,"22 km ENE of Ashford, Washington",2023-04-08 11:29:57.640,-121.76,46.84
+289,0.36,"27 km NE of Ashford, Washington",2023-04-09 04:05:24.790,-121.73,46.90
+290,1.38,"1 km NW of Lake Marcel-Stillwater, Washington",2023-04-10 02:48:49.710,-121.93,47.70
+291,1.20,"1 km WSW of Eatonville, Washington",2023-04-10 19:07:18.320,-122.29,46.86
+292,1.78,"1 km ESE of Kapowsin, Washington",2023-04-10 22:20:17.760,-122.20,46.98
+293,0.51,"17 km ENE of Ashford, Washington",2023-04-11 08:29:12.120,-121.83,46.83
+294,0.56,"10 km NE of Ashford, Washington",2023-04-11 22:54:47.380,-121.95,46.83
+295,0.77,"27 km ENE of Ashford, Washington",2023-04-12 01:16:53.060,-121.73,46.88
+296,0.38,"23 km ENE of Ashford, Washington",2023-04-12 07:41:01.770,-121.76,46.85
+297,0.91,"23 km ENE of Ashford, Washington",2023-04-12 17:15:41.410,-121.75,46.85
+298,1.68,"Puget Sound region, Washington",2023-04-13 04:18:33.400,-122.05,47.83
+299,1.60,"2 km NE of Esperance, Washington",2023-04-13 06:20:18.130,-122.33,47.80
+300,0.35,"23 km ENE of Ashford, Washington",2023-04-13 07:24:39.970,-121.76,46.85
+301,0.52,"22 km ENE of Ashford, Washington",2023-04-14 04:48:40.920,-121.77,46.87
+302,0.88,"23 km ENE of Ashford, Washington",2023-04-14 05:00:59.330,-121.76,46.85
+303,0.06,"23 km ENE of Ashford, Washington",2023-04-14 05:24:07.810,-121.75,46.85
+304,0.31,"11 km NNE of Ashford, Washington",2023-04-14 06:12:53.190,-121.96,46.85
+305,0.45,"25 km N of Packwood, Washington",2023-04-14 06:28:44.050,-121.71,46.83
+306,1.64,Washington,2023-04-14 16:35:46.830,-121.69,47.57
+307,0.14,Washington,2023-04-15 06:36:41.650,-121.75,46.88
+308,0.74,"27 km ENE of Ashford, Washington",2023-04-15 06:44:32.670,-121.72,46.87
+309,1.14,"10 km SSW of Brinnon, Washington",2023-04-15 18:33:21.910,-122.95,47.59
+310,-0.07,"22 km ENE of Ashford, Washington",2023-04-15 21:06:14.560,-121.76,46.85
+311,0.08,"22 km ENE of Ashford, Washington",2023-04-15 21:11:57.270,-121.76,46.84
+312,0.65,"21 km ENE of Ashford, Washington",2023-04-15 21:47:59.870,-121.79,46.85
+313,0.44,"23 km ENE of Ashford, Washington",2023-04-16 04:04:51.230,-121.75,46.85
+314,1.58,"4 km W of Bainbridge Island, Washington",2023-04-16 23:00:35.620,-122.58,47.63
+315,1.20,"8 km ESE of Jamestown, Washington",2023-04-18 03:49:19.200,-122.98,48.11
+316,2.00,"9 km ENE of Fall City, Washington",2023-04-18 20:47:41.700,-121.79,47.61
+317,1.49,"6 km SSW of Shelton, Washington",2023-04-18 22:49:42.010,-123.12,47.16
+318,0.99,"13 km NNE of Ashford, Washington",2023-04-18 23:05:20.500,-121.95,46.86
+319,2.80,"2 km SW of Wilderness Rim, Washington",2023-04-19 01:00:57.520,-121.79,47.44
+320,-0.83,"22 km ENE of Ashford, Washington",2023-04-19 06:52:12.010,-121.77,46.86
+321,0.69,Washington,2023-04-19 18:50:09.970,-121.79,46.86
+322,2.27,"6 km WSW of Shoreline, Washington",2023-04-19 19:12:57.120,-122.42,47.74
+323,1.14,"5 km ENE of Oso, Washington",2023-04-19 21:10:54.820,-121.87,48.30
+324,0.39,"24 km ENE of Ashford, Washington",2023-04-20 09:15:47.000,-121.75,46.88
+325,0.30,"23 km ENE of Ashford, Washington",2023-04-20 11:16:15.020,-121.73,46.83
+326,1.69,"1 km NE of Sequim, Washington",2023-04-21 18:50:29.210,-123.09,48.09
+327,0.54,"17 km NNE of Ashford, Washington",2023-04-22 00:27:04.130,-121.95,46.91
+328,2.16,"3 km NNE of Maple Valley, Washington",2023-04-22 04:26:50.310,-122.03,47.42
+329,1.04,"3 km SSE of Quilcene, Washington",2023-04-22 06:13:19.060,-122.86,47.80
+330,0.98,"14 km NNE of Ashford, Washington",2023-04-22 11:17:04.170,-121.93,46.87
+331,0.39,"19 km NNE of Ashford, Washington",2023-04-22 17:11:30.450,-121.93,46.91
+332,1.64,"2 km WSW of Burley, Washington",2023-04-22 23:28:44.750,-122.66,47.40
+333,2.03,"Puget Sound region, Washington",2023-04-23 16:20:25.870,-122.33,47.55
+334,0.40,"17 km SSE of Carbonado, Washington",2023-04-23 20:05:55.120,-121.96,46.94
+335,0.67,"22 km ENE of Ashford, Washington",2023-04-23 22:26:28.820,-121.76,46.84
+336,0.23,"24 km NE of Ashford, Washington",2023-04-24 06:51:13.730,-121.76,46.88
+337,0.81,"23 km ENE of Ashford, Washington",2023-04-24 08:43:13.030,-121.76,46.85
+338,0.31,"24 km ENE of Ashford, Washington",2023-04-25 06:33:06.960,-121.74,46.85
+339,1.21,"8 km S of Seabeck, Washington",2023-04-25 09:06:01.020,-122.83,47.56
+340,1.00,"Puget Sound region, Washington",2023-04-25 15:29:55.740,-122.86,47.78
+341,1.70,"5 km SW of Port Ludlow, Washington",2023-04-25 20:48:57.990,-122.74,47.89
+342,0.69,"23 km ENE of Ashford, Washington",2023-04-26 03:39:36.970,-121.76,46.86
+343,0.12,Washington,2023-04-26 06:44:06.410,-121.96,46.90
+344,1.58,"3 km SSE of Quilcene, Washington",2023-04-26 08:08:02.530,-122.85,47.79
+345,0.16,"20 km ENE of Ashford, Washington",2023-04-26 13:00:58.900,-121.80,46.85
+346,1.38,"Puget Sound region, Washington",2023-04-26 13:33:53.740,-122.69,47.72
+347,-0.08,"24 km ENE of Ashford, Washington",2023-04-26 17:18:00.650,-121.75,46.87
+348,0.89,Washington,2023-04-26 18:12:30.590,-121.67,48.16
+349,0.26,Washington,2023-04-27 00:46:11.880,-121.75,46.85
+350,1.60,"11 km W of Greenwater, Washington",2023-04-27 20:34:54.000,-121.80,47.16
+351,0.24,"16 km NNE of Ashford, Washington",2023-04-28 03:13:28.360,-121.92,46.88
+352,0.14,"23 km ENE of Ashford, Washington",2023-04-28 14:44:10.030,-121.76,46.85
+353,0.27,"23 km ENE of Ashford, Washington",2023-04-28 15:14:09.960,-121.76,46.86
+354,1.55,"0 km N of Lake Marcel-Stillwater, Washington",2023-04-28 22:00:34.390,-121.91,47.70
+355,1.44,"22 km ENE of Ashford, Washington",2023-04-29 05:32:43.730,-121.76,46.85
+356,1.60,"22 km ENE of Ashford, Washington",2023-04-29 05:39:06.970,-121.76,46.84
+357,0.63,"22 km ENE of Ashford, Washington",2023-04-29 05:39:45.280,-121.76,46.85
+358,0.31,Washington,2023-04-29 05:48:00.440,-121.76,46.84
+359,0.17,"22 km ENE of Ashford, Washington",2023-04-29 05:53:01.150,-121.76,46.84
+360,1.40,"9 km S of Port Hadlock-Irondale, Washington",2023-04-29 09:47:31.350,-122.81,47.95
+361,0.46,"14 km NNE of Ashford, Washington",2023-04-30 09:57:25.890,-121.93,46.87
+362,0.01,"22 km ENE of Ashford, Washington",2023-05-01 00:21:15.720,-121.76,46.85
+363,0.40,"14 km NNE of Ashford, Washington",2023-05-01 03:53:21.300,-121.94,46.88
+364,0.92,"Puget Sound region, Washington",2023-05-01 05:02:27.630,-122.45,47.75
+365,1.05,"2 km E of Kapowsin, Washington",2023-05-01 22:27:50.280,-122.20,46.98
+366,0.45,"24 km ENE of Ashford, Washington",2023-05-02 22:56:39.070,-121.76,46.88
+367,0.27,"25 km ENE of Ashford, Washington",2023-05-03 14:59:07.670,-121.75,46.88
+368,0.97,"19 km NNW of Jamestown, Washington",2023-05-04 00:29:01.200,-123.18,48.29
+369,0.37,"10 km ESE of Wilkeson, Washington",2023-05-04 09:10:31.370,-121.91,47.08
+370,0.73,Washington,2023-05-04 10:52:07.960,-121.94,47.18
+371,0.87,"3 km SE of Enumclaw, Washington",2023-05-04 11:50:10.200,-121.95,47.18
+372,1.44,"1 km SE of Kapowsin, Washington",2023-05-04 21:18:01.130,-122.21,46.98
+373,0.33,"17 km NNE of Ashford, Washington",2023-05-05 09:31:17.930,-121.94,46.90
+374,0.39,"22 km ENE of Ashford, Washington",2023-05-05 18:04:04.010,-121.76,46.85
+375,0.89,"6 km ESE of Enumclaw, Washington",2023-05-05 20:00:24.780,-121.91,47.18
+376,1.68,"4 km E of Granite Falls, Washington",2023-05-05 21:31:17.250,-121.91,48.09
+377,1.61,"3 km W of Belfair, Washington",2023-05-06 01:07:51.640,-122.87,47.45
+378,0.31,"23 km ENE of Ashford, Washington",2023-05-06 13:12:38.120,-121.75,46.86
+379,0.04,"23 km ENE of Ashford, Washington",2023-05-06 13:52:17.670,-121.75,46.85
+380,0.29,"15 km NNE of Ashford, Washington",2023-05-06 22:56:41.200,-121.94,46.88
+381,0.11,Washington,2023-05-07 06:38:31.880,-121.73,46.90
+382,0.33,"24 km ENE of Ashford, Washington",2023-05-07 13:46:43.680,-121.75,46.85
+383,0.75,"5 km N of Lake Marcel-Stillwater, Washington",2023-05-07 13:48:18.590,-121.90,47.74
+384,1.06,"6 km NE of Mirrormont, Washington",2023-05-07 16:13:25.390,-121.94,47.51
+385,1.22,"14 km W of Skokomish, Washington",2023-05-07 18:20:15.640,-123.36,47.33
+386,1.35,"7 km N of Brinnon, Washington",2023-05-08 02:12:04.870,-122.90,47.75
+387,0.09,Washington,2023-05-08 03:29:46.240,-121.99,46.93
+388,0.39,Washington,2023-05-08 08:25:05.390,-121.78,46.88
+389,0.21,Washington,2023-05-08 08:44:10.040,-121.75,46.89
+390,1.12,Washington,2023-05-08 20:05:04.850,-121.76,47.25
+391,0.04,"24 km ENE of Ashford, Washington",2023-05-09 00:17:02.460,-121.75,46.87
+392,1.23,"2 km W of Sammamish, Washington",2023-05-09 01:11:48.020,-122.11,47.64
+393,0.28,Washington,2023-05-09 05:51:45.550,-121.78,46.85
+394,0.00,"25 km ENE of Ashford, Washington",2023-05-09 10:51:49.290,-121.76,46.88
+395,1.07,"2 km E of Swede Heaven, Washington",2023-05-09 17:53:31.180,-121.69,48.28
+396,1.61,"Puget Sound region, Washington",2023-05-09 23:25:59.280,-122.18,47.79
+397,1.18,Washington,2023-05-10 08:05:07.440,-122.23,48.43
+398,0.02,"23 km ENE of Ashford, Washington",2023-05-10 08:43:30.150,-121.76,46.85
+399,-0.50,Washington,2023-05-10 08:51:39.960,-121.71,46.90
+400,0.76,"11 km NE of Verlot, Washington",2023-05-10 09:06:20.500,-121.67,48.16
+401,0.86,"3 km SSW of Roosevelt, Washington",2023-05-10 15:59:57.880,-122.02,47.86
+402,0.04,"22 km ENE of Ashford, Washington",2023-05-10 23:10:07.500,-121.78,46.86
+403,0.03,"25 km ENE of Ashford, Washington",2023-05-11 10:45:09.850,-121.73,46.86
+404,0.30,"14 km NNE of Ashford, Washington",2023-05-11 13:40:05.460,-121.93,46.87
+405,2.62,"11 km WNW of Hoodsport, Washington",2023-05-11 17:16:36.640,-123.28,47.45
+406,-0.02,"23 km ENE of Ashford, Washington",2023-05-11 17:22:46.300,-121.76,46.85
+407,1.43,"5 km SSW of Shelton, Washington",2023-05-11 18:18:24.120,-123.12,47.16
+408,1.75,"4 km NNW of Bryant, Washington",2023-05-11 19:49:42.110,-122.17,48.28
+409,0.51,"25 km N of Packwood, Washington",2023-05-12 14:38:47.390,-121.71,46.83
+410,1.31,"2 km E of Kapowsin, Washington",2023-05-12 21:11:56.310,-122.20,46.99
+411,0.49,"23 km ENE of Ashford, Washington",2023-05-12 22:30:12.120,-121.74,46.82
+412,0.88,"7 km NNE of Lake Marcel-Stillwater, Washington",2023-05-12 23:46:19.440,-121.89,47.75
+413,1.39,"4 km NE of Dash Point, Washington",2023-05-13 08:28:39.200,-122.38,47.35
+414,1.22,"0 km W of City of Sammamish, Washington",2023-05-13 09:17:30.670,-122.05,47.60
+415,0.56,"23 km ENE of Ashford, Washington",2023-05-14 17:08:38.320,-121.76,46.86
+416,0.96,"0 km E of Sumner, Washington",2023-05-14 21:21:18.790,-122.23,47.20
+417,1.15,"5 km N of Kingston, Washington",2023-05-15 09:35:31.680,-122.50,47.85
+418,0.58,"24 km NE of Ashford, Washington",2023-05-15 21:30:13.180,-121.77,46.88
+419,1.48,"5 km W of Kingston, Washington",2023-05-16 17:33:11.610,-122.58,47.80
+420,1.83,"4 km SSW of Port Ludlow, Washington",2023-05-16 18:34:41.030,-122.71,47.89
+421,1.57,Washington,2023-05-16 23:50:15.750,-121.76,46.85
+422,0.49,"21 km ENE of Ashford, Washington",2023-05-17 00:33:59.370,-121.78,46.83
+423,0.13,"14 km NNE of Ashford, Washington",2023-05-17 02:25:45.000,-121.98,46.89
+424,0.16,"26 km ENE of Ashford, Washington",2023-05-17 07:56:44.240,-121.73,46.87
+425,1.45,"4 km SE of Wilderness Rim, Washington",2023-05-17 10:13:28.930,-121.72,47.42
+426,0.82,"5 km W of Lake Cavanaugh, Washington",2023-05-17 12:30:34.890,-122.10,48.32
+427,0.21,"22 km ENE of Ashford, Washington",2023-05-17 14:55:13.700,-121.77,46.84
+428,0.03,"22 km ENE of Ashford, Washington",2023-05-17 15:09:28.610,-121.77,46.84
+429,0.15,"22 km ENE of Ashford, Washington",2023-05-17 15:18:25.400,-121.76,46.84
+430,0.92,"19 km ENE of Ashford, Washington",2023-05-17 15:42:25.900,-121.80,46.85
+431,1.44,"3 km NNE of Woods Creek, Washington",2023-05-17 20:50:39.570,-121.88,47.91
+432,1.57,"0 km NNE of Lake Marcel-Stillwater, Washington",2023-05-18 04:38:54.820,-121.91,47.70
+433,2.25,"6 km SE of Port Ludlow, Washington",2023-05-18 16:21:11.650,-122.63,47.88
+434,0.46,"11 km NE of Ashford, Washington",2023-05-19 02:50:58.770,-121.92,46.82
+435,1.81,"1 km ESE of Union Hill-Novelty Hill, Washington",2023-05-19 07:09:58.770,-122.01,47.67
+436,0.49,"8 km E of Ashford, Washington",2023-05-19 07:46:53.190,-121.92,46.76
+437,0.92,"7 km ENE of Clear Lake, Washington",2023-05-19 19:59:31.890,-122.14,48.48
+438,0.15,"15 km NNE of Ashford, Washington",2023-05-20 05:51:24.340,-121.96,46.89
+439,0.40,"20 km SSE of Carbonado, Washington",2023-05-20 16:35:31.420,-121.92,46.92
+440,1.54,"0 km WNW of Pacific, Washington",2023-05-20 18:09:39.710,-122.26,47.27
+441,0.84,"1 km SSW of Lea Hill, Washington",2023-05-20 18:11:57.000,-122.19,47.31
+442,0.55,Washington,2023-05-20 18:55:24.070,-121.95,46.97
+443,0.43,"13 km NNE of Ashford, Washington",2023-05-20 19:35:42.680,-121.99,46.88
+444,0.25,"14 km NNE of Ashford, Washington",2023-05-20 19:42:20.690,-121.99,46.89
+445,1.17,"1 km WNW of Pacific, Washington",2023-05-20 20:18:27.620,-122.27,47.27
+446,1.05,"0 km S of Algona, Washington",2023-05-20 21:06:01.260,-122.25,47.27
+447,0.75,"21 km ENE of Ashford, Washington",2023-05-21 04:22:54.520,-121.75,46.81
+448,0.88,"10 km WNW of Skokomish, Washington",2023-05-21 10:04:46.180,-123.28,47.38
+449,0.26,"13 km NE of Ashford, Washington",2023-05-21 20:29:46.860,-121.92,46.85
+450,0.52,"25 km NE of Ashford, Washington",2023-05-22 00:46:44.580,-121.76,46.89
+451,1.21,"8 km NW of Belfair, Washington",2023-05-22 16:49:13.220,-122.90,47.51
+452,1.54,"2 km E of Granite Falls, Washington",2023-05-22 21:29:59.290,-121.94,48.09
+453,1.27,"12 km ESE of Enumclaw, Washington",2023-05-22 23:02:12.850,-121.84,47.15
+454,0.78,"7 km ENE of Ashford, Washington",2023-05-23 05:07:45.340,-121.94,46.79
+455,3.11,"6 km N of Camano, Washington",2023-05-23 07:21:34.690,-122.52,48.23
+456,0.23,Washington,2023-05-23 08:49:02.450,-121.98,46.87
+457,1.03,"6 km ENE of Lake Cavanaugh, Washington",2023-05-23 10:40:37.900,-121.95,48.36
+458,0.94,"10 km NE of Ashford, Washington",2023-05-23 16:30:18.950,-121.94,46.83
+459,0.91,"2 km NNE of Kapowsin, Washington",2023-05-23 22:15:05.160,-122.21,47.01
+460,0.15,Washington,2023-05-24 06:09:30.390,-121.93,46.85
+461,0.65,"0 km E of Carbonado, Washington",2023-05-25 19:21:22.260,-122.05,47.08
+462,0.17,"23 km ENE of Ashford, Washington",2023-05-26 04:54:40.350,-121.76,46.86
+463,0.74,"14 km NE of Ashford, Washington",2023-05-26 05:22:46.920,-121.90,46.85
+464,0.18,"14 km NE of Ashford, Washington",2023-05-26 14:45:52.910,-121.92,46.87
+465,0.93,"2 km NE of Swede Heaven, Washington",2023-05-26 17:00:29.210,-121.70,48.30
+466,1.43,"Puget Sound region, Washington",2023-05-26 19:24:31.280,-122.88,47.81
+467,1.09,"10 km SSE of Rainier, Washington",2023-05-26 19:39:44.120,-122.65,46.80
+468,0.17,"17 km SE of Carbonado, Washington",2023-05-26 20:49:58.880,-121.89,46.96
+469,0.01,"23 km ENE of Ashford, Washington",2023-05-27 21:23:30.570,-121.76,46.85
+470,1.26,"40 km SSW of Port Angeles, Washington",2023-05-27 22:44:38.060,-123.57,47.76
+471,1.25,"6 km ESE of Quilcene, Washington",2023-05-28 11:16:13.170,-122.80,47.81
+472,1.00,"23 km ENE of Ashford, Washington",2023-05-28 17:04:44.750,-121.76,46.85
+473,0.23,"23 km ENE of Ashford, Washington",2023-05-28 17:42:39.570,-121.76,46.85
+474,1.41,"4 km SE of Bethel, Washington",2023-05-28 21:41:08.090,-122.58,47.47
+475,1.28,"3 km SW of Wauna, Washington",2023-05-28 21:51:56.920,-122.68,47.36
+476,0.94,"2 km WNW of Mount Vernon, Washington",2023-05-29 08:43:27.100,-122.37,48.43
+477,1.24,"4 km WNW of Gorst, Washington",2023-05-29 09:12:14.490,-122.76,47.53
+478,1.03,"Puget Sound region, Washington",2023-05-31 05:35:27.480,-122.85,47.79
+479,1.24,"4 km NNE of White Center, Washington",2023-05-31 07:50:45.570,-122.33,47.55
+480,1.11,"1 km SSW of Quilcene, Washington",2023-05-31 17:44:40.060,-122.88,47.81
+481,0.19,"23 km ENE of Ashford, Washington",2023-06-01 04:12:31.700,-121.76,46.86
+482,0.92,"23 km ENE of Ashford, Washington",2023-06-01 10:15:58.960,-121.75,46.85
+483,0.36,"23 km ENE of Ashford, Washington",2023-06-01 11:12:43.090,-121.75,46.85
+484,0.89,Washington,2023-06-02 02:04:37.480,-121.60,48.18
+485,0.85,"4 km NNE of Bainbridge Island, Washington",2023-06-02 04:22:43.700,-122.50,47.66
+486,1.90,"2 km NW of Chico, Washington",2023-06-02 13:23:56.160,-122.73,47.63
+487,1.67,Washington,2023-06-03 03:03:25.940,-122.47,48.09
+488,0.91,"4 km W of Arlington, Washington",2023-06-03 04:16:39.230,-122.18,48.20
+489,0.07,"23 km ENE of Ashford, Washington",2023-06-03 05:36:03.600,-121.76,46.86
+490,0.29,Washington,2023-06-03 06:27:57.920,-121.76,46.85
+491,0.47,"19 km NNE of Ashford, Washington",2023-06-03 09:02:16.210,-121.94,46.92
+492,0.15,"14 km NNE of Ashford, Washington",2023-06-03 09:32:27.100,-121.94,46.88
+493,1.12,"4 km SSE of Quilcene, Washington",2023-06-03 09:51:07.790,-122.85,47.79
+494,0.47,"0 km E of Ames Lake, Washington",2023-06-04 07:49:04.710,-121.95,47.63
+495,0.27,Washington,2023-06-04 14:55:04.260,-121.76,46.85
+496,0.28,"16 km NNE of Ashford, Washington",2023-06-04 16:51:05.620,-121.92,46.89
+497,1.28,"0 km WNW of Algona, Washington",2023-06-04 22:24:50.760,-122.26,47.28
+498,0.08,"23 km ENE of Ashford, Washington",2023-06-05 07:59:39.050,-121.76,46.85
+499,0.62,"12 km NNE of Ashford, Washington",2023-06-05 22:44:06.330,-121.94,46.86
+500,0.75,"0 km WSW of Oso, Washington",2023-06-05 22:59:20.730,-121.94,48.27
+501,0.23,"11 km NE of Ashford, Washington",2023-06-06 05:15:13.210,-121.93,46.84
+502,0.43,"13 km NNE of Ashford, Washington",2023-06-06 13:13:21.250,-121.99,46.88
+503,0.31,"13 km NNE of Ashford, Washington",2023-06-06 13:30:18.400,-121.99,46.88
+504,0.35,"14 km NNE of Ashford, Washington",2023-06-06 13:48:05.400,-121.98,46.88
+505,0.12,"23 km ENE of Ashford, Washington",2023-06-06 15:49:21.950,-121.76,46.86
+506,1.68,"2 km ENE of Granite Falls, Washington",2023-06-06 21:40:14.830,-121.94,48.09
+507,0.23,"23 km ENE of Ashford, Washington",2023-06-06 23:16:12.690,-121.76,46.85
+508,1.78,"8 km ESE of Tanner, Washington",2023-06-08 15:25:28.100,-121.63,47.46
+509,2.35,"21 km NE of Ashford, Washington",2023-06-08 22:34:11.200,-121.87,46.91
+510,1.18,"8 km SW of Port Ludlow, Washington",2023-06-12 06:10:15.200,-122.77,47.87
+511,0.27,"11 km NE of Ashford, Washington",2023-06-12 06:18:23.690,-121.94,46.83
+512,0.91,"14 km ESE of Enumclaw, Washington",2023-06-13 20:01:39.450,-121.84,47.13
+513,0.69,"0 km NNW of Crocker, Washington",2023-06-14 16:57:51.920,-122.11,47.08
+514,-0.35,"9 km NE of Ashford, Washington",2023-06-14 23:30:22.780,-121.95,46.82
+515,0.38,Washington,2023-06-15 20:17:50.630,-121.88,46.91
+516,1.92,"3 km NNE of White Center, Washington",2023-06-15 22:43:05.420,-122.33,47.55
+517,0.95,"4 km ENE of Swede Heaven, Washington",2023-06-16 17:37:27.280,-121.68,48.31
+518,1.56,"4 km NNE of Oso, Washington",2023-06-16 19:26:04.820,-121.90,48.31
+519,0.16,"22 km ENE of Ashford, Washington",2023-06-17 07:25:41.620,-121.76,46.86
+520,0.12,"22 km ENE of Ashford, Washington",2023-06-17 07:48:22.430,-121.77,46.85
+521,0.26,"22 km ENE of Ashford, Washington",2023-06-17 08:08:52.580,-121.76,46.85
+522,0.84,"17 km SE of Carbonado, Washington",2023-06-17 08:09:40.810,-121.91,46.95
+523,0.73,"22 km ENE of Ashford, Washington",2023-06-17 08:34:13.600,-121.76,46.85
+524,1.08,"Puget Sound region, Washington",2023-06-17 22:24:48.860,-122.48,47.96
+525,1.34,"1 km S of Esperance, Washington",2023-06-17 23:54:40.450,-122.36,47.78
+526,0.46,"24 km ENE of Ashford, Washington",2023-06-18 04:12:22.770,-121.73,46.85
+527,1.58,"9 km W of Greenwater, Washington",2023-06-18 07:40:10.420,-121.78,47.16
+528,1.24,"12 km E of Ashford, Washington",2023-06-18 08:22:48.720,-121.87,46.76
+529,0.59,"22 km ENE of Ashford, Washington",2023-06-18 08:37:02.240,-121.76,46.84
+530,0.27,"24 km ENE of Ashford, Washington",2023-06-18 13:11:32.870,-121.76,46.88
+531,1.73,"18 km NNE of Ashford, Washington",2023-06-18 22:33:48.650,-121.92,46.91
+532,1.60,"6 km WSW of Darrington, Washington",2023-06-19 05:33:02.000,-121.67,48.23
+533,0.96,"4 km SW of Darrington, Washington",2023-06-19 05:47:11.040,-121.65,48.23
+534,0.87,"23 km ENE of Ashford, Washington",2023-06-19 13:57:58.550,-121.75,46.85
+535,0.27,"5 km NE of Ashford, Washington",2023-06-19 18:02:17.630,-121.98,46.79
+536,0.42,"15 km NNE of Ashford, Washington",2023-06-19 19:04:03.950,-121.99,46.90
+537,1.35,"3 km W of Kapowsin, Washington",2023-06-19 21:42:52.340,-122.27,46.98
+538,0.12,"23 km ENE of Ashford, Washington",2023-06-20 10:07:12.280,-121.76,46.86
+539,1.10,"3 km ESE of Enumclaw, Washington",2023-06-20 23:33:27.720,-121.95,47.19
+540,1.83,"1 km SSW of Three Lakes, Washington",2023-06-21 03:58:53.840,-122.02,47.93
+541,1.31,"23 km ENE of Ashford, Washington",2023-06-21 08:23:58.980,-121.75,46.85
+542,1.58,"1 km WSW of Seattle, Washington",2023-06-21 11:39:39.370,-122.36,47.60
+543,0.79,"11 km W of Greenwater, Washington",2023-06-22 08:58:31.050,-121.80,47.16
+544,1.38,"2 km ENE of Granite Falls, Washington",2023-06-22 18:54:06.230,-121.93,48.09
+545,0.56,"10 km NNE of Snoqualmie, Washington",2023-06-22 23:21:43.180,-121.76,47.62
+546,0.97,Washington,2023-06-23 08:17:13.680,-121.64,47.97
+547,1.39,"6 km S of Vashon, Washington",2023-06-23 12:27:14.620,-122.46,47.39
+548,1.45,"15 km NNE of Ashford, Washington",2023-06-24 17:59:52.170,-121.94,46.88
+549,0.34,Washington,2023-06-25 07:32:54.650,-121.92,46.89
+550,0.28,"22 km ENE of Ashford, Washington",2023-06-25 11:37:25.510,-121.76,46.85
+551,0.26,"5 km ENE of Ashford, Washington",2023-06-25 14:14:11.840,-121.97,46.78
+552,1.26,"1 km W of Southworth, Washington",2023-06-26 17:14:03.510,-122.52,47.51
+553,0.99,Washington,2023-06-26 21:52:06.060,-121.59,47.94
+554,1.36,"3 km WNW of Quilcene, Washington",2023-06-27 00:03:20.170,-122.92,47.83
+555,0.37,"23 km ENE of Ashford, Washington",2023-06-27 08:29:19.990,-121.76,46.85
+556,0.58,"23 km ENE of Ashford, Washington",2023-06-27 15:16:54.820,-121.76,46.85
+557,0.27,"23 km ENE of Ashford, Washington",2023-06-28 01:41:35.970,-121.76,46.85
+558,1.39,"4 km SW of Coupeville, Washington",2023-06-28 02:49:11.410,-122.72,48.19
+559,0.18,"16 km NNE of Ashford, Washington",2023-06-28 07:13:27.620,-121.93,46.88
+560,1.31,"23 km ENE of Ashford, Washington",2023-06-28 19:19:51.770,-121.75,46.86
+561,0.10,Washington,2023-06-28 19:23:38.650,-121.75,46.85
+562,0.31,"16 km NNE of Ashford, Washington",2023-06-29 14:51:00.100,-121.92,46.89
+563,1.74,"1 km S of Quilcene, Washington",2023-06-29 15:50:59.750,-122.87,47.81
+564,1.23,"2 km E of Kapowsin, Washington",2023-06-29 23:31:07.310,-122.20,46.98
+565,0.31,"16 km NNE of Ashford, Washington",2023-06-30 19:16:27.800,-121.92,46.89
+566,0.40,"13 km NNE of Ashford, Washington",2023-07-01 03:28:01.230,-121.98,46.87
+567,0.45,"16 km NNE of Ashford, Washington",2023-07-01 04:59:02.650,-121.93,46.89
+568,0.35,Washington,2023-07-01 09:22:21.530,-121.89,46.86
+569,0.01,"24 km ENE of Ashford, Washington",2023-07-01 14:06:52.210,-121.75,46.86
+570,0.82,"23 km ENE of Ashford, Washington",2023-07-01 22:38:59.820,-121.75,46.85
+571,0.87,"10 km S of Sultan, Washington",2023-07-02 10:51:10.500,-121.83,47.77
+572,0.47,"16 km NNE of Ashford, Washington",2023-07-02 11:17:13.060,-121.93,46.89
+573,0.73,"Puget Sound region, Washington",2023-07-02 17:31:57.330,-122.78,47.86
+574,0.47,"24 km ENE of Ashford, Washington",2023-07-02 18:41:33.330,-121.76,46.86
+575,1.07,"14 km NE of Lake Cavanaugh, Washington",2023-07-04 13:30:28.000,-121.86,48.41
+576,1.19,"4 km SW of Fall City, Washington",2023-07-04 13:54:34.830,-121.93,47.53
+577,2.79,"0 km NE of Maple Valley, Washington",2023-07-04 15:52:54.430,-122.04,47.40
+578,0.31,"13 km NNE of Ashford, Washington",2023-07-04 22:18:29.870,-121.98,46.87
+579,0.34,"16 km NNE of Ashford, Washington",2023-07-05 03:57:57.100,-121.93,46.89
+580,1.34,"8 km WNW of Port Hadlock-Irondale, Washington",2023-07-05 09:09:27.270,-122.88,48.06
+581,2.22,"6 km WSW of Lofall, Washington",2023-07-06 15:25:37.150,-122.74,47.78
+582,1.53,"13 km W of Greenwater, Washington",2023-07-06 17:34:34.080,-121.82,47.17
+583,1.46,"1 km ENE of Granite Falls, Washington",2023-07-06 18:30:06.710,-121.95,48.09
+584,2.57,"20 km S of Friday Harbor, Washington",2023-07-07 09:12:34.430,-123.00,48.35
+585,1.97,"14 km S of May Creek, Washington",2023-07-07 15:18:35.680,-121.70,47.73
+586,1.39,"4 km SW of Hansville, Washington",2023-07-07 18:50:34.890,-122.59,47.89
+587,0.90,Washington,2023-07-07 20:30:04.850,-121.61,48.23
+588,1.61,"5 km W of Gorst, Washington",2023-07-07 23:13:32.890,-122.78,47.53
+589,1.27,"6 km SSW of Clinton, Washington",2023-07-08 06:15:50.630,-122.40,47.92
+590,0.71,"13 km S of Gold Bar, Washington",2023-07-08 08:47:31.580,-121.72,47.74
+591,0.26,"23 km ENE of Ashford, Washington",2023-07-08 10:26:53.430,-121.76,46.86
+592,0.30,"17 km NNE of Ashford, Washington",2023-07-08 18:06:11.640,-121.91,46.89
+593,1.15,"13 km S of Gold Bar, Washington",2023-07-09 05:38:03.570,-121.72,47.73
+594,0.85,"24 km ENE of Ashford, Washington",2023-07-10 00:07:10.240,-121.75,46.86
+595,0.21,"12 km NE of Ashford, Washington",2023-07-10 00:31:08.590,-121.91,46.83
+596,1.32,"5 km N of Belfair, Washington",2023-07-10 00:37:16.070,-122.82,47.50
+597,0.97,"3 km SSW of Darrington, Washington",2023-07-10 04:26:57.670,-121.62,48.22
+598,0.56,Washington,2023-07-10 04:32:48.120,-121.89,46.94
+599,1.00,"1 km NNW of Bonney Lake, Washington",2023-07-10 06:54:13.910,-122.19,47.19
+600,0.05,"24 km ENE of Ashford, Washington",2023-07-10 12:17:36.190,-121.73,46.83
+601,0.34,"9 km ENE of Ashford, Washington",2023-07-10 18:24:45.510,-121.92,46.80
+602,0.40,"7 km NE of Ashford, Washington",2023-07-11 07:48:40.680,-121.95,46.80
+603,0.37,"11 km NE of Ashford, Washington",2023-07-11 08:06:03.730,-121.94,46.84
+604,0.06,"18 km SSE of Carbonado, Washington",2023-07-11 11:31:44.390,-121.93,46.94
+605,0.38,"16 km NNE of Ashford, Washington",2023-07-11 14:04:11.080,-121.94,46.89
+606,2.58,"Puget Sound region, Washington",2023-07-11 18:12:58.050,-122.92,47.53
+607,0.22,"8 km W of Hoodsport, Washington",2023-07-12 01:09:12.430,-123.26,47.40
+608,0.15,"8 km NE of Ashford, Washington",2023-07-12 02:28:03.710,-121.94,46.80
+609,0.63,"2 km NW of Bonney Lake, Washington",2023-07-12 11:38:46.160,-122.21,47.19
+610,0.34,"14 km NE of Ashford, Washington",2023-07-12 18:10:39.540,-121.92,46.87
+611,0.76,"8 km E of Ashford, Washington",2023-07-13 06:35:16.510,-121.92,46.77
+612,0.14,"22 km ENE of Ashford, Washington",2023-07-13 07:44:50.310,-121.76,46.85
+613,1.55,Washington,2023-07-14 00:01:53.760,-122.21,46.98
+614,0.40,"12 km ESE of Carbonado, Washington",2023-07-14 09:32:30.520,-121.89,47.04
+615,0.53,"19 km NNE of Ashford, Washington",2023-07-14 23:38:45.240,-121.92,46.92
+616,2.05,"14 km NE of Lake Cavanaugh, Washington",2023-07-16 02:48:40.150,-121.86,48.41
+617,0.45,"20 km NNE of Ashford, Washington",2023-07-16 02:58:35.700,-121.91,46.92
+618,0.57,"15 km NE of Lake Cavanaugh, Washington",2023-07-16 15:07:19.370,-121.86,48.41
+619,1.27,"23 km ENE of Ashford, Washington",2023-07-16 21:06:07.450,-121.76,46.85
+620,1.57,"3 km NNW of Edmonds, Washington",2023-07-17 05:52:47.760,-122.40,47.84
+621,1.61,"3 km NNW of Edmonds, Washington",2023-07-17 06:08:30.590,-122.41,47.84
+622,1.63,"6 km S of Port Ludlow, Washington",2023-07-17 17:36:57.070,-122.68,47.87
+623,0.26,"3 km W of Darrington, Washington",2023-07-17 18:29:26.970,-121.64,48.25
+624,1.24,"10 km ESE of Carnation, Washington",2023-07-18 07:34:19.540,-121.78,47.63
+625,-0.03,"26 km ENE of Ashford, Washington",2023-07-18 07:51:34.330,-121.72,46.85
+626,1.01,"25 km ENE of Ashford, Washington",2023-07-18 08:32:07.540,-121.73,46.85
+627,0.70,"9 km SSW of Darrington, Washington",2023-07-18 11:50:16.910,-121.67,48.18
+628,0.13,"25 km ENE of Ashford, Washington",2023-07-18 12:07:13.090,-121.73,46.86
+629,1.06,"7 km NE of Duvall, Washington",2023-07-18 18:39:04.890,-121.93,47.80
+630,0.26,"3 km ESE of Duvall, Washington",2023-07-19 09:23:19.430,-121.94,47.73
+631,1.23,"5 km S of Seabeck, Washington",2023-07-19 10:16:25.620,-122.84,47.59
+632,0.46,"5 km WSW of Gorst, Washington",2023-07-19 12:41:40.920,-122.77,47.50
+633,0.81,"10 km SW of Darrington, Washington",2023-07-19 13:46:04.430,-121.68,48.18
+634,1.27,Washington,2023-07-19 17:10:54.700,-121.75,46.85
+635,1.32,"24 km NE of Amanda Park, Washington",2023-07-19 19:40:26.970,-123.66,47.62
+636,0.62,"11 km NE of Ashford, Washington",2023-07-20 11:54:02.210,-121.93,46.83
+637,1.40,"5 km SE of Enumclaw, Washington",2023-07-20 20:07:47.740,-121.94,47.17
+638,0.62,"20 km ENE of Ashford, Washington",2023-07-21 07:28:57.420,-121.79,46.84
+639,-0.03,"Puget Sound region, Washington",2023-07-21 07:29:05.030,-122.88,47.81
+640,0.17,"12 km NE of Ashford, Washington",2023-07-21 08:49:05.970,-121.94,46.85
+641,1.03,"9 km SW of Skykomish, Washington",2023-07-21 10:36:55.620,-121.45,47.64
+642,0.20,"14 km NNE of Ashford, Washington",2023-07-21 17:25:07.930,-121.93,46.87
+643,2.42,"11 km SW of Brinnon, Washington",2023-07-21 17:39:03.540,-123.00,47.61
+644,1.25,"3 km SE of Graham, Washington",2023-07-21 22:34:54.490,-122.27,47.03
+645,1.30,"3 km WSW of Gorst, Washington",2023-07-21 23:40:03.250,-122.75,47.52
+646,0.85,"5 km SSW of May Creek, Washington",2023-07-22 05:26:48.930,-121.68,47.81
+647,0.76,"0 km WSW of Waller, Washington",2023-07-22 13:25:50.960,-122.38,47.20
+648,1.00,Washington,2023-07-22 14:56:40.940,-121.82,47.59
+649,0.57,"25 km ENE of Ashford, Washington",2023-07-22 16:13:10.240,-121.74,46.87
+650,0.33,"23 km ENE of Ashford, Washington",2023-07-22 22:25:34.750,-121.76,46.86
+651,0.77,"4 km W of Clinton, Washington",2023-07-24 09:17:41.750,-122.42,47.98
+652,1.53,"3 km SSE of Quilcene, Washington",2023-07-24 16:42:48.900,-122.86,47.79
+653,0.61,"23 km ENE of Ashford, Washington",2023-07-25 10:06:31.910,-121.76,46.87
+654,0.74,"17 km ENE of Ashford, Washington",2023-07-25 14:48:10.530,-121.83,46.83
+655,1.13,"3 km S of Monroe, Washington",2023-07-25 19:01:17.880,-121.97,47.83
+656,0.71,"Puget Sound region, Washington",2023-07-26 09:08:39.230,-122.70,47.71
+657,1.19,"0 km NNW of Esperance, Washington",2023-07-26 12:10:06.500,-122.36,47.79
+658,0.47,"18 km ENE of Ashford, Washington",2023-07-26 22:07:08.860,-121.82,46.85
+659,0.99,"33 km NW of Hoodsport, Washington",2023-07-27 09:01:42.670,-123.48,47.60
+660,0.01,"22 km ENE of Ashford, Washington",2023-07-28 07:37:57.340,-121.76,46.84
+661,0.35,"7 km E of Ashford, Washington",2023-07-28 08:59:12.170,-121.93,46.75
+662,1.64,"2 km E of Granite Falls, Washington",2023-07-28 17:27:54.450,-121.94,48.09
+663,0.93,"12 km WSW of Alder, Washington",2023-07-29 23:41:40.770,-122.44,46.76
+664,0.07,"22 km ENE of Ashford, Washington",2023-07-30 13:09:55.730,-121.76,46.85
+665,1.68,"Puget Sound region, Washington",2023-07-30 18:01:06.100,-122.75,47.56
+666,0.58,"4 km NW of Mirrormont, Washington",2023-07-31 03:05:01.490,-122.03,47.49
+667,0.17,"17 km SSE of Carbonado, Washington",2023-07-31 06:44:54.130,-121.94,46.94
+668,0.90,"9 km ESE of Carnation, Washington",2023-07-31 07:33:20.880,-121.79,47.63
+669,0.91,"8 km NNE of Ashford, Washington",2023-07-31 11:04:46.220,-121.99,46.83
+670,0.97,"7 km E of Lake McMurray, Washington",2023-07-31 16:56:08.750,-122.13,48.31
+671,1.32,"6 km WSW of Lake Cavanaugh, Washington",2023-07-31 17:19:20.540,-122.11,48.31
+672,1.40,"2 km E of Kapowsin, Washington",2023-07-31 22:34:54.790,-122.20,46.99
+673,0.95,"5 km WNW of Ashford, Washington",2023-08-01 01:39:09.390,-122.10,46.77
+674,0.34,"12 km NNE of Ashford, Washington",2023-08-01 04:57:10.170,-121.98,46.87
+675,0.36,"23 km ENE of Ashford, Washington",2023-08-01 15:55:56.120,-121.75,46.86
+676,0.82,"3 km SSW of Monroe, Washington",2023-08-01 19:01:37.140,-121.98,47.83
+677,0.35,"22 km ENE of Ashford, Washington",2023-08-01 23:54:16.840,-121.76,46.85
+678,1.99,"15 km SSW of Concrete, Washington",2023-08-02 10:22:12.380,-121.84,48.41
+679,0.96,"13 km NNE of Ashford, Washington",2023-08-03 02:12:43.740,-121.96,46.87
+680,0.04,"14 km NNE of Ashford, Washington",2023-08-03 04:30:09.620,-121.93,46.87
+681,0.28,"22 km ENE of Ashford, Washington",2023-08-03 05:35:22.610,-121.76,46.85
+682,1.83,"6 km WSW of Lake Cavanaugh, Washington",2023-08-03 12:21:10.580,-122.11,48.31
+683,1.23,"15 km NE of Lake Cavanaugh, Washington",2023-08-03 13:35:49.860,-121.86,48.41
+684,0.51,"14 km NNE of Ashford, Washington",2023-08-03 15:39:26.840,-121.93,46.87
+685,1.07,"2 km NE of Swede Heaven, Washington",2023-08-03 16:53:42.400,-121.70,48.30
+686,0.41,"15 km NE of Ashford, Washington",2023-08-03 22:57:00.410,-121.91,46.87
+687,1.03,"2 km NW of Woods Creek, Washington",2023-08-04 10:30:30.180,-121.92,47.90
+688,0.15,"24 km ENE of Ashford, Washington",2023-08-04 19:35:37.470,-121.73,46.85
+689,0.17,"23 km ENE of Ashford, Washington",2023-08-05 20:05:07.020,-121.76,46.85
+690,0.36,"17 km NNE of Ashford, Washington",2023-08-06 00:09:20.870,-121.96,46.91
+691,0.36,"12 km SE of Darrington, Washington",2023-08-06 01:05:14.470,-121.50,48.16
+692,1.29,"13 km SSE of Darrington, Washington",2023-08-06 03:44:25.770,-121.53,48.15
+693,0.56,"12 km SSE of Darrington, Washington",2023-08-06 04:18:37.370,-121.52,48.15
+694,0.45,"5 km SSE of Swede Heaven, Washington",2023-08-06 23:46:53.090,-121.70,48.23
+695,1.48,"1 km WNW of Bonney Lake, Washington",2023-08-07 07:30:12.610,-122.20,47.18
+696,0.65,"13 km NE of Ashford, Washington",2023-08-07 19:03:49.980,-121.92,46.85
+697,0.27,"10 km NE of Ashford, Washington",2023-08-07 21:03:22.390,-121.93,46.82
+698,1.58,"7 km NE of Fall City, Washington",2023-08-08 01:51:07.740,-121.81,47.61
+699,3.91,"9 km NNE of Snoqualmie, Washington",2023-08-08 10:17:23.910,-121.77,47.60
+700,1.55,"8 km ENE of Fall City, Washington",2023-08-08 10:20:50.260,-121.79,47.61
+701,0.66,"8 km ENE of Fall City, Washington",2023-08-08 10:24:56.980,-121.80,47.60
+702,0.08,Washington,2023-08-08 10:25:20.020,-121.81,47.61
+703,1.97,"8 km ENE of Fall City, Washington",2023-08-08 10:29:46.220,-121.79,47.61
+704,0.42,"7 km NE of Fall City, Washington",2023-08-08 10:34:43.260,-121.81,47.62
+705,0.04,"7 km NE of Fall City, Washington",2023-08-08 10:34:52.100,-121.81,47.62
+706,0.90,"7 km NE of Fall City, Washington",2023-08-08 10:43:56.730,-121.80,47.61
+707,2.12,"9 km NNE of Snoqualmie, Washington",2023-08-08 10:47:21.850,-121.77,47.60
+708,0.65,"7 km NE of Fall City, Washington",2023-08-08 11:08:50.330,-121.81,47.61
+709,1.23,"7 km NE of Fall City, Washington",2023-08-08 11:42:48.320,-121.81,47.61
+710,2.84,"8 km ENE of Fall City, Washington",2023-08-08 11:51:12.750,-121.79,47.60
+711,0.13,"8 km ENE of Fall City, Washington",2023-08-08 12:13:28.270,-121.79,47.61
+712,0.21,"6 km NE of Fall City, Washington",2023-08-08 13:27:53.330,-121.83,47.62
+713,1.08,"3 km W of Rosedale, Washington",2023-08-08 17:24:34.990,-122.69,47.33
+714,1.00,"7 km NE of Fall City, Washington",2023-08-08 22:56:02.270,-121.81,47.61
+715,0.50,"7 km ESE of Carnation, Washington",2023-08-09 01:34:43.380,-121.83,47.62
+716,0.56,"14 km SSE of Carbonado, Washington",2023-08-09 02:34:41.530,-121.97,46.96
+717,0.88,"6 km WSW of Lake Cavanaugh, Washington",2023-08-09 04:27:44.070,-122.10,48.31
+718,0.57,Washington,2023-08-09 09:23:59.560,-121.79,47.61
+719,-0.02,"23 km ENE of Ashford, Washington",2023-08-09 14:13:02.770,-121.76,46.85
+720,1.04,"7 km NE of Fall City, Washington",2023-08-09 14:54:30.380,-121.81,47.61
+721,1.70,"11 km E of Tanner, Washington",2023-08-09 20:41:16.250,-121.59,47.46
+722,1.18,"8 km ENE of Fall City, Washington",2023-08-10 08:01:41.970,-121.79,47.61
+723,0.78,Washington,2023-08-10 08:27:34.170,-121.92,46.85
+724,0.14,"13 km NE of Ashford, Washington",2023-08-10 08:30:08.660,-121.92,46.85
+725,0.45,"Puget Sound region, Washington",2023-08-10 11:54:13.750,-122.00,47.07
+726,1.31,"2 km ENE of Kapowsin, Washington",2023-08-10 21:54:55.990,-122.20,46.99
+727,0.08,Washington,2023-08-11 05:06:31.640,-121.92,46.87
+728,0.19,"27 km ENE of Ashford, Washington",2023-08-11 08:42:28.720,-121.70,46.86
+729,0.16,Washington,2023-08-11 12:38:58.920,-121.92,46.90
+730,1.58,"2 km E of Granite Falls, Washington",2023-08-11 17:45:01.070,-121.94,48.09
+731,1.05,"1 km ENE of Carbonado, Washington",2023-08-11 17:48:23.060,-122.03,47.08
+732,0.97,"2 km ESE of Riverbend, Washington",2023-08-12 00:46:48.950,-121.72,47.46
+733,0.99,"13 km NW of Snoqualmie Pass, Washington",2023-08-12 10:26:53.320,-121.54,47.46
+734,0.61,Washington,2023-08-12 10:56:15.190,-121.72,46.84
+735,0.85,"Puget Sound region, Washington",2023-08-12 19:11:21.600,-122.91,47.74
+736,1.31,Washington,2023-08-12 19:38:40.130,-121.85,47.46
+737,0.57,"1 km N of Ashford, Washington",2023-08-12 21:17:30.060,-122.03,46.77
+738,1.08,"7 km NE of Fall City, Washington",2023-08-12 21:29:03.510,-121.80,47.61
+739,1.35,"Olympic Peninsula, Washington",2023-08-13 00:22:35.810,-123.07,47.70
+740,0.95,"7 km NE of Fall City, Washington",2023-08-13 03:18:43.390,-121.82,47.61
+741,0.58,Washington,2023-08-13 03:46:37.540,-122.03,46.77
+742,0.45,"8 km NNW of Lake Cavanaugh, Washington",2023-08-13 18:14:54.150,-122.06,48.39
+743,0.50,"6 km N of Ashford, Washington",2023-08-14 18:16:27.770,-122.01,46.81
+744,0.56,"23 km ENE of Ashford, Washington",2023-08-15 15:29:13.270,-121.76,46.85
+745,0.67,"17 km SE of Carbonado, Washington",2023-08-15 17:57:52.650,-121.90,46.97
+746,0.56,"24 km ENE of Ashford, Washington",2023-08-15 18:18:37.250,-121.75,46.86
+747,0.43,"23 km ENE of Ashford, Washington",2023-08-15 21:27:16.650,-121.76,46.86
+748,0.75,"23 km ENE of Ashford, Washington",2023-08-16 06:19:37.150,-121.76,46.86
+749,1.10,Washington,2023-08-16 22:16:01.720,-121.60,47.46
+750,0.53,Washington,2023-08-16 23:43:33.190,-121.95,46.80
+751,1.98,"5 km SW of Big Lake, Washington",2023-08-17 03:37:22.130,-122.28,48.37
+752,1.14,"4 km E of Carbonado, Washington",2023-08-17 07:38:29.250,-121.99,47.07
+753,1.19,"Puget Sound region, Washington",2023-08-17 07:49:22.590,-122.00,47.08
+754,1.38,"2 km SW of Kapowsin, Washington",2023-08-17 16:19:58.360,-122.25,46.97
+755,1.40,"8 km ENE of Fall City, Washington",2023-08-18 08:39:24.720,-121.79,47.61
+756,0.93,"23 km ENE of Ashford, Washington",2023-08-18 09:16:26.460,-121.76,46.85
+757,2.08,"14 km N of Hoodsport, Washington",2023-08-18 10:18:36.100,-123.14,47.54
+758,0.47,"12 km NE of Ashford, Washington",2023-08-18 11:07:32.230,-121.91,46.83
+759,1.65,"15 km NE of Lake Cavanaugh, Washington",2023-08-18 17:41:33.170,-121.86,48.41
+760,0.67,"22 km ENE of Ashford, Washington",2023-08-19 17:17:02.920,-121.76,46.85
+761,0.22,"22 km ENE of Ashford, Washington",2023-08-19 19:04:46.110,-121.76,46.85
+762,1.15,"5 km NNW of Belfair, Washington",2023-08-20 08:52:35.860,-122.85,47.50
+763,0.56,"12 km NNE of Ashford, Washington",2023-08-20 18:59:38.800,-121.95,46.85
+764,1.31,"7 km NE of Fall City, Washington",2023-08-22 04:23:14.140,-121.81,47.61
+765,0.81,"2 km WNW of Lake Marcel-Stillwater, Washington",2023-08-22 08:39:17.810,-121.95,47.70
+766,0.20,Washington,2023-08-22 12:40:09.920,-121.77,46.87
+767,0.77,"5 km ENE of Oso, Washington",2023-08-22 15:22:08.970,-121.85,48.28
+768,1.15,"3 km SE of Three Lakes, Washington",2023-08-22 20:20:17.420,-121.98,47.92
+769,2.73,"16 km NE of Ashford, Washington",2023-08-22 23:44:12.250,-121.88,46.87
+770,0.20,"7 km E of Ashford, Washington",2023-08-23 08:30:01.160,-121.93,46.75
+771,-0.01,"16 km NE of Ashford, Washington",2023-08-23 10:32:51.950,-121.89,46.87
+772,0.90,"11 km SE of Darrington, Washington",2023-08-23 13:15:08.560,-121.51,48.17
+773,1.24,"10 km WNW of Greenwater, Washington",2023-08-23 17:20:52.410,-121.78,47.20
+774,1.65,Washington,2023-08-23 17:43:38.000,-121.82,47.61
+775,0.87,"23 km ENE of Ashford, Washington",2023-08-23 18:53:16.760,-121.76,46.86
+776,1.00,"23 km ENE of Ashford, Washington",2023-08-24 06:56:25.340,-121.76,46.85
+777,0.05,Washington,2023-08-24 07:33:16.280,-121.76,46.85
+778,-0.36,"23 km ENE of Ashford, Washington",2023-08-24 07:43:30.280,-121.76,46.86
+779,-0.61,"23 km ENE of Ashford, Washington",2023-08-24 07:43:45.680,-121.75,46.85
+780,0.11,"23 km ENE of Ashford, Washington",2023-08-24 08:41:31.370,-121.76,46.86
+781,0.18,"10 km NNE of Ashford, Washington",2023-08-24 09:04:10.020,-121.96,46.84
+782,0.44,"23 km ENE of Ashford, Washington",2023-08-24 15:24:02.760,-121.76,46.85
+783,1.21,"7 km NE of Fall City, Washington",2023-08-24 21:20:24.380,-121.81,47.61
+784,1.16,Washington,2023-08-24 21:25:45.240,-121.39,47.42
+785,1.47,"13 km SSE of Carbonado, Washington",2023-08-25 06:01:39.130,-121.97,46.97
+786,1.43,"14 km SSE of Carbonado, Washington",2023-08-25 07:23:16.240,-121.96,46.97
+787,0.89,"9 km SSW of Swede Heaven, Washington",2023-08-25 14:39:09.710,-121.77,48.20
+788,0.38,Washington,2023-08-25 20:22:01.540,-121.91,46.86
+789,1.67,"Puget Sound region, Washington",2023-08-26 04:04:11.200,-122.57,47.60
+790,0.45,"21 km ENE of Ashford, Washington",2023-08-26 07:06:48.810,-121.78,46.86
+791,0.19,"26 km N of Packwood, Washington",2023-08-26 07:18:19.880,-121.70,46.85
+792,0.47,Washington,2023-08-26 09:59:17.490,-122.21,48.39
+793,0.44,"22 km ENE of Ashford, Washington",2023-08-27 01:12:13.300,-121.77,46.85
+794,2.07,Washington,2023-08-27 05:36:05.360,-121.95,46.78
+795,1.06,"6 km ENE of Ashford, Washington",2023-08-27 05:58:27.600,-121.95,46.78
+796,0.34,Washington,2023-08-27 06:30:01.970,-121.96,46.79
+797,0.42,"6 km ENE of Ashford, Washington",2023-08-27 06:54:53.700,-121.95,46.77
+798,0.95,"6 km ENE of Ashford, Washington",2023-08-27 09:58:08.540,-121.95,46.78
+799,2.86,"5 km E of Ashford, Washington",2023-08-27 10:10:23.770,-121.96,46.77
+800,0.59,"6 km ENE of Ashford, Washington",2023-08-27 10:26:15.050,-121.95,46.78
+801,1.03,"5 km ENE of Ashford, Washington",2023-08-27 10:33:48.930,-121.96,46.77
+802,0.38,"6 km ENE of Ashford, Washington",2023-08-27 10:36:46.980,-121.96,46.78
+803,1.11,"5 km ENE of Ashford, Washington",2023-08-27 10:57:37.070,-121.96,46.77
+804,1.83,"5 km ENE of Ashford, Washington",2023-08-27 11:16:32.730,-121.96,46.77
+805,1.48,"5 km ENE of Ashford, Washington",2023-08-27 11:35:13.520,-121.96,46.78
+806,0.52,"6 km ENE of Ashford, Washington",2023-08-27 11:37:37.230,-121.95,46.78
+807,0.44,"5 km ENE of Ashford, Washington",2023-08-27 11:37:59.620,-121.97,46.77
+808,0.24,"6 km ENE of Ashford, Washington",2023-08-27 11:46:16.910,-121.95,46.78
+809,0.15,"5 km ENE of Ashford, Washington",2023-08-27 11:55:15.880,-121.96,46.78
+810,0.49,"7 km ENE of Ashford, Washington",2023-08-27 12:36:58.390,-121.94,46.79
+811,0.71,"5 km ENE of Ashford, Washington",2023-08-27 12:41:20.950,-121.96,46.78
+812,0.23,"5 km ENE of Ashford, Washington",2023-08-27 12:50:23.490,-121.96,46.77
+813,0.55,"6 km ENE of Ashford, Washington",2023-08-27 13:26:03.210,-121.95,46.78
+814,0.49,"5 km ENE of Ashford, Washington",2023-08-27 14:02:20.400,-121.97,46.77
+815,0.61,"5 km ENE of Ashford, Washington",2023-08-27 20:07:47.140,-121.96,46.78
+816,0.62,"5 km ENE of Ashford, Washington",2023-08-28 01:25:08.290,-121.97,46.77
+817,0.52,Washington,2023-08-28 01:58:56.490,-121.95,46.78
+818,0.30,"4 km ENE of Ashford, Washington",2023-08-28 02:44:56.290,-121.97,46.77
+819,0.69,"4 km ENE of Ashford, Washington",2023-08-28 04:28:20.740,-121.97,46.77
+820,1.26,"5 km ENE of Ashford, Washington",2023-08-28 08:14:42.960,-121.96,46.77
+821,0.22,Washington,2023-08-28 10:25:21.180,-121.96,46.78
+822,0.53,"5 km ENE of Ashford, Washington",2023-08-28 12:58:31.740,-121.96,46.78
+823,0.24,"8 km SSW of Brinnon, Washington",2023-08-28 13:10:08.710,-122.96,47.61
+824,0.71,"5 km ENE of Ashford, Washington",2023-08-28 18:47:59.200,-121.96,46.78
+825,1.33,"4 km SE of Enumclaw, Washington",2023-08-28 21:18:36.780,-121.94,47.18
+826,1.17,"6 km ENE of Ashford, Washington",2023-08-28 21:51:59.670,-121.95,46.78
+827,0.39,"7 km ENE of Ashford, Washington",2023-08-28 22:11:03.590,-121.94,46.78
+828,1.47,"2 km SSW of Kapowsin, Washington",2023-08-28 22:50:55.450,-122.24,46.96
+829,0.33,"5 km ENE of Ashford, Washington",2023-08-29 03:07:57.930,-121.96,46.78
+830,1.82,"4 km S of Seabeck, Washington",2023-08-29 03:09:54.460,-122.82,47.60
+831,0.18,"23 km ENE of Ashford, Washington",2023-08-29 05:07:09.160,-121.76,46.85
+832,0.60,"6 km ENE of Ashford, Washington",2023-08-29 05:25:49.600,-121.95,46.78
+833,0.34,"5 km ENE of Ashford, Washington",2023-08-29 05:49:48.530,-121.96,46.77
+834,0.88,Washington,2023-08-29 07:44:59.430,-121.96,46.78
+835,0.97,"Puget Sound region, Washington",2023-08-29 09:36:24.420,-122.20,47.64
+836,0.40,"5 km ENE of Ashford, Washington",2023-08-29 10:21:44.840,-121.96,46.77
+837,-0.38,"26 km ENE of Ashford, Washington",2023-08-29 20:31:05.630,-121.73,46.88
+838,0.22,"6 km ENE of Ashford, Washington",2023-08-30 00:51:10.050,-121.95,46.79
+839,0.58,Washington,2023-08-30 05:59:49.670,-121.96,46.78
+840,0.48,"5 km ENE of Ashford, Washington",2023-08-30 06:13:26.140,-121.96,46.78
+841,0.04,"13 km NE of Ashford, Washington",2023-08-30 10:32:14.980,-121.93,46.86
+842,0.67,"5 km ENE of Ashford, Washington",2023-08-30 15:58:06.050,-121.96,46.78
+843,1.51,"Puget Sound region, Washington",2023-08-31 01:33:19.050,-122.84,47.50
+844,0.58,"25 km N of Packwood, Washington",2023-08-31 05:34:04.720,-121.70,46.83
+845,0.63,"Puget Sound region, Washington",2023-08-31 13:28:27.380,-122.75,47.66
+846,0.53,"5 km ENE of Ashford, Washington",2023-08-31 15:14:16.130,-121.97,46.77
+847,0.42,"5 km ENE of Ashford, Washington",2023-08-31 18:25:27.160,-121.96,46.77
+848,1.11,"23 km ENE of Ashford, Washington",2023-08-31 18:40:27.510,-121.76,46.85
+849,1.40,"2 km E of Granite Falls, Washington",2023-08-31 19:15:06.630,-121.94,48.08
+850,1.04,"4 km SSE of Mount Vernon, Washington",2023-08-31 19:30:33.790,-122.30,48.39
+851,0.76,"23 km ENE of Ashford, Washington",2023-09-01 05:28:10.790,-121.76,46.85
+852,0.80,"6 km ENE of Ashford, Washington",2023-09-01 08:05:55.800,-121.96,46.78
+853,0.18,"20 km ENE of Ashford, Washington",2023-09-01 09:10:45.420,-121.80,46.85
+854,0.16,"6 km ENE of Ashford, Washington",2023-09-01 10:55:46.780,-121.95,46.78
+855,0.83,"22 km ENE of Ashford, Washington",2023-09-01 15:34:31.710,-121.75,46.83
+856,0.55,"23 km ENE of Ashford, Washington",2023-09-01 15:40:04.430,-121.75,46.85
+857,1.33,Washington,2023-09-02 07:37:14.650,-121.92,46.86
+858,0.43,"20 km ENE of Ashford, Washington",2023-09-02 13:45:09.830,-121.78,46.83
+859,0.22,"23 km ENE of Ashford, Washington",2023-09-02 13:46:33.150,-121.76,46.85
+860,0.64,"5 km ENE of Ashford, Washington",2023-09-02 15:14:27.900,-121.96,46.78
+861,0.86,"3 km ESE of Carbonado, Washington",2023-09-02 15:46:30.270,-122.01,47.07
+862,0.32,"14 km NE of Ashford, Washington",2023-09-02 17:46:34.580,-121.91,46.86
+863,2.11,"Puget Sound region, Washington",2023-09-02 18:09:50.050,-122.28,47.68
+864,0.58,"23 km ENE of Ashford, Washington",2023-09-03 13:27:28.740,-121.76,46.85
+865,0.35,"10 km ENE of Ashford, Washington",2023-09-04 02:23:56.080,-121.91,46.81
+866,0.76,"7 km SSW of Swede Heaven, Washington",2023-09-04 06:46:54.650,-121.76,48.22
+867,0.31,"24 km ENE of Ashford, Washington",2023-09-04 08:53:16.770,-121.74,46.85
+868,0.58,"5 km ENE of Ashford, Washington",2023-09-04 09:30:53.610,-121.96,46.77
+869,0.43,"5 km ENE of Ashford, Washington",2023-09-04 09:34:20.610,-121.96,46.77
+870,1.60,Washington,2023-09-04 11:10:21.860,-121.95,47.62
+871,1.15,"5 km W of Belfair, Washington",2023-09-05 04:51:59.800,-122.90,47.45
+872,0.21,"21 km ENE of Ashford, Washington",2023-09-05 07:10:02.380,-121.78,46.85
+873,0.54,"3 km ESE of Ashford, Washington",2023-09-05 07:18:35.520,-121.99,46.75
+874,1.06,"2 km W of North Sultan, Washington",2023-09-05 10:15:10.630,-121.83,47.88
+875,0.45,"23 km ENE of Ashford, Washington",2023-09-05 10:34:10.870,-121.76,46.85
+876,1.43,"12 km W of Greenwater, Washington",2023-09-05 18:13:54.150,-121.82,47.17
+877,0.08,"22 km ENE of Ashford, Washington",2023-09-07 05:16:48.970,-121.76,46.85
+878,0.19,"12 km NE of Ashford, Washington",2023-09-07 07:08:35.800,-121.90,46.82
+879,1.09,"3 km NNE of Manchester, Washington",2023-09-07 07:59:03.470,-122.53,47.58
+880,0.76,"5 km E of Manchester, Washington",2023-09-07 12:13:49.990,-122.47,47.56
+881,1.34,"23 km ENE of Ashford, Washington",2023-09-08 06:04:51.610,-121.76,46.86
+882,1.50,"23 km ENE of Ashford, Washington",2023-09-08 06:04:57.520,-121.76,46.85
+883,1.10,"23 km ENE of Ashford, Washington",2023-09-08 06:05:24.070,-121.76,46.85
+884,0.01,"23 km ENE of Ashford, Washington",2023-09-08 06:07:20.510,-121.76,46.85
+885,0.20,"23 km ENE of Ashford, Washington",2023-09-08 06:08:13.450,-121.76,46.85
+886,0.92,"10 km ENE of Ashford, Washington",2023-09-08 12:06:44.300,-121.90,46.79
+887,0.99,Washington,2023-09-08 12:26:43.660,-121.77,46.91
+888,-0.07,"23 km ENE of Ashford, Washington",2023-09-08 14:48:07.080,-121.76,46.86
+889,0.81,"4 km SW of Wilderness Rim, Washington",2023-09-08 16:26:38.120,-121.81,47.42
+890,1.58,"9 km SSW of Carlsborg, Washington",2023-09-08 16:47:16.050,-123.24,48.01
+891,1.07,"1 km E of Eatonville, Washington",2023-09-08 18:00:17.560,-122.25,46.87
+892,1.27,"0 km NNW of Suquamish, Washington",2023-09-08 20:37:00.180,-122.56,47.74
+893,1.48,"1 km WSW of Kapowsin, Washington",2023-09-08 23:17:17.090,-122.24,46.98
+894,0.37,Washington,2023-09-09 04:39:09.070,-121.69,46.85
+895,1.80,"9 km WSW of Alder, Washington",2023-09-09 07:33:33.390,-122.41,46.76
+896,1.80,"11 km ENE of Enumclaw, Washington",2023-09-11 14:42:13.760,-121.85,47.24
+897,1.64,"Puget Sound region, Washington",2023-09-11 17:05:16.630,-122.71,47.87
+898,0.80,"2 km E of Riverside, Washington",2023-09-11 22:34:10.930,-121.97,48.11
+899,0.37,"23 km ENE of Ashford, Washington",2023-09-11 22:48:24.570,-121.76,46.85
+900,1.00,"3 km SSW of Lake Morton-Berrydale, Washington",2023-09-11 23:37:54.270,-122.11,47.30
+901,0.81,"10 km SSW of Swede Heaven, Washington",2023-09-12 05:56:25.830,-121.76,48.20
+902,0.94,"1 km WNW of Monroe, Washington",2023-09-12 09:00:32.310,-121.99,47.86
+903,0.88,"22 km ENE of Ashford, Washington",2023-09-12 15:02:58.350,-121.76,46.85
+904,1.05,"15 km NE of Ashford, Washington",2023-09-12 16:28:48.890,-121.89,46.86
+905,1.28,"13 km SSE of Carbonado, Washington",2023-09-12 18:56:36.960,-121.99,46.96
+906,0.66,"18 km WSW of Brinnon, Washington",2023-09-13 03:00:52.010,-123.12,47.61
+907,0.46,"34 km NNW of Hoodsport, Washington",2023-09-13 03:43:00.020,-123.36,47.67
+908,0.84,"19 km NW of Hoodsport, Washington",2023-09-13 05:27:14.680,-123.29,47.55
+909,0.86,"10 km SE of Darrington, Washington",2023-09-13 05:56:29.840,-121.51,48.18
+910,0.46,"5 km ENE of Ashford, Washington",2023-09-13 06:02:30.170,-121.96,46.78
+911,0.78,Washington,2023-09-13 12:07:00.330,-121.96,46.78
+912,0.41,"8 km ENE of Ashford, Washington",2023-09-13 19:49:08.970,-121.93,46.79
+913,0.33,"15 km SSE of Carbonado, Washington",2023-09-14 10:00:12.920,-121.94,46.96
+914,0.65,"5 km E of Buckley, Washington",2023-09-14 12:30:09.730,-121.96,47.16
+915,1.12,"14 km E of Wilkeson, Washington",2023-09-14 18:28:26.080,-121.85,47.09
+916,1.51,"2 km NNW of Federal Way, Washington",2023-09-14 20:45:04.320,-122.32,47.35
+917,0.56,"8 km ESE of Enumclaw, Washington",2023-09-15 04:37:17.880,-121.88,47.19
+918,0.07,"9 km ENE of Ashford, Washington",2023-09-15 06:33:19.160,-121.92,46.80
+919,0.38,"22 km ENE of Ashford, Washington",2023-09-15 09:41:12.810,-121.76,46.84
+920,1.42,"2 km E of Granite Falls, Washington",2023-09-15 21:30:00.130,-121.94,48.09
+921,1.06,"3 km W of Bangor Trident Base, Washington",2023-09-16 00:50:57.280,-122.76,47.73
+922,0.28,"22 km ENE of Ashford, Washington",2023-09-16 19:38:49.940,-121.76,46.85
+923,1.40,"5 km ENE of Ashford, Washington",2023-09-16 20:10:24.370,-121.97,46.77
+924,0.81,"7 km WSW of Lake Cavanaugh, Washington",2023-09-17 01:54:23.510,-122.12,48.31
+925,0.08,"22 km ENE of Ashford, Washington",2023-09-17 03:14:36.400,-121.76,46.85
+926,2.50,"9 km NNE of Snoqualmie, Washington",2023-09-17 07:08:54.480,-121.76,47.60
+927,1.04,"6 km NE of Fall City, Washington",2023-09-17 07:19:00.740,-121.83,47.62
+928,0.90,"5 km ENE of Oso, Washington",2023-09-18 01:32:14.050,-121.86,48.29
+929,0.82,"3 km E of Carbonado, Washington",2023-09-18 10:10:13.010,-122.00,47.07
+930,0.31,"23 km ENE of Ashford, Washington",2023-09-18 15:30:22.280,-121.76,46.85
+931,0.47,"5 km SSE of Darrington, Washington",2023-09-18 17:00:35.880,-121.58,48.21
+932,1.76,"Olympic Peninsula, Washington",2023-09-18 18:59:54.640,-123.12,47.11
+933,0.23,Washington,2023-09-19 08:31:58.810,-121.75,46.87
+934,1.11,"5 km NE of Oso, Washington",2023-09-19 09:04:07.280,-121.87,48.30
+935,0.12,Washington,2023-09-19 12:28:08.730,-121.78,46.86
+936,0.63,"23 km ENE of Ashford, Washington",2023-09-19 16:00:07.540,-121.75,46.85
+937,0.41,Washington,2023-09-20 00:17:42.700,-121.76,46.85
+938,1.43,"4 km ENE of White Center, Washington",2023-09-20 00:56:28.780,-122.30,47.53
+939,1.07,"5 km NE of Oso, Washington",2023-09-20 04:46:59.700,-121.88,48.31
+940,0.68,"22 km ENE of Ashford, Washington",2023-09-20 07:47:15.070,-121.76,46.85
+941,0.49,Washington,2023-09-20 15:59:48.880,-121.96,46.77
+942,1.62,"1 km SE of Kapowsin, Washington",2023-09-20 23:55:08.380,-122.21,46.98
+943,0.51,"12 km NNE of Ashford, Washington",2023-09-21 03:04:08.500,-121.96,46.86
+944,0.56,"5 km ENE of Ashford, Washington",2023-09-21 03:10:22.680,-121.96,46.77
+945,1.83,"0 km ENE of Camano, Washington",2023-09-21 03:52:14.200,-122.52,48.18
+946,0.91,"11 km SE of Darrington, Washington",2023-09-21 10:48:38.780,-121.50,48.18
+947,0.17,"15 km ENE of Ashford, Washington",2023-09-21 16:59:28.200,-121.86,46.83
+948,0.99,"3 km SE of Enumclaw, Washington",2023-09-21 19:32:05.920,-121.96,47.18
+949,2.00,"9 km WNW of Longbranch, Washington",2023-09-21 23:42:02.340,-122.88,47.23
+950,0.57,"11 km NW of Easton, Washington",2023-09-22 01:10:30.830,-121.28,47.32
+951,0.92,"20 km ENE of Ashford, Washington",2023-09-22 14:58:03.420,-121.78,46.83
+952,1.49,Washington,2023-09-22 18:42:35.030,-121.82,47.16
+953,-0.17,"14 km NE of Ashford, Washington",2023-09-23 02:43:07.190,-121.91,46.86
+954,0.14,"24 km ENE of Ashford, Washington",2023-09-23 04:05:37.070,-121.74,46.85
+955,2.03,"Puget Sound region, Washington",2023-09-24 01:07:15.450,-122.86,47.80
+956,0.86,"0 km NE of Duvall, Washington",2023-09-24 18:23:28.270,-121.98,47.75
+957,1.85,Washington,2023-09-25 05:34:25.790,-121.75,46.85
+958,1.19,"23 km ENE of Ashford, Washington",2023-09-25 07:30:46.520,-121.75,46.85
+959,0.44,"5 km N of Woods Creek, Washington",2023-09-26 00:08:11.240,-121.91,47.92
+960,0.27,"12 km NE of Ashford, Washington",2023-09-26 07:09:54.810,-121.91,46.83
+961,1.90,"10 km S of Sultan, Washington",2023-09-26 14:22:07.210,-121.80,47.77
+962,1.00,"2 km NW of Black Diamond, Washington",2023-09-26 21:34:12.890,-122.02,47.32
+963,1.32,"1 km SW of Ravensdale, Washington",2023-09-26 22:15:41.810,-122.00,47.34
+964,1.05,"2 km WSW of Ravensdale, Washington",2023-09-27 02:32:47.340,-122.01,47.34
+965,1.20,"1 km SW of Quilcene, Washington",2023-09-27 08:56:39.340,-122.89,47.81
+966,0.48,"23 km ENE of Ashford, Washington",2023-09-28 07:42:48.750,-121.74,46.84
+967,0.68,"8 km E of Ashford, Washington",2023-09-28 17:49:56.040,-121.92,46.76
+968,1.38,"8 km ENE of Fall City, Washington",2023-09-29 08:57:38.200,-121.80,47.61
+969,0.45,"12 km NNE of Ashford, Washington",2023-09-29 22:21:44.240,-121.94,46.86
+970,0.56,"5 km ENE of Oso, Washington",2023-09-30 01:08:36.710,-121.87,48.30
+971,0.94,"2 km NE of Sammamish, Washington",2023-09-30 11:22:04.720,-122.06,47.66
+972,2.18,Washington,2023-09-30 16:19:54.860,-122.69,48.08
+973,1.00,"1 km SSW of Bremerton, Washington",2023-09-30 16:42:10.300,-122.64,47.56
+974,0.76,Washington,2023-10-01 03:12:25.290,-121.74,46.84
+975,0.22,"24 km ENE of Ashford, Washington",2023-10-01 06:47:29.670,-121.74,46.84
+976,0.71,"9 km SSE of Darrington, Washington",2023-10-02 15:06:38.310,-121.54,48.19
+977,1.57,"2 km E of Granite Falls, Washington",2023-10-02 21:30:24.560,-121.94,48.09
+978,0.67,"23 km ENE of Ashford, Washington",2023-10-02 22:58:33.510,-121.75,46.85
+979,1.07,"7 km NE of Fall City, Washington",2023-10-03 08:05:23.480,-121.82,47.62
+980,0.17,"12 km NNE of Ashford, Washington",2023-10-04 04:07:04.140,-121.96,46.86
+981,1.71,"3 km ENE of Bainbridge Island, Washington",2023-10-04 16:53:22.930,-122.48,47.64
+982,1.29,"0 km E of Parkwood, Washington",2023-10-04 17:35:23.490,-122.60,47.53
+983,2.26,"0 km WSW of Bothell West, Washington",2023-10-04 20:38:09.670,-122.25,47.80
+984,0.99,"32 km NW of Hoodsport, Washington",2023-10-04 20:44:46.640,-123.46,47.60
+985,0.52,"13 km NNE of Ashford, Washington",2023-10-04 21:04:57.640,-121.94,46.86
+986,0.01,"23 km ENE of Ashford, Washington",2023-10-05 06:30:45.620,-121.76,46.85
+987,1.02,"3 km ESE of Carbonado, Washington",2023-10-06 01:10:48.750,-122.00,47.07
+988,0.66,"9 km SSW of Darrington, Washington",2023-10-06 10:36:03.400,-121.66,48.17
+989,1.14,"10 km SSW of Darrington, Washington",2023-10-06 10:56:50.240,-121.66,48.18
+990,1.44,"1 km SSE of Fircrest, Washington",2023-10-06 18:48:17.510,-122.51,47.23
+991,0.56,"21 km SE of Carbonado, Washington",2023-10-06 20:14:05.500,-121.82,46.97
+992,0.75,"6 km WNW of Lake Cavanaugh, Washington",2023-10-06 20:28:33.040,-122.10,48.34
+993,0.85,"6 km WSW of Lake Cavanaugh, Washington",2023-10-06 20:42:36.490,-122.10,48.31
+994,1.57,"6 km WSW of Lake Cavanaugh, Washington",2023-10-06 20:45:47.830,-122.10,48.31
+995,0.40,"13 km SSE of Carbonado, Washington",2023-10-06 23:33:16.880,-121.99,46.97
+996,0.59,"22 km ENE of Ashford, Washington",2023-10-07 01:08:50.720,-121.76,46.85
+997,0.26,"22 km ENE of Ashford, Washington",2023-10-07 01:25:14.200,-121.76,46.85
+998,0.18,"11 km E of Ashford, Washington",2023-10-07 02:16:35.790,-121.88,46.77
+999,0.42,"22 km ENE of Ashford, Washington",2023-10-07 06:35:51.790,-121.76,46.85
+1000,-0.02,"17 km SSE of Carbonado, Washington",2023-10-08 06:58:47.550,-121.96,46.94
+1001,0.82,"22 km ENE of Ashford, Washington",2023-10-08 13:45:25.200,-121.76,46.84
+1002,4.30,"Port Townsend, WA",2023-10-09 02:21:08.960,-122.73,48.04
+1003,1.04,Washington,2023-10-09 13:24:08.340,-121.93,48.38
+1004,0.79,"24 km ENE of Ashford, Washington",2023-10-09 16:54:53.820,-121.75,46.86
+1005,1.22,"1 km SE of Hobart, Washington",2023-10-11 06:07:03.900,-121.96,47.41
+1006,1.04,Washington,2023-10-11 22:25:23.350,-122.20,46.98
+1007,0.57,"0 km NNW of Carbonado, Washington",2023-10-12 07:19:19.310,-122.06,47.09
+1008,0.71,"3 km ESE of Carbonado, Washington",2023-10-12 11:44:00.090,-122.01,47.07
+1009,1.21,"10 km ESE of Riverbend, Washington",2023-10-12 12:48:57.460,-121.62,47.43
+1010,1.49,"8 km ENE of Enumclaw, Washington",2023-10-12 18:30:50.230,-121.90,47.23
+1011,1.16,"3 km ESE of Quilcene, Washington",2023-10-13 02:19:08.890,-122.84,47.81
+1012,1.06,"Puget Sound region, Washington",2023-10-13 11:13:14.820,-122.85,47.82
+1013,0.54,"7 km E of Ashford, Washington",2023-10-13 17:16:48.890,-121.93,46.77
+1014,1.02,"4 km NNE of Silverdale, Washington",2023-10-13 17:58:29.800,-122.68,47.68
+1015,0.42,"3 km NNE of Swede Heaven, Washington",2023-10-13 18:38:43.970,-121.71,48.31
+1016,0.53,"22 km ENE of Ashford, Washington",2023-10-13 22:27:30.460,-121.76,46.84
+1017,0.86,"4 km SE of Enumclaw, Washington",2023-10-14 07:04:15.790,-121.94,47.18
+1018,0.28,"17 km NNE of Ashford, Washington",2023-10-14 07:49:40.270,-121.94,46.90
+1019,1.43,"8 km S of Seabeck, Washington",2023-10-14 21:24:50.610,-122.83,47.56
+1020,1.13,"22 km ENE of Ashford, Washington",2023-10-14 22:13:46.870,-121.76,46.85
+1021,0.82,"3 km ENE of Cathcart, Washington",2023-10-15 16:02:09.420,-122.06,47.86
+1022,0.13,"23 km ENE of Ashford, Washington",2023-10-15 17:57:42.610,-121.76,46.85
+1023,0.71,Washington,2023-10-15 19:43:32.120,-122.05,46.73
+1024,0.72,"6 km SSE of Swede Heaven, Washington",2023-10-16 01:13:27.870,-121.68,48.24
+1025,1.73,"8 km NE of Fall City, Washington",2023-10-16 13:08:04.860,-121.80,47.61
+1026,0.71,"4 km ESE of Carbonado, Washington",2023-10-16 14:53:13.540,-122.00,47.07
+1027,1.83,"4 km SW of Port Ludlow, Washington",2023-10-16 18:35:45.230,-122.72,47.90
+1028,0.30,"21 km NE of Ashford, Washington",2023-10-17 03:32:28.600,-121.82,46.89
+1029,1.12,"Puget Sound region, Washington",2023-10-17 05:12:45.630,-122.88,47.81
+1030,1.32,"5 km SE of Bethel, Washington",2023-10-18 00:13:54.860,-122.59,47.46
+1031,0.21,"3 km SE of Swede Heaven, Washington",2023-10-18 05:01:31.660,-121.69,48.26
+1032,0.73,"19 km NE of Ashford, Washington",2023-10-18 09:17:51.980,-121.89,46.90
+1033,0.58,"13 km NNE of Ashford, Washington",2023-10-18 17:42:29.010,-121.95,46.86
+1034,1.29,"4 km ESE of Dash Point, Washington",2023-10-20 00:15:35.070,-122.37,47.31
+1035,1.18,"3 km ESE of Dash Point, Washington",2023-10-20 00:18:56.920,-122.38,47.31
+1036,1.10,"Puget Sound region, Washington",2023-10-20 02:32:04.240,-122.38,47.31
+1037,1.29,"Puget Sound region, Washington",2023-10-20 03:25:19.530,-122.38,47.31
+1038,2.66,Washington,2023-10-20 13:47:54.920,-121.73,47.61
+1039,0.61,"24 km ENE of Ashford, Washington",2023-10-20 16:53:59.100,-121.75,46.87
+1040,0.78,"5 km ENE of Ashford, Washington",2023-10-21 14:25:45.220,-121.96,46.77
+1041,0.31,Washington,2023-10-21 16:00:34.230,-121.75,46.87
+1042,0.25,"18 km SSE of Carbonado, Washington",2023-10-22 03:22:43.800,-121.94,46.93
+1043,0.07,"16 km NNE of Ashford, Washington",2023-10-22 04:30:38.280,-121.93,46.89
+1044,0.82,"4 km WNW of Greenwater, Washington",2023-10-22 07:40:24.210,-121.71,47.18
+1045,0.47,"12 km SE of Darrington, Washington",2023-10-22 09:34:34.510,-121.49,48.17
+1046,0.27,"23 km ENE of Ashford, Washington",2023-10-22 19:27:28.880,-121.75,46.85
+1047,0.52,"5 km ENE of Ashford, Washington",2023-10-22 22:32:40.220,-121.96,46.78
+1048,3.05,"Puget Sound region, Washington",2023-10-23 02:41:45.820,-122.70,47.41
+1049,2.44,"3 km E of Carbonado, Washington",2023-10-24 11:56:23.970,-122.00,47.08
+1050,1.11,"1 km N of Clearview, Washington",2023-10-24 16:47:25.000,-122.13,47.85
+1051,1.33,"2 km ESE of Kapowsin, Washington",2023-10-24 18:27:50.840,-122.20,46.98
+1052,1.04,"16 km NNE of Ashford, Washington",2023-10-25 16:17:56.570,-121.94,46.90
+1053,0.41,"23 km ENE of Ashford, Washington",2023-10-25 17:45:22.820,-121.75,46.85
+1054,0.07,"22 km ENE of Ashford, Washington",2023-10-26 06:43:03.610,-121.76,46.85
+1055,0.81,"23 km ENE of Ashford, Washington",2023-10-26 06:50:12.220,-121.75,46.85
+1056,1.66,"23 km ENE of Ashford, Washington",2023-10-26 07:00:03.600,-121.75,46.85
+1057,0.32,"23 km ENE of Ashford, Washington",2023-10-26 07:27:15.910,-121.75,46.85
+1058,0.31,"23 km ENE of Ashford, Washington",2023-10-26 07:43:14.000,-121.75,46.85
+1059,0.42,"3 km SSW of Ashford, Washington",2023-10-26 08:48:37.210,-122.05,46.73
+1060,1.24,"23 km ENE of Ashford, Washington",2023-10-26 09:38:16.510,-121.75,46.85
+1061,1.02,"2 km SSW of Quilcene, Washington",2023-10-26 10:10:36.420,-122.88,47.80
+1062,-0.25,"14 km NE of Ashford, Washington",2023-10-26 12:35:00.720,-121.92,46.86
+1063,0.18,"6 km E of Ashford, Washington",2023-10-26 21:58:57.020,-121.94,46.76
+1064,-0.68,"21 km ENE of Ashford, Washington",2023-10-26 23:33:38.630,-121.79,46.86
+1065,0.83,"11 km S of Carbonado, Washington",2023-10-27 03:34:25.200,-122.03,46.98
+1066,0.29,"13 km NNE of Ashford, Washington",2023-10-27 11:31:24.600,-121.96,46.87
+1067,1.26,"5 km WNW of Langley, Washington",2023-10-27 18:18:19.950,-122.47,48.05
+1068,2.01,"5 km SSW of Port Ludlow, Washington",2023-10-27 21:26:45.000,-122.71,47.88
+1069,3.01,"1 km NE of Gorst, Washington",2023-10-28 01:29:59.450,-122.70,47.53
+1070,1.06,"22 km ENE of Ashford, Washington",2023-10-28 12:56:05.460,-121.76,46.85
+1071,1.24,"19 km WSW of Brinnon, Washington",2023-10-28 15:20:47.090,-123.14,47.61
+1072,0.43,"4 km SE of Enumclaw, Washington",2023-10-28 17:49:03.140,-121.96,47.17
+1073,0.62,"3 km NE of Sumner, Washington",2023-10-28 20:27:35.040,-122.21,47.23
+1074,0.17,Washington,2023-10-28 20:43:20.460,-121.90,46.76
+1075,0.24,Washington,2023-10-29 18:23:39.860,-121.76,46.85
+1076,-0.07,Washington,2023-10-30 01:48:35.900,-121.79,46.86
+1077,1.11,Washington,2023-10-30 20:51:32.260,-121.83,47.14
+1078,0.48,"15 km NNE of Ashford, Washington",2023-10-30 21:37:58.610,-121.95,46.89
+1079,0.70,"4 km SW of Big Lake, Washington",2023-10-30 22:12:09.040,-122.28,48.37
+1080,0.03,"11 km NE of Ashford, Washington",2023-10-31 00:15:25.150,-121.91,46.83
+1081,1.31,"3 km WSW of Fall City, Washington",2023-10-31 14:57:56.480,-121.93,47.56
+1082,0.29,"22 km ENE of Ashford, Washington",2023-10-31 19:18:27.320,-121.77,46.85
+1083,1.57,"8 km WSW of Tumwater, Washington",2023-11-01 01:22:42.340,-123.01,46.98
+1084,1.14,"0 km N of Lake Roesiger, Washington",2023-11-01 02:12:14.260,-121.93,47.99
+1085,0.66,"8 km N of Ashford, Washington",2023-11-01 07:06:59.550,-122.01,46.84
+1086,0.56,"17 km NNE of Ashford, Washington",2023-11-01 11:09:29.010,-121.94,46.90
+1087,0.74,"22 km ENE of Ashford, Washington",2023-11-01 15:44:31.830,-121.76,46.85
+1088,1.57,"3 km WNW of Lake Cavanaugh, Washington",2023-11-01 17:10:28.130,-122.06,48.33
+1089,1.43,"2 km NW of Kapowsin, Washington",2023-11-02 00:00:25.280,-122.24,47.00
+1090,0.43,"13 km NNE of Ashford, Washington",2023-11-02 01:59:14.810,-121.96,46.87
+1091,0.96,"3 km WSW of Fall City, Washington",2023-11-02 07:00:58.060,-121.93,47.55
+1092,0.65,"23 km ENE of Ashford, Washington",2023-11-02 21:36:59.530,-121.76,46.85
+1093,0.59,"13 km NE of Ashford, Washington",2023-11-02 23:38:16.020,-121.92,46.85
+1094,1.60,"2 km ENE of Port Angeles East, Washington",2023-11-03 21:30:26.640,-123.34,48.11
+1095,0.83,"6 km SSE of Quilcene, Washington",2023-11-04 05:59:52.830,-122.84,47.77
+1096,0.66,"23 km ENE of Ashford, Washington",2023-11-04 16:30:17.120,-121.76,46.85
+1097,1.68,"8 km E of Ashford, Washington",2023-11-05 17:08:29.750,-121.92,46.76
+1098,0.93,"8 km E of Ashford, Washington",2023-11-05 17:20:26.520,-121.92,46.76
+1099,1.33,"4 km SW of Quilcene, Washington",2023-11-06 07:52:11.640,-122.92,47.80
+1100,0.76,"10 km NE of Ashford, Washington",2023-11-07 07:53:16.580,-121.94,46.83
+1101,1.83,"11 km WSW of Belfair, Washington",2023-11-08 15:17:56.060,-122.98,47.43
+1102,-0.44,"22 km ENE of Ashford, Washington",2023-11-09 09:14:04.150,-121.76,46.85
+1103,0.73,"Puget Sound region, Washington",2023-11-09 16:35:19.680,-122.85,47.69
+1104,0.63,"23 km ENE of Ashford, Washington",2023-11-09 22:06:23.590,-121.76,46.85
+1105,1.09,Washington,2023-11-09 22:58:51.220,-121.95,47.71
+1106,1.39,Washington,2023-11-10 22:41:08.630,-122.65,46.79
+1107,1.40,"2 km NE of Kapowsin, Washington",2023-11-11 00:02:11.940,-122.20,47.00
+1108,-0.08,"14 km NE of Ashford, Washington",2023-11-11 13:28:46.270,-121.92,46.86
+1109,1.40,"10 km NNE of Ashford, Washington",2023-11-12 08:40:15.870,-121.99,46.85
+1110,0.46,"10 km NNE of Ashford, Washington",2023-11-12 12:28:30.120,-122.00,46.85
+1111,1.46,"10 km NNE of Ashford, Washington",2023-11-12 12:46:39.760,-121.99,46.85
+1112,1.25,"10 km NNE of Snoqualmie, Washington",2023-11-13 15:58:15.240,-121.75,47.61
+1113,1.12,"8 km SE of Enumclaw, Washington",2023-11-13 18:30:21.010,-121.91,47.16
+1114,0.59,Washington,2023-11-13 20:06:58.030,-122.01,46.91
+1115,0.43,"15 km N of Ashford, Washington",2023-11-13 22:20:40.250,-122.01,46.90
+1116,0.96,"3 km SE of Enumclaw, Washington",2023-11-14 03:35:19.330,-121.95,47.18
+1117,0.74,"5 km NE of Granite Falls, Washington",2023-11-14 23:29:16.560,-121.91,48.11
+1118,1.06,Washington,2023-11-15 17:26:45.910,-121.82,47.68
+1119,0.04,"14 km NNE of Ashford, Washington",2023-11-15 18:15:20.250,-121.94,46.88
+1120,1.33,"10 km NNE of Ashford, Washington",2023-11-16 01:03:06.770,-122.00,46.85
+1121,1.10,"6 km NE of Swede Heaven, Washington",2023-11-16 06:31:31.270,-121.65,48.32
+1122,0.53,"16 km SE of Carbonado, Washington",2023-11-16 21:12:46.870,-121.92,46.96
+1123,3.32,"2 km SSE of Stanwood, Washington",2023-11-17 00:47:40.540,-122.36,48.22
+1124,0.36,"24 km ENE of Ashford, Washington",2023-11-17 09:35:15.600,-121.74,46.86
+1125,1.16,"2 km SSE of Quilcene, Washington",2023-11-17 10:58:22.990,-122.86,47.80
+1126,1.72,"5 km SSW of Port Ludlow, Washington",2023-11-17 20:24:45.650,-122.72,47.88
+1127,0.38,"26 km ENE of Ashford, Washington",2023-11-17 21:33:38.620,-121.74,46.89
+1128,0.05,"8 km ENE of Ashford, Washington",2023-11-18 06:53:07.570,-121.93,46.80
+1129,0.38,"5 km E of Ashford, Washington",2023-11-18 20:37:56.090,-121.96,46.76
+1130,1.17,"5 km ENE of Ashford, Washington",2023-11-18 20:39:38.870,-121.96,46.77
+1131,0.62,"5 km ENE of Ashford, Washington",2023-11-18 20:41:32.330,-121.96,46.77
+1132,0.57,"5 km ENE of Ashford, Washington",2023-11-18 20:53:58.030,-121.97,46.79
+1133,0.38,"5 km ENE of Ashford, Washington",2023-11-18 22:10:58.880,-121.96,46.77
+1134,1.38,"4 km WNW of Carlsborg, Washington",2023-11-19 00:42:24.370,-123.23,48.10
+1135,1.41,"4 km NNE of White Center, Washington",2023-11-19 16:29:56.580,-122.33,47.55
+1136,0.59,"19 km SSE of Carbonado, Washington",2023-11-20 01:26:10.140,-121.93,46.93
+1137,1.14,"10 km NNE of Ashford, Washington",2023-11-20 20:42:44.310,-121.99,46.85
+1138,1.49,"2 km E of Kapowsin, Washington",2023-11-20 22:15:46.280,-122.20,46.99
+1139,0.42,"5 km ENE of Ashford, Washington",2023-11-21 01:56:28.540,-121.96,46.77
+1140,1.53,"10 km NNE of Ashford, Washington",2023-11-22 10:57:50.100,-122.00,46.85
+1141,1.26,"1 km SE of Tracyton, Washington",2023-11-23 15:41:18.360,-122.64,47.60
+1142,1.49,"1 km N of Enetai, Washington",2023-11-23 15:41:27.520,-122.60,47.60
+1143,0.05,Washington,2023-11-23 18:30:01.170,-121.76,46.86
+1144,0.52,"10 km NNE of Ashford, Washington",2023-11-24 11:13:10.900,-121.99,46.85
+1145,1.02,"3 km N of Lake Marcel-Stillwater, Washington",2023-11-24 12:39:24.000,-121.91,47.72
+1146,1.17,"11 km NNE of Snoqualmie, Washington",2023-11-24 12:41:54.180,-121.74,47.61
+1147,0.36,"10 km NNE of Ashford, Washington",2023-11-24 16:25:38.780,-121.99,46.85
+1148,0.38,"11 km NE of Ashford, Washington",2023-11-26 00:39:41.120,-121.91,46.82
+1149,1.50,"2 km NW of Carbonado, Washington",2023-11-26 05:45:45.820,-122.07,47.09
+1150,0.74,"2 km W of Wilkeson, Washington",2023-11-26 06:46:09.910,-122.08,47.10
+1151,0.20,"22 km ENE of Ashford, Washington",2023-11-27 05:56:25.160,-121.76,46.85
+1152,0.07,"23 km ENE of Ashford, Washington",2023-11-27 18:32:17.830,-121.76,46.85
+1153,1.70,"1 km WNW of Chico, Washington",2023-11-27 20:55:45.490,-122.73,47.62
+1154,0.96,"2 km N of Mirrormont, Washington",2023-11-28 09:00:14.280,-122.00,47.49
+1155,1.28,"12 km W of Greenwater, Washington",2023-11-28 20:17:16.900,-121.82,47.15
+1156,1.15,"1 km SE of Quilcene, Washington",2023-11-28 22:12:39.820,-122.86,47.81
+1157,0.23,"23 km ENE of Ashford, Washington",2023-11-28 23:09:32.890,-121.76,46.85
+1158,1.61,Washington,2023-11-29 00:05:15.690,-121.94,48.09
+1159,1.22,"11 km NE of Snoqualmie, Washington",2023-11-29 03:05:36.730,-121.70,47.59
+1160,0.11,"17 km SSE of Carbonado, Washington",2023-11-29 14:16:20.670,-121.95,46.94
+1161,0.16,"23 km ENE of Ashford, Washington",2023-11-30 03:34:09.290,-121.76,46.85
+1162,0.17,"22 km ENE of Ashford, Washington",2023-11-30 03:36:47.360,-121.77,46.85
+1163,1.31,"Puget Sound region, Washington",2023-11-30 07:28:24.420,-122.91,47.46
+1164,0.88,"4 km ENE of Echo Lake, Washington",2023-11-30 22:59:48.000,-122.00,47.80
+1165,0.72,"2 km ENE of Shoreline, Washington",2023-12-01 06:55:03.680,-122.31,47.76
+1166,0.60,Washington,2023-12-02 08:22:45.520,-121.84,46.92
+1167,0.57,"3 km E of Carbonado, Washington",2023-12-03 04:19:27.800,-122.01,47.08
+1168,1.31,"3 km SSW of Fall City, Washington",2023-12-03 07:24:19.570,-121.91,47.54
+1169,0.98,"4 km E of Carbonado, Washington",2023-12-03 09:28:32.260,-122.00,47.07
+1170,1.31,"4 km N of Prairie Heights, Washington",2023-12-03 13:48:44.180,-122.11,47.19
+1171,1.42,"1 km NW of Lake Marcel-Stillwater, Washington",2023-12-04 14:19:31.490,-121.93,47.71
+1172,2.40,"25 km ESE of Neilton, Washington",2023-12-04 17:30:41.170,-123.56,47.34
+1173,1.69,"4 km WNW of Vashon, Washington",2023-12-05 04:29:11.910,-122.52,47.46
+1174,0.63,Washington,2023-12-05 18:00:07.140,-121.65,48.23
+1175,2.15,"1 km NW of Meadowdale, Washington",2023-12-05 18:24:14.510,-122.35,47.86
+1176,1.41,"5 km WSW of Chico, Washington",2023-12-06 09:24:12.380,-122.78,47.59
+1177,1.27,"2 km NNW of Algona, Washington",2023-12-06 12:54:58.620,-122.26,47.30
+1178,1.56,"11 km NE of Snoqualmie, Washington",2023-12-07 14:23:16.520,-121.74,47.61
+1179,0.15,"23 km ENE of Ashford, Washington",2023-12-07 19:05:28.930,-121.76,46.85
+1180,2.37,"8 km SSW of Sultan, Washington",2023-12-07 22:04:59.860,-121.87,47.80
+1181,0.45,"19 km NNE of Ashford, Washington",2023-12-08 05:07:29.040,-121.94,46.92
+1182,1.59,"3 km NNW of Oso, Washington",2023-12-08 17:44:55.280,-121.94,48.30
+1183,1.49,"0 km SE of Carbonado, Washington",2023-12-08 23:20:17.250,-122.05,47.08
+1184,0.40,"23 km ENE of Ashford, Washington",2023-12-11 20:03:27.660,-121.76,46.85
+1185,1.17,"13 km W of Greenwater, Washington",2023-12-11 21:23:48.880,-121.83,47.14
+1186,0.20,"23 km ENE of Ashford, Washington",2023-12-11 21:31:44.810,-121.76,46.86
+1187,0.36,"23 km ENE of Ashford, Washington",2023-12-11 21:33:11.880,-121.76,46.86
+1188,0.16,"23 km ENE of Ashford, Washington",2023-12-11 21:43:02.760,-121.76,46.85
+1189,1.08,"5 km SSW of Baring, Washington",2023-12-11 22:40:42.280,-121.51,47.72
+1190,-0.11,"14 km NNE of Ashford, Washington",2023-12-12 01:24:45.730,-121.92,46.87
+1191,0.49,"23 km ENE of Ashford, Washington",2023-12-12 02:04:27.640,-121.76,46.85
+1192,-0.60,"22 km ENE of Ashford, Washington",2023-12-12 04:06:02.450,-121.76,46.85
+1193,0.34,"12 km NE of Ashford, Washington",2023-12-12 09:52:14.680,-121.93,46.85
+1194,0.70,"12 km E of Wilkeson, Washington",2023-12-12 14:51:24.330,-121.88,47.11
+1195,0.96,"14 km NNE of Ashford, Washington",2023-12-12 16:12:31.580,-121.95,46.88
+1196,0.90,"9 km S of Lyman, Washington",2023-12-12 18:18:18.730,-122.08,48.44
+1197,1.35,"6 km SE of Camano, Washington",2023-12-13 01:24:29.040,-122.46,48.13
+1198,1.29,"7 km S of Lake Morton-Berrydale, Washington",2023-12-13 09:25:45.450,-122.12,47.27
+1199,1.14,"5 km SSE of Quilcene, Washington",2023-12-13 11:36:22.610,-122.84,47.78
+1200,0.57,"15 km SSE of Carbonado, Washington",2023-12-14 04:01:08.270,-121.96,46.95
+1201,0.66,"23 km ENE of Ashford, Washington",2023-12-15 18:18:31.820,-121.76,46.86
+1202,1.40,"2 km ESE of Kapowsin, Washington",2023-12-15 21:22:04.170,-122.20,46.98
+1203,1.55,"14 km NNE of Ashford, Washington",2023-12-15 22:37:59.520,-121.95,46.87
+1204,0.34,"23 km ENE of Ashford, Washington",2023-12-16 05:20:33.660,-121.76,46.86
+1205,1.10,"14 km NNE of Ashford, Washington",2023-12-16 15:59:47.910,-121.95,46.87
+1206,1.52,"3 km SSE of Stanwood, Washington",2023-12-17 06:47:01.670,-122.35,48.22
+1207,1.64,"2 km NNE of Lea Hill, Washington",2023-12-17 09:48:23.180,-122.16,47.35
+1208,0.71,"7 km NE of Ashford, Washington",2023-12-17 13:23:07.940,-121.95,46.80
+1209,0.54,"1 km SE of Carbonado, Washington",2023-12-17 16:43:58.920,-122.03,47.07
+1210,1.26,"30 km S of Port Angeles East, Washington",2023-12-18 02:53:08.650,-123.38,47.83
+1211,0.33,"13 km NNE of Ashford, Washington",2023-12-18 05:47:55.940,-121.93,46.86
+1212,0.43,"25 km ENE of Ashford, Washington",2023-12-18 20:38:31.570,-121.75,46.89
+1213,0.45,"9 km ENE of Ashford, Washington",2023-12-19 06:43:03.520,-121.91,46.78
+1214,1.43,"0 km ENE of Eatonville, Washington",2023-12-19 23:35:44.810,-122.25,46.87
+1215,0.47,"11 km NNE of Ashford, Washington",2023-12-20 04:05:58.350,-121.98,46.85
+1216,0.81,"24 km ENE of Ashford, Washington",2023-12-20 16:32:37.560,-121.74,46.86
+1217,1.35,"12 km NNW of Jamestown, Washington",2023-12-20 16:57:21.150,-123.16,48.23
+1218,0.86,"2 km WNW of Kapowsin, Washington",2023-12-20 23:55:15.410,-122.26,47.00
+1219,0.48,"7 km ESE of Carbonado, Washington",2023-12-21 02:14:22.100,-121.96,47.05
+1220,2.15,"3 km ENE of East Renton Highlands, Washington",2023-12-21 10:26:26.680,-122.07,47.50
+1221,0.04,"15 km NNE of Ashford, Washington",2023-12-22 03:23:32.670,-121.94,46.88
+1222,0.84,"2 km E of Buckley, Washington",2023-12-22 22:53:28.190,-121.99,47.16
+1223,0.78,"3 km E of Buckley, Washington",2023-12-23 14:05:35.260,-121.98,47.17
+1224,1.24,"2 km SSE of Enumclaw, Washington",2023-12-24 10:44:14.880,-121.97,47.18
+1225,0.59,"23 km ENE of Ashford, Washington",2023-12-24 14:05:44.750,-121.76,46.85
+1226,4.04,"6 km W of Quilcene, Washington",2023-12-24 15:14:04.220,-122.96,47.82
+1227,0.56,"17 km NNE of Ashford, Washington",2023-12-24 22:43:38.950,-121.93,46.90
+1228,1.70,"5 km NNE of Oso, Washington",2023-12-25 04:43:58.320,-121.90,48.31
+1229,1.84,"4 km SSE of Seabeck, Washington",2023-12-25 15:06:58.980,-122.81,47.60
+1230,0.68,"23 km ENE of Ashford, Washington",2023-12-26 02:09:32.300,-121.76,46.85
+1231,0.70,"18 km NNE of Ashford, Washington",2023-12-26 19:39:43.270,-121.97,46.91
+1232,1.33,"3 km NE of Conway, Washington",2023-12-29 17:50:50.930,-122.31,48.36
+1233,1.56,"2 km W of Clinton, Washington",2023-12-30 04:55:11.730,-122.39,47.97
+1234,0.56,"1 km N of Lake Marcel-Stillwater, Washington",2023-12-30 07:01:55.450,-121.91,47.71
+1235,1.35,"8 km SSE of Hamilton, Washington",2023-12-31 20:02:05.450,-121.93,48.46
+1236,0.83,"1 km NNE of Lake Marcel-Stillwater, Washington",2024-01-01 14:32:21.920,-121.91,47.70
+1237,1.17,"3 km WNW of Eatonville, Washington",2024-01-02 19:56:08.460,-122.31,46.87
+1238,1.88,"10 km NE of Lake Marcel-Stillwater, Washington",2024-01-02 22:10:16.890,-121.84,47.77
+1239,1.19,"3 km S of Quilcene, Washington",2024-01-03 03:42:54.260,-122.87,47.79
+1240,0.50,"23 km ENE of Ashford, Washington",2024-01-03 10:31:55.890,-121.76,46.85
+1241,0.61,"13 km NNE of Ashford, Washington",2024-01-03 11:35:24.870,-121.93,46.86
+1242,1.87,"5 km SSE of Seattle, Washington",2024-01-03 14:40:30.020,-122.30,47.57
+1243,1.54,"1 km E of Granite Falls, Washington",2024-01-03 22:29:23.830,-121.94,48.09
+1244,2.16,"10 km NNE of Ashford, Washington",2024-01-04 00:56:01.330,-121.99,46.85
+1245,1.04,"10 km NNE of Ashford, Washington",2024-01-04 00:58:52.580,-121.99,46.85
+1246,1.24,"5 km NE of Conway, Washington",2024-01-04 20:44:28.200,-122.29,48.37
+1247,1.98,"10 km NNE of Ashford, Washington",2024-01-05 02:52:39.300,-121.99,46.85
+1248,0.58,"11 km NNE of Ashford, Washington",2024-01-05 05:33:18.370,-121.98,46.85
+1249,2.76,"10 km NNE of Ashford, Washington",2024-01-05 06:02:35.790,-121.99,46.85
+1250,0.55,"10 km NNE of Ashford, Washington",2024-01-05 06:15:50.040,-122.00,46.85
+1251,1.68,"11 km NNE of Ashford, Washington",2024-01-05 06:46:17.100,-121.99,46.85
+1252,0.45,"3 km ESE of Carbonado, Washington",2024-01-05 10:36:10.150,-122.00,47.07
+1253,1.04,"10 km NNE of Ashford, Washington",2024-01-05 13:51:24.580,-121.99,46.85
+1254,1.57,"2 km ESE of Kapowsin, Washington",2024-01-06 00:08:38.850,-122.20,46.98
+1255,0.67,"10 km NNE of Ashford, Washington",2024-01-06 13:59:03.150,-122.00,46.85
+1256,1.01,"4 km W of Orting, Washington",2024-01-06 18:50:20.850,-122.26,47.09
+1257,1.28,"13 km NNE of Ashford, Washington",2024-01-06 19:20:47.270,-121.93,46.86
+1258,0.90,"9 km SE of Wilderness Rim, Washington",2024-01-08 05:46:06.100,-121.68,47.38
+1259,0.40,"3 km ESE of Carbonado, Washington",2024-01-08 06:01:02.540,-122.00,47.07
+1260,1.34,"10 km NNE of Ashford, Washington",2024-01-08 10:33:26.430,-121.99,46.85
+1261,0.78,"10 km NNE of Ashford, Washington",2024-01-08 18:31:53.200,-121.99,46.85
+1262,1.31,"15 km WSW of Skokomish, Washington",2024-01-09 09:39:25.320,-123.34,47.27
+1263,0.91,"10 km NNE of Ashford, Washington",2024-01-09 09:51:27.630,-121.99,46.85
+1264,0.93,"13 km NNE of Ashford, Washington",2024-01-09 13:36:50.990,-121.94,46.86
+1265,2.37,"13 km NNE of Ashford, Washington",2024-01-09 15:17:18.720,-121.93,46.86
+1266,0.97,"11 km NNE of Ashford, Washington",2024-01-09 16:04:46.010,-121.98,46.85
+1267,-0.17,"12 km NNE of Ashford, Washington",2024-01-09 17:30:10.980,-121.97,46.86
+1268,1.36,"13 km NNE of Ashford, Washington",2024-01-09 17:38:43.190,-121.93,46.86
+1269,1.41,"3 km SSE of Bangor Trident Base, Washington",2024-01-10 07:16:57.310,-122.70,47.69
+1270,1.07,"22 km ENE of Ashford, Washington",2024-01-11 22:56:57.340,-121.76,46.85
+1271,0.63,"22 km ENE of Ashford, Washington",2024-01-11 23:07:32.080,-121.76,46.85
+1272,1.59,"1 km NE of Mirrormont, Washington",2024-01-12 06:41:28.580,-121.98,47.47
+1273,0.44,"22 km ENE of Ashford, Washington",2024-01-12 19:30:38.720,-121.76,46.85
+1274,-0.13,"11 km NE of Ashford, Washington",2024-01-12 22:10:12.500,-121.92,46.83
+1275,1.57,"2 km W of City of Sammamish, Washington",2024-01-12 23:26:34.780,-122.08,47.61
+1276,0.28,"13 km NNE of Ashford, Washington",2024-01-13 06:17:54.870,-121.93,46.86
+1277,1.70,"3 km N of West Lake Sammamish, Washington",2024-01-13 22:32:02.420,-122.11,47.61
+1278,0.44,"9 km ENE of Ashford, Washington",2024-01-14 17:16:24.480,-121.92,46.80
+1279,0.38,"14 km NNE of Ashford, Washington",2024-01-14 22:41:01.040,-121.93,46.87
+1280,2.67,"1 km S of Roosevelt, Washington",2024-01-15 05:48:16.620,-122.01,47.88
+1281,3.48,"7 km SSW of River Road, Washington",2024-01-15 07:25:05.920,-123.17,48.00
+1282,1.02,"5 km WSW of Lake Cavanaugh, Washington",2024-01-15 16:09:49.760,-122.08,48.31
+1283,2.34,"24 km W of Quilcene, Washington",2024-01-15 18:02:10.260,-123.20,47.80
+1284,1.42,"1 km N of Keyport, Washington",2024-01-16 09:40:52.480,-122.62,47.72
+1285,1.53,"10 km WSW of Easton, Washington",2024-01-17 23:45:00.320,-121.31,47.20
+1286,3.26,"1 km NNE of Coupeville, Washington",2024-01-18 03:47:41.020,-122.68,48.24
+1287,0.52,"23 km ENE of Ashford, Washington",2024-01-18 07:43:19.690,-121.76,46.85
+1288,0.30,"22 km ENE of Ashford, Washington",2024-01-18 13:06:57.650,-121.77,46.85
+1289,1.72,"5 km SSW of Port Ludlow, Washington",2024-01-19 20:13:24.940,-122.72,47.88
+1290,1.19,"2 km NW of Vashon, Washington",2024-01-20 04:21:43.150,-122.49,47.46
+1291,2.60,"1 km SSW of Burien, Washington",2024-01-20 15:45:33.280,-122.36,47.46
+1292,2.05,"7 km ENE of Fall City, Washington",2024-01-20 21:25:37.640,-121.80,47.60
+1293,1.42,"3 km NNW of Vashon, Washington",2024-01-21 07:05:45.030,-122.47,47.47
+1294,0.94,"10 km ENE of Fall City, Washington",2024-01-21 07:06:24.210,-121.77,47.62
+1295,0.02,"22 km ENE of Ashford, Washington",2024-01-21 17:06:49.900,-121.76,46.84
+1296,1.15,"6 km NE of Fall City, Washington",2024-01-21 17:59:05.980,-121.82,47.61
+1297,0.40,"5 km E of Ashford, Washington",2024-01-21 21:58:37.130,-121.95,46.76
+1298,1.29,"1 km NNE of Edmonds, Washington",2024-01-22 06:56:47.180,-122.36,47.82
+1299,1.48,"4 km NNE of Oso, Washington",2024-01-22 15:01:57.010,-121.90,48.31
+1300,1.00,"15 km NE of Ashford, Washington",2024-01-23 08:48:37.900,-121.90,46.87
+1301,1.01,"15 km NE of Ashford, Washington",2024-01-23 20:09:29.410,-121.92,46.87
+1302,0.80,"4 km SE of Enumclaw, Washington",2024-01-23 21:04:53.300,-121.96,47.17
+1303,1.03,"1 km ESE of Issaquah, Washington",2024-01-24 05:36:47.750,-122.01,47.53
+1304,0.60,"7 km NE of Ashford, Washington",2024-01-24 11:32:55.430,-121.96,46.81
+1305,0.84,"5 km N of Oso, Washington",2024-01-24 14:03:22.920,-121.92,48.31
+1306,2.27,"2 km E of Issaquah, Washington",2024-01-24 16:57:40.980,-122.00,47.53
+1307,0.90,"3 km N of Oso, Washington",2024-01-25 11:21:03.730,-121.92,48.31
+1308,1.49,"33 km NE of Amanda Park, Washington",2024-01-25 22:29:43.800,-123.62,47.69
+1309,0.99,"14 km SSW of Easton, Washington",2024-01-26 10:40:57.180,-121.23,47.11
+1310,0.92,"16 km N of Ashford, Washington",2024-01-27 02:20:13.220,-121.99,46.91
+1311,1.22,"13 km NE of Ashford, Washington",2024-01-28 09:36:32.260,-121.92,46.85
+1312,1.62,"4 km E of Duvall, Washington",2024-01-28 22:05:16.420,-121.93,47.74
+1313,1.37,"3 km NNE of Kapowsin, Washington",2024-01-30 00:08:13.360,-122.21,47.01
+1314,1.12,"6 km NNE of Enumclaw, Washington",2024-01-30 05:22:58.190,-121.97,47.26
+1315,1.12,"9 km NE of Ashford, Washington",2024-01-31 05:42:34.340,-121.96,46.82
+1316,0.67,"16 km N of Ashford, Washington",2024-01-31 13:28:09.240,-122.00,46.91
+1317,1.65,"1 km E of White Center, Washington",2024-02-01 10:07:54.200,-122.33,47.52
+1318,1.27,"2 km NNE of Keyport, Washington",2024-02-02 14:30:34.640,-122.61,47.72
+1319,1.19,"4 km ESE of Wilderness Rim, Washington",2024-02-02 17:38:05.430,-121.71,47.43
+1320,1.38,"2 km ENE of Kapowsin, Washington",2024-02-03 00:28:05.060,-122.20,46.99
+1321,1.31,"1 km SW of Normandy Park, Washington",2024-02-03 03:33:58.620,-122.35,47.42
+1322,1.46,"33 km ENE of Amanda Park, Washington",2024-02-03 10:26:37.210,-123.50,47.59
+1323,0.96,"1 km SW of Quilcene, Washington",2024-02-04 05:48:58.700,-122.88,47.81
+1324,0.26,"23 km ENE of Ashford, Washington",2024-02-04 17:07:21.500,-121.75,46.84
+1325,0.40,"22 km ENE of Ashford, Washington",2024-02-05 14:55:27.970,-121.77,46.85
+1326,1.47,"11 km WNW of Belfair, Washington",2024-02-05 19:34:54.230,-122.96,47.50
+1327,1.62,"10 km WNW of Belfair, Washington",2024-02-05 19:37:27.250,-122.95,47.50
+1328,1.97,"1 km SSE of Dash Point, Washington",2024-02-06 08:28:36.360,-122.42,47.31
+1329,0.06,"23 km ENE of Ashford, Washington",2024-02-06 12:54:35.510,-121.76,46.85
+1330,0.78,"19 km NNE of Ashford, Washington",2024-02-07 22:49:24.510,-121.93,46.92
+1331,1.09,"2 km NNE of Darrington, Washington",2024-02-07 23:39:37.200,-121.59,48.28
+1332,-0.02,"22 km ENE of Ashford, Washington",2024-02-08 20:15:51.820,-121.77,46.85
+1333,1.33,"4 km SE of Riverbend, Washington",2024-02-09 15:59:09.650,-121.70,47.44
+1334,0.82,"20 km NNE of Ashford, Washington",2024-02-09 18:09:12.050,-121.91,46.92
+1335,0.78,"3 km N of Kapowsin, Washington",2024-02-09 18:58:01.170,-122.22,47.02
+1336,0.77,"12 km E of Lake Marcel-Stillwater, Washington",2024-02-09 19:13:16.090,-121.75,47.68
+1337,1.05,"12 km E of Lake Marcel-Stillwater, Washington",2024-02-10 04:34:40.900,-121.75,47.68
+1338,-0.36,"25 km ENE of Ashford, Washington",2024-02-10 10:19:38.490,-121.75,46.88
+1339,0.39,"15 km NNE of Ashford, Washington",2024-02-10 21:16:51.340,-121.95,46.88
+1340,1.60,"2 km SSW of Mirrormont, Washington",2024-02-11 03:26:10.080,-122.01,47.44
+1341,1.22,"3 km WSW of Wilderness Rim, Washington",2024-02-11 16:52:31.730,-121.81,47.44
+1342,-0.04,"22 km ENE of Ashford, Washington",2024-02-13 06:00:42.950,-121.77,46.85
+1343,1.15,"1 km NNE of Alderton, Washington",2024-02-13 07:19:52.670,-122.22,47.18
+1344,0.41,"17 km SE of Carbonado, Washington",2024-02-13 15:57:34.970,-121.90,46.96
+1345,0.04,"23 km ENE of Ashford, Washington",2024-02-14 09:39:47.830,-121.76,46.85
+1346,1.74,"0 km S of Belfair, Washington",2024-02-14 19:15:28.030,-122.83,47.45
+1347,1.03,"19 km SSE of Carbonado, Washington",2024-02-15 02:56:49.610,-121.92,46.92
+1348,1.75,"12 km NE of Ashford, Washington",2024-02-15 07:19:40.220,-121.94,46.85
+1349,0.61,"11 km NNE of Ashford, Washington",2024-02-15 07:25:29.750,-121.95,46.85
+1350,0.94,"15 km NNE of Ashford, Washington",2024-02-15 12:39:17.290,-121.94,46.88
+1351,0.48,"12 km NE of Ashford, Washington",2024-02-16 05:31:58.920,-121.94,46.85
+1352,1.31,"7 km SE of Bainbridge Island, Washington",2024-02-16 07:25:44.850,-122.44,47.58
+1353,0.97,"6 km E of Ashford, Washington",2024-02-16 10:43:06.760,-121.95,46.75
+1354,1.41,"0 km SW of Burien, Washington",2024-02-16 11:10:47.650,-122.35,47.47
+1355,3.42,"17 km WSW of Brinnon, Washington",2024-02-16 16:30:18.830,-123.09,47.59
+1356,0.81,"17 km NNE of Ashford, Washington",2024-02-17 11:31:14.680,-121.94,46.90
+1357,0.53,"12 km NE of Ashford, Washington",2024-02-17 18:49:44.590,-121.92,46.84
+1358,0.12,"22 km ENE of Ashford, Washington",2024-02-18 13:36:19.260,-121.76,46.85
+1359,1.02,"2 km WSW of Chico, Washington",2024-02-18 17:02:17.700,-122.74,47.60
+1360,0.83,"12 km ENE of Verlot, Washington",2024-02-18 22:29:58.790,-121.61,48.12
+1361,0.33,"9 km NE of Ashford, Washington",2024-02-19 08:22:26.280,-121.94,46.82
+1362,1.50,"1 km ESE of Kapowsin, Washington",2024-02-20 19:41:58.920,-122.21,46.98
+1363,0.89,"16 km SW of Greenwater, Washington",2024-02-21 00:38:33.770,-121.78,47.04
+1364,1.88,"7 km NE of Fall City, Washington",2024-02-21 00:51:26.290,-121.82,47.61
+1365,-0.65,"22 km ENE of Ashford, Washington",2024-02-21 16:56:26.210,-121.77,46.85
+1366,0.16,"16 km SSE of Carbonado, Washington",2024-02-22 09:41:57.890,-121.96,46.94
+1367,3.38,"13 km E of Lake Marcel-Stillwater, Washington",2024-02-22 13:02:49.580,-121.73,47.67
+1368,1.82,"2 km SW of Sedro-Woolley, Washington",2024-02-23 11:19:15.410,-122.26,48.49
+1369,0.06,"7 km NE of Ashford, Washington",2024-02-24 02:05:46.660,-121.95,46.80
+1370,0.27,"23 km ENE of Ashford, Washington",2024-02-24 10:08:05.490,-121.76,46.86
+1371,0.51,"15 km SSE of Carbonado, Washington",2024-02-24 10:24:03.280,-121.98,46.95
+1372,0.93,"5 km SE of Kingston, Washington",2024-02-24 11:41:19.080,-122.45,47.76
+1373,0.53,"13 km SSE of Carbonado, Washington",2024-02-24 19:47:34.540,-121.98,46.96
+1374,0.14,"22 km ENE of Ashford, Washington",2024-02-25 01:36:03.120,-121.77,46.85
+1375,0.06,"15 km NNE of Ashford, Washington",2024-02-25 02:17:13.640,-121.95,46.89
+1376,0.21,"22 km ENE of Ashford, Washington",2024-02-25 07:50:45.240,-121.77,46.85
+1377,1.22,"1 km E of North Bend, Washington",2024-02-25 08:15:12.990,-121.76,47.50
+1378,1.42,"3 km ENE of May Creek, Washington",2024-02-25 18:46:35.210,-121.63,47.87
+1379,0.56,"11 km SSE of Carbonado, Washington",2024-02-25 21:43:34.430,-121.98,46.99
+1380,0.65,"8 km ESE of Carnation, Washington",2024-02-26 04:33:18.100,-121.81,47.62
+1381,1.22,"1 km NW of Keyport, Washington",2024-02-26 05:57:17.390,-122.64,47.71
+1382,1.60,"12 km ESE of Enumclaw, Washington",2024-02-26 18:34:28.120,-121.85,47.15
+1383,1.38,"2 km ENE of Granite Falls, Washington",2024-02-27 00:14:31.510,-121.94,48.09
+1384,1.25,"3 km NW of Kapowsin, Washington",2024-02-27 00:15:19.700,-122.26,47.01
+1385,1.76,"2 km N of Keyport, Washington",2024-02-27 07:00:49.820,-122.62,47.72
+1386,1.04,"11 km E of Lake Marcel-Stillwater, Washington",2024-02-27 12:48:14.180,-121.77,47.67
+1387,1.12,"7 km SE of Oso, Washington",2024-02-27 14:15:57.290,-121.86,48.23
+1388,0.42,"15 km N of Ashford, Washington",2024-02-27 20:09:48.560,-122.01,46.90
+1389,1.84,"4 km SSW of Port Ludlow, Washington",2024-02-27 22:06:15.200,-122.72,47.89
+1390,0.54,"15 km N of Ashford, Washington",2024-02-28 03:33:20.300,-122.01,46.90
+1391,0.64,"24 km ENE of Ashford, Washington",2024-03-01 01:06:37.380,-121.75,46.86
+1392,0.73,"17 km SSE of Carbonado, Washington",2024-03-01 01:57:24.790,-121.95,46.94
+1393,0.80,"2 km ENE of Darrington, Washington",2024-03-01 21:01:13.810,-121.58,48.26
+1394,1.51,"5 km W of Coupeville, Washington",2024-03-03 00:28:39.240,-122.77,48.21
+1395,1.18,"1 km SSE of Tracyton, Washington",2024-03-03 14:08:41.930,-122.65,47.60
+1396,0.33,"24 km ENE of Ashford, Washington",2024-03-03 17:27:56.000,-121.76,46.88
+1397,0.19,"25 km ENE of Ashford, Washington",2024-03-04 10:59:14.780,-121.74,46.87
+1398,0.27,"26 km ENE of Ashford, Washington",2024-03-04 12:02:28.180,-121.73,46.87
+1399,1.08,"5 km SW of Rainier, Washington",2024-03-04 22:34:25.210,-122.74,46.85
+1400,-0.32,"25 km ENE of Ashford, Washington",2024-03-04 22:53:04.660,-121.74,46.88
+1401,0.38,"13 km NNE of Ashford, Washington",2024-03-05 21:09:22.600,-121.95,46.87
+1402,1.11,"12 km ESE of Enumclaw, Washington",2024-03-05 22:16:36.220,-121.84,47.16
+1403,1.57,"2 km WNW of Mirrormont, Washington",2024-03-05 22:38:30.540,-122.02,47.47
+1404,1.33,"1 km SSE of Kapowsin, Washington",2024-03-06 00:23:33.870,-122.22,46.97
+1405,1.08,"5 km W of Wilderness Rim, Washington",2024-03-06 08:04:14.690,-121.84,47.44
+1406,-0.26,"22 km ENE of Ashford, Washington",2024-03-06 08:13:54.320,-121.77,46.85
+1407,1.63,"5 km S of Wilderness Rim, Washington",2024-03-06 16:57:47.620,-121.78,47.40
+1408,3.12,"7 km WSW of Snoqualmie, Washington",2024-03-07 01:48:35.340,-121.91,47.49
+1409,-0.15,"23 km ENE of Ashford, Washington",2024-03-07 08:38:05.720,-121.76,46.85
+1410,-0.22,"22 km ENE of Ashford, Washington",2024-03-07 14:04:02.500,-121.77,46.85
+1411,2.28,"28 km NW of Hoodsport, Washington",2024-03-08 01:59:28.100,-123.39,47.60
+1412,0.96,"12 km NNE of Ashford, Washington",2024-03-08 02:03:47.280,-121.94,46.86
+1413,0.48,"26 km ENE of Ashford, Washington",2024-03-08 09:42:32.150,-121.73,46.88
+1414,1.16,"11 km ESE of Enumclaw, Washington",2024-03-08 20:17:21.260,-121.85,47.17
+1415,0.21,"16 km NNE of Ashford, Washington",2024-03-09 00:04:53.980,-121.95,46.90
+1416,1.04,"3 km E of Carbonado, Washington",2024-03-10 00:27:14.000,-122.00,47.07
+1417,2.46,"9 km NNE of Snoqualmie, Washington",2024-03-10 13:05:17.530,-121.77,47.61
+1418,1.45,"3 km NE of Marrowstone, Washington",2024-03-10 18:05:04.210,-122.65,48.08
+1419,1.74,"3 km NNW of Suquamish, Washington",2024-03-11 01:28:32.000,-122.57,47.76
+1420,1.77,"5 km SE of Quilcene, Washington",2024-03-11 02:14:15.150,-122.83,47.78
+1421,1.05,"28 km ENE of Ashford, Washington",2024-03-11 05:13:24.450,-121.69,46.86
+1422,1.32,"1 km S of Kapowsin, Washington",2024-03-12 23:15:43.800,-122.23,46.97
+1423,0.71,"2 km ESE of Buckley, Washington",2024-03-13 07:17:04.060,-121.99,47.15
+1424,0.44,"24 km ENE of Ashford, Washington",2024-03-13 08:34:21.860,-121.75,46.86
+1425,0.81,"5 km NNE of Oso, Washington",2024-03-13 18:11:29.150,-121.90,48.31
+1426,1.77,"1 km WNW of Mirrormont, Washington",2024-03-13 22:13:47.480,-122.02,47.47
+1427,1.89,"0 km E of East Renton Highlands, Washington",2024-03-14 14:59:24.950,-122.10,47.49
+1428,0.85,"8 km SSW of Wilderness Rim, Washington",2024-03-15 13:19:10.350,-121.83,47.39
+1429,1.61,"5 km WSW of La Grande, Washington",2024-03-15 19:16:51.390,-122.39,46.82
+1430,0.21,"13 km NE of Ashford, Washington",2024-03-17 02:00:36.570,-121.92,46.85
+1431,0.08,"15 km NNE of Ashford, Washington",2024-03-17 06:50:39.110,-121.94,46.88
+1432,1.33,"5 km NW of Dash Point, Washington",2024-03-18 06:36:19.940,-122.48,47.35
+1433,0.77,"5 km NNE of Verlot, Washington",2024-03-18 09:56:27.680,-121.75,48.14
+1434,-0.35,"23 km ENE of Ashford, Washington",2024-03-18 12:58:35.460,-121.76,46.86
+1435,0.23,"8 km NNE of Ashford, Washington",2024-03-18 13:43:07.940,-122.01,46.83
+1436,0.48,"3 km NNW of North Sultan, Washington",2024-03-18 14:26:47.900,-121.82,47.91
+1437,1.66,"7 km SSW of Shelton, Washington",2024-03-18 22:49:13.860,-123.12,47.15
+1438,1.14,"10 km W of Olympia, Washington",2024-03-19 00:50:37.700,-123.03,47.05
+1439,1.03,"1 km SSE of Fife, Washington",2024-03-19 01:01:57.660,-122.35,47.22
+1440,1.29,"7 km W of Gorst, Washington",2024-03-19 03:51:16.690,-122.80,47.53
+1441,0.88,"12 km NW of Jamestown, Washington",2024-03-19 04:04:15.320,-123.21,48.20
+1442,1.49,"4 km SE of Kingston, Washington",2024-03-19 07:07:29.260,-122.46,47.76
+1443,2.17,"3 km NE of Belfair, Washington",2024-03-19 09:31:16.880,-122.79,47.48
+1444,1.46,"5 km SSE of Swede Heaven, Washington",2024-03-19 09:59:59.540,-121.68,48.24
+1445,0.91,"7 km SSW of Port Hadlock-Irondale, Washington",2024-03-19 10:18:25.540,-122.81,47.97
+1446,0.11,"3 km SW of Sultan, Washington",2024-03-19 20:23:29.340,-121.86,47.84
+1447,0.23,"13 km NNE of Ashford, Washington",2024-03-19 21:25:28.730,-121.98,46.87
+1448,0.17,"12 km NE of Ashford, Washington",2024-03-20 17:06:29.340,-121.92,46.84
+1449,1.04,"1 km SSE of Kapowsin, Washington",2024-03-20 23:12:08.680,-122.22,46.97
+1450,1.07,"6 km NNW of McCleary, Washington",2024-03-21 00:20:18.580,-123.29,47.11
+1451,0.69,"5 km SE of Quilcene, Washington",2024-03-21 10:17:05.320,-122.82,47.80
+1452,1.53,"11 km N of Quilcene, Washington",2024-03-21 12:41:24.020,-122.86,47.92
+1453,0.98,"3 km NE of Marrowstone, Washington",2024-03-21 14:49:48.380,-122.66,48.08
+1454,1.47,"5 km WSW of Darrington, Washington",2024-03-21 16:14:32.450,-121.66,48.23
+1455,0.77,"5 km SE of Kingston, Washington",2024-03-21 20:01:26.540,-122.45,47.76
+1456,1.39,"7 km WNW of Gorst, Washington",2024-03-21 20:56:43.670,-122.79,47.56
+1457,0.13,"16 km SSE of Carbonado, Washington",2024-03-22 01:38:55.730,-121.95,46.95
+1458,0.63,"1 km S of Monroe, Washington",2024-03-22 19:00:18.790,-121.97,47.84
+1459,0.77,"1 km S of Erlands Point-Kitsap Lake, Washington",2024-03-23 01:44:35.070,-122.71,47.58
+1460,0.24,"13 km NNE of Ashford, Washington",2024-03-23 11:37:28.450,-121.94,46.86
+1461,0.67,"2 km NNE of Prairie Ridge, Washington",2024-03-24 05:42:43.060,-122.14,47.16
+1462,2.82,"3 km E of Port Townsend, Washington",2024-03-24 08:33:16.410,-122.71,48.12
+1463,0.60,"10 km NNE of Ashford, Washington",2024-03-24 15:54:24.400,-121.96,46.84
+1464,0.43,"20 km ENE of Ashford, Washington",2024-03-24 21:08:47.830,-121.79,46.83
+1465,0.36,"17 km NE of Ashford, Washington",2024-03-25 07:25:00.630,-121.89,46.89
+1466,2.58,"1 km NNW of Redmond, Washington",2024-03-25 08:01:30.980,-122.13,47.69
+1467,1.42,"7 km SE of Enumclaw, Washington",2024-03-25 18:30:08.320,-121.92,47.16
+1468,1.24,"1 km S of Kapowsin, Washington",2024-03-25 19:03:53.770,-122.23,46.97
+1469,1.48,"8 km NNW of North Sultan, Washington",2024-03-25 20:27:06.320,-121.83,47.95
+1470,2.35,"14 km SW of Alder, Washington",2024-03-26 06:50:44.340,-122.42,46.71
+1471,0.75,"1 km SE of Enumclaw, Washington",2024-03-26 09:36:31.730,-121.97,47.19
+1472,1.79,"2 km ENE of Granite Falls, Washington",2024-03-26 21:31:51.330,-121.94,48.09
+1473,1.83,"3 km WSW of Wilderness Rim, Washington",2024-03-27 02:38:05.960,-121.81,47.43
+1474,2.07,"3 km NNE of White Center, Washington",2024-03-27 09:09:51.350,-122.34,47.55
+1475,1.27,"6 km WSW of Alder, Washington",2024-03-27 17:03:17.330,-122.37,46.78
+1476,0.75,"12 km N of Ashford, Washington",2024-03-27 18:16:05.970,-122.02,46.87
+1477,1.84,"4 km SW of Port Ludlow, Washington",2024-03-27 19:40:26.580,-122.73,47.89
+1478,0.35,"24 km N of Packwood, Washington",2024-03-27 21:53:32.780,-121.70,46.83
+1479,-0.11,"17 km NE of Ashford, Washington",2024-03-28 06:08:36.230,-121.89,46.88
+1480,0.71,"13 km N of Ashford, Washington",2024-03-28 07:08:24.090,-122.02,46.88
+1481,1.16,"4 km NNW of Darrington, Washington",2024-03-28 11:45:51.680,-121.62,48.30
+1482,-0.23,"10 km NNE of Ashford, Washington",2024-03-28 18:51:03.110,-122.00,46.85
+1483,1.04,"13 km SSE of Carbonado, Washington",2024-03-28 22:53:50.700,-121.97,46.97
+1484,1.28,"2 km NW of Maple Valley, Washington",2024-03-28 23:50:42.780,-122.07,47.41
+1485,1.37,"1 km N of Maple Valley, Washington",2024-03-29 00:05:31.590,-122.04,47.41
+1486,0.99,"2 km NNE of Kingston, Washington",2024-03-29 09:30:20.650,-122.49,47.82
+1487,0.02,"24 km ENE of Ashford, Washington",2024-03-29 13:10:01.920,-121.74,46.84
+1488,2.37,"10 km NNE of Ashford, Washington",2024-03-29 16:53:48.710,-122.00,46.85
+1489,0.92,"1 km WNW of North Sultan, Washington",2024-03-29 21:56:07.580,-121.83,47.89
+1490,0.52,"5 km E of Ashford, Washington",2024-03-30 14:38:52.390,-121.95,46.75
+1491,1.39,"8 km SE of Oso, Washington",2024-03-31 00:31:02.900,-121.84,48.22
+1492,0.50,"17 km NNE of Ashford, Washington",2024-03-31 02:39:50.120,-121.97,46.91
+1493,0.92,"12 km ESE of Enumclaw, Washington",2024-03-31 05:22:04.210,-121.85,47.16
+1494,0.35,"13 km SSE of Carbonado, Washington",2024-03-31 07:05:32.230,-121.97,46.97
+1495,1.19,"8 km NW of Greenwater, Washington",2024-03-31 09:01:12.960,-121.73,47.21
+1496,0.85,"1 km NE of Alderton, Washington",2024-04-01 00:27:13.770,-122.21,47.18
+1497,1.48,"1 km ENE of Alderton, Washington",2024-04-01 01:52:57.880,-122.21,47.18
+1498,2.73,"5 km NW of Indianola, Washington",2024-04-01 05:08:58.130,-122.58,47.78
+1499,1.13,"3 km NNE of Swede Heaven, Washington",2024-04-01 17:54:29.590,-121.71,48.31
+1500,1.23,"4 km SE of Port Ludlow, Washington",2024-04-01 19:32:25.100,-122.64,47.90
+1501,1.37,"6 km ENE of Blyn, Washington",2024-04-01 22:26:58.890,-122.92,48.03
+1502,0.02,"19 km NNE of Ashford, Washington",2024-04-02 08:23:16.150,-121.93,46.92
+1503,0.13,"13 km NNE of Ashford, Washington",2024-04-02 09:35:50.430,-121.94,46.86
+1504,0.00,"13 km NNE of Ashford, Washington",2024-04-02 13:31:30.800,-121.97,46.88
+1505,1.29,"13 km N of Jamestown, Washington",2024-04-02 14:40:54.060,-123.08,48.25
+1506,1.06,"14 km N of Jamestown, Washington",2024-04-02 16:17:50.090,-123.08,48.26
+1507,0.47,"12 km NNE of Ashford, Washington",2024-04-02 21:34:07.580,-121.96,46.86
+1508,1.59,"4 km NW of Belfair, Washington",2024-04-02 23:51:48.520,-122.87,47.47
+1509,0.51,"13 km NNE of Ashford, Washington",2024-04-03 17:09:11.210,-121.93,46.86
+1510,1.19,"1 km SE of Kapowsin, Washington",2024-04-03 21:37:25.870,-122.21,46.97
+1511,0.33,"6 km E of Ashford, Washington",2024-04-04 01:21:16.660,-121.94,46.76
+1512,0.34,"23 km ENE of Ashford, Washington",2024-04-04 05:52:14.990,-121.76,46.85
+1513,-0.14,"19 km NNE of Ashford, Washington",2024-04-04 06:51:14.890,-121.89,46.91
+1514,0.36,"12 km NNE of Ashford, Washington",2024-04-04 11:54:18.120,-121.94,46.85
+1515,0.46,"23 km ENE of Ashford, Washington",2024-04-04 16:38:56.060,-121.76,46.85
+1516,1.12,"15 km SSE of Carbonado, Washington",2024-04-05 05:05:41.100,-121.97,46.95
+1517,1.54,"11 km NE of May Creek, Washington",2024-04-05 13:18:13.460,-121.56,47.92
+1518,0.80,"10 km NE of May Creek, Washington",2024-04-05 13:23:37.020,-121.57,47.93
+1519,1.26,"12 km ESE of Enumclaw, Washington",2024-04-05 19:09:48.900,-121.84,47.16
+1520,1.43,"4 km SE of Kingston, Washington",2024-04-06 09:30:34.780,-122.45,47.77
+1521,1.23,"7 km ESE of Riverbend, Washington",2024-04-06 13:15:42.330,-121.66,47.44
+1522,0.75,"2 km SSE of Riverbend, Washington",2024-04-06 20:14:56.750,-121.73,47.45
+1523,0.50,"12 km NNE of Ashford, Washington",2024-04-06 21:36:43.150,-121.94,46.86
+1524,1.27,"1 km ENE of Monroe North, Washington",2024-04-07 14:05:18.760,-121.97,47.89
+1525,0.70,"9 km NE of Ashford, Washington",2024-04-07 20:31:39.490,-121.94,46.81
+1526,0.99,"5 km WNW of Burlington, Washington",2024-04-07 23:20:14.060,-122.40,48.49
+1527,0.33,"2 km E of Carbonado, Washington",2024-04-08 12:20:03.000,-122.02,47.08
+1528,1.54,"1 km SW of Duvall, Washington",2024-04-08 18:16:15.030,-122.00,47.74
+1529,1.16,"2 km SW of Kapowsin, Washington",2024-04-08 22:54:48.280,-122.25,46.97
+1530,0.96,"23 km ENE of Ashford, Washington",2024-04-09 07:15:55.580,-121.76,46.86
+1531,0.51,"23 km ENE of Ashford, Washington",2024-04-09 09:01:35.390,-121.76,46.86
+1532,0.78,"0 km ESE of Roosevelt, Washington",2024-04-09 10:13:45.060,-122.01,47.89
+1533,-0.37,"6 km E of Ashford, Washington",2024-04-10 16:15:53.040,-121.94,46.75
+1534,0.65,"6 km E of Ashford, Washington",2024-04-10 17:55:52.060,-121.94,46.76
+1535,1.61,"13 km ENE of Verlot, Washington",2024-04-10 20:55:42.790,-121.61,48.12
+1536,1.06,"1 km SSE of Kapowsin, Washington",2024-04-10 23:07:19.630,-122.22,46.97
+1537,0.85,"0 km E of Alder, Washington",2024-04-11 04:35:08.600,-122.28,46.80
+1538,0.65,"11 km ENE of Verlot, Washington",2024-04-11 08:32:06.970,-121.63,48.13
+1539,-0.15,"11 km SSE of Carbonado, Washington",2024-04-11 12:02:47.880,-121.99,46.98
+1540,0.25,"18 km NNE of Ashford, Washington",2024-04-11 12:31:31.280,-121.95,46.92
+1541,0.96,"1 km S of Kapowsin, Washington",2024-04-11 23:12:18.080,-122.23,46.97
+1542,1.39,"1 km ESE of Browns Point, Washington",2024-04-12 02:33:22.920,-122.42,47.30
+1543,0.01,"13 km NNE of Ashford, Washington",2024-04-12 12:22:54.930,-121.94,46.86
+1544,1.19,"4 km WNW of Belfair, Washington",2024-04-12 14:56:54.790,-122.88,47.47
+1545,1.69,"4 km NNW of Fall City, Washington",2024-04-12 17:29:34.550,-121.91,47.60
+1546,0.94,"7 km S of Quilcene, Washington",2024-04-12 23:19:55.210,-122.89,47.75
+1547,1.15,"5 km SE of Quilcene, Washington",2024-04-13 03:49:20.410,-122.83,47.79
+1548,2.16,"13 km NE of Ashford, Washington",2024-04-13 08:57:24.780,-121.92,46.85
+1549,1.79,"7 km SSE of McKenna, Washington",2024-04-13 10:38:48.510,-122.53,46.87
+1550,1.34,"11 km N of Swede Heaven, Washington",2024-04-13 13:58:56.940,-121.76,48.38
+1551,1.38,"2 km SSE of Clear Lake, Washington",2024-04-13 16:15:18.160,-122.23,48.44
+1552,0.02,"24 km N of Packwood, Washington",2024-04-14 01:53:46.970,-121.69,46.83
+1553,0.70,"5 km WNW of Belfair, Washington",2024-04-14 12:03:22.920,-122.89,47.47
+1554,0.63,"13 km W of Greenwater, Washington",2024-04-15 21:46:20.600,-121.82,47.17
+1555,1.63,"7 km SSW of Shelton, Washington",2024-04-16 01:35:17.360,-123.13,47.15
+1556,0.51,"23 km ENE of Ashford, Washington",2024-04-17 16:17:42.240,-121.76,46.85
+1557,1.33,"11 km S of Shelton, Washington",2024-04-17 19:00:15.510,-123.10,47.11
+1558,0.29,"13 km NNE of Ashford, Washington",2024-04-17 19:44:21.520,-121.96,46.87
+1559,0.13,"22 km ENE of Ashford, Washington",2024-04-17 21:17:25.680,-121.77,46.85
+1560,1.52,"1 km SE of Bothell East, Washington",2024-04-18 00:55:52.360,-122.17,47.79
+1561,0.97,"3 km SSW of Quilcene, Washington",2024-04-18 02:03:35.840,-122.89,47.79
+1562,0.29,"7 km ENE of Ashford, Washington",2024-04-18 02:26:08.610,-121.94,46.79
+1563,1.15,"7 km W of Lofall, Washington",2024-04-18 05:47:02.060,-122.76,47.82
+1564,0.91,"5 km NE of Snoqualmie, Washington",2024-04-18 08:41:16.280,-121.77,47.56
+1565,0.46,"5 km ESE of Quilcene, Washington",2024-04-18 14:58:48.820,-122.81,47.80
+1566,0.43,"7 km NNE of Brinnon, Washington",2024-04-18 16:35:28.010,-122.88,47.75
+1567,0.37,"5 km S of Quilcene, Washington",2024-04-18 18:00:50.610,-122.86,47.78
+1568,1.08,"5 km SE of Quilcene, Washington",2024-04-18 20:36:02.380,-122.83,47.79
+1569,0.58,"4 km S of Quilcene, Washington",2024-04-19 02:35:06.780,-122.88,47.78
+1570,0.23,"3 km SSE of Quilcene, Washington",2024-04-19 02:37:46.950,-122.86,47.79
+1571,0.31,"22 km ENE of Ashford, Washington",2024-04-19 03:47:35.910,-121.76,46.85
+1572,0.94,"23 km ENE of Ashford, Washington",2024-04-19 05:22:54.600,-121.76,46.85
+1573,0.67,"4 km SSE of Quilcene, Washington",2024-04-19 05:58:17.020,-122.85,47.79
+1574,1.03,"5 km SE of Quilcene, Washington",2024-04-19 06:57:14.100,-122.81,47.79
+1575,1.14,"19 km E of Verlot, Washington",2024-04-19 10:08:40.400,-121.51,48.08
+1576,0.34,"12 km NE of Ashford, Washington",2024-04-19 13:48:33.280,-121.93,46.85
+1577,0.83,"4 km S of Alder, Washington",2024-04-19 14:14:07.930,-122.29,46.76
+1578,0.11,"15 km NNE of Ashford, Washington",2024-04-19 20:28:06.970,-121.94,46.88
+1579,1.39,"2 km SSE of Big Lake, Washington",2024-04-20 20:05:35.120,-122.23,48.38
+1580,1.49,"4 km SE of Kingston, Washington",2024-04-20 23:26:23.810,-122.45,47.77
+1581,0.45,"15 km NNE of Ashford, Washington",2024-04-21 00:53:08.280,-121.95,46.89
+1582,0.58,"13 km NNE of Ashford, Washington",2024-04-21 02:16:41.040,-121.93,46.87
+1583,0.22,"15 km NNE of Ashford, Washington",2024-04-22 12:42:09.040,-121.95,46.89
+1584,1.62,"3 km NW of Gorst, Washington",2024-04-22 20:35:52.140,-122.74,47.55
+1585,1.37,"1 km SSE of Kapowsin, Washington",2024-04-22 23:15:46.380,-122.22,46.97
+1586,0.52,"22 km ENE of Ashford, Washington",2024-04-24 10:26:43.190,-121.77,46.85
+1587,-0.04,"22 km ENE of Ashford, Washington",2024-04-24 10:29:16.430,-121.77,46.85
+1588,0.67,"3 km SE of Kingston, Washington",2024-04-24 12:32:19.400,-122.46,47.78
+1589,0.13,"22 km ENE of Ashford, Washington",2024-04-24 12:51:09.900,-121.77,46.85
+1590,0.32,"9 km E of Ashford, Washington",2024-04-24 13:30:34.710,-121.90,46.76
+1591,1.08,"3 km NNW of Lofall, Washington",2024-04-24 22:09:54.240,-122.68,47.84
+1592,0.86,"1 km ESE of Poulsbo, Washington",2024-04-25 12:13:58.240,-122.62,47.73
+1593,1.29,"0 km N of Oak Harbor, Washington",2024-04-25 20:10:29.740,-122.64,48.30
+1594,0.65,"22 km ENE of Ashford, Washington",2024-04-26 13:29:06.180,-121.77,46.85
+1595,1.37,"22 km ENE of Ashford, Washington",2024-04-26 13:31:03.580,-121.77,46.85
+1596,1.20,"10 km SW of Alder, Washington",2024-04-26 15:59:40.270,-122.40,46.75
+1597,0.25,"13 km ESE of Carbonado, Washington",2024-04-27 00:40:18.850,-121.90,47.01
+1598,1.11,"1 km SW of Sultan, Washington",2024-04-27 00:49:02.040,-121.83,47.86
+1599,0.89,"10 km SSW of Darrington, Washington",2024-04-27 13:35:31.670,-121.68,48.17
+1600,1.10,"4 km W of Des Moines, Washington",2024-04-28 06:20:24.030,-122.38,47.40
+1601,0.42,"24 km N of Packwood, Washington",2024-04-28 15:29:21.960,-121.69,46.82
+1602,1.47,"31 km W of Brinnon, Washington",2024-04-28 20:05:58.460,-123.32,47.66
+1603,0.83,"6 km SE of Oso, Washington",2024-04-29 02:42:53.650,-121.88,48.22
+1604,0.41,"17 km NNE of Ashford, Washington",2024-04-29 08:39:02.520,-121.95,46.90
+1605,0.90,"2 km SW of Meadowdale, Washington",2024-04-29 09:19:49.690,-122.36,47.83
+1606,0.82,"26 km S of Greenwater, Washington",2024-04-29 12:13:17.980,-121.71,46.92
+1607,0.23,"17 km SSE of Carbonado, Washington",2024-04-29 19:22:59.760,-121.96,46.94
+1608,1.14,"8 km SE of Enumclaw, Washington",2024-04-29 23:33:59.210,-121.91,47.16
+1609,0.68,"10 km ENE of Enumclaw, Washington",2024-04-30 00:01:30.110,-121.86,47.24
+1610,1.76,"7 km SSE of Seabeck, Washington",2024-04-30 00:25:56.190,-122.80,47.58
+1611,1.94,"1 km E of Kingston, Washington",2024-04-30 03:31:41.500,-122.47,47.80
+1612,0.64,"23 km ENE of Ashford, Washington",2024-04-30 05:11:28.660,-121.76,46.85
+1613,1.14,"7 km SSE of Seabeck, Washington",2024-04-30 19:55:22.250,-122.80,47.57
+1614,1.39,"2 km ESE of Kapowsin, Washington",2024-05-01 00:22:47.240,-122.20,46.98
+1615,1.33,"2 km WNW of Lake Marcel-Stillwater, Washington",2024-05-01 10:13:06.280,-121.94,47.70
+1616,0.54,"29 km N of Packwood, Washington",2024-05-01 19:38:07.040,-121.61,46.86
+1617,0.67,"7 km NW of Belfair, Washington",2024-05-02 16:14:38.400,-122.89,47.50
+1618,0.06,"6 km WNW of Brinnon, Washington",2024-05-02 20:13:27.470,-122.98,47.71
+1619,0.23,"16 km NNE of Ashford, Washington",2024-05-03 05:50:38.900,-121.94,46.89
+1620,0.35,"25 km ENE of Ashford, Washington",2024-05-03 07:21:13.460,-121.72,46.85
+1621,0.78,"2 km W of Manchester, Washington",2024-05-03 07:28:09.140,-122.58,47.56
+1622,0.59,"10 km SSW of Darrington, Washington",2024-05-04 05:26:35.710,-121.67,48.18
+1623,1.05,"7 km SW of Seabeck, Washington",2024-05-04 06:11:18.210,-122.90,47.60
+1624,0.92,"10 km SSW of Darrington, Washington",2024-05-04 13:54:38.740,-121.67,48.18
+1625,1.07,"7 km SSW of Seabeck, Washington",2024-05-04 14:49:44.720,-122.85,47.57
+1626,0.83,"4 km WSW of Woodway, Washington",2024-05-04 16:15:17.520,-122.44,47.78
+1627,0.15,"22 km ENE of Ashford, Washington",2024-05-05 03:15:35.810,-121.77,46.85
+1628,0.24,"7 km NE of Fall City, Washington",2024-05-05 10:07:15.500,-121.81,47.61
+1629,0.62,"12 km NE of Ashford, Washington",2024-05-05 11:43:29.190,-121.92,46.84
+1630,0.39,"8 km SW of Darrington, Washington",2024-05-05 20:34:35.830,-121.67,48.19
+1631,0.84,"2 km ENE of Enetai, Washington",2024-05-05 21:01:10.570,-122.57,47.59
+1632,0.32,"22 km ENE of Ashford, Washington",2024-05-06 20:02:41.620,-121.77,46.85
+1633,-0.33,"22 km ENE of Ashford, Washington",2024-05-06 20:03:14.950,-121.77,46.84
+1634,1.55,"10 km SSE of Port Angeles East, Washington",2024-05-06 20:17:22.900,-123.34,48.01
+1635,0.27,"8 km NE of Ashford, Washington",2024-05-07 10:15:26.070,-121.95,46.81
+1636,1.82,"5 km ESE of Maplewood, Washington",2024-05-07 14:38:16.150,-122.49,47.37
+1637,1.51,"6 km SE of Maplewood, Washington",2024-05-07 15:27:56.410,-122.49,47.37
+1638,1.53,"2 km ENE of Granite Falls, Washington",2024-05-07 22:09:03.070,-121.94,48.09
+1639,0.67,"15 km SW of Baring, Washington",2024-05-08 02:27:06.170,-121.65,47.69
+1640,0.59,"15 km NNE of Ashford, Washington",2024-05-08 09:35:15.120,-121.95,46.89
+1641,0.80,"9 km ENE of Fall City, Washington",2024-05-08 11:38:37.190,-121.78,47.62
+1642,1.37,"10 km NNE of Snoqualmie, Washington",2024-05-08 17:05:53.740,-121.77,47.61
+1643,1.69,"5 km ESE of Coupeville, Washington",2024-05-08 23:30:09.530,-122.62,48.19
+1644,-0.06,"22 km ENE of Ashford, Washington",2024-05-09 03:04:21.640,-121.77,46.85
+1645,1.31,"1 km SW of Lake Marcel-Stillwater, Washington",2024-05-09 03:09:07.990,-121.93,47.68
+1646,-0.47,"15 km NNE of Ashford, Washington",2024-05-09 17:43:09.810,-121.92,46.87
+1647,0.57,"15 km NNE of Ashford, Washington",2024-05-09 19:53:25.440,-121.94,46.89
+1648,1.31,"5 km SSW of Anacortes, Washington",2024-05-09 21:12:32.370,-122.64,48.47
+1649,0.96,"9 km NNE of Snoqualmie, Washington",2024-05-09 23:23:34.480,-121.76,47.61
+1650,0.90,"2 km SSE of Belfair, Washington",2024-05-10 05:33:00.650,-122.81,47.43
+1651,0.28,"5 km NE of Ashford, Washington",2024-05-10 13:07:57.070,-121.98,46.80
+1652,0.34,"15 km SSE of Carbonado, Washington",2024-05-10 15:37:06.280,-121.95,46.96
+1653,0.43,"23 km ENE of Ashford, Washington",2024-05-10 17:48:05.670,-121.76,46.86
+1654,0.38,"23 km ENE of Ashford, Washington",2024-05-10 21:17:48.040,-121.77,46.86
+1655,1.30,"1 km S of Kapowsin, Washington",2024-05-11 00:11:22.820,-122.22,46.97
+1656,0.30,"23 km ENE of Ashford, Washington",2024-05-11 03:17:38.770,-121.76,46.85
+1657,0.90,"23 km ENE of Ashford, Washington",2024-05-11 03:49:50.620,-121.76,46.85
+1658,0.93,"11 km SSE of Skykomish, Washington",2024-05-11 04:17:07.680,-121.28,47.62
+1659,0.38,"22 km ENE of Ashford, Washington",2024-05-11 07:03:38.930,-121.77,46.85
+1660,1.39,"5 km WNW of Gorst, Washington",2024-05-11 10:11:41.940,-122.77,47.55
+1661,0.26,"8 km E of Carbonado, Washington",2024-05-11 10:17:45.440,-121.94,47.08
+1662,-0.22,"15 km NNE of Ashford, Washington",2024-05-11 13:48:15.010,-121.93,46.88
+1663,0.29,"8 km NNE of Ashford, Washington",2024-05-11 17:20:28.900,-121.99,46.83
+1664,0.68,"13 km E of Wilkeson, Washington",2024-05-12 06:41:26.150,-121.87,47.09
+1665,1.61,"14 km N of Snoqualmie Pass, Washington",2024-05-12 16:05:15.770,-121.43,47.52
+1666,0.76,"17 km SSE of Carbonado, Washington",2024-05-12 21:14:34.720,-121.96,46.93
+1667,0.29,"17 km SSE of Carbonado, Washington",2024-05-12 21:40:33.360,-121.97,46.94
+1668,1.11,"17 km SSE of Carbonado, Washington",2024-05-12 21:42:47.500,-121.97,46.93
+1669,0.40,"17 km SSE of Carbonado, Washington",2024-05-12 21:44:29.900,-121.96,46.94
+1670,0.41,"17 km SSE of Carbonado, Washington",2024-05-12 22:39:35.480,-121.96,46.93
+1671,0.76,"3 km NW of Mirrormont, Washington",2024-05-13 07:10:33.690,-122.03,47.48
+1672,1.82,"2 km NW of Duvall, Washington",2024-05-13 12:13:23.010,-122.01,47.76
+1673,0.36,"13 km E of Wilkeson, Washington",2024-05-13 16:37:47.820,-121.87,47.09
+1674,1.07,"2 km NE of Swede Heaven, Washington",2024-05-13 18:06:04.120,-121.71,48.30
+1675,0.70,"4 km SSE of Carbonado, Washington",2024-05-13 21:46:46.820,-122.03,47.04
+1676,0.42,"17 km SSE of Carbonado, Washington",2024-05-13 21:57:34.730,-121.96,46.94
+1677,1.01,"17 km SSE of Carbonado, Washington",2024-05-13 22:01:46.740,-121.97,46.93
+1678,0.42,"16 km SSE of Carbonado, Washington",2024-05-14 00:16:03.770,-121.96,46.94
+1679,1.13,"14 km N of Snoqualmie Pass, Washington",2024-05-14 01:33:31.440,-121.43,47.52
+1680,1.41,"22 km ENE of Ashford, Washington",2024-05-14 15:34:05.550,-121.77,46.85
+1681,0.19,"22 km ENE of Ashford, Washington",2024-05-14 15:34:57.020,-121.77,46.85
+1682,0.79,"22 km ENE of Ashford, Washington",2024-05-14 15:42:31.550,-121.77,46.85
+1683,0.65,"22 km ENE of Ashford, Washington",2024-05-14 15:55:19.110,-121.77,46.85
+1684,0.29,"22 km ENE of Ashford, Washington",2024-05-14 16:00:12.950,-121.77,46.85
+1685,0.23,"22 km ENE of Ashford, Washington",2024-05-14 16:04:56.510,-121.77,46.85
+1686,0.84,"22 km ENE of Ashford, Washington",2024-05-14 16:06:35.650,-121.77,46.85
+1687,0.88,"22 km ENE of Ashford, Washington",2024-05-14 16:09:39.220,-121.77,46.85
+1688,0.94,"22 km ENE of Ashford, Washington",2024-05-14 16:14:41.500,-121.77,46.85
+1689,0.50,"22 km ENE of Ashford, Washington",2024-05-14 17:27:04.210,-121.77,46.85
+1690,0.19,"22 km ENE of Ashford, Washington",2024-05-14 19:41:07.590,-121.77,46.85
+1691,0.93,"22 km ENE of Ashford, Washington",2024-05-14 20:10:45.980,-121.77,46.85
+1692,0.40,"22 km ENE of Ashford, Washington",2024-05-14 20:16:53.650,-121.77,46.85
+1693,0.45,"14 km NNE of Ashford, Washington",2024-05-15 02:33:18.180,-121.96,46.88
+1694,0.44,"22 km ENE of Ashford, Washington",2024-05-15 13:52:50.530,-121.77,46.85
+1695,1.05,"2 km SSW of Kingston, Washington",2024-05-15 18:17:47.810,-122.51,47.78
+1696,0.82,"1 km SW of Kirkland, Washington",2024-05-15 23:29:50.250,-122.22,47.67
+1697,1.85,"10 km NE of Ashford, Washington",2024-05-16 18:01:54.030,-121.94,46.83
+1698,1.39,"17 km NNE of Port Angeles East, Washington",2024-05-16 19:06:29.090,-123.26,48.24
+1699,1.37,"3 km ESE of Buckley, Washington",2024-05-19 00:21:25.740,-121.99,47.15
+1700,0.66,"4 km NE of Lake Morton-Berrydale, Washington",2024-05-19 13:55:35.010,-122.06,47.36
+1701,0.86,"5 km SSE of Lake Morton-Berrydale, Washington",2024-05-20 14:34:56.240,-122.07,47.29
+1702,1.71,"5 km SW of Port Ludlow, Washington",2024-05-20 20:08:51.690,-122.73,47.89
+1703,0.27,"22 km ENE of Ashford, Washington",2024-05-21 18:22:43.690,-121.76,46.85
+1704,2.02,"3 km ENE of Eatonville, Washington",2024-05-21 23:05:30.640,-122.23,46.88
+1705,0.93,"6 km SSE of Quilcene, Washington",2024-05-22 06:23:06.850,-122.83,47.78
+1706,0.89,"11 km SW of Index, Washington",2024-05-22 07:00:58.600,-121.66,47.75
+1707,1.06,"6 km WSW of Lake Cavanaugh, Washington",2024-05-22 07:50:20.190,-122.10,48.31
+1708,1.24,"2 km WNW of Eatonville, Washington",2024-05-22 18:00:36.160,-122.30,46.88
+1709,1.16,"10 km S of Rainier, Washington",2024-05-22 18:28:38.130,-122.68,46.79
+1710,1.64,"10 km S of Shelton, Washington",2024-05-22 19:56:40.990,-123.08,47.12
+1711,2.34,"15 km NNE of Ashford, Washington",2024-05-23 17:50:23.160,-121.94,46.88
+1712,0.50,"11 km NE of Ashford, Washington",2024-05-23 20:31:17.050,-121.93,46.84
+1713,1.26,"1 km SSE of Kapowsin, Washington",2024-05-23 23:22:56.850,-122.21,46.97
+1714,0.24,"17 km SSE of Carbonado, Washington",2024-05-24 01:24:35.110,-121.96,46.94
+1715,1.61,"13 km WNW of Belfair, Washington",2024-05-24 06:43:32.400,-122.98,47.51
+1716,1.11,"3 km ESE of Quilcene, Washington",2024-05-24 17:33:01.410,-122.83,47.81
+1717,0.32,"16 km SSE of Carbonado, Washington",2024-05-25 11:18:23.670,-121.96,46.94
+1718,1.60,"2 km S of Sultan, Washington",2024-05-25 13:16:43.600,-121.82,47.84
+1719,1.38,"15 km NNE of Ashford, Washington",2024-05-25 21:37:14.670,-121.95,46.88
+1720,0.96,"22 km ENE of Ashford, Washington",2024-05-26 07:44:33.800,-121.77,46.85
+1721,1.42,"19 km SW of La Grande, Washington",2024-05-27 11:14:27.480,-122.52,46.73
+1722,0.28,"15 km NNE of Ashford, Washington",2024-05-27 15:57:52.320,-121.94,46.88
+1723,0.48,"15 km NNE of Ashford, Washington",2024-05-27 20:26:52.000,-121.94,46.88
+1724,1.04,"3 km N of Lake Marcel-Stillwater, Washington",2024-05-28 01:10:19.850,-121.92,47.72
+1725,0.08,"23 km ENE of Ashford, Washington",2024-05-28 01:29:46.760,-121.76,46.86
+1726,0.25,"16 km SSE of Carbonado, Washington",2024-05-28 16:55:34.930,-121.96,46.94
+1727,1.07,"5 km WNW of Shelton, Washington",2024-05-29 00:35:27.520,-123.17,47.24
+1728,1.29,"4 km SE of Quilcene, Washington",2024-05-29 04:06:17.170,-122.84,47.79
+1729,0.76,"13 km NNE of Ashford, Washington",2024-05-29 12:23:48.760,-121.97,46.87
+1730,1.27,"1 km WSW of Monroe, Washington",2024-05-30 04:38:18.800,-121.98,47.85
+1731,0.16,"13 km NNE of Ashford, Washington",2024-05-31 02:00:12.190,-121.94,46.86
+1732,1.66,"22 km WSW of Quilcene, Washington",2024-05-31 13:20:46.890,-123.17,47.78
+1733,1.09,"14 km WNW of Brinnon, Washington",2024-05-31 20:14:48.600,-123.07,47.75
+1734,0.20,"22 km ENE of Ashford, Washington",2024-06-02 15:28:08.420,-121.77,46.84
+1735,0.54,"22 km ENE of Ashford, Washington",2024-06-03 01:17:45.010,-121.77,46.85
+1736,2.03,"2 km ESE of Ruston, Washington",2024-06-03 10:56:25.000,-122.48,47.29
+1737,2.32,"1 km S of Fall City, Washington",2024-06-03 21:24:18.210,-121.89,47.56
+1738,1.91,"8 km WNW of Shelton, Washington",2024-06-03 22:53:11.580,-123.20,47.25
+1739,0.40,"21 km ENE of Ashford, Washington",2024-06-04 07:20:40.890,-121.77,46.84
+1740,1.51,"7 km NNE of Lake Marcel-Stillwater, Washington",2024-06-05 15:24:59.650,-121.86,47.75
+1741,1.38,"2 km ENE of Granite Falls, Washington",2024-06-05 21:50:34.120,-121.94,48.09
+1742,1.47,"12 km E of Carnation, Washington",2024-06-06 01:49:00.640,-121.75,47.64
+1743,0.90,"5 km WSW of Darrington, Washington",2024-06-06 07:00:29.100,-121.68,48.24
+1744,1.56,"3 km WNW of Shoreline, Washington",2024-06-06 11:26:13.280,-122.38,47.76
+1745,1.58,"5 km SSW of Anacortes, Washington",2024-06-06 18:08:07.150,-122.64,48.47
+1746,1.22,"5 km WNW of Tumwater, Washington",2024-06-07 00:19:23.490,-122.98,47.02
+1747,1.11,"2 km N of Machias, Washington",2024-06-07 14:58:35.840,-122.04,48.00
+1748,1.33,"11 km ESE of Enumclaw, Washington",2024-06-07 17:18:12.710,-121.84,47.17
+1749,0.35,"7 km ENE of Duvall, Washington",2024-06-07 20:18:56.440,-121.90,47.78
+1750,1.77,"17 km SE of Carbonado, Washington",2024-06-08 06:03:46.840,-121.88,46.98
+1751,0.68,"12 km ENE of Verlot, Washington",2024-06-08 20:10:11.330,-121.63,48.14
+1752,0.34,"18 km SSE of Carbonado, Washington",2024-06-09 09:59:01.090,-121.96,46.93
+1753,0.24,"14 km ENE of Ashford, Washington",2024-06-10 05:57:44.720,-121.86,46.81
+1754,1.50,"19 km SSE of Carbonado, Washington",2024-06-10 11:11:21.580,-121.91,46.93
+1755,1.41,"13 km NNE of Ashford, Washington",2024-06-11 03:41:44.620,-121.94,46.86
+1756,0.96,"21 km ENE of Ashford, Washington",2024-06-11 04:05:45.040,-121.77,46.84
+1757,1.06,"2 km S of Sultan, Washington",2024-06-11 17:52:30.700,-121.82,47.84
+1758,1.51,"7 km NE of McCleary, Washington",2024-06-11 19:25:07.860,-123.19,47.11
+1759,1.39,"1 km SE of Kapowsin, Washington",2024-06-11 23:04:18.640,-122.21,46.98
+1760,1.12,"3 km WSW of Wilderness Rim, Washington",2024-06-12 03:00:56.270,-121.81,47.44
+1761,1.50,"2 km N of Edmonds, Washington",2024-06-12 21:13:29.080,-122.37,47.84
+1762,1.26,"7 km NE of Fall City, Washington",2024-06-13 10:57:16.990,-121.81,47.61
+1763,0.40,"22 km ENE of Ashford, Washington",2024-06-13 22:47:22.040,-121.77,46.84
+1764,1.01,"1 km W of SeaTac, Washington",2024-06-14 10:52:25.910,-122.32,47.45
+1765,1.99,"6 km NE of Snoqualmie, Washington",2024-06-14 14:17:40.620,-121.78,47.57
+1766,1.50,"5 km S of Shelton, Washington",2024-06-14 16:46:10.500,-123.11,47.16
+1767,1.16,"1 km NW of Lake Marcel-Stillwater, Washington",2024-06-15 00:52:45.770,-121.93,47.70
+1768,1.16,"2 km NE of Oak Harbor, Washington",2024-06-15 03:01:00.400,-122.62,48.31
+1769,0.70,"18 km SE of Carbonado, Washington",2024-06-15 19:47:46.070,-121.89,46.95
+1770,1.27,"1 km ESE of Mount Vernon, Washington",2024-06-16 06:53:19.200,-122.31,48.41
+1771,2.68,"2 km E of Redmond, Washington",2024-06-16 07:03:03.000,-122.09,47.67
+1772,1.27,"17 km SSE of Carbonado, Washington",2024-06-16 18:25:24.440,-121.97,46.94
+1773,-0.13,"17 km SSE of Carbonado, Washington",2024-06-16 18:29:21.220,-121.95,46.94
+1774,1.94,"5 km WSW of Shelton, Washington",2024-06-17 09:38:06.460,-123.16,47.19
+1775,1.16,"5 km NE of Southworth, Washington",2024-06-17 17:15:04.820,-122.44,47.54
+1776,1.17,"12 km S of Rainier, Washington",2024-06-17 18:25:33.400,-122.66,46.77
+1777,0.82,"3 km WSW of Wilderness Rim, Washington",2024-06-18 07:24:29.650,-121.81,47.44
+1778,1.32,"0 km WNW of Kapowsin, Washington",2024-06-18 22:38:30.420,-122.24,46.99
+1779,0.21,"22 km ENE of Ashford, Washington",2024-06-19 05:18:39.880,-121.77,46.86
+1780,2.19,"8 km ENE of Quilcene, Washington",2024-06-19 07:59:44.860,-122.77,47.84
+1781,0.24,"9 km NNE of Ashford, Washington",2024-06-19 23:44:12.290,-121.99,46.84
+1782,1.87,"6 km ENE of Lofall, Washington",2024-06-20 14:58:18.270,-122.58,47.82
+1783,2.27,"0 km ESE of Waller, Washington",2024-06-21 10:18:57.400,-122.36,47.20
+1784,0.72,"2 km SE of West Lake Sammamish, Washington",2024-06-21 11:10:56.430,-122.07,47.56
+1785,0.19,"16 km NNE of Ashford, Washington",2024-06-21 13:33:30.630,-121.94,46.89
+1786,0.83,"0 km NNE of Southworth, Washington",2024-06-22 08:01:58.670,-122.50,47.52
+1787,1.53,"15 km NNE of Ashford, Washington",2024-06-23 01:02:05.760,-121.94,46.88
+1788,2.61,"7 km WNW of Lofall, Washington",2024-06-23 09:14:36.760,-122.75,47.84
+1789,1.35,"5 km E of Enumclaw, Washington",2024-06-24 20:13:06.930,-121.92,47.21
+1790,1.38,"9 km W of Greenwater, Washington",2024-06-24 20:47:42.100,-121.78,47.16
+1791,0.20,"15 km NNE of Ashford, Washington",2024-06-25 04:08:44.880,-121.94,46.88
+1792,0.25,"11 km E of Ashford, Washington",2024-06-25 05:18:31.290,-121.88,46.77
+1793,1.47,"2 km NE of Parkwood, Washington",2024-06-25 18:04:15.850,-122.59,47.55
+1794,1.27,"2 km S of Enetai, Washington",2024-06-25 18:09:00.720,-122.59,47.57
+1795,0.68,"20 km NW of Hoodsport, Washington",2024-06-26 05:24:36.780,-123.31,47.54
+1796,0.34,"13 km NE of Ashford, Washington",2024-06-26 06:02:51.910,-121.91,46.85
+1797,0.53,"22 km ENE of Ashford, Washington",2024-06-26 06:29:44.970,-121.78,46.86
+1798,0.00,"12 km NE of Ashford, Washington",2024-06-26 06:33:16.760,-121.92,46.84
+1799,0.46,"22 km ENE of Ashford, Washington",2024-06-26 13:38:50.670,-121.77,46.85
+1800,1.09,"6 km NE of Duvall, Washington",2024-06-26 13:51:21.480,-121.92,47.78
+1801,0.68,"2 km NNW of Kirkland, Washington",2024-06-27 02:15:32.530,-122.22,47.70
+1802,0.57,"6 km W of Lake Cavanaugh, Washington",2024-06-27 04:49:55.000,-122.11,48.32
+1803,1.66,"10 km S of Seabeck, Washington",2024-06-27 10:33:50.370,-122.85,47.55
+1804,0.24,"22 km ENE of Ashford, Washington",2024-06-27 14:07:02.800,-121.77,46.85
+1805,1.06,"6 km NE of Fall City, Washington",2024-06-27 19:03:08.410,-121.83,47.61
+1806,0.46,"13 km NNE of Ashford, Washington",2024-06-27 21:26:18.340,-121.93,46.86
+1807,0.14,"7 km S of Seabeck, Washington",2024-06-27 23:45:29.670,-122.83,47.57
+1808,0.88,"10 km ENE of Fall City, Washington",2024-06-28 01:36:29.220,-121.77,47.62
+1809,0.48,"16 km SE of Carbonado, Washington",2024-06-28 04:38:57.140,-121.92,46.96
+1810,0.23,"13 km NE of Ashford, Washington",2024-06-28 08:23:56.700,-121.92,46.85
+1811,0.81,"13 km NNE of May Creek, Washington",2024-06-28 10:41:12.560,-121.57,47.95
+1812,1.65,"5 km SW of Port Ludlow, Washington",2024-06-28 17:19:27.430,-122.73,47.89
+1813,0.49,"22 km ENE of Ashford, Washington",2024-06-28 19:56:37.560,-121.77,46.85
+1814,0.62,"7 km ESE of Buckley, Washington",2024-06-29 05:25:11.140,-121.94,47.14
+1815,0.13,"14 km SSE of Carbonado, Washington",2024-06-29 07:16:41.190,-121.97,46.96
+1816,0.25,"1 km W of Lake Marcel-Stillwater, Washington",2024-06-29 07:50:14.810,-121.94,47.70
+1817,0.63,"5 km E of Ashford, Washington",2024-06-29 08:39:08.050,-121.95,46.76
+1818,1.70,"14 km W of Skokomish, Washington",2024-06-29 08:55:50.030,-123.35,47.32
+1819,1.06,"7 km E of Lake McMurray, Washington",2024-06-29 12:15:19.130,-122.13,48.31
+1820,0.48,"4 km E of Duvall, Washington",2024-06-30 09:15:43.020,-121.93,47.75
+1821,0.46,"12 km NE of Ashford, Washington",2024-06-30 10:05:15.410,-121.93,46.84
+1822,0.72,"6 km ENE of Oso, Washington",2024-06-30 11:12:41.900,-121.84,48.28

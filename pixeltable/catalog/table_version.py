@@ -789,8 +789,6 @@ class TableVersion:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
             if col.is_pk and not allow_pk:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
-            if col.col_type.is_media_type():
-                raise excs.Error(f'Column {col_name} has type image/video/audio/document and cannot be updated')
 
             # make sure that the value is compatible with the column type
             try:

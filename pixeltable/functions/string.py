@@ -605,6 +605,11 @@ def zfill(s: str, width: int) -> str:
     return s.zfill(width)
 
 
+@func.udf
+def contains(string: str, substr: str) -> bool:
+    return substr in string
+
+
 __all__ = local_public_names(__name__)
 
 
