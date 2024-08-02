@@ -435,21 +435,21 @@ class Expr(abc.ABC):
             return ArraySlice(self, index)
         raise excs.Error(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> Union['pixeltable.exprs.MemberRef', 'pixeltable.exprs.FunctionCall', 'pixeltable.exprs.JsonPath']:
+    def __getattr__(self, name: str) -> Union['pixeltable.exprs.MethodRef', 'pixeltable.exprs.FunctionCall', 'pixeltable.exprs.JsonPath']:
         """
         ex.: <img col>.rotate(60)
         """
         if self.col_type.is_json_type():
             return pixeltable.exprs.JsonPath(self).__getattr__(name)
         else:
-            member_ref = pixeltable.exprs.MemberRef(self, name)
-            if member_ref.fn.is_property:
-                # Marked as a property, so autoinvoke into a `FunctionCall`
-                assert member_ref.fn.arity == 1
-                return member_ref.fn(member_ref.base_expr)
+            method_ref = pixeltable.exprs.MethodRef(self, name)
+            if method_ref.fn.is_property:
+                # Marked as a property, so autoinvoke the method to obtain a `FunctionCall`
+                assert method_ref.fn.arity == 1
+                return method_ref.fn(method_ref.base_expr)
             else:
-                # Return the `MemberRef` object itself; it requires arguments to become a `FunctionCall`
-                return member_ref
+                # Return the `MethodRef` object itself; it requires arguments to become a `FunctionCall`
+                return method_ref
 
     def __bool__(self) -> bool:
         raise TypeError(

@@ -15,7 +15,7 @@ from .is_null import IsNull
 from .json_mapper import JsonMapper
 from .json_path import RELATIVE_PATH_ROOT, JsonPath
 from .literal import Literal
-from .member_ref import MemberRef
+from .method_ref import MethodRef
 from .object_ref import ObjectRef
 from .predicate import Predicate
 from .row_builder import RowBuilder, ColumnSlotIdx, ExecProfile

@@ -116,11 +116,11 @@ def make_function(
         raise excs.Error(f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given')
 
     if member_access is not None and member_access != 'method' and member_access != 'property':
-        raise excs.Error(f"Invalid `member_access` (expecting 'method' or 'property'): {member_access}")
+        raise excs.Error(f"Invalid `member_access` (expecting 'method' or 'property'): '{member_access}'")
 
     if member_access == 'property' and len(sig.parameters) != 1:
         raise excs.Error(
-            f'`is_property=True` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}'
+            f"`member_access='property'` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}"
         )
     allow_member_access = member_access is not None
     is_property = member_access == 'property'

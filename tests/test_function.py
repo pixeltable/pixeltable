@@ -265,6 +265,18 @@ class TestFunction:
         assert result[0] == {'col_0': 2, 'successor': 2, 'col_2': 'ax'}
         assert result[1] == {'col_0': 3, 'successor': 3, 'col_2': 'bx'}
 
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(member_access='jellyfish')
+            def udf7(n: int) -> int:
+                return n + 1
+        assert 'Invalid `member_access`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(member_access='property')
+            def udf8(a: int, b: int) -> int:
+                return a + b
+        assert "`member_access='property'` expects a UDF with exactly 1 parameter, but `udf8` has 2" in str(exc_info.value)
+
     def test_query(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
         name = t.name
