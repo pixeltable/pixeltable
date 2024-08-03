@@ -778,7 +778,7 @@ class TestTable:
         # non-Predicate filter
         with pytest.raises(excs.Error) as excinfo:
             t.update({'c3': 1.0}, where=lambda c2: c2 == 10)
-        assert 'Predicate' in str(excinfo.value)
+        assert 'predicate' in str(excinfo.value)
 
         img_t = small_img_tbl
 
@@ -826,7 +826,7 @@ class TestTable:
         # non-Predicate filter
         with pytest.raises(excs.Error) as excinfo:
             t.delete(where=lambda c2: c2 == 10)
-        assert 'Predicate' in str(excinfo.value)
+        assert 'predicate' in str(excinfo.value)
 
         img_t = small_img_tbl
 
@@ -1235,13 +1235,13 @@ class TestTable:
         # with exception in Python for c6.f2 == 10
         status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10))
         assert status.num_excs == 1
-        result = t[t.add2.errortype != None][t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg].show()
+        result = t.where(t.add2.errortype != None).select(t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg).show()
         assert len(result) == 1
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
         status = t.add_column(add3=self.f2(self.f1(t.c2)))
         assert status.num_excs == 10
-        result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()
+        result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10
 
     def test_describe(self, test_tbl: catalog.Table) -> None:

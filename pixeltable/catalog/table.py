@@ -113,7 +113,7 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).select(*items, **named_items)
 
-    def where(self, pred: 'exprs.Predicate') -> 'pixeltable.dataframe.DataFrame':
+    def where(self, pred: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
@@ -716,13 +716,13 @@ class Table(SchemaObject):
         raise NotImplementedError
 
     def update(
-            self, value_spec: dict[str, Any], where: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True
+            self, value_spec: dict[str, Any], where: Optional['pixeltable.exprs.Expr'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
 
         Args:
             value_spec: a dictionary mapping column names to literal values or Pixeltable expressions.
-            where: a Predicate to filter rows to update.
+            where: a predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
 
         Examples:
@@ -786,11 +786,11 @@ class Table(SchemaObject):
             row_updates.append(col_vals)
         return self._tbl_version.batch_update(row_updates, rowids, cascade)
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
-            where: a Predicate to filter rows to delete.
+            where: a predicate to filter rows to delete.
 
         Examples:
             Delete all rows in a table:

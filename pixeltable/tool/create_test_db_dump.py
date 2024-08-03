@@ -208,7 +208,7 @@ class Dumper:
         add_column('not', ~(t.c2 > 20))
 
         # function_call
-        add_column('function_call', pxt.functions.string.str_format('{0} {key}', t.c1, key=t.c1))  # library function
+        add_column('function_call', pxt.functions.string.format('{0} {key}', t.c1, key=t.c1))  # library function
         add_column('test_udf', test_udf_stored(t.c2))  # stored udf
         add_column('test_udf_batched', test_udf_stored_batched(t.c1, upper=False))  # batched stored udf
         if include_expensive_functions:

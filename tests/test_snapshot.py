@@ -18,7 +18,10 @@ class TestSnapshot:
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
         tbl_select_list = [tbl[col_name] for col_name in tbl.column_names()]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
-        orig_resultset = tbl.select(*tbl_select_list).where(filter).order_by(tbl.c2).collect()
+        orig_resultset_df = tbl.select(*tbl_select_list)
+        if filter is not None:
+            orig_resultset_df = orig_resultset_df.where(filter)
+        orig_resultset = orig_resultset_df.order_by(tbl.c2).collect()
 
         if reload_md:
             # reload md

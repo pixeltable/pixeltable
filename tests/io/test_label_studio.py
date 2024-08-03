@@ -12,7 +12,7 @@ import requests.exceptions
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
-from pixeltable.functions.string import str_format
+from pixeltable.functions.string import format
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
                      SAMPLE_IMAGE_URL, get_video_files, get_audio_files, validate_sync_status)
 
@@ -365,7 +365,7 @@ class TestLabelStudio:
         assert not v.frame.col.is_stored
         assert v.count() == 10
         v['rot_frame'] = v.frame.rotate(180)
-        v['header'] = str_format('Frame Number {0}', v.frame_idx)
+        v['header'] = format('Frame Number {0}', v.frame_idx)
         v['text'] = pxt.StringType(nullable=True)
         v.update({'text': 'Initial text'})
 

@@ -1,3 +1,16 @@
+"""
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
+
+Example:
+```python
+import pixeltable as pxt
+from pixeltable.functions import video as pxt_video
+
+t = pxt.get_table(...)
+t.select(pxt_video.extract_audio(t.video_col)).collect()
+```
+"""
+
 import tempfile
 import uuid
 from pathlib import Path
@@ -43,6 +56,9 @@ _format_defaults = {  # format -> (codec, ext)
     allows_window=False,
 )
 class make_video(func.Aggregator):
+    """
+    Aggregator that creates a video from a sequence of images.
+    """
     def __init__(self, fps: int = 25):
         """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
         self.container: Optional[av.container.OutputContainer] = None
@@ -84,7 +100,14 @@ _extract_audio_param_types = [
 def extract_audio(
     video_path: str, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
 ) -> Optional[str]:
-    """Extract an audio stream from a video file, save it as a media file and return its path"""
+    """
+    Extract an audio stream from a video file, save it as a media file and return its path.
+
+    Args:
+        stream_idx: Index of the audio stream to extract.
+        format: The target audio format. (`'wav'`, `'mp3'`, `'flac'`).
+        codec: The codec to use for the audio stream. If not provided, a default codec will be used.
+    """
     if format not in _format_defaults:
         raise ValueError(f'extract_audio(): unsupported audio format: {format}')
     default_codec, ext = _format_defaults[format]
@@ -107,13 +130,8 @@ def extract_audio(
 
 @func.udf(return_type=ts.JsonType(nullable=False), param_types=[ts.VideoType(nullable=False)])
 def get_metadata(video: str) -> dict:
-    """Gets various metadata associated with a video file.
-
-    Args:
-        video (str): Path to the video file.
-
-    Returns:
-        A dictionary containing the associated metadata.
+    """
+    Gets various metadata associated with a video file and returns it as a dictionary.
     """
     with av.open(video) as container:
         assert isinstance(container, av.container.InputContainer)

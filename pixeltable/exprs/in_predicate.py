@@ -5,20 +5,20 @@ from typing import Optional, List, Any, Dict, Tuple, Iterable
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from .data_row import DataRow
 from .expr import Expr
-from .predicate import Predicate
 from .row_builder import RowBuilder
 
 
-class InPredicate(Predicate):
+class InPredicate(Expr):
     """Predicate corresponding to the SQL IN operator."""
 
     def __init__(self, lhs: Expr, value_set_literal: Optional[Iterable] = None, value_set_expr: Optional[Expr] = None):
         assert (value_set_literal is None) != (value_set_expr is None)
         if not lhs.col_type.is_scalar_type():
             raise excs.Error(f'isin(): only supported for scalar types, not {lhs.col_type}')
-        super().__init__()
+        super().__init__(ts.BoolType())
 
         self.value_list: Optional[list] = None  # only contains values of the correct type
         if value_set_expr is not None:

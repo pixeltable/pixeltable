@@ -40,7 +40,7 @@ class Analyzer:
 
     def __init__(
             self, tbl: catalog.TableVersionPath, select_list: List[exprs.Expr],
-            where_clause: Optional[exprs.Predicate] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
+            where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
             order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None):
         if group_by_clause is None:
             group_by_clause = []
@@ -58,7 +58,7 @@ class Analyzer:
         # Where clause of the Select stmt of the SQL scan
         self.sql_where_clause: Optional[exprs.Expr] = None
         # filter predicate applied to output rows of the SQL scan
-        self.filter: Optional[exprs.Predicate] = None
+        self.filter: Optional[exprs.Expr] = None
         # not executable
         #self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
         if where_clause is not None:
@@ -183,7 +183,7 @@ class Planner:
     # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
     def create_count_stmt(
-            cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Predicate] = None
+            cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Expr] = None
     ) -> sql.Select:
         stmt = sql.select(sql.func.count('*'))
         refd_tbl_ids: Set[UUID] = set()
@@ -239,7 +239,7 @@ class Planner:
             cls, tbl: catalog.TableVersionPath,
             update_targets: dict[catalog.Column, exprs.Expr],
             recompute_targets: List[catalog.Column],
-            where_clause: Optional[exprs.Predicate], cascade: bool
+            where_clause: Optional[exprs.Expr], cascade: bool
     ) -> Tuple[exec.ExecNode, List[str], List[catalog.Column]]:
         """Creates a plan to materialize updated rows.
         The plan:
@@ -505,7 +505,7 @@ class Planner:
     @classmethod
     def create_query_plan(
             cls, tbl: catalog.TableVersionPath, select_list: Optional[List[exprs.Expr]] = None,
-            where_clause: Optional[exprs.Predicate] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
+            where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
             order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None, limit: Optional[int] = None,
             with_pk: bool = False, ignore_errors: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
     ) -> exec.ExecNode:
@@ -597,7 +597,7 @@ class Planner:
         return plan
 
     @classmethod
-    def analyze(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Predicate) -> Analyzer:
+    def analyze(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Expr) -> Analyzer:
         return Analyzer(tbl, [], where_clause=where_clause)
 
     @classmethod
