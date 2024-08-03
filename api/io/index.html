@@ -47,6 +47,8 @@
     
       <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -629,6 +631,48 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/string/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    StringType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/video/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    VideoType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -774,13 +818,18 @@
     <span class="n">media_import_method</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;post&quot;</span><span class="p">,</span> <span class="s2">&quot;file&quot;</span><span class="p">,</span> <span class="s2">&quot;url&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;post&quot;</span><span class="p">,</span>
     <span class="n">col_mapping</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">sync_immediately</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">s3_configuration</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.io.external_store.SyncStatus">SyncStatus</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Creates a new Label Studio project and links it to the specified <code>Table</code>.</p>
+      <p>Create a new Label Studio project and link it to the specified <code>Table</code>.</p>
+<ul>
+<li>A tutorial notebook with fully worked examples can be found here:
+  <a href="https://pixeltable.readme.io/docs/label-studio">Using Label Studio for Annotations with Pixeltable</a></li>
+</ul>
 <p>The required parameter <code>label_config</code> specifies the Label Studio project configuration,
 in XML format, as described in the Label Studio documentation. The linked project will
 have one column for each data field in the configuration; for example, if the
@@ -799,6 +848,11 @@ consistent with their corresponding Label Studio fields; otherwise, an exception
 <ul>
 <li>Set the <code>LABEL_STUDIO_API_KEY</code> and <code>LABEL_STUDIO_URL</code> environment variables; or</li>
 <li>Specify <code>api_key</code> and <code>url</code> fields in the <code>label-studio</code> section of <code>$PIXELTABLE_HOME/config.yaml</code>.</li>
+</ul>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install label-studio-sdk</code></li>
+<li><code>pip install boto3</code> (if using S3 import storage)</li>
 </ul>
 
 
@@ -842,7 +896,7 @@ linked to <code>t</code>. If not specified, a default name will be used of the f
           <div class="doc-md-description">
             <p>An optional title for the Label Studio project. This is the title that annotators
 will see inside Label Studio. Unlike <code>name</code>, it does not need to be an identifier and
-does not need to be unique. If not specified, the table name <code>t.get_name()</code> will be used.</p>
+does not need to be unique. If not specified, the table name <code>t.name</code> will be used.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -852,15 +906,17 @@ does not need to be unique. If not specified, the table name <code>t.get_name()<
 )
           –
           <div class="doc-md-description">
-            <p>The method to use when transferring media files to Label Studio:
-- <code>post</code>: Media will be sent to Label Studio via HTTP post. This should generally only be used for
+            <p>The method to use when transferring media files to Label Studio:</p>
+<ul>
+<li><code>post</code>: Media will be sent to Label Studio via HTTP post. This should generally only be used for
     prototyping; due to restrictions in Label Studio, it can only be used with projects that have
-    just one data field, and does not scale well.
-- <code>file</code>: Media will be sent to Label Studio as a file on the local filesystem. This method can be
-    used if Pixeltable and Label Studio are running on the same host.
-- <code>url</code>: Media will be sent to Label Studio as externally accessible URLs. This method cannot be
+    just one data field, and does not scale well.</li>
+<li><code>file</code>: Media will be sent to Label Studio as a file on the local filesystem. This method can be
+    used if Pixeltable and Label Studio are running on the same host.</li>
+<li><code>url</code>: Media will be sent to Label Studio as externally accessible URLs. This method cannot be
     used with local media files or with media generated by computed columns.
-The default is <code>post</code>.</p>
+The default is <code>post</code>.</li>
+</ul>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -885,6 +941,26 @@ exporting all rows of the <code>Table</code> as Label Studio tasks.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
+          <b><code>s3_configuration</code></b>
+              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If specified, S3 import storage will be configured for the new project. This can only
+be used with <code>media_import_method='url'</code>, and if <code>media_import_method='url'</code> and any of the media data is
+referenced by <code>s3://</code> URLs, then it must be specified in order for such media to display correctly
+in the Label Studio interface.</p>
+<p>The items in the <code>s3_configuration</code> dictionary correspond to kwarg
+parameters of the Label Studio <code>connect_s3_import_storage</code> method, as described in the
+<a href="https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.connect_s3_import_storage">Label Studio connect_s3_import_storage docs</a>.
+<code>bucket</code> must be specified; all other parameters are optional. If credentials are not specified explicitly,
+Pixeltable will attempt to retrieve them from the environment (such as from <code>~/.aws/credentials</code>). If a title is not
+specified, Pixeltable will use the default <code>'Pixeltable-S3-Import-Storage'</code>. All other parameters use their Label
+Studio defaults.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
           <b><code>kwargs</code></b>
               (<code><span title="typing.Any">Any</span></code>, default:
                   <code>{}</code>
@@ -892,11 +968,47 @@ exporting all rows of the <code>Table</code> as Label Studio tasks.</p>
           –
           <div class="doc-md-description">
             <p>Additional keyword arguments are passed to the <code>start_project</code> method in the Label
-Studio SDK, as described here:
-https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_project</p>
+Studio SDK, as described in the
+<a href="https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_project">Label Studio start_project docs</a>.</p>
           </div>
         </li>
     </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.io.external_store.SyncStatus">SyncStatus</span></code>
+          –
+          <div class="doc-md-description">
+            <p>A <code>SyncStatus</code> representing the status of any synchronization operations that occurred.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Create a Label Studio project whose tasks correspond to videos stored in the <code>video_col</code> column of the table <code>tbl</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="go">    &lt;View&gt;</span>
+<span class="go">        &lt;Video name=&quot;video_obj&quot; value=&quot;$video_col&quot;/&gt;</span>
+<span class="go">        &lt;Choices name=&quot;video-category&quot; toName=&quot;video&quot; showInLine=&quot;true&quot;&gt;</span>
+<span class="go">            &lt;Choice value=&quot;city&quot;/&gt;</span>
+<span class="go">            &lt;Choice value=&quot;food&quot;/&gt;</span>
+<span class="go">            &lt;Choice value=&quot;sports&quot;/&gt;</span>
+<span class="go">        &lt;/Choices&gt;</span>
+<span class="go">    &lt;/View&gt;&quot;&quot;&quot;</span>
+<span class="go">    create_label_studio_project(tbl, config)</span>
+</code></pre></div>
+    <p>Create a Label Studio project with the same configuration, using <code>media_import_method='url'</code>,
+whose media are stored in an S3 bucket:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">create_label_studio_project</span><span class="p">(</span>
+<span class="go">        tbl,</span>
+<span class="go">        config,</span>
+<span class="go">        media_import_method=&#39;url&#39;,</span>
+<span class="go">        s3_configuration={&#39;bucket&#39;: &#39;my-bucket&#39;, &#39;region_name&#39;: &#39;us-east-2&#39;}</span>
+<span class="go">    )</span>
+</code></pre></div>
 
     </div>
 
@@ -911,9 +1023,12 @@ https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_pro
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">import_csv</span><span class="p">(</span>
-    <span class="n">table_path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">tbl_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">filepath_or_buffer</span><span class="p">,</span>
     <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">primary_key</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.InsertableTable">InsertableTable</span></span>
 </code></pre></div>
@@ -937,10 +1052,13 @@ See the Pandas documentation for <code>read_csv</code> for more details.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">import_excel</span><span class="p">(</span>
-    <span class="n">table_path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">tbl_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">io</span><span class="p">,</span>
     <span class="o">*</span><span class="n">args</span><span class="p">,</span>
     <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">primary_key</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.InsertableTable">InsertableTable</span></span>
 </code></pre></div>
@@ -967,7 +1085,10 @@ See the Pandas documentation for <code>read_excel</code> for more details.</p>
     <span class="n">tbl_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">df</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">primary_key</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.InsertableTable">InsertableTable</span></span>
 </code></pre></div>
 

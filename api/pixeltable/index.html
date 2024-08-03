@@ -47,6 +47,8 @@
     
       <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -451,9 +453,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pixeltable.rm_dir" class="md-nav__link">
+  <a href="#pixeltable.drop_dir" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;rm_dir
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;drop_dir
     </span>
   </a>
   
@@ -705,6 +707,48 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/string/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    StringType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/video/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    VideoType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -848,9 +892,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pixeltable.rm_dir" class="md-nav__link">
+  <a href="#pixeltable.drop_dir" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;rm_dir
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;drop_dir
     </span>
   </a>
   
@@ -936,7 +980,7 @@ below.</p>
 <td>List the directories in a directory</td>
 </tr>
 <tr>
-<td><a class="autorefs autorefs-internal" href="#pixeltable.rm_dir"><code>pxt.rm_dir</code></a></td>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.drop_dir"><code>pxt.drop_dir</code></a></td>
 <td>Remove a directory</td>
 </tr>
 </tbody>
@@ -1067,7 +1111,7 @@ below.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_dir</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_dir</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.Dir">Dir</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1218,10 +1262,10 @@ below.</p>
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_view</span><span class="p">(</span>
     <span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-    <span class="n">base</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">,</span>
+    <span class="n">base</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">,</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a></span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">schema</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="nb">filter</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Predicate">Predicate</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="nb">filter</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">is_snapshot</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">iterator</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">tuple</span><span class="p">[</span><span class="n">type</span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.iterators.ComponentIterator" href="../iterators/component-iterator/#pixeltable.iterators.ComponentIterator">ComponentIterator</a></span><span class="p">],</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
@@ -1247,10 +1291,10 @@ below.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>base</code></b>
-              (<code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></code>)
+              (<code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a>, <a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a>]</code>)
           –
           <div class="doc-md-description">
-            <p>Table (ie, table or view or snapshot) to base the view on.</p>
+            <p>Table (i.e., table or view or snapshot) or DataFrame to base the view on.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -1265,12 +1309,12 @@ below.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>filter</code></b>
-              (<code><span title="typing.Optional">Optional</span>[<span title="pixeltable.exprs.Predicate">Predicate</span>]</code>, default:
+              (<code><span title="typing.Optional">Optional</span>[<span title="pixeltable.exprs.Expr">Expr</span>]</code>, default:
                   <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>Predicate to filter rows of the base table.</p>
+            <p>predicate to filter rows of the base table.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -1391,7 +1435,7 @@ the base table.</p>
 )
           –
           <div class="doc-md-description">
-            <p>Whether to drop the table even if it has unsaved changes.</p>
+            <p>If <code>True</code>, will also drop all views or sub-views of this table.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -1731,12 +1775,14 @@ the base table.</p>
 <div class="doc doc-object doc-function">
 
 
-<h3 id="pixeltable.rm_dir" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">rm_dir</span>
+<h3 id="pixeltable.drop_dir" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">drop_dir</span>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rm_dir</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">drop_dir</span><span class="p">(</span>
+    <span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">force</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1770,10 +1816,10 @@ the base table.</p>
 
 
 <p><span class="doc-section-title">Examples:</span></p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">rm_dir</span><span class="p">(</span><span class="s1">&#39;my_dir&#39;</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">drop_dir</span><span class="p">(</span><span class="s1">&#39;my_dir&#39;</span><span class="p">)</span>
 </code></pre></div>
     <p>Remove a subdirectory:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">rm_dir</span><span class="p">(</span><span class="s1">&#39;my_dir.sub_dir&#39;</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">cl</span><span class="o">.</span><span class="n">drop_dir</span><span class="p">(</span><span class="s1">&#39;my_dir.sub_dir&#39;</span><span class="p">)</span>
 </code></pre></div>
 
     </div>

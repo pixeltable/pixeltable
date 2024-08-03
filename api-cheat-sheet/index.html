@@ -47,6 +47,8 @@
     
       <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
+      <link rel="stylesheet" href="../css/mkdocstrings.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -676,6 +678,48 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/functions/string/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    StringType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/functions/video/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    VideoType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -846,7 +890,7 @@ import pixeltable.functions as pxtf
 </tr>
 <tr>
 <td>Create a view</td>
-<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>('view_name', base_tbl, filter=base_tbl.col &gt; 10)</td>
+<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>('view_name', base_tbl.where(base_tbl.col &gt; 10))</td>
 </tr>
 <tr>
 <td>Create a view with iterator</td>
@@ -854,7 +898,7 @@ import pixeltable.functions as pxtf
 </tr>
 <tr>
 <td>Create a snapshot</td>
-<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>('snapshot_name', t, is_snapshot=True)</td>
+<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>('snapshot_name', base_tbl, is_snapshot=True)</td>
 </tr>
 </tbody>
 </table>
@@ -887,6 +931,10 @@ import pixeltable.functions as pxtf
 <td>Delete a table</td>
 <td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.drop_table"><code>pxt.drop_table</code></a>('video_data')</td>
 </tr>
+<tr>
+<td>Delete a table and all its views</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.drop_table"><code>pxt.drop_table</code></a>('video_data', force=True)</td>
+</tr>
 </tbody>
 </table>
 <h3 id="directories">Directories</h3>
@@ -908,7 +956,11 @@ import pixeltable.functions as pxtf
 </tr>
 <tr>
 <td>Delete a directory</td>
-<td>f = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.rm_dir"><code>pxt.rm_dir</code></a>('experiments')</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.drop_dir"><code>pxt.drop_dir</code></a>('experiments')</td>
+</tr>
+<tr>
+<td>Delete a directory and all its contents</td>
+<td><a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.drop_dir"><code>pxt.drop_dir</code></a>('experiments', force=True)</td>
 </tr>
 <tr>
 <td>List directories</td>

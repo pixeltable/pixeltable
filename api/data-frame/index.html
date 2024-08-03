@@ -47,6 +47,8 @@
     
       <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -705,6 +707,48 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/string/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    StringType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/video/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    VideoType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -975,7 +1019,7 @@ Another difference to pandas is that query execution needs to be initiated expli
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">DataFrame</span><span class="p">(</span>
     <span class="n">tbl</span><span class="p">:</span> <span class="n"><span title="pixeltable.catalog.TableVersionPath">TableVersionPath</span></span><span class="p">,</span>
     <span class="n">select_list</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.List">List</span></span><span class="p">[</span><span class="n"><span title="typing.Tuple">Tuple</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">where_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Predicate">Predicate</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">where_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">group_by_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.List">List</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">grouping_tbl</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.catalog.TableVersion">TableVersion</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">order_by_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.List">List</span></span><span class="p">[</span><span class="n"><span title="typing.Tuple">Tuple</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n">bool</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1255,7 +1299,7 @@ This dataframe must return a single json-typed output column in the following fo
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">where</span><span class="p">(</span><span class="n">pred</span><span class="p">:</span> <span class="n"><span title="pixeltable.exprs.Predicate">Predicate</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">where</span><span class="p">(</span><span class="n">pred</span><span class="p">:</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

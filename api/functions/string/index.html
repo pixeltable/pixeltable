@@ -1,0 +1,3520 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+        <meta name="author" content="Pixeltable, Inc.">
+      
+      
+      
+        <link rel="prev" href="../huggingface/">
+      
+      
+        <link rel="next" href="../video/">
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.23">
+    
+    
+      
+        <title>StringType - Pixeltable API</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.6543a935.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../../css/mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pixeltable.functions.string" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="Pixeltable API" class="md-header__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Pixeltable API
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              StringType
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var media,input,key,value,palette=__md_get("__palette");if(palette&&palette.color){"(prefers-color-scheme)"===palette.color.media&&(media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']"),palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent"));for([key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12Z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pixeltable/pixeltable" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pixeltable/pixeltable
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="Pixeltable API" class="md-nav__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    Pixeltable API
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pixeltable/pixeltable" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pixeltable/pixeltable
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api-cheat-sheet/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    API Cheat Sheet
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    API Reference
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            API Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pixeltable/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    pixeltable
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../io/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    pixeltable.io
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    pixeltable.iterators
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            pixeltable.iterators
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../iterators/component-iterator/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ComponentIterator
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../iterators/document-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DocumentSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../iterators/frame-iterator/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    FrameIterator
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-frame/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DataFrame
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../table/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Table
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Pixeltable Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Pixeltable Functions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../huggingface/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Huggingface
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    StringType
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    StringType
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pixeltable.functions.string" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;string
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" string">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.capitalize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;capitalize
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.casefold" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;casefold
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.center" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;center
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.contains" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;contains
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.count" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;count
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.endswith" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;endswith
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.fill" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;fill
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.find" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;find
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.findall" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;findall
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.format" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;format
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.fullmatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;fullmatch
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;index
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isalnum" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isalnum
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isalpha" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isalpha
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isascii" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isascii
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isdecimal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isdecimal
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isdigit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isdigit
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isidentifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isidentifier
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.islower" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;islower
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isnumeric" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isnumeric
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isspace" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isspace
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.istitle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;istitle
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isupper" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isupper
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.len" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;len
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.ljust" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;ljust
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.lower" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;lower
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.lstrip" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;lstrip
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.match" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;match
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.normalize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;normalize
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.pad" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;pad
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.partition" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;partition
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.removeprefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;removeprefix
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.removesuffix" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;removesuffix
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.repeat" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;repeat
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.replace" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;replace
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rfind" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rfind
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rindex" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rindex
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rjust" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rjust
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rpartition" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rpartition
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rstrip" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rstrip
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.slice" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;slice
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.slice_replace" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;slice_replace
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.startswith" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;startswith
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.strip" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;strip
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.swapcase" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;swapcase
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.title" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;title
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.upper" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;upper
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.wrap" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;wrap
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.zfill" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;zfill
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../video/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    VideoType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pixeltable.functions.string" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;string
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" string">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.capitalize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;capitalize
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.casefold" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;casefold
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.center" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;center
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.contains" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;contains
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.count" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;count
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.endswith" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;endswith
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.fill" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;fill
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.find" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;find
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.findall" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;findall
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.format" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;format
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.fullmatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;fullmatch
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.index" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;index
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isalnum" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isalnum
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isalpha" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isalpha
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isascii" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isascii
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isdecimal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isdecimal
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isdigit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isdigit
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isidentifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isidentifier
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.islower" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;islower
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isnumeric" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isnumeric
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isspace" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isspace
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.istitle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;istitle
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.isupper" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isupper
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.len" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;len
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.ljust" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;ljust
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.lower" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;lower
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.lstrip" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;lstrip
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.match" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;match
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.normalize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;normalize
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.pad" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;pad
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.partition" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;partition
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.removeprefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;removeprefix
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.removesuffix" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;removesuffix
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.repeat" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;repeat
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.replace" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;replace
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rfind" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rfind
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rindex" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rindex
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rjust" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rjust
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rpartition" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rpartition
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.rstrip" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rstrip
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.slice" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;slice
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.slice_replace" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;slice_replace
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.startswith" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;startswith
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.strip" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;strip
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.swapcase" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;swapcase
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.title" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;title
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.upper" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;upper
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.wrap" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;wrap
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.zfill" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;zfill
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+
+
+
+                  
+
+  
+  
+
+
+  <h1>StringType</h1>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="pixeltable.functions.string" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">pixeltable.functions.string</span>
+
+
+</h2>
+
+    <div class="doc doc-contents first">
+
+      <p>Pixeltable <a href="https://pixeltable.readme.io/docs/user-defined-functions-udfs">UDFs</a> for <code>StringType</code>.
+It closely follows the Pandas <code>pandas.Series.str</code> API.</p>
+<p>Example:</p>
+<pre><code class="language-python">import pixeltable as pxt
+from pixeltable.functions import string as pxt_str
+
+t = pxt.get_table(...)
+t.select(pxt_str.capitalize(t.str_col)).collect()
+</code></pre>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.capitalize" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">capitalize</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">capitalize</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>s</code> with its first character capitalized and the rest lowercased.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.capitalize"><code>str.capitalize()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.casefold" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">casefold</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">casefold</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a casefolded copy of <code>s</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.casefold"><code>str.casefold()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.center" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">center</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">center</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a centered string of length <code>width</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.center"><code>str.center()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>width</code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>Total width of the resulting string.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fillchar</code></b>
+              (<code>str</code>, default:
+                  <code>&#39; &#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Character used for padding.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.contains" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">contains</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">contains</span><span class="p">(</span>
+    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">regex</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Test if pattern or regex is contained within a string.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>string literal or regular expression</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>case</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if False, ignore case</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>flags</code></b>
+              (<code>int</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p><a href="https://docs.python.org/3/library/re.html#flags">flags</a> for the <code>re</code> module</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>regex</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if True, treat pattern as a regular expression</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.count" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">count</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">count</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Count occurrences of pattern or regex in <code>s</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>string literal or regular expression</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>flags</code></b>
+              (<code>int</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p><a href="https://docs.python.org/3/library/re.html#flags">flags</a> for the <code>re</code> module</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.endswith" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">endswith</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">endswith</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if the string ends with the specified suffix, otherwise return <code>False</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.endswith"><code>str.endswith()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>string literal</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.fill" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">fill</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fill</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Wraps the single paragraph in <code>s</code>, and returns a single string containing the wrapped paragraph.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/textwrap.html#textwrap.fill"><code>textwrap.fill()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>width</code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>Maximum line width.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>kwargs</code></b>
+              (<code>None</code>, default:
+                  <code>{}</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional keyword arguments to pass to <code>textwrap.fill()</code>.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.find" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">find</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">find</span><span class="p">(</span>
+    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the lowest index in <code>s</code> where <code>substr</code> is found within the slice <code>s[start:end]</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.find"><code>str.find()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>substr</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>substring to search for</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>start</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice start</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>end</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice end</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.findall" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">findall</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">findall</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Find all occurrences of a regular expression pattern in a string.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/re.html#re.findall"><code>re.findall()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>regular expression pattern</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>flags</code></b>
+              (<code>int</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p><a href="https://docs.python.org/3/library/re.html#flags">flags</a> for the <code>re</code> module</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.format" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">format</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nb">format</span><span class="p">(</span><span class="nf">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Perform string formatting.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.format"><code>str.format()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.fullmatch" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">fullmatch</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fullmatch</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Determine if <code>s</code> fully matches a regular expression.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/re.html#re.fullmatch"><code>re.fullmatch()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>regular expression pattern</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>case</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if False, ignore case</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>flags</code></b>
+              (<code>int</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p><a href="https://docs.python.org/3/library/re.html#flags">flags</a> for the <code>re</code> module</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.index" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">index</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">index</span><span class="p">(</span>
+    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the lowest index in <code>s</code> where <code>substr</code> is found within the slice <code>s[start:end]</code>. Raises ValueError if <code>substr</code> is not found.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.index"><code>str.index()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>substr</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>substring to search for</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>start</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice start</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>end</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice end</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.isalnum" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">isalnum</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalnum</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if all characters in the string are alphanumeric and there is at least one character, <code>False</code>
+otherwise.</p>
+<p>Equivalent to [<code>str.isalnum()</code>](https://docs.python.org/3/library/stdtypes.html#str.isalnum</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.isalpha" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">isalpha</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalpha</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if all characters in the string are alphabetic and there is at least one character, <code>False</code> otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.isalpha"><code>str.isalpha()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.isascii" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">isascii</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isascii</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if the string is empty or all characters in the string are ASCII, <code>False</code> otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.isascii"><code>str.isascii()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.isdecimal" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">isdecimal</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdecimal</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if all characters in the string are decimal characters and there is at least one character, <code>False</code>
+otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.isdecimal"><code>str.isdecimal()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.isdigit" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">isdigit</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdigit</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if all characters in the string are digits and there is at least one character, <code>False</code> otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.isdigit"><code>str.isdigit()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.isidentifier" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">isidentifier</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isidentifier</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if the string is a valid identifier according to the language definition, <code>False</code> otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.isidentifier"><code>str.isidentifier()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.islower" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">islower</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">islower</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if all cased characters in the string are lowercase and there is at least one cased character, <code>False</code> otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.islower"><code>str.islower()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.isnumeric" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">isnumeric</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isnumeric</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if all characters in the string are numeric characters, <code>False</code> otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.isnumeric"><code>str.isnumeric()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.isspace" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">isspace</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isspace</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if there are only whitespace characters in the string and there is at least one character, <code>False</code> otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.isspace"><code>str.isspace()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.istitle" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">istitle</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">istitle</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if the string is a titlecased string and there is at least one character, <code>False</code> otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.istitle"><code>str.istitle()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.isupper" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">isupper</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isupper</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if all cased characters in the string are uppercase and there is at least one cased character, <code>False</code> otherwise.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.isupper"><code>str.isupper()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.len" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">len</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nb">len</span><span class="p">(</span><span class="nf">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the number of characters in the string.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/functions.html#len"><code>len(str)</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.ljust" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">ljust</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">ljust</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the string left-justified in a string of length <code>width</code>. Padding is done using the specified <code>fillchar</code> (default is a space).</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.ljust"><code>str.ljust()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>width</code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>Minimum width of resulting string; additional characters will be filled with character defined in <code>fillchar</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fillchar</code></b>
+              (<code>str</code>, default:
+                  <code>&#39; &#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional character for filling.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.lower" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">lower</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lower</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a copy of the string with all the cased characters converted to lowercase.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.lower"><code>str.lower()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.lstrip" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">lstrip</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lstrip</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a copy of the string with leading characters removed. The <code>chars</code> argument is a string specifying the set of
+characters to be removed. If omitted or <code>None</code>, whitespace characters are removed.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.lstrip"><code>str.lstrip()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>chars</code></b>
+              (<code>Optional[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The set of characters to be removed.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.match" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">match</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="k">match</span><span class="p">(</span><span class="nf">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Determine if string starts with a match of a regular expression</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>regular expression pattern</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>case</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if False, ignore case</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>flags</code></b>
+              (<code>int</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p><a href="https://docs.python.org/3/library/re.html#flags">flags</a> for the <code>re</code> module</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.normalize" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">normalize</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">normalize</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">form</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the Unicode normal form for <code>s</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/unicodedata.html#unicodedata.normalize"><code>unicodedata.normalize()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>form</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>Unicode normal form (<code>‘NFC’</code>, <code>‘NFKC’</code>, <code>‘NFD’</code>, <code>‘NFKD’</code>)</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.pad" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">pad</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">pad</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">side</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;left&#39;</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Pad string up to width</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>width</code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>Minimum width of resulting string; additional characters will be filled with character defined in <code>fillchar</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>side</code></b>
+              (<code>str</code>, default:
+                  <code>&#39;left&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Side from which to fill resulting string (<code>‘left’</code>, <code>‘right’</code>, <code>‘both’</code>)</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fillchar</code></b>
+              (<code>str</code>, default:
+                  <code>&#39; &#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional character for filling</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.partition" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">partition</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">partition</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Splits <code>s</code> at the first occurrence of <code>sep</code>, and returns 3 elements containing the part before the
+separator, the separator itself, and the part after the separator. If the separator is not found, return 3 elements
+containing <code>s</code> itself, followed by two empty strings.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.removeprefix" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">removeprefix</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removeprefix</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Remove prefix from <code>s</code>. If the prefix is not present, returns <code>s</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.removesuffix" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">removesuffix</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removesuffix</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">suffix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Remove suffix from <code>s</code>. If the suffix is not present, returns <code>s</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.repeat" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">repeat</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">repeat</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Repeat <code>s</code> <code>n</code> times.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.replace" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">replace</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">replace</span><span class="p">(</span>
+    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">repl</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">n</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">regex</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Replace occurrences of <code>pattern</code> in <code>s</code> with <code>repl</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.replace"><code>str.replace()</code></a> or
+<a href="https://docs.python.org/3/library/re.html#re.sub"><code>re.sub()</code></a>, depending on the value of regex.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>string literal or regular expression</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>repl</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>replacement string</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>n</code></b>
+              (<code>int</code>, default:
+                  <code>-1</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>number of replacements to make (-1 for all)</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>case</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if False, ignore case</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>flags</code></b>
+              (<code>int</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p><a href="https://docs.python.org/3/library/re.html#flags">flags</a> for the <code>re</code> module</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>regex</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if True, treat pattern as a regular expression</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.rfind" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">rfind</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rfind</span><span class="p">(</span>
+    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the highest index in <code>s</code> where <code>substr</code> is found, such that <code>substr</code> is contained within <code>s[start:end]</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.rfind"><code>str.rfind()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>substr</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>substring to search for</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>start</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice start</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>end</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice end</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.rindex" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">rindex</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rindex</span><span class="p">(</span>
+    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the highest index in <code>s</code> where <code>substr</code> is found, such that <code>substr</code> is contained within <code>s[start:end]</code>.
+Raises ValueError if <code>substr</code> is not found.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.rindex"><code>str.rindex()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.rjust" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">rjust</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rjust</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>s</code> right-justified in a string of length <code>width</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.rjust"><code>str.rjust()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>width</code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>Minimum width of resulting string.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fillchar</code></b>
+              (<code>str</code>, default:
+                  <code>&#39; &#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional character for filling.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.rpartition" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">rpartition</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rpartition</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>This method splits <code>s</code> at the last occurrence of <code>sep</code>, and returns a list containing the part before the
+separator, the separator itself, and the part after the separator.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.rstrip" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">rstrip</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rstrip</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a copy of <code>s</code> with trailing characters removed.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.rstrip"><code>str.rstrip()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>chars</code></b>
+              (<code>Optional[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The set of characters to be removed. If omitted or <code>None</code>, whitespace characters are removed.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.slice" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">slice</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nb">slice</span><span class="p">(</span>
+    <span class="nf">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">step</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a slice of <code>s</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>start</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice start</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>stop</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice end</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>step</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice step</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.slice_replace" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">slice_replace</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">slice_replace</span><span class="p">(</span>
+    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">repl</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Replace a positional slice of a string with another value.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>start</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice start</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>stop</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>slice end</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>repl</code></b>
+              (<code>Optional[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>replacement value</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.startswith" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">startswith</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">startswith</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return <code>True</code> if <code>s</code> starts with <code>pattern</code>, otherwise return <code>False</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.startswith"><code>str.startswith()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>string literal</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.strip" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">strip</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">strip</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a copy of <code>s</code> with leading and trailing characters removed.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.strip"><code>str.strip()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>chars</code></b>
+              (<code>Optional[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The set of characters to be removed. If omitted or <code>None</code>, whitespace characters are removed.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.swapcase" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">swapcase</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">swapcase</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a copy of <code>s</code> with uppercase characters converted to lowercase and vice versa.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.swapcase"><code>str.swapcase()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.title" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">title</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">title</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a titlecased version of <code>s</code>, i.e. words start with uppercase characters, all remaining cased characters are
+lowercase.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.title"><code>str.title()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.upper" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">upper</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">upper</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a copy of <code>s</code> converted to uppercase.
+Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.upper"><code>str.upper()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.wrap" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">wrap</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">wrap</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Wraps the single paragraph in <code>s</code> so every line is at most <code>width</code> characters long.
+Returns a list of output lines, without final newlines.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/textwrap.html#textwrap.fill"><code>textwrap.fill()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>width</code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>Maximum line width.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>kwargs</code></b>
+              (<code>None</code>, default:
+                  <code>{}</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional keyword arguments to pass to <code>textwrap.fill()</code>.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.zfill" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">zfill</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">zfill</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Pad a numeric string <code>s</code> with ASCII <code>0</code> on the left to a total length of <code>width</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.zfill"><code>str.zfill()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>s</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>String.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>width</code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>Minimum width of resulting string.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; 2022 - 2024 <a href="https://github.com/pixeltable" target="_blank" rel="noopener">Pixeltable, Inc.</a> All rights reserved.
+
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "../../..", "features": [], "search": "../../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.ebd0bdb7.min.js"></script>
+      
+    
+  </body>
+</html>

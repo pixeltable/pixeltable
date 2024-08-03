@@ -14,6 +14,8 @@
         <link rel="prev" href="../../table/">
       
       
+        <link rel="next" href="../string/">
+      
       
       <link rel="icon" href="../../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.23">
@@ -44,6 +46,8 @@
     
     
       <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../../css/mkdocstrings.css">
     
     <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
@@ -580,7 +584,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.clip_image" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;clip_image
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;clip_image
     </span>
   </a>
   
@@ -589,7 +593,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.clip_text" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;clip_text
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;clip_text
     </span>
   </a>
   
@@ -598,7 +602,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.cross_encoder" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;cross_encoder
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;cross_encoder
     </span>
   </a>
   
@@ -607,7 +611,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.detr_for_object_detection" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;detr_for_object_detection
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;detr_for_object_detection
     </span>
   </a>
   
@@ -616,7 +620,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.sentence_transformer" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;sentence_transformer
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;sentence_transformer
     </span>
   </a>
   
@@ -631,6 +635,48 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../string/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    StringType
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../video/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    VideoType
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -680,7 +726,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.clip_image" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;clip_image
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;clip_image
     </span>
   </a>
   
@@ -689,7 +735,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.clip_text" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;clip_text
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;clip_text
     </span>
   </a>
   
@@ -698,7 +744,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.cross_encoder" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;cross_encoder
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;cross_encoder
     </span>
   </a>
   
@@ -707,7 +753,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.detr_for_object_detection" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;detr_for_object_detection
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;detr_for_object_detection
     </span>
   </a>
   
@@ -716,7 +762,7 @@
           <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.sentence_transformer" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;sentence_transformer
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;sentence_transformer
     </span>
   </a>
   
@@ -762,6 +808,12 @@
 
     <div class="doc doc-contents first">
 
+      <p>Pixeltable <a href="https://pixeltable.readme.io/docs/user-defined-functions-udfs">UDFs</a>
+that wrap various models from the Hugging Face <code>transformers</code> package.</p>
+<p>These UDFs will cause Pixeltable to invoke the relevant models locally. In order to use them, you must
+first <code>pip install transformers</code> (or in some cases, <code>sentence-transformers</code>, as noted in the specific
+UDFs).</p>
+
 
 
   <div class="doc doc-children">
@@ -778,11 +830,11 @@
 
 
 <h3 id="pixeltable.functions.huggingface.clip_image" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">clip_image</span>
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">clip_image</span>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">clip_image</span><span class="p">(</span><span class="n">image</span><span class="p">:</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n"><span title="PIL.Image.Image">Image</span></span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n"><span title="numpy.ndarray">ndarray</span></span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">clip_image</span><span class="p">(</span><span class="n">image</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArrayT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -797,11 +849,11 @@
 
 
 <h3 id="pixeltable.functions.huggingface.clip_text" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">clip_text</span>
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">clip_text</span>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">clip_text</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n">str</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n"><span title="numpy.ndarray">ndarray</span></span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">clip_text</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArrayT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -816,18 +868,73 @@
 
 
 <h3 id="pixeltable.functions.huggingface.cross_encoder" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">cross_encoder</span>
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">cross_encoder</span>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">cross_encoder</span><span class="p">(</span>
-    <span class="n">sentences1</span><span class="p">:</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n">str</span><span class="p">],</span> <span class="n">sentences2</span><span class="p">:</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n">str</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">str</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n">float</span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">cross_encoder</span><span class="p">(</span><span class="n">sentences1</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sentences2</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Runs the specified cross-encoder model.</p>
+      <p>Runs the specified cross-encoder model to compute similarity scores for pairs of sentences.
+<code>model_id</code> should be a pretrained model, as described in the
+<a href="https://www.sbert.net/docs/cross_encoder/pretrained_models.html">Cross-Encoder Pretrained Models</a>
+documentation.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install sentence-transformers</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>sentences1</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The first sentence to be paired.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>sentences2</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The second sentence to be paired.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>model_id</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The identifier of the cross-encoder model to use.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>float</code>
+          –
+          <div class="doc-md-description">
+            <p>The similarity score between the inputs.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column that applies the model <code>ms-marco-MiniLM-L-4-v2</code> to the sentences in
+columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sentence_transformer</span><span class="p">(</span>
+<span class="go">        tbl.sentence1, tbl.sentence2, model_id=&#39;ms-marco-MiniLM-L-4-v2&#39;</span>
+<span class="go">    )</span>
+</code></pre></div>
 
     </div>
 
@@ -837,13 +944,13 @@
 
 
 <h3 id="pixeltable.functions.huggingface.detr_for_object_detection" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">detr_for_object_detection</span>
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">detr_for_object_detection</span>
 
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">detr_for_object_detection</span><span class="p">(</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n"><span title="PIL.Image.Image">Image</span></span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">threshold</span><span class="p">:</span> <span class="n">float</span> <span class="o">=</span> <span class="mf">0.5</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n">dict</span><span class="p">]</span>
+    <span class="n">image</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -858,18 +965,76 @@
 
 
 <h3 id="pixeltable.functions.huggingface.sentence_transformer" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">sentence_transformer</span>
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">sentence_transformer</span>
 
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">sentence_transformer</span><span class="p">(</span>
-    <span class="n">sentences</span><span class="p">:</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n">str</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">normalize_embeddings</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.func.Batch">Batch</span></span><span class="p">[</span><span class="n"><span title="numpy.ndarray">ndarray</span></span><span class="p">]</span>
+    <span class="n">sentence</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">normalize_embeddings</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArrayT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Runs the specified sentence transformer model.</p>
+      <p>Runs the specified pretrained sentence-transformers model. <code>model_id</code> should be a pretrained model, as described
+in the <a href="https://sbert.net/docs/sentence_transformer/pretrained_models.html">Sentence Transformers Pretrained Models</a>
+documentation.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install sentence-transformers</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>sentence</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The sentence to embed.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>model_id</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The pretrained model to use for the encoding.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>normalize_embeddings</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, normalizes embeddings to length 1; see the
+<a href="https://sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html">Sentence Transformers API Docs</a>
+for more details</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>ArrayT</code>
+          –
+          <div class="doc-md-description">
+            <p>An array containing the output of the embedding model.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column that applies the model <code>all-mpnet-base-2</code> to an existing Pixeltable column <code>tbl.sentence</code>
+of the table <code>tbl</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sentence_transformer</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">sentence</span><span class="p">,</span> <span class="n">model_id</span><span class="o">=</span><span class="s1">&#39;all-mpnet-base-v2&#39;</span><span class="p">)</span>
+</code></pre></div>
 
     </div>
 
