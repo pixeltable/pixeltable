@@ -69,10 +69,19 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             (zfill, str.zfill, [100], {}),
         ]
 
+        _ = t.select(out=count(t.s, 'relation')).collect()
+
+        assert t.select(out=count(t.s, 'relation')).collect()['out'] == \
+               [str.count(s, 'relation') for s in test_strs]
+
         for pxt_fn, str_fn, args, kwargs in test_params:
-            assert t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out'] == \
-                [str_fn(s, *args, **kwargs) for s in test_strs], \
-                pxt_fn
+            try:
+                assert t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out'] == \
+                    [str_fn(s, *args, **kwargs) for s in test_strs], \
+                    pxt_fn
+            except Exception as e:
+                print(pxt_fn)
+                raise e
 
     def test_removeprefix(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})

@@ -1,5 +1,5 @@
 """
-A collection of Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `ImageType`.
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `ImageType`.
 
 Example:
 ```python

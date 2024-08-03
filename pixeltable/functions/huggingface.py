@@ -1,5 +1,5 @@
 """
-A collection of Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
 that wrap various models from the Hugging Face `transformers` package.
 
 These UDFs will cause Pixeltable to invoke the relevant models locally. In order to use them, you must

@@ -1,5 +1,5 @@
 """
-A collection of Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `StringType`.
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `StringType`.
 It closely follows the Pandas `pandas.Series.str` API.
 
 Example:
@@ -45,6 +45,7 @@ def center(s: str, width: int, fillchar: str = ' ') -> str:
     Equivalent to [`str.center()`](https://docs.python.org/3/library/stdtypes.html#str.center).
 
     Args:
+        s: String.
         width: Total width of the resulting string.
         fillchar: Character used for padding.
     """
@@ -56,6 +57,7 @@ def contains(s: str, pattern: str, case: bool = True, flags: int = 0, regex: boo
     Test if pattern or regex is contained within a string.
 
     Args:
+        s: String.
         pattern: string literal or regular expression
         case: if False, ignore case
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
@@ -78,10 +80,12 @@ def count(s: str, pattern: str, flags: int = 0) -> int:
     Count occurrences of pattern or regex in `s`.
 
     Args:
+        s: String.
         pattern: string literal or regular expression
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
     import re
+    from builtins import len
     return len(re.findall(pattern, s, flags))
 
 @func.udf
@@ -92,6 +96,7 @@ def endswith(s: str, pattern: str) -> bool:
     Equivalent to [`str.endswith()`](https://docs.python.org/3/library/stdtypes.html#str.endswith).
 
     Args:
+        s: String.
         pattern: string literal
     """
     return s.endswith(pattern)
@@ -104,6 +109,7 @@ def fill(s: str, width: int, **kwargs: Any) -> str:
     Equivalent to [`textwrap.fill()`](https://docs.python.org/3/library/textwrap.html#textwrap.fill).
 
     Args:
+        s: String.
         width: Maximum line width.
         kwargs: Additional keyword arguments to pass to `textwrap.fill()`.
     """
@@ -118,6 +124,7 @@ def find(s: str, substr: str, start: Optional[int] = 0, end: Optional[int] = Non
     Equivalent to [`str.find()`](https://docs.python.org/3/library/stdtypes.html#str.find).
 
     Args:
+        s: String.
         substr: substring to search for
         start: slice start
         end: slice end
@@ -132,6 +139,7 @@ def findall(s: str, pattern: str, flags: int = 0) -> list:
     Equivalent to [`re.findall()`](https://docs.python.org/3/library/re.html#re.findall).
 
     Args:
+        s: String.
         pattern: regular expression pattern
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
@@ -155,6 +163,7 @@ def fullmatch(s: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
     Equivalent to [`re.fullmatch()`](https://docs.python.org/3/library/re.html#re.fullmatch).
 
     Args:
+        s: String.
         pattern: regular expression pattern
         case: if False, ignore case
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
@@ -173,6 +182,7 @@ def index(s: str, substr: str, start: Optional[int] = 0, end: Optional[int] = No
     Equivalent to [`str.index()`](https://docs.python.org/3/library/stdtypes.html#str.index).
 
     Args:
+        s: String.
         substr: substring to search for
         start: slice start
         end: slice end
@@ -298,6 +308,7 @@ def ljust(s: str, width: int, fillchar: str = ' ') -> str:
     Equivalent to [`str.ljust()`](https://docs.python.org/3/library/stdtypes.html#str.ljust)
 
     Args:
+        s: String.
         width: Minimum width of resulting string; additional characters will be filled with character defined in `fillchar`.
         fillchar: Additional character for filling.
     """
@@ -321,6 +332,7 @@ def lstrip(s: str, chars: Optional[str] = None) -> str:
     Equivalent to [`str.lstrip()`](https://docs.python.org/3/library/stdtypes.html#str.lstrip)
 
     Args:
+        s: String.
         chars: The set of characters to be removed.
     """
     return s.lstrip(chars)
@@ -331,6 +343,7 @@ def match(s: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
     Determine if string starts with a match of a regular expression
 
     Args:
+        s: String.
         pattern: regular expression pattern
         case: if False, ignore case
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
@@ -348,6 +361,7 @@ def normalize(s: str, form: str) -> str:
     Equivalent to [`unicodedata.normalize()`](https://docs.python.org/3/library/unicodedata.html#unicodedata.normalize)
 
     Args:
+        s: String.
         form: Unicode normal form (`‘NFC’`, `‘NFKC’`, `‘NFD’`, `‘NFKD’`)
     """
     import unicodedata
@@ -359,6 +373,7 @@ def pad(s: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
     Pad string up to width
 
     Args:
+        s: String.
         width: Minimum width of resulting string; additional characters will be filled with character defined in `fillchar`.
         side: Side from which to fill resulting string (`‘left’`, `‘right’`, `‘both’`)
         fillchar: Additional character for filling
@@ -408,11 +423,11 @@ def removesuffix(s: str, suffix: str) -> str:
     return s
 
 @func.udf
-def repeat(s: str, count: int) -> str:
+def repeat(s: str, n: int) -> str:
     """
-    Repeat `s` `count` times.
+    Repeat `s` `n` times.
     """
-    return s * count
+    return s * n
 
 @func.udf
 def replace(
@@ -425,6 +440,7 @@ def replace(
     [`re.sub()`](https://docs.python.org/3/library/re.html#re.sub), depending on the value of regex.
 
     Args:
+        s: String.
         pattern: string literal or regular expression
         repl: replacement string
         n: number of replacements to make (-1 for all)
@@ -448,6 +464,7 @@ def rfind(s: str, substr: str, start: Optional[int] = 0, end: Optional[int] = No
     Equivalent to [`str.rfind()`](https://docs.python.org/3/library/stdtypes.html#str.rfind).
 
     Args:
+        s: String.
         substr: substring to search for
         start: slice start
         end: slice end
@@ -472,6 +489,7 @@ def rjust(s: str, width: int, fillchar: str = ' ') -> str:
     Equivalent to [`str.rjust()`](https://docs.python.org/3/library/stdtypes.html#str.rjust).
 
     Args:
+        s: String.
         width: Minimum width of resulting string.
         fillchar: Additional character for filling.
     """
@@ -497,6 +515,7 @@ def rstrip(s: str, chars: Optional[str] = None) -> str:
     Equivalent to [`str.rstrip()`](https://docs.python.org/3/library/stdtypes.html#str.rstrip).
 
     Args:
+        s: String.
         chars: The set of characters to be removed. If omitted or `None`, whitespace characters are removed.
     """
     return s.rstrip(chars)
@@ -507,6 +526,7 @@ def slice(s: str, start: Optional[int] = None, stop: Optional[int] = None, step:
     Return a slice of `s`.
 
     Args:
+        s: String.
         start: slice start
         stop: slice end
         step: slice step
@@ -519,6 +539,7 @@ def slice_replace(s: str, start: Optional[int] = None, stop: Optional[int] = Non
     Replace a positional slice of a string with another value.
 
     Args:
+        s: String.
         start: slice start
         stop: slice end
         repl: replacement value
@@ -533,6 +554,7 @@ def startswith(s: str, pattern: str) -> int:
     Equivalent to [`str.startswith()`](https://docs.python.org/3/library/stdtypes.html#str.startswith).
 
     Args:
+        s: String.
         pattern: string literal
     """
     return s.startswith(pattern)
@@ -545,6 +567,7 @@ def strip(s: str, chars: Optional[str] = None) -> str:
     Equivalent to [`str.strip()`](https://docs.python.org/3/library/stdtypes.html#str.strip).
 
     Args:
+        s: String.
         chars: The set of characters to be removed. If omitted or `None`, whitespace characters are removed.
     """
     return s.strip(chars)
@@ -585,10 +608,10 @@ def wrap(s: str, width: int, **kwargs: Any) -> dict:
     Equivalent to [`textwrap.fill()`](https://docs.python.org/3/library/textwrap.html#textwrap.fill).
 
     Args:
+        s: String.
         width: Maximum line width.
         kwargs: Additional keyword arguments to pass to `textwrap.fill()`.
     """
-    """Equivalent to textwrap.wrap()"""
     import textwrap
     return textwrap.wrap(s, width, **kwargs)
 
@@ -600,14 +623,10 @@ def zfill(s: str, width: int) -> str:
     Equivalent to [`str.zfill()`](https://docs.python.org/3/library/stdtypes.html#str.zfill).
 
     Args:
+        s: String.
         width: Minimum width of resulting string.
     """
     return s.zfill(width)
-
-
-@func.udf
-def contains(string: str, substr: str) -> bool:
-    return substr in string
 
 
 __all__ = local_public_names(__name__)
