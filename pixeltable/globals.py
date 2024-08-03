@@ -7,10 +7,10 @@ import sqlalchemy as sql
 from sqlalchemy.util.preloaded import orm
 
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
 from pixeltable import catalog, func, DataFrame
 from pixeltable.catalog import Catalog
 from pixeltable.env import Env
-from pixeltable.exprs import Predicate
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 
@@ -81,7 +81,7 @@ def create_view(
     base: Union[catalog.Table, DataFrame],
     *,
     schema: Optional[dict[str, Any]] = None,
-    filter: Optional[Predicate] = None,
+    filter: Optional[exprs.Expr] = None,
     is_snapshot: bool = False,
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
     num_retained_versions: int = 10,
@@ -94,7 +94,7 @@ def create_view(
         path_str: Path to the view.
         base: Table (i.e., table or view or snapshot) or DataFrame to base the view on.
         schema: dictionary mapping column names to column types, value expressions, or to column specifications.
-        filter: Predicate to filter rows of the base table.
+        filter: predicate to filter rows of the base table.
         is_snapshot: Whether the view is a snapshot.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.

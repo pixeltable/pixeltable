@@ -153,7 +153,7 @@ class DataFrame:
         self,
         tbl: catalog.TableVersionPath,
         select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]] = None,
-        where_clause: Optional[exprs.Predicate] = None,
+        where_clause: Optional[exprs.Expr] = None,
         group_by_clause: Optional[List[exprs.Expr]] = None,
         grouping_tbl: Optional[catalog.TableVersion] = None,
         order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None,  # List[(expr, asc)]
@@ -530,7 +530,11 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def where(self, pred: exprs.Predicate) -> DataFrame:
+    def where(self, pred: exprs.Expr) -> DataFrame:
+        if not isinstance(pred, exprs.Expr):
+            raise excs.Error(f'Where() requires a Pixeltable expression, but instead got {type(pred)}')
+        if not pred.col_type.is_bool_type():
+            raise excs.Error(f'Where(): expression needs to return bool, but instead returns {pred.col_type}')
         return DataFrame(
             self.tbl,
             select_list=self.select_list,
@@ -628,12 +632,9 @@ class DataFrame:
     def __getitem__(self, index: object) -> DataFrame:
         """
         Allowed:
-        - [<Predicate>]: filter operation
         - [List[Expr]]/[Tuple[Expr]]: setting the select list
         - [Expr]: setting a single-col select list
         """
-        if isinstance(index, exprs.Predicate):
-            return self.where(index)
         if isinstance(index, tuple):
             index = list(index)
         if isinstance(index, exprs.Expr):
@@ -668,7 +669,7 @@ class DataFrame:
         tbl = catalog.TableVersionPath.from_dict(d['tbl'])
         select_list = [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] \
             if d['select_list'] is not None else None
-        where_clause = exprs.Predicate.from_dict(d['where_clause']) \
+        where_clause = exprs.Expr.from_dict(d['where_clause']) \
             if d['where_clause'] is not None else None
         group_by_clause = [exprs.Expr.from_dict(e) for e in d['group_by_clause']] \
             if d['group_by_clause'] is not None else None

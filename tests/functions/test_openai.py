@@ -99,7 +99,7 @@ class TestOpenai:
         TestOpenai.skip_test_if_no_openai_client()
         t = pxt.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
         from pixeltable.functions.openai import chat_completions, vision
-        from pixeltable.functions.string import str_format
+        from pixeltable.functions.string import format
 
         t.add_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
         # Also get the response the low-level way, by calling chat_completions
@@ -110,7 +110,7 @@ class TestOpenai:
                     {'type': 'text', 'text': t.prompt},
                     {
                         'type': 'image_url',
-                        'image_url': {'url': str_format('data:image/png;base64,{0}', t.img.b64_encode())},
+                        'image_url': {'url': format('data:image/png;base64,{0}', t.img.b64_encode())},
                     },
                 ],
             }

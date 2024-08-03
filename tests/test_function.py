@@ -439,6 +439,10 @@ class TestFunction:
                 return pxt.StringType()
         assert '`wrong_param` that is not in the signature' in str(exc_info.value).lower()
 
+        with pytest.raises(excs.Error) as exc_info:
+            from .module_with_duplicate_udf import duplicate_udf
+        assert 'A UDF with that name already exists: tests.module_with_duplicate_udf.duplicate_udf' in str(exc_info.value)
+
     def test_udf_docstring(self) -> None:
         assert self.func.__doc__ == "A UDF."
         assert self.agg.__doc__ == "An aggregator."

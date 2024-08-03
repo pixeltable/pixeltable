@@ -1,3 +1,15 @@
+"""
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `ImageType`.
+
+Example:
+```python
+import pixeltable as pxt
+
+t = pxt.get_table(...)
+t.select(t.img_col.convert('L')).collect()
+```
+"""
+
 import base64
 from typing import Optional, Tuple
 
@@ -41,6 +53,11 @@ def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.
 # Image.convert()
 @func.udf
 def convert(self: PIL.Image.Image, mode: str) -> PIL.Image.Image:
+    """
+    Convert the image to a different mode.
+
+    Equivalent to [`PIL.Image.Image.convert()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.convert).
+    """
     return self.convert(mode)
 
 

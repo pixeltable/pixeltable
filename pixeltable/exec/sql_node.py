@@ -60,7 +60,7 @@ class SqlNode(ExecNode):
         # additional state
         self.result_cursor: Optional[sql.engine.CursorResult] = None
         # the filter is provided by the subclass
-        self.filter: Optional[exprs.Predicate] = None
+        self.filter: Optional[exprs.Expr] = None
         self.filter_eval_ctx: Optional[exprs.EvalContext] = None
 
     @classmethod
@@ -191,7 +191,7 @@ class SqlScanNode(SqlNode):
     def __init__(
             self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
             select_list: Iterable[exprs.Expr],
-            where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Predicate] = None,
+            where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Expr] = None,
             order_by_items: Optional[List[Tuple[exprs.Expr, bool]]] = None,
             limit: int = 0, set_pk: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
     ):

@@ -51,7 +51,7 @@ class View(Table):
     @classmethod
     def create(
             cls, dir_id: UUID, name: str, base: TableVersionPath, schema: Dict[str, Any],
-            predicate: 'pxt.exprs.Predicate', is_snapshot: bool, num_retained_versions: int, comment: str,
+            predicate: 'pxt.exprs.Expr', is_snapshot: bool, num_retained_versions: int, comment: str,
             iterator_cls: Optional[Type[ComponentIterator]], iterator_args: Optional[Dict]
     ) -> View:
         columns = cls._create_columns(schema)
@@ -213,5 +213,5 @@ class View(Table):
     ) -> UpdateStatus:
         raise excs.Error(f'{self.display_name()} {self._name!r}: cannot insert into view')
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
         raise excs.Error(f'{self.display_name()} {self._name!r}: cannot delete from view')
