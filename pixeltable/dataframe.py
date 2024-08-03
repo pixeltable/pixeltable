@@ -1,32 +1,27 @@
 from __future__ import annotations
 
-import base64
 import copy
 import hashlib
-import io
 import json
 import logging
 import mimetypes
 import traceback
 from pathlib import Path
-from typing import List, Optional, Any, Dict, Iterator, Tuple, Set
+from typing import List, Optional, Any, Dict, Iterator, Tuple, Set, Callable
 
-import PIL.Image
-import cv2
 import pandas as pd
 import pandas.io.formats.style
 import sqlalchemy as sql
-from PIL import Image
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-import pixeltable.type_system as ts
-import pixeltable.func as func
 from pixeltable.catalog import is_valid_identifier
+from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
+from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.http_server import get_file_uri
 
 __all__ = ['DataFrame']
@@ -47,12 +42,7 @@ class DataFrameResultSet:
         self._rows = rows
         self._col_names = col_names
         self._col_types = col_types
-        self._formatters = {
-            ts.ImageType: self._format_img,
-            ts.VideoType: self._format_video,
-            ts.AudioType: self._format_audio,
-            ts.DocumentType: self._format_document,
-        }
+        self.__formatter = Formatter(len(self._rows), len(self._col_names), Env.get().http_address)
 
     def __len__(self) -> int:
         return len(self._rows)
@@ -67,11 +57,11 @@ class DataFrameResultSet:
         return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
-        formatters = {
-            col_name: self._formatters[col_type.__class__]
-            for col_name, col_type in zip(self._col_names, self._col_types)
-            if col_type.__class__ in self._formatters
-        }
+        formatters: dict[str, Callable] = {}
+        for col_name, col_type in zip(self._col_names, self._col_types):
+            formatter = self.__formatter.get_pandas_formatter(col_type)
+            if formatter is not None:
+                formatters[col_name] = formatter
         return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)
 
     def __str__(self) -> str:
@@ -86,100 +76,6 @@ class DataFrameResultSet:
 
     def _row_to_dict(self, row_idx: int) -> Dict[str, Any]:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
-
-    # Formatters
-    def _format_img(self, img: Image.Image) -> str:
-        """
-        Create <img> tag for Image object.
-        """
-        assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
-        # Try to make it look decent in a variety of display scenarios
-        if len(self._rows) > 1:
-            width = 240  # Multiple rows: display small images
-        elif len(self._col_names) > 1:
-            width = 480  # Multiple columns: display medium images
-        else:
-            width = 640  # A single image: larger display
-        with io.BytesIO() as buffer:
-            img.save(buffer, 'jpeg')
-            img_base64 = base64.b64encode(buffer.getvalue()).decode()
-            return f"""
-            <div class="pxt_image" style="width:{width}px;">
-                <img src="data:image/jpeg;base64,{img_base64}" width="{width}" />
-            </div>
-            """
-
-    def _format_video(self, file_path: str) -> str:
-        thumb_tag = ''
-        # Attempt to extract the first frame of the video to use as a thumbnail,
-        # so that the notebook can be exported as HTML and viewed in contexts where
-        # the video itself is not accessible.
-        # TODO(aaron-siegel): If the video is backed by a concrete external URL,
-        # should we link to that instead?
-        video_reader = cv2.VideoCapture(str(file_path))
-        if video_reader.isOpened():
-            status, img_array = video_reader.read()
-            if status:
-                img_array = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
-                thumb = PIL.Image.fromarray(img_array)
-                with io.BytesIO() as buffer:
-                    thumb.save(buffer, 'jpeg')
-                    thumb_base64 = base64.b64encode(buffer.getvalue()).decode()
-                    thumb_tag = f'poster="data:image/jpeg;base64,{thumb_base64}"'
-            video_reader.release()
-        if len(self._rows) > 1:
-            width = 320
-        elif len(self._col_names) > 1:
-            width = 480
-        else:
-            width = 800
-        return f"""
-        <div class="pxt_video" style="width:{width}px;">
-            <video controls width="{width}" {thumb_tag}>
-                {_create_source_tag(file_path)}
-            </video>
-        </div>
-        """
-
-    def _format_document(self, file_path: str) -> str:
-        max_width = max_height = 320
-        # by default, file path will be shown as a link
-        inner_element = file_path
-        # try generating a thumbnail for different types and use that if successful
-        if file_path.lower().endswith('.pdf'):
-            try:
-                import fitz
-
-                doc = fitz.open(file_path)
-                p = doc.get_page_pixmap(0)
-                while p.width > max_width or p.height > max_height:
-                    # shrink(1) will halve each dimension
-                    p.shrink(1)
-                data = p.tobytes(output='jpeg')
-                thumb_base64 = base64.b64encode(data).decode()
-                img_src = f'data:image/jpeg;base64,{thumb_base64}'
-                inner_element = f"""
-                    <img style="object-fit: contain; border: 1px solid black;" src="{img_src}" />
-                """
-            except:
-                logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
-
-        return f"""
-        <div class="pxt_document" style="width:{max_width}px;">
-            <a href="{get_file_uri(Env.get().http_address, file_path)}">
-                {inner_element}
-            </a>
-        </div>
-        """
-
-    def _format_audio(self, file_path: str) -> str:
-        return f"""
-        <div class="pxt_audio">
-            <audio controls>
-                {_create_source_tag(file_path)}
-            </audio>
-        </div>
-        """
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
@@ -257,7 +153,7 @@ class DataFrame:
         self,
         tbl: catalog.TableVersionPath,
         select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]] = None,
-        where_clause: Optional[exprs.Predicate] = None,
+        where_clause: Optional[exprs.Expr] = None,
         group_by_clause: Optional[List[exprs.Expr]] = None,
         grouping_tbl: Optional[catalog.TableVersion] = None,
         order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None,  # List[(expr, asc)]
@@ -595,7 +491,7 @@ class DataFrame:
                 raise excs.Error(f'Invalid name: {name}')
         base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
         if len(base_list) == 0:
-            raise excs.Error(f'Empty select list')
+            return self
 
         # analyze select list; wrap literals with the corresponding expressions
         select_list = []
@@ -634,7 +530,11 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def where(self, pred: exprs.Predicate) -> DataFrame:
+    def where(self, pred: exprs.Expr) -> DataFrame:
+        if not isinstance(pred, exprs.Expr):
+            raise excs.Error(f'Where() requires a Pixeltable expression, but instead got {type(pred)}')
+        if not pred.col_type.is_bool_type():
+            raise excs.Error(f'Where(): expression needs to return bool, but instead returns {pred.col_type}')
         return DataFrame(
             self.tbl,
             select_list=self.select_list,
@@ -708,15 +608,33 @@ class DataFrame:
             limit=n,
         )
 
+    def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
+        self._validate_mutable('update')
+        return self.tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
+
+    def delete(self) -> UpdateStatus:
+        self._validate_mutable('delete')
+        if not self.tbl.is_insertable():
+            raise excs.Error(f'Cannot delete from view')
+        return self.tbl.tbl_version.delete(where=self.where_clause)
+
+    def _validate_mutable(self, op_name: str) -> None:
+        """Tests whether this `DataFrame` can be mutated (such as by an update operation)."""
+        if self.group_by_clause is not None or self.grouping_tbl is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
+        if self.order_by_clause is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `order_by`')
+        if self.select_list is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `select`')
+        if self.limit_val is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `limit`')
+
     def __getitem__(self, index: object) -> DataFrame:
         """
         Allowed:
-        - [<Predicate>]: filter operation
         - [List[Expr]]/[Tuple[Expr]]: setting the select list
         - [Expr]: setting a single-col select list
         """
-        if isinstance(index, exprs.Predicate):
-            return self.where(index)
         if isinstance(index, tuple):
             index = list(index)
         if isinstance(index, exprs.Expr):
@@ -751,7 +669,7 @@ class DataFrame:
         tbl = catalog.TableVersionPath.from_dict(d['tbl'])
         select_list = [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] \
             if d['select_list'] is not None else None
-        where_clause = exprs.Predicate.from_dict(d['where_clause']) \
+        where_clause = exprs.Expr.from_dict(d['where_clause']) \
             if d['where_clause'] is not None else None
         group_by_clause = [exprs.Expr.from_dict(e) for e in d['group_by_clause']] \
             if d['group_by_clause'] is not None else None

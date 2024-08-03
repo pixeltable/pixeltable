@@ -1,18 +1,18 @@
 from __future__ import annotations
+
 from typing import Optional, List, Dict
 
 import sqlalchemy as sql
 
-from .predicate import Predicate
-from .expr import Expr
+import pixeltable.type_system as ts
 from .data_row import DataRow
+from .expr import Expr
 from .row_builder import RowBuilder
-import pixeltable.catalog as catalog
 
 
-class IsNull(Predicate):
+class IsNull(Expr):
     def __init__(self, e: Expr):
-        super().__init__()
+        super().__init__(ts.BoolType())
         self.components = [e]
         self.id = self._create_id()
 

@@ -18,10 +18,12 @@ def dummy_fn(i: int) -> int:
 class TestFunction:
     @pxt.udf(return_type=IntType(), param_types=[IntType()])
     def func(x: int) -> int:
+        """A UDF."""
         return x + 1
 
     @pxt.uda(value_type=IntType(), update_types=[IntType()])
     class agg:
+        """An aggregator."""
         def __init__(self):
             self.sum = 0
         def update(self, val: int) -> None:
@@ -244,7 +246,7 @@ class TestFunction:
 
     def test_query(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
-        name = t.get_name()
+        name = t.name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows))
 
@@ -436,6 +438,14 @@ class TestFunction:
             def _(wrong_param: str) -> pxt.ColumnType:
                 return pxt.StringType()
         assert '`wrong_param` that is not in the signature' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            from .module_with_duplicate_udf import duplicate_udf
+        assert 'A UDF with that name already exists: tests.module_with_duplicate_udf.duplicate_udf' in str(exc_info.value)
+
+    def test_udf_docstring(self) -> None:
+        assert self.func.__doc__ == "A UDF."
+        assert self.agg.__doc__ == "An aggregator."
 
 
 @pxt.udf

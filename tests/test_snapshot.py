@@ -14,11 +14,14 @@ class TestSnapshot:
             self, tbl: pxt.Table, snap: pxt.Table, extra_items: Dict[str, Any], filter: Any,
             reload_md: bool
     ) -> None:
-        tbl_path, snap_path = pxt.get_path(tbl), pxt.get_path(snap)
+        tbl_path, snap_path = tbl.path, snap.path
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
         tbl_select_list = [tbl[col_name] for col_name in tbl.column_names()]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
-        orig_resultset = tbl.select(*tbl_select_list).where(filter).order_by(tbl.c2).collect()
+        orig_resultset_df = tbl.select(*tbl_select_list)
+        if filter is not None:
+            orig_resultset_df = orig_resultset_df.where(filter)
+        orig_resultset = orig_resultset_df.order_by(tbl.c2).collect()
 
         if reload_md:
             # reload md
@@ -119,7 +122,7 @@ class TestSnapshot:
         with pytest.raises(pxt.Error) as excinfo:
             img_tbl = create_img_tbl()
             snap = pxt.create_view('img_snap', img_tbl, is_snapshot=True)
-            snap.add_embedding_index('img', img_embed=clip_img_embed)
+            snap.add_embedding_index('img', image_embed=clip_img_embed)
         assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
     def test_views_of_snapshots(self, reset_db) -> None:

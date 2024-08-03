@@ -208,7 +208,7 @@ class Dumper:
         add_column('not', ~(t.c2 > 20))
 
         # function_call
-        add_column('function_call', pxt.functions.string.str_format('{0} {key}', t.c1, key=t.c1))  # library function
+        add_column('function_call', pxt.functions.string.format('{0} {key}', t.c1, key=t.c1))  # library function
         add_column('test_udf', test_udf_stored(t.c2))  # stored udf
         add_column('test_udf_batched', test_udf_stored_batched(t.c1, upper=False))  # batched stored udf
         if include_expensive_functions:
@@ -253,7 +253,7 @@ class Dumper:
         add_column('c6_to_string', t.c6.apply(json.dumps))
         add_column('c6_back_to_json', t[f'{col_prefix}_c6_to_string'].apply(json.loads))
 
-        t.add_embedding_index(f'{col_prefix}_function_call', text_embed=embed_udf.clip_text_embed)
+        t.add_embedding_index(f'{col_prefix}_function_call', string_embed=embed_udf.clip_text_embed)
 
         # query()
         @t.query

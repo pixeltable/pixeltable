@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Optional, List, Any, Dict
 
 import sqlalchemy as sql
 
@@ -9,15 +9,15 @@ from .data_row import DataRow
 from .expr import Expr
 from .globals import ComparisonOperator
 from .literal import Literal
-from .predicate import Predicate
 from .row_builder import RowBuilder
 import pixeltable.exceptions as excs
 import pixeltable.index as index
+import pixeltable.type_system as ts
 
 
-class Comparison(Predicate):
+class Comparison(Expr):
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
-        super().__init__()
+        super().__init__(ts.BoolType())
         self.operator = operator
 
         # if this is a comparison of a column to a literal (ie, could be used as a search argument in an index lookup),
@@ -50,7 +50,7 @@ class Comparison(Predicate):
     def _equals(self, other: Comparison) -> bool:
         return self.operator == other.operator
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('operator', self.operator.value)]
 
     @property

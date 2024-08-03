@@ -25,6 +25,7 @@ class CallableFunction(Function):
         self.py_fn = py_fn
         self.self_name = self_name
         self.batch_size = batch_size
+        self.__doc__ = py_fn.__doc__
         super().__init__(signature, self_path=self_path)
 
     @property
@@ -113,3 +114,6 @@ class CallableFunction(Function):
                         f'{self.display_name}(): '
                         f'parameter {param.name} must be a constant value, not a Pixeltable expression'
                     )
+
+    def __repr__(self) -> str:
+        return f'<Pixeltable UDF {self.name}>'

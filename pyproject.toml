@@ -6,7 +6,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 name = "pixeltable"
 version = "0.0.0"
 description = "Pixeltable: The Multimodal AI Data Plane"
-authors = ["Marcel Kornacker <marcelk@gmail.com>"]
+authors = ["Pixeltable, Inc. <contact@pixeltable.com>"]
 readme = "README.md"
 exclude = [
     ".pytype",
@@ -97,6 +97,9 @@ openpyxl = ">=3.1"  # Excel (.xlsx) support
 openai-whisper = {git = "https://github.com/openai/whisper.git"}
 whisperx = {git = "https://github.com/m-bain/whisperX.git", rev = "f2da2f8"}
 label-studio-sdk = "^0.0.32"
+
+[tool.poetry.plugins."mkdocstrings.python.templates"]
+extension-name = "pixeltable.tool.doc_plugins.mkdocstrings:get_templates_path"
 
 [tool.poetry-dynamic-versioning]
 enable = true

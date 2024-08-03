@@ -66,6 +66,8 @@ class FunctionRegistry:
     #             self.module_fns[fn_path] = obj
 
     def register_function(self, fqn: str, fn: Function) -> None:
+        if fqn in self.module_fns:
+            raise excs.Error(f'A UDF with that name already exists: {fqn}')
         self.module_fns[fqn] = fn
 
     def list_functions(self) -> List[Function]:

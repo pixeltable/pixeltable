@@ -51,13 +51,13 @@ class TestOpenai:
 
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_column(input_msgs=msgs)
-        t.add_column(chat_output=chat_completions(model='gpt-3.5-turbo', messages=t.input_msgs))
+        t.add_column(chat_output=chat_completions(model='gpt-4o-mini', messages=t.input_msgs))
         # with inlined messages
-        t.add_column(chat_output_2=chat_completions(model='gpt-3.5-turbo', messages=msgs))
+        t.add_column(chat_output_2=chat_completions(model='gpt-4o-mini', messages=msgs))
         # test a bunch of the parameters
         t.add_column(
             chat_output_3=chat_completions(
-                model='gpt-3.5-turbo',
+                model='gpt-4o-mini',
                 messages=msgs,
                 frequency_penalty=0.1,
                 logprobs=True,
@@ -75,7 +75,7 @@ class TestOpenai:
         # test with JSON output enforced
         t.add_column(
             chat_output_4=chat_completions(
-                model='gpt-3.5-turbo', messages=msgs, response_format={'type': 'json_object'}
+                model='gpt-4o-mini', messages=msgs, response_format={'type': 'json_object'}
             )
         )
         # TODO Also test the `tools` and `tool_choice` parameters.
@@ -94,15 +94,14 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
 
-    @pytest.mark.skip('Deprecated (needs to be replaced with GPT-4o support)')
     def test_gpt_4_vision(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         t = pxt.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
         from pixeltable.functions.openai import chat_completions, vision
-        from pixeltable.functions.string import str_format
+        from pixeltable.functions.string import format
 
-        t.add_column(response=vision(prompt="What's in this image?", image=t.img))
+        t.add_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
         # Also get the response the low-level way, by calling chat_completions
         msgs = [
             {
@@ -111,13 +110,13 @@ class TestOpenai:
                     {'type': 'text', 'text': t.prompt},
                     {
                         'type': 'image_url',
-                        'image_url': {'url': str_format('data:image/png;base64,{0}', t.img.b64_encode())},
+                        'image_url': {'url': format('data:image/png;base64,{0}', t.img.b64_encode())},
                     },
                 ],
             }
         ]
         t.add_column(
-            response_2=chat_completions(model='gpt-4-vision-preview', messages=msgs, max_tokens=300)
+            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, max_tokens=300)
             .choices[0]
             .message.content
         )

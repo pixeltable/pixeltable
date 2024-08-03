@@ -129,11 +129,11 @@ class InsertableTable(Table):
                     msg = str(e)
                     raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
-            where: a Predicate to filter rows to delete.
+            where: a predicate to filter rows to delete.
 
         Examples:
             Delete all rows in a table:
@@ -144,14 +144,4 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        from pixeltable.exprs import Predicate
-        from pixeltable.plan import Planner
-        if where is not None:
-            if not isinstance(where, Predicate):
-                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self._tbl_version_path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
-
-        return self.tbl_version.delete(where)
+        return self._tbl_version.delete(where=where)

@@ -4,6 +4,7 @@ import urllib.request
 from datetime import datetime
 from typing import List, Dict
 
+import PIL.Image
 import pytest
 import sqlalchemy as sql
 
@@ -16,6 +17,7 @@ from pixeltable.exprs import Expr, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import cast
 from pixeltable.functions.globals import sum, count
+from pixeltable.functions.huggingface import clip_image, clip_text
 from pixeltable.iterators import FrameIterator
 from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
     VideoType
@@ -255,10 +257,10 @@ class TestExprs:
         _ = t[t.c2, t.c6.f3, t.c2 + t.c6.f3, (t.c2 + t.c6.f3) / (t.c6.f3 + 1)].show()
         _ = t[t.c2 + t.c2].show()
         for op1, op2 in [(t.c2, t.c2), (t.c3, t.c3)]:
-            _ = t[op1 + op2].show()
-            _ = t[op1 - op2].show()
-            _ = t[op1 * op2].show()
-            _ = t[op1 > 0][op1 / op2].show()
+            _ = t.select(op1 + op2).show()
+            _ = t.select(op1 - op2).show()
+            _ = t.select(op1 * op2).show()
+            _ = t.where(op1 > 0).select(op1 / op2).show()
 
         # non-numeric types
         for op1, op2 in [
@@ -544,29 +546,49 @@ class TestExprs:
     def test_img_members(self, img_tbl) -> None:
         t = img_tbl
         # make sure the limit is applied in Python, not in the SELECT
-        result = t[t.img.height > 200][t.img].show(n=3)
+        result = t.where(t.img.height > 200).select(t.img).show(n=3)
         assert len(result) == 3
-        result = t[t.img.crop((10, 10, 60, 60))].show(n=100)
-        result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100))].show(n=100)
-        result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100)).convert('L')].show(n=100)
-        result = t[t.img.getextrema()].show(n=100)
-        result = t[t.img, t.img.height, t.img.rotate(90)].show(n=100)
+        result = t.select(t.img.crop((10, 10, 60, 60))).show(n=100)
+        result = t.select(t.img.crop((10, 10, 60, 60)).resize((100, 100))).show(n=100)
+        result = t.select(t.img.crop((10, 10, 60, 60)).resize((100, 100)).convert('L')).show(n=100)
+        result = t.select(t.img.getextrema()).show(n=100)
+        result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
+
+    def test_ext_imgs(self, reset_db) -> None:
+        t = pxt.create_table('img_test', {'img': pxt.ImageType()})
+        img_urls = [
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000030.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000034.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000042.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000049.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000057.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000061.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000063.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000064.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000069.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000071.jpg',
+        ]
+        t.insert({'img': url} for url in img_urls)
+        # this fails with an assertion
+        # TODO: fix it
+        #res = t.where(t.img.width < 600).collect()
 
     def test_img_exprs(self, img_tbl) -> None:
         t = img_tbl
+        _ = t.where(t.img.width < 600).collect()
         _ = (t.img.entropy() > 1) & (t.split == 'train')
         _ = (t.img.entropy() > 1) & (t.split == 'train') & (t.split == 'val')
         _ = (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
-        result = t[(t.split == 'train') & (t.category == 'n03445777')][t.img].show()
+        result = t.where((t.split == 'train') & (t.category == 'n03445777')).select(t.img).show()
         print(result)
-        result = t[t.img.width > 1].show()
+        result = t.where(t.img.width > 1).show()
         print(result)
-        result = t[(t.split == 'val') & (t.img.entropy() > 1) & (t.category == 'n03445777')].show()
+        result = t.where((t.split == 'val') & (t.img.entropy() > 1) & (t.category == 'n03445777')).show()
         print(result)
-        result = t[
+        result = t.where(
             (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
-        ][t.img, t.split].show()
+        ).select(t.img, t.split).show()
         print(result)
 
     @pytest.mark.skip(reason='temporarily disabled')
@@ -775,6 +797,16 @@ class TestExprs:
             # group_by for non-window function
             _ = t.select(self.std_agg(t.c2, group_by=t.c4)).collect()
         assert 'group_by invalid' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            # group_by with non-ancestor table
+            _ = t.select(t.c2).group_by(t)
+        assert 'group_by(): test_tbl is not a base table of test_tbl' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            # group_by with non-singleton table
+            _ = t.select(t.c2).group_by(t, t.c2)
+        assert 'group_by(): only one table can be specified' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             # missing init type

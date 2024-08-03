@@ -12,7 +12,7 @@ import requests.exceptions
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
-from pixeltable.functions.string import str_format
+from pixeltable.functions.string import format
 from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
                      SAMPLE_IMAGE_URL, get_video_files, get_audio_files, validate_sync_status)
 
@@ -365,7 +365,7 @@ class TestLabelStudio:
         assert not v.frame.col.is_stored
         assert v.count() == 10
         v['rot_frame'] = v.frame.rotate(180)
-        v['header'] = str_format('Frame Number {0}', v.frame_idx)
+        v['header'] = format('Frame Number {0}', v.frame_idx)
         v['text'] = pxt.StringType(nullable=True)
         v.update({'text': 'Initial text'})
 
@@ -472,7 +472,7 @@ def ls_audio_table(init_ls, reset_db) -> pxt.InsertableTable:
 @pytest.fixture(scope='session')
 def init_ls(init_env) -> None:
     skip_test_if_not_installed('label_studio_sdk')
-    ls_version = '1.12.1'
+    ls_version = '1.13.0'
     ls_port = 31713
     ls_url = f'http://localhost:{ls_port}/'
     _logger.info('Setting up a venv the Label Studio pytext fixture.')
@@ -486,7 +486,7 @@ def init_ls(init_env) -> None:
     subprocess.run(f'{python_binary} -m pip install --upgrade pip'.split(' '), check=True)
     subprocess.run(f'{python_binary} -m pip install --no-cache-dir label-studio=={ls_version}'.split(' '), check=True)
     _logger.info('Spawning Label Studio pytest fixture.')
-    import label_studio_sdk.client
+    import label_studio_sdk
     ls_process = subprocess.Popen([
         ls_binary,
         'start',
@@ -505,7 +505,7 @@ def init_ls(init_env) -> None:
         for _ in range(max_wait // 5):
             time.sleep(5)
             try:
-                client = label_studio_sdk.client.Client(url=ls_url, api_key='pxt-api-token')
+                client = label_studio_sdk.Client(url=ls_url, api_key='pxt-api-token')
                 break
             except requests.exceptions.ConnectionError:
                 pass

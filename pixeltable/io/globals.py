@@ -13,11 +13,14 @@ def create_label_studio_project(
         media_import_method: Literal['post', 'file', 'url'] = 'post',
         col_mapping: Optional[dict[str, str]] = None,
         sync_immediately: bool = True,
+        s3_configuration: Optional[dict[str, Any]] = None,
         **kwargs: Any
 ) -> SyncStatus:
-    # TODO(aaron-siegel): Add link in docstring to a Label Studio howto
     """
-    Creates a new Label Studio project and links it to the specified `Table`.
+    Create a new Label Studio project and link it to the specified `Table`.
+
+    - A tutorial notebook with fully worked examples can be found here:
+      [Using Label Studio for Annotations with Pixeltable](https://pixeltable.readme.io/docs/label-studio)
 
     The required parameter `label_config` specifies the Label Studio project configuration,
     in XML format, as described in the Label Studio documentation. The linked project will
@@ -41,6 +44,11 @@ def create_label_studio_project(
     * Set the `LABEL_STUDIO_API_KEY` and `LABEL_STUDIO_URL` environment variables; or
     * Specify `api_key` and `url` fields in the `label-studio` section of `$PIXELTABLE_HOME/config.yaml`.
 
+    __Requirements:__
+
+    - `pip install label-studio-sdk`
+    - `pip install boto3` (if using S3 import storage)
+
     Args:
         t: The Table to link to.
         label_config: The Label Studio project configuration, in XML format.
@@ -50,8 +58,9 @@ def create_label_studio_project(
             `ls_project_0`, `ls_project_1`, etc.
         title: An optional title for the Label Studio project. This is the title that annotators
             will see inside Label Studio. Unlike `name`, it does not need to be an identifier and
-            does not need to be unique. If not specified, the table name `t.get_name()` will be used.
+            does not need to be unique. If not specified, the table name `t.name` will be used.
         media_import_method: The method to use when transferring media files to Label Studio:
+
             - `post`: Media will be sent to Label Studio via HTTP post. This should generally only be used for
                 prototyping; due to restrictions in Label Studio, it can only be used with projects that have
                 just one data field, and does not scale well.
@@ -63,9 +72,48 @@ def create_label_studio_project(
         col_mapping: An optional mapping of local column names to Label Studio fields.
         sync_immediately: If `True`, immediately perform an initial synchronization by
             exporting all rows of the `Table` as Label Studio tasks.
+        s3_configuration: If specified, S3 import storage will be configured for the new project. This can only
+            be used with `media_import_method='url'`, and if `media_import_method='url'` and any of the media data is
+            referenced by `s3://` URLs, then it must be specified in order for such media to display correctly
+            in the Label Studio interface.
+
+            The items in the `s3_configuration` dictionary correspond to kwarg
+            parameters of the Label Studio `connect_s3_import_storage` method, as described in the
+            [Label Studio connect_s3_import_storage docs](https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.connect_s3_import_storage).
+            `bucket` must be specified; all other parameters are optional. If credentials are not specified explicitly,
+            Pixeltable will attempt to retrieve them from the environment (such as from `~/.aws/credentials`). If a title is not
+            specified, Pixeltable will use the default `'Pixeltable-S3-Import-Storage'`. All other parameters use their Label
+            Studio defaults.
         kwargs: Additional keyword arguments are passed to the `start_project` method in the Label
-            Studio SDK, as described here:
-            https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_project
+            Studio SDK, as described in the
+            [Label Studio start_project docs](https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_project).
+
+    Returns:
+        A `SyncStatus` representing the status of any synchronization operations that occurred.
+
+    Examples:
+        Create a Label Studio project whose tasks correspond to videos stored in the `video_col` column of the table `tbl`:
+
+        >>> config = \"\"\"
+            <View>
+                <Video name="video_obj" value="$video_col"/>
+                <Choices name="video-category" toName="video" showInLine="true">
+                    <Choice value="city"/>
+                    <Choice value="food"/>
+                    <Choice value="sports"/>
+                </Choices>
+            </View>\"\"\"
+            create_label_studio_project(tbl, config)
+
+        Create a Label Studio project with the same configuration, using `media_import_method='url'`,
+        whose media are stored in an S3 bucket:
+
+        >>> create_label_studio_project(
+                tbl,
+                config,
+                media_import_method='url',
+                s3_configuration={'bucket': 'my-bucket', 'region_name': 'us-east-2'}
+            )
     """
     from pixeltable.io.label_studio import LabelStudioProject
 
@@ -76,6 +124,7 @@ def create_label_studio_project(
         title,
         media_import_method,
         col_mapping,
+        s3_configuration,
         **kwargs
     )
 
