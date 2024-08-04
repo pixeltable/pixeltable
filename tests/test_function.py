@@ -244,15 +244,15 @@ class TestFunction:
                 return order_by
         assert 'reserved' in str(exc_info.value)
 
-    @pxt.udf(member_access='method')
+    @pxt.udf(is_method=True)
     def increment(n: int) -> int:
         return n + 1
 
-    @pxt.udf(member_access='property')
+    @pxt.udf(is_property=True)
     def successor(n: int) -> int:
         return n + 1
 
-    @pxt.udf(member_access='method')
+    @pxt.udf(is_method=True)
     def append(s: str, suffix: str) -> str:
         return s + suffix
 
@@ -266,16 +266,16 @@ class TestFunction:
         assert result[1] == {'col_0': 3, 'successor': 3, 'col_2': 'bx'}
 
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(member_access='jellyfish')
+            @pxt.udf(is_method=True, is_property=True)
             def udf7(n: int) -> int:
                 return n + 1
-        assert 'Invalid `member_access`' in str(exc_info.value)
+        assert 'Cannot specify both `is_method` and `is_property` (in function `udf7`)' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(member_access='property')
+            @pxt.udf(is_property=True)
             def udf8(a: int, b: int) -> int:
                 return a + b
-        assert "`member_access='property'` expects a UDF with exactly 1 parameter, but `udf8` has 2" in str(exc_info.value)
+        assert "`is_property=True` expects a UDF with exactly 1 parameter, but `udf8` has 2" in str(exc_info.value)
 
     def test_query(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})

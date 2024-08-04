@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import List, Callable, Optional, overload, Any
 
-import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from .callable_function import CallableFunction
@@ -26,7 +25,8 @@ def udf(
         param_types: Optional[List[ts.ColumnType]] = None,
         batch_size: Optional[int] = None,
         substitute_fn: Optional[Callable] = None,
-        member_access: Optional[str] = None,
+        is_method: bool = False,
+        is_property: bool = False,
         _force_stored: bool = False
 ) -> Callable[[Callable], Function]: ...
 
@@ -57,7 +57,8 @@ def udf(*args, **kwargs):
         param_types = kwargs.pop('param_types', None)
         batch_size = kwargs.pop('batch_size', None)
         substitute_fn = kwargs.pop('substitute_fn', None)
-        member_access = kwargs.pop('member_access', None)
+        is_method = kwargs.pop('is_method', None)
+        is_property = kwargs.pop('is_property', None)
         force_stored = kwargs.pop('_force_stored', False)
         if len(kwargs) > 0:
             raise excs.Error(f'Invalid @udf decorator kwargs: {", ".join(kwargs.keys())}')
@@ -66,8 +67,15 @@ def udf(*args, **kwargs):
 
         def decorator(decorated_fn: Callable):
             return make_function(
-                decorated_fn, return_type, param_types, batch_size,
-                substitute_fn=substitute_fn, member_access=member_access, force_stored=force_stored)
+                decorated_fn,
+                return_type,
+                param_types,
+                batch_size,
+                substitute_fn=substitute_fn,
+                is_method=is_method,
+                is_property=is_property,
+                force_stored=force_stored
+            )
 
         return decorator
 
@@ -78,7 +86,8 @@ def make_function(
     param_types: Optional[List[ts.ColumnType]] = None,
     batch_size: Optional[int] = None,
     substitute_fn: Optional[Callable] = None,
-    member_access: Optional[str] = None,
+    is_method: bool = False,
+    is_property: bool = False,
     function_name: Optional[str] = None,
     force_stored: bool = False
 ) -> Function:
@@ -115,15 +124,12 @@ def make_function(
     if batch_size is None and len(sig.batched_parameters) > 0:
         raise excs.Error(f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given')
 
-    if member_access is not None and member_access != 'method' and member_access != 'property':
-        raise excs.Error(f"Invalid `member_access` (expecting 'method' or 'property'): '{member_access}'")
-
-    if member_access == 'property' and len(sig.parameters) != 1:
+    if is_method and is_property:
+        raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)')
+    if is_property and len(sig.parameters) != 1:
         raise excs.Error(
-            f"`member_access='property'` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}"
+            f"`is_property=True` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}"
         )
-    allow_member_access = member_access is not None
-    is_property = member_access == 'property'
 
     if substitute_fn is None:
         py_fn = decorated_fn
@@ -138,7 +144,7 @@ def make_function(
         self_path=function_path,
         self_name=function_name,
         batch_size=batch_size,
-        allow_member_access=allow_member_access,
+        is_method=is_method,
         is_property=is_property
     )
 
@@ -146,7 +152,7 @@ def make_function(
     if function_path is not None:
         # do the validation at the very end, so it's easier to write tests for other failure scenarios
         validate_symbol_path(function_path)
-        FunctionRegistry.get().register_function(function_path, result, register_as_method=allow_member_access)
+        FunctionRegistry.get().register_function(function_path, result, register_as_method=(is_method or is_property))
 
     return result
 

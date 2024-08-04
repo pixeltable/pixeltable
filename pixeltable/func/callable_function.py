@@ -25,7 +25,7 @@ class CallableFunction(Function):
         self_path: Optional[str] = None,
         self_name: Optional[str] = None,
         batch_size: Optional[int] = None,
-        allow_member_access: bool = False,
+        is_method: bool = False,
         is_property: bool = False
     ):
         assert py_fn is not None
@@ -33,7 +33,7 @@ class CallableFunction(Function):
         self.self_name = self_name
         self.batch_size = batch_size
         self.__doc__ = py_fn.__doc__
-        super().__init__(signature, self_path=self_path, allow_member_access=allow_member_access, is_property=is_property)
+        super().__init__(signature, self_path=self_path, is_method=is_method, is_property=is_property)
 
     @property
     def is_batched(self) -> bool:
