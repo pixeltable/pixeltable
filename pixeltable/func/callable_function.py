@@ -85,6 +85,7 @@ class CallableFunction(Function):
     def _as_dict(self) -> dict:
         if self.self_path is None:
             # this is not a module function
+            assert not self.is_method and not self.is_property
             from .function_registry import FunctionRegistry
             id = FunctionRegistry.get().create_stored_function(self)
             return {'id': id.hex}

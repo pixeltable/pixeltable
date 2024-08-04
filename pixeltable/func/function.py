@@ -3,10 +3,12 @@ from __future__ import annotations
 import abc
 import importlib
 import inspect
-from typing import Optional, Dict, Any, Tuple, Callable
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import pixeltable
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .globals import resolve_symbol
 from .signature import Signature
 
@@ -20,6 +22,8 @@ class Function(abc.ABC):
     """
 
     def __init__(self, signature: Signature, self_path: Optional[str] = None, is_method: bool = False, is_property: bool = False):
+        if (is_method or is_property) and self_path is None:
+            raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
         self.signature = signature
         self.self_path = self_path  # fully-qualified path to self
         self.is_method = is_method

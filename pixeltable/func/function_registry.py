@@ -136,6 +136,9 @@ class FunctionRegistry:
     #         return self.module_fns[fqn]
 
     def lookup_type_method(self, base_type: ts.ColumnType.Type, name: str) -> Optional[Function]:
+        """
+        Look up a method by name for a given base type. If no such method is registered, return None.
+        """
         if base_type in self.type_methods and name in self.type_methods[base_type]:
             return self.type_methods[base_type][name]
         return None

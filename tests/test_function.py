@@ -277,6 +277,18 @@ class TestFunction:
                 return a + b
         assert "`is_property=True` expects a UDF with exactly 1 parameter, but `udf8` has 2" in str(exc_info.value)
 
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(is_method=True, _force_stored=True)
+            def udf9(n: int) -> int:
+                return n + 1
+        assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(is_property=True, _force_stored=True)
+            def udf10(n: int) -> int:
+                return n + 1
+        assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
+
     def test_query(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
         name = t.name
