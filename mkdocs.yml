@@ -31,7 +31,9 @@ nav:
     - Table: api/table.md
   - Pixeltable Functions:
     - Huggingface: api/functions/huggingface.md
+    - ImageType: api/functions/image.md
     - StringType: api/functions/string.md
+    - TimestampType: api/functions/timestamp.md
     - VideoType: api/functions/video.md
 
 plugins:

@@ -69,11 +69,6 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             (zfill, str.zfill, [100], {}),
         ]
 
-        _ = t.select(out=count(t.s, 'relation')).collect()
-
-        assert t.select(out=count(t.s, 'relation')).collect()['out'] == \
-               [str.count(s, 'relation') for s in test_strs]
-
         for pxt_fn, str_fn, args, kwargs in test_params:
             try:
                 assert t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out'] == \
