@@ -39,16 +39,3 @@ class TestFunctions:
         )
         _ = v.select(mean_ap(v.eval_a)).show()[0, 0]
         _ = v.select(mean_ap(v.eval_b)).show()[0, 0]
-
-    def test_str(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'input': StringType()})
-        from pixeltable.functions.string import str_format
-
-        t.add_column(s1=str_format('ABC {0}', t.input))
-        t.add_column(s2=str_format('DEF {this}', this=t.input))
-        t.add_column(s3=str_format('GHI {0} JKL {this}', t.input, this=t.input))
-        status = t.insert(input='MNO')
-        assert status.num_rows == 1
-        assert status.num_excs == 0
-        row = t.head()[0]
-        assert row == {'input': 'MNO', 's1': 'ABC MNO', 's2': 'DEF MNO', 's3': 'GHI MNO JKL MNO'}

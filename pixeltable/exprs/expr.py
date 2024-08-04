@@ -521,6 +521,38 @@ class Expr(abc.ABC):
             return ArithmeticExpr(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
+    def __and__(self, other: object) -> Expr:
+        if not isinstance(other, Expr):
+            raise TypeError(f'Other needs to be an expression: {type(other)}')
+        if not other.col_type.is_bool_type():
+            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
+        from .compound_predicate import CompoundPredicate
+        return CompoundPredicate(LogicalOperator.AND, [self, other])
+
+    def __or__(self, other: object) -> Expr:
+        if not isinstance(other, Expr):
+            raise TypeError(f'Other needs to be an expression: {type(other)}')
+        if not other.col_type.is_bool_type():
+            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
+        from .compound_predicate import CompoundPredicate
+        return CompoundPredicate(LogicalOperator.OR, [self, other])
+
+    def __invert__(self) -> Expr:
+        from .compound_predicate import CompoundPredicate
+        return CompoundPredicate(LogicalOperator.NOT, [self])
+
+    def split_conjuncts(
+            self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
+        """
+        Returns clauses of a conjunction that meet condition in the first element.
+        The second element contains remaining clauses, rolled into a conjunction.
+        """
+        assert self.col_type.is_bool_type()  # only valid for predicates
+        if condition(self):
+            return [self], None
+        else:
+            return [], self
+
     def _make_applicator_function(self, fn: Callable, col_type: Optional[ts.ColumnType]) -> 'pixeltable.func.Function':
         """
         Creates a unary pixeltable `Function` that encapsulates a python `Callable`. The result type of

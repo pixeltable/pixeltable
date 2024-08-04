@@ -129,11 +129,11 @@ class InsertableTable(Table):
                     msg = str(e)
                     raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
-            where: a Predicate to filter rows to delete.
+            where: a predicate to filter rows to delete.
 
         Examples:
             Delete all rows in a table:

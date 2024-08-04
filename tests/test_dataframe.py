@@ -28,9 +28,10 @@ class TestDataFrame:
         res2 = t.select(t.c1, t.c2, t.c3).show(0)
         assert res1 == res2
 
-        res1 = t[t.c2 < 10][t.c1, t.c2, t.c3].show(0)
-        res2 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).show(0)
-        assert res1 == res2
+        res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).show(0)
+        # this is no longer supported; TODO: do we want this?
+        #res2 = t[t.c2 < 10][t.c1, t.c2, t.c3].show(0)
+        #assert res1 == res2
 
         res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).show(0)
         assert res1 == res3
@@ -38,7 +39,22 @@ class TestDataFrame:
         res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).show(0)
         assert res1 == res4
 
+        from pixeltable.functions.string import contains
+        _ = t.where(contains(t.c1, 'test')).select(t.c1).show(0)
+        _ = t.where(contains(t.c1, 'test') & contains(t.c1, '1')).select(t.c1).show(0)
+        _ = t.where(contains(t.c1, 'test') & (t.c2 >= 10)).select(t.c1).show(0)
+
         _ = t.where(t.c2 < 10).select(t.c2, t.c2).show(0) # repeated name no error
+
+        # where clause needs to be a predicate
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.where(t.c1).select(t.c2).show(0)
+        assert 'needs to return bool' in str(exc_info.value)
+
+        # where clause needs to be a predicate
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.where(15).select(t.c2).show(0)
+        assert 'requires a pixeltable expression' in str(exc_info.value).lower()
 
         # duplicate select list
         with pytest.raises(excs.Error) as exc_info:
