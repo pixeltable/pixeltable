@@ -146,26 +146,26 @@ def strftime(self: datetime, format: str) -> str:
     return self.strftime(format)
 
 
-@func.udf
-def date(self: datetime) -> datetime:
-    """
-    Return the date part of the datetime.
-
-    Equivalent to [`datetime.date()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.date).
-    """
-    d = self.date()
-    return datetime(d.year, d.month, d.day)
-
-
-@func.udf
-def time(self: datetime) -> datetime:
-    """
-    Return the time part of the datetime, with microseconds set to 0.
-
-    Equivalent to [`datetime.time()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.time).
-    """
-    t = self.time()
-    return datetime(1, 1, 1, t.hour, t.minute, t.second, t.microsecond)
+# @func.udf
+# def date(self: datetime) -> datetime:
+#     """
+#     Return the date part of the datetime.
+#
+#     Equivalent to [`datetime.date()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.date).
+#     """
+#     d = self.date()
+#     return datetime(d.year, d.month, d.day)
+#
+#
+# @func.udf
+# def time(self: datetime) -> datetime:
+#     """
+#     Return the time part of the datetime, with microseconds set to 0.
+#
+#     Equivalent to [`datetime.time()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.time).
+#     """
+#     t = self.time()
+#     return datetime(1, 1, 1, t.hour, t.minute, t.second, t.microsecond)
 
 
 @func.udf

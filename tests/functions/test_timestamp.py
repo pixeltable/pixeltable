@@ -19,14 +19,14 @@ class TestTimestamp:
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
 
         from pixeltable.functions.timestamp import (
-            date, time, year, month, day, hour, minute, second, microsecond,
+            year, month, day, hour, minute, second, microsecond,
             weekday, isoweekday, isocalendar, isoformat, strftime, replace,
             toordinal, posix_timestamp
         )
 
         test_params = [  # (pxt_fn, dt_fn, args, kwargs)
-            (date, lambda dt: datetime(dt.year, dt.month, dt.day), [], {}),
-            (time, lambda dt: datetime(1, 1, 1, dt.hour, dt.minute, dt.second, dt.microsecond), [], {}),
+            #(date, lambda dt: datetime(dt.year, dt.month, dt.day), [], {}),
+            #(time, lambda dt: datetime(1, 1, 1, dt.hour, dt.minute, dt.second, dt.microsecond), [], {}),
             (year, datetime.year.__get__, [], {}),
             (month, datetime.month.__get__, [], {}),
             (day, datetime.day.__get__, [], {}),
@@ -48,5 +48,5 @@ class TestTimestamp:
         ]
 
         for pxt_fn, dt_fn, args, kwargs in test_params:
-            assert t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out'] ==\
-                   [dt_fn(dt, *args, **kwargs) for dt in test_dts]
+            assert (t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
+                == [dt_fn(dt, *args, **kwargs) for dt in test_dts])
