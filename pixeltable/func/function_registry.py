@@ -64,11 +64,11 @@ class FunctionRegistry:
     #             fn_path = f'{caller_path}.{name}'  # fully-qualified name
     #             self.module_fns[fn_path] = obj
 
-    def register_function(self, fqn: str, fn: Function, register_as_method: bool) -> None:
+    def register_function(self, fqn: str, fn: Function) -> None:
         if fqn in self.module_fns:
             raise excs.Error(f'A UDF with that name already exists: {fqn}')
         self.module_fns[fqn] = fn
-        if register_as_method:
+        if fn.is_method or fn.is_property:
             base_type = fn.signature.parameters_by_pos[0].col_type.type_enum
             if base_type not in self.type_methods:
                 self.type_methods[base_type] = {}

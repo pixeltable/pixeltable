@@ -152,7 +152,7 @@ def make_function(
     if function_path is not None:
         # do the validation at the very end, so it's easier to write tests for other failure scenarios
         validate_symbol_path(function_path)
-        FunctionRegistry.get().register_function(function_path, result, register_as_method=(is_method or is_property))
+        FunctionRegistry.get().register_function(function_path, result)
 
     return result
 

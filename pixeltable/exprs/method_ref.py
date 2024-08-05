@@ -12,13 +12,14 @@ from .row_builder import RowBuilder
 
 class MethodRef(Expr):
     """
-    A method reference. This represents access to an unevaluated method of a Pixeltable expression, such as
-    `t.img_col.rotate` or `t.str_col.contains`. Equivalently, it represents a `Function` instance with its
+    A method reference. This represents a `Function` instance with its
     first parameter bound to a base expression.
 
     When a `MethodRef` is called, it returns a `FunctionCall` with the base expression as the first argument.
     The effective arity of a `MethodRef` is one less than the arity of the underlying `Function`.
     """
+    # TODO: Should this even be an `Expr`? It can't actually be evaluated directly (it has to be first
+    #   converted to a `FunctionCall` by binding any remaining parameters).
 
     def __init__(self, base_expr: Expr, method_name: str):
         super().__init__(ts.InvalidType())  # The `MethodRef` is untyped until it is called.
@@ -55,11 +56,7 @@ class MethodRef(Expr):
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        base_val = data_row[self.base_expr.slot_idx]
-        try:
-            data_row[self.slot_idx] = getattr(base_val, self.method_name)
-        except AttributeError:
-            data_row[self.slot_idx] = None
+        assert False, 'MethodRef cannot be evaluated directly'
 
     def __str__(self) -> str:
         return f'{self.base_expr}.{self.method_name}'
