@@ -1,4 +1,4 @@
-from . import fireworks, huggingface, image, openai, string, together, video
+from . import fireworks, huggingface, image, openai, string, together, video, timestamp
 from .globals import *
 from pixeltable.utils.code import local_public_names
 
