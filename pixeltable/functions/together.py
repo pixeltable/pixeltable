@@ -1,3 +1,10 @@
+"""
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+that wrap various endpoints from the Together AI API. In order to use them, you must
+first `pip install together` and configure your Together AI credentials, as described in
+the [Working with Together AI](https://pixeltable.readme.io/docs/together-ai) tutorial.
+"""
+
 import base64
 from typing import Optional, TYPE_CHECKING
 

@@ -1,3 +1,11 @@
+"""
+Pixeltable [UDF](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+that wraps the OpenAI Whisper library.
+
+This UDF will cause Pixeltable to invoke the relevant model locally. In order to use it, you must
+first `pip install openai-whisper`.
+"""
+
 from typing import TYPE_CHECKING, Optional
 
 import pixeltable as pxt

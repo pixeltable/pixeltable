@@ -1,3 +1,10 @@
+"""
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+that wrap various endpoints from the OpenAI API. In order to use them, you must
+first `pip install openai` and configure your OpenAI credentials, as described in
+the [Working with OpenAI](https://pixeltable.readme.io/docs/working-with-openai) tutorial.
+"""
+
 import base64
 import io
 import pathlib
