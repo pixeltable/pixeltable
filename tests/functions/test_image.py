@@ -13,7 +13,7 @@ class TestImage:
         _ = t[alpha_composite(t.img.convert(mode='RGBA'), t.img.rotate(90).convert(mode='RGBA'))].show()
         _ = t[blend(t.img, t.img.rotate(90), 0.5)].show()
         _ = t[composite(t.img, t.img.rotate(90), mask=t.img.convert(mode='RGBA'))].show()
-        _ = t[t.img.crop([0, 0, 10, 10])].show()
+        _ = t[t.img.crop((0, 0, 10, 10))].show()
         _ = t[t.img.getchannel(0)].show()
         _ = t[t.img.resize([100, 100])].show()
         _ = t[t.img.effect_spread(3)].show()

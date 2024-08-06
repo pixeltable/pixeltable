@@ -60,6 +60,8 @@ class PxtGriffeExtension(Extension):
             base = 'float'
         elif column_type.is_bool_type():
             base = 'bool'
+        elif column_type.is_timestamp_type():
+            base = 'datetime'
         elif column_type.is_array_type():
             base = 'ArrayT'
         elif column_type.is_json_type():
