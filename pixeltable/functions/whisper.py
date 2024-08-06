@@ -39,7 +39,30 @@ def transcribe(
     append_punctuations: str = '"\'.。,，!！?？:：”)]}、',
     decode_options: Optional[dict] = None,
 ) -> dict:
-    """Runs the Whisper model on the given audio and returns the transcribed text."""
+    """
+    Transcribe an audio file using Whisper.
+
+    This UDF runs a transcription model _locally_ using the Whisper library,
+    equivalent to the Whisper `transcribe` function, as described in the
+    [Whisper library documentation](https://github.com/openai/whisper).
+
+    __Requirements:__
+
+    - `pip install openai-whisper`
+
+    Args:
+        audio: The audio file to transcribe.
+        model: The name of the model to use for transcription.
+
+    Returns:
+        A dictionary containing the transcription and various other metadata.
+
+    Examples:
+        Add a computed column that applies the model `base.en` to an existing Pixeltable column `tbl.audio`
+        of the table `tbl`:
+
+        >>> tbl['result'] = transcribe(tbl.audio, model='base.en')
+    """
     import torch
 
     if decode_options is None:
