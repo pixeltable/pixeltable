@@ -52,8 +52,9 @@ def speech(
     input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
 ) -> str:
     """
-    Pixeltable UDF for the OpenAI `audio/speech` API endpoint for speech synthesis.
+    Generates audio from the input text.
 
+    Equivalent to the OpenAI `audio/speech` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/text-to-speech](https://platform.openai.com/docs/guides/text-to-speech)
 
     __Requirements:__
@@ -104,8 +105,9 @@ def transcriptions(
     temperature: Optional[float] = None,
 ) -> dict:
     """
-    Pixeltable UDF for the OpenAI `audio/transcriptions` API endpoint.
+    Transcribes audio into the input language.
 
+    Equivalent to the OpenAI `audio/transcriptions` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/speech-to-text](https://platform.openai.com/docs/guides/speech-to-text)
 
     __Requirements:__
@@ -137,8 +139,9 @@ def transcriptions(
 @pxt.udf(param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True), ts.FloatType(nullable=True)])
 def translations(audio: str, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
     """
-    Pixeltable UDF for the OpenAI `audio/translations` API endpoint.
+    Translates audio into English.
 
+    Equivalent to the OpenAI `audio/translations` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/speech-to-text](https://platform.openai.com/docs/guides/speech-to-text)
 
     __Requirements:__
@@ -193,8 +196,9 @@ def chat_completions(
     user: Optional[str] = None,
 ) -> dict:
     """
-    Pixeltable UDF for the OpenAI `chat/completions` API endpoint.
+    Creates a model response for the given chat conversation.
 
+    Equivalent to the OpenAI `chat/completions` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/chat-completions](https://platform.openai.com/docs/guides/chat-completions)
 
     __Requirements:__
@@ -245,8 +249,8 @@ def chat_completions(
 @pxt.udf
 def vision(prompt: str, image: PIL.Image.Image, *, model: str) -> str:
     """
-    Pixeltable UDF for the OpenAI vision capability. This is a convenience function that takes and image and
-    prompt, and constructs a chat completion request that uses OpenAI vision to analyze the image.
+    Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
+    prompt, and constructs a chat completion request that utilizes OpenAI vision.
 
     For additional details, see: [https://platform.openai.com/docs/guides/vision](https://platform.openai.com/docs/guides/vision)
 
@@ -301,8 +305,9 @@ def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
 ) -> Batch[np.ndarray]:
     """
-    Pixeltable UDF for the OpenAI `embeddings` endpoint.
+    Creates an embedding vector representing the input text.
 
+    Equivalent to the OpenAI `embeddings` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/embeddings](https://platform.openai.com/docs/guides/embeddings)
 
     __Requirements:__
@@ -357,8 +362,9 @@ def image_generations(
     user: Optional[str] = None,
 ) -> PIL.Image.Image:
     """
-    Pixeltable UDF for the OpenAI `images/generations` endpoint.
+    Creates an image given a prompt.
 
+    Equivalent to the OpenAI `images/generations` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/images](https://platform.openai.com/docs/guides/images)
 
     __Requirements:__
@@ -418,8 +424,9 @@ def _(size: Optional[str] = None) -> ts.ImageType:
 @pxt.udf
 def moderations(input: str, *, model: Optional[str] = None) -> dict:
     """
-    Pixeltable UDF for the OpenAI `moderations` endpoint.
+    Classifies if text is potentially harmful.
 
+    Equivalent to the OpenAI `moderations` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/moderation](https://platform.openai.com/docs/guides/moderation)
 
     __Requirements:__
