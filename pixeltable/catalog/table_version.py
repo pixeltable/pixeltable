@@ -702,7 +702,14 @@ class TableVersion:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
         with Env.get().engine.begin() as conn:
-            return self._update(conn, update_spec, where, cascade)
+            plan, updated_cols, recomputed_cols = (
+                Planner.create_update_plan(self.path, update_spec, [], where, cascade)
+            )
+            result = self.propagate_update(
+                plan, where.sql_expr() if where is not None else None, recomputed_cols,
+                base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade, show_progress=True)
+            result.updated_cols = updated_cols
+            return result
 
     def batch_update(
             self, batch: list[dict[Column, 'exprs.Expr']], rowids: list[tuple[int, ...]], cascade: bool = True
@@ -723,28 +730,12 @@ class TableVersion:
         with Env.get().engine.begin() as conn:
             from pixeltable.plan import Planner
 
-            plan, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
+            plan, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
                 self.path, batch, rowids, cascade=cascade)
             result = self.propagate_update(
-                plan, None, recomputed_cols, base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade)
+                plan, delete_where_clause, recomputed_cols, base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade)
             result.updated_cols = updated_cols
             return result
-
-    def _update(
-            self, conn: sql.engine.Connection, update_targets: dict[Column, 'pixeltable.exprs.Expr'],
-            where_clause: Optional['pixeltable.exprs.Expr'] = None, cascade: bool = True,
-            show_progress: bool = True
-    ) -> UpdateStatus:
-        from pixeltable.plan import Planner
-
-        plan, updated_cols, recomputed_cols = (
-            Planner.create_update_plan(self.path, update_targets, [], where_clause, cascade)
-        )
-        result = self.propagate_update(
-            plan, where_clause.sql_expr() if where_clause is not None else None, recomputed_cols,
-            base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade, show_progress=show_progress)
-        result.updated_cols = updated_cols
-        return result
 
     def _validate_update_spec(
             self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool

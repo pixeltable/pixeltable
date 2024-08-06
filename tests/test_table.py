@@ -623,13 +623,15 @@ class TestTable:
 
     def test_batch_update(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
+        num_rows = t.count()
         validate_update_status(t.batch_update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]), expected_rows=2)
-        _ = t.where(t.c2 == 1).collect()
+        assert t.count() == num_rows  # make sure we didn't lose any rows
         assert t.where(t.c2 == 1).collect()[0]['c1'] == '1'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == '2'
         validate_update_status(
             t.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
         )
+        assert t.count() == num_rows  # make sure we didn't lose any rows
         assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
 
@@ -642,6 +644,7 @@ class TestTable:
         validate_update_status(
             t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}, {'c1': '2', 'c2': 2, 'c3': 3.0}]), expected_rows=2
         )
+        assert t.count() == len(rows)
         assert t.where(t.c2 == 1).collect()[0]['c3'] == 2.0
         assert t.where(t.c2 == 2).collect()[0]['c3'] == 3.0
 
@@ -671,6 +674,7 @@ class TestTable:
         validate_update_status(
             t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
         )
+        assert t2.count() == len(rows)
         assert t2.where(t2.c2 == 1).collect()[0]['c1'] == 'one'
         assert t2.where(t2.c2 == 2).collect()[0]['c1'] == 'two'
         with pytest.raises(AssertionError):

@@ -273,7 +273,8 @@ class SqlLookupNode(SqlNode):
         refd_tbl_ids = exprs.Expr.list_tbl_ids(self.sql_exprs)
         self.stmt = self.create_from_clause(tbl, self.stmt, refd_tbl_ids)
         # Where clause: (key-col-1, key-col-2, ...) IN ((val-1, val-2, ...), ...)
-        self.stmt = self.stmt.where(sql.tuple_(*sa_key_cols).in_(key_vals))
+        self.where_clause = sql.tuple_(*sa_key_cols).in_(key_vals)
+        self.stmt = self.stmt.where(self.where_clause)
 
         if target.id in row_builder.unstored_iter_args:
             # we are referencing unstored iter columns from this view and try to order by our primary key,

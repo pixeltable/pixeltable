@@ -293,10 +293,11 @@ class Planner:
             cls, tbl: catalog.TableVersionPath,
             batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
             cascade: bool
-    ) -> Tuple[exec.ExecNode, List[str], List[catalog.Column]]:
+    ) -> Tuple[exec.ExecNode, sql.ClauseElement, List[str], List[catalog.Column]]:
         """
         Returns:
-        - root node of the plan
+        - root node of the plan to produce the updated rows
+        - Where clause for deleting the current versions of updated rows
         - list of qualified column names that are getting updated
         - list of user-visible columns that are being recomputed
         """
@@ -339,6 +340,7 @@ class Planner:
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], analyzer.sql_exprs)
         analyzer.finalize(row_builder)
         plan = exec.SqlLookupNode(tbl, row_builder, analyzer.sql_exprs, sa_key_cols, key_vals)
+        delete_where_clause = plan.where_clause
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
         plan = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, plan)
         if not cls._is_contained_in(analyzer.select_list, analyzer.sql_exprs):
@@ -354,7 +356,7 @@ class Planner:
         ctx.batch_size = 0
         plan.set_ctx(ctx)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return plan, [f'{c.tbl.name}.{c.name}' for c in list(updated_cols) + recomputed_user_cols], recomputed_user_cols
+        return plan, delete_where_clause, [f'{c.tbl.name}.{c.name}' for c in list(updated_cols) + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
     def create_view_update_plan(
