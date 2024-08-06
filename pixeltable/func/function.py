@@ -22,8 +22,8 @@ class Function(abc.ABC):
     """
 
     def __init__(self, signature: Signature, self_path: Optional[str] = None, is_method: bool = False, is_property: bool = False):
-        if (is_method or is_property) and self_path is None:
-            raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
+        # Check that stored functions cannot be declared using `is_method` or `is_property`:
+        assert not ((is_method or is_property) and self_path is None)
         self.signature = signature
         self.self_path = self_path  # fully-qualified path to self
         self.is_method = is_method

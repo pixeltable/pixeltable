@@ -130,6 +130,8 @@ def make_function(
         raise excs.Error(
             f"`is_property=True` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}"
         )
+    if (is_method or is_property) and function_path is None:
+        raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
 
     if substitute_fn is None:
         py_fn = decorated_fn
