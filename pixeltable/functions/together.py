@@ -41,7 +41,31 @@ def completions(
     n: Optional[int] = None,
     safety_model: Optional[str] = None,
 ) -> dict:
-    """Pixeltable UDF for the Together `completions` API endpoint."""
+    """
+    Generate completions based on a given prompt using a specified model.
+
+    Equivalent to the Together AI `completions` API endpoint.
+    For additional details, see: [https://docs.together.ai/reference/completions-1](https://docs.together.ai/reference/completions-1)
+
+    __Requirements:__
+
+    - `pip install together`
+
+    Args:
+        prompt: A string providing context for the model to complete.
+        model: The name of the model to query.
+
+    For details on the other parameters, see: [https://docs.together.ai/reference/completions-1](https://docs.together.ai/reference/completions-1)
+
+    Returns:
+        A dictionary containing the response and other metadata.
+
+    Examples:
+        Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column `tbl.prompt`
+        of the table `tbl`:
+
+        >>> tbl['response'] = completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1')
+    """
     return (
         _together_client()
         .completions.create(
@@ -81,7 +105,32 @@ def chat_completions(
     tools: Optional[dict] = None,
     tool_choice: Optional[dict] = None,
 ) -> dict:
-    """Pixeltable UDF for the Together `chat/completions` API endpoint."""
+    """
+    Generate chat completions based on a given prompt using a specified model.
+
+    Equivalent to the Together AI `chat/completions` API endpoint.
+    For additional details, see: [https://docs.together.ai/reference/chat-completions-1](https://docs.together.ai/reference/chat-completions-1)
+
+    __Requirements:__
+
+    - `pip install together`
+
+    Args:
+        messages: A list of messages comprising the conversation so far.
+        model: The name of the model to query.
+
+    For details on the other parameters, see: [https://docs.together.ai/reference/chat-completions-1](https://docs.together.ai/reference/chat-completions-1)
+
+    Returns:
+        A dictionary containing the response and other metadata.
+
+    Examples:
+        Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column `tbl.prompt`
+        of the table `tbl`:
+
+        >>> messages = [{'role': 'user', 'content': tbl.prompt}]
+        ... tbl['response'] = chat_completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1')
+    """
     return (
         _together_client()
         .chat.completions.create(
@@ -119,6 +168,29 @@ _embedding_dimensions_cache = {
 
 @pxt.udf(batch_size=32, return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()))
 def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
+    """
+    Query an embedding model for a given string of text.
+
+    Equivalent to the Together AI `embeddings` API endpoint.
+    For additional details, see: [https://docs.together.ai/reference/embeddings-2](https://docs.together.ai/reference/embeddings-2)
+
+    __Requirements:__
+
+    - `pip install together`
+
+    Args:
+        input: A string providing the text for the model to embed.
+        model: The name of the embedding model to use.
+
+    Returns:
+        An array representing the application of the given embedding to `input`.
+
+    Examples:
+        Add a computed column that applies the model `togethercomputer/m2-bert-80M-8k-retrieval`
+        to an existing Pixeltable column `tbl.text` of the table `tbl`:
+
+        >>> tbl['response'] = embeddings(tbl.text, model='togethercomputer/m2-bert-80M-8k-retrieval')
+    """
     result = _together_client().embeddings.create(input=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
@@ -143,7 +215,31 @@ def image_generations(
     width: Optional[int] = None,
     negative_prompt: Optional[str] = None,
 ) -> PIL.Image.Image:
-    """Pixeltable UDF for the Together `images/generate` API endpoint."""
+    """
+    Generate images based on a given prompt using a specified model.
+
+    Equivalent to the Together AI `images/generations` API endpoint.
+    For additional details, see: [https://docs.together.ai/reference/post_images-generations](https://docs.together.ai/reference/post_images-generations)
+
+    __Requirements:__
+
+    - `pip install together`
+
+    Args:
+        prompt: A description of the desired images.
+        model: The model to use for image generation.
+
+    For details on the other parameters, see: [https://docs.together.ai/reference/post_images-generations](https://docs.together.ai/reference/post_images-generations)
+
+    Returns:
+        The generated image.
+
+    Examples:
+        Add a computed column that applies the model `runwayml/stable-diffusion-v1-5`
+        to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+
+        >>> tbl['response'] = image_generations(tbl.prompt, model='runwayml/stable-diffusion-v1-5')
+    """
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     result = _together_client().images.generate(
         prompt=prompt, model=model, steps=steps, seed=seed, height=height, width=width, negative_prompt=negative_prompt
