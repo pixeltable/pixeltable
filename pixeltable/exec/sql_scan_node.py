@@ -19,7 +19,7 @@ class SqlScanNode(ExecNode):
     def __init__(
             self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
             select_list: Iterable[exprs.Expr],
-            where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Predicate] = None,
+            where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Expr] = None,
             order_by_items: Optional[List[Tuple[exprs.Expr, bool]]] = None,
             limit: int = 0, set_pk: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
     ):

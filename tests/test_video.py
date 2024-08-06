@@ -31,11 +31,11 @@ class TestVideo:
         view_t.add_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
         total_num_rows = view_t.count()
-        result = view_t[view_t.frame_idx >= 5][view_t.frame_idx, view_t.frame, view_t.transform].show(0)
+        result = view_t.where(view_t.frame_idx >= 5).select(view_t.frame_idx, view_t.frame, view_t.transform).show(0)
         assert len(result) == total_num_rows - len(paths) * 5
-        result = view_t[view_t.frame_idx, view_t.frame, view_t.transform].show(3)
+        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(3)
         assert len(result) == 3
-        result = view_t[view_t.frame_idx, view_t.frame, view_t.transform].show(0)
+        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(0)
         assert len(result) == total_num_rows
         return base_t, view_t
 

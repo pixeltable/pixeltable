@@ -1,20 +1,20 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple, Callable
+
 import operator
+from typing import Optional, List, Any, Dict, Callable
 
 import sqlalchemy as sql
 
+from .data_row import DataRow
 from .expr import Expr
 from .globals import LogicalOperator
-from .predicate import Predicate
-from .data_row import DataRow
 from .row_builder import RowBuilder
-import pixeltable.catalog as catalog
+import pixeltable.type_system as ts
 
 
-class CompoundPredicate(Predicate):
-    def __init__(self, operator: LogicalOperator, operands: List[Predicate]):
-        super().__init__()
+class CompoundPredicate(Expr):
+    def __init__(self, operator: LogicalOperator, operands: List[Expr]):
+        super().__init__(ts.BoolType())
         self.operator = operator
         # operands are stored in self.components
         if self.operator == LogicalOperator.NOT:
@@ -22,7 +22,7 @@ class CompoundPredicate(Predicate):
             self.components = operands
         else:
             assert len(operands) > 1
-            self.operands: List[Predicate] = []
+            self.operands: List[Expr] = []
             for operand in operands:
                 self._merge_operand(operand)
 
@@ -34,14 +34,14 @@ class CompoundPredicate(Predicate):
         return f' {self.operator} '.join([f'({e})' for e in self.components])
 
     @classmethod
-    def make_conjunction(cls, operands: List[Predicate]) -> Optional[Predicate]:
+    def make_conjunction(cls, operands: List[Expr]) -> Optional[Expr]:
         if len(operands) == 0:
             return None
         if len(operands) == 1:
             return operands[0]
         return CompoundPredicate(LogicalOperator.AND, operands)
 
-    def _merge_operand(self, operand: Predicate) -> None:
+    def _merge_operand(self, operand: Expr) -> None:
         """
         Merge this operand, if possible, otherwise simply record it.
         """
@@ -55,11 +55,11 @@ class CompoundPredicate(Predicate):
     def _equals(self, other: CompoundPredicate) -> bool:
         return self.operator == other.operator
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('operator', self.operator.value)]
 
     def split_conjuncts(
-            self, condition: Callable[[Predicate], bool]) -> Tuple[List[Predicate], Optional[Predicate]]:
+            self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
         if self.operator == LogicalOperator.OR or self.operator == LogicalOperator.NOT:
             return super().split_conjuncts(condition)
         matches = [op for op in self.components if condition(op)]

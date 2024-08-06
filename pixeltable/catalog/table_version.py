@@ -678,12 +678,12 @@ class TableVersion:
         return result
 
     def update(
-        self, value_spec: dict[str, Any], where: Optional['exprs.Predicate'] = None, cascade: bool = True
+        self, value_spec: dict[str, Any], where: Optional['exprs.Expr'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this TableVersionPath.
         Args:
             value_spec: a list of (column, value) pairs specifying the columns to update and their new values.
-            where: a Predicate to filter rows to update.
+            where: a predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
         """
@@ -694,8 +694,8 @@ class TableVersion:
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
         if where is not None:
-            if not isinstance(where, exprs.Predicate):
-                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            if not isinstance(where, exprs.Expr):
+                raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
             analysis_info = Planner.analyze(self.path, where)
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
@@ -757,7 +757,7 @@ class TableVersion:
 
     def _update(
             self, conn: sql.engine.Connection, update_targets: dict[Column, 'pixeltable.exprs.Expr'],
-            where_clause: Optional['pixeltable.exprs.Predicate'] = None, cascade: bool = True,
+            where_clause: Optional['pixeltable.exprs.Expr'] = None, cascade: bool = True,
             show_progress: bool = True
     ) -> UpdateStatus:
         from pixeltable.plan import Planner
@@ -789,8 +789,6 @@ class TableVersion:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
             if col.is_pk and not allow_pk:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
-            if col.col_type.is_media_type():
-                raise excs.Error(f'Column {col_name} has type image/video/audio/document and cannot be updated')
 
             # make sure that the value is compatible with the column type
             try:
@@ -848,17 +846,17 @@ class TableVersion:
         result.cols_with_excs = list(dict.fromkeys(result.cols_with_excs).keys())  # remove duplicates
         return result
 
-    def delete(self, where: Optional['exprs.Predicate'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
         Args:
-            where: a Predicate to filter rows to delete.
+            where: a predicate to filter rows to delete.
         """
         assert self.is_insertable()
-        from pixeltable.exprs import Predicate
+        from pixeltable.exprs import Expr
         from pixeltable.plan import Planner
         if where is not None:
-            if not isinstance(where, Predicate):
-                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
+            if not isinstance(where, Expr):
+                raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
             analysis_info = Planner.analyze(self.path, where)
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
@@ -872,11 +870,11 @@ class TableVersion:
         return status
 
     def propagate_delete(
-            self, where: Optional['exprs.Predicate'], base_versions: List[Optional[int]],
+            self, where: Optional['exprs.Expr'], base_versions: List[Optional[int]],
             conn: sql.engine.Connection, timestamp: float) -> int:
         """Delete rows in this table and propagate to views.
         Args:
-            where: a Predicate to filter rows to delete.
+            where: a predicate to filter rows to delete.
         Returns:
             number of deleted rows
         """

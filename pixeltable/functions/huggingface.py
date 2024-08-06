@@ -1,5 +1,6 @@
 """
-A collection of Pixeltable UDFs that wrap various models from the Huggingface transformers libraries.
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+that wrap various models from the Hugging Face `transformers` package.
 
 These UDFs will cause Pixeltable to invoke the relevant models locally. In order to use them, you must
 first `pip install transformers` (or in some cases, `sentence-transformers`, as noted in the specific
