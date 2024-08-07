@@ -428,11 +428,10 @@ class Expr(abc.ABC):
 
     def __dir__(self) -> list[str]:
         attrs = ['isin', 'astype', 'apply']
-        if self.col_type.is_image_type():
-            attrs += [
-                f.name
-                for f in func.FunctionRegistry.get().get_type_methods(ts.ColumnType.Type.IMAGE)
-            ]
+        attrs += [
+            f.name
+            for f in func.FunctionRegistry.get().get_type_methods(self.col_type.type_enum)
+        ]
         return attrs
 
     def __getitem__(self, index: object) -> Expr:
