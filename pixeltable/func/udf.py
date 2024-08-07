@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import List, Callable, Optional, overload, Any
 
-import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from .callable_function import CallableFunction
@@ -26,6 +25,8 @@ def udf(
         param_types: Optional[List[ts.ColumnType]] = None,
         batch_size: Optional[int] = None,
         substitute_fn: Optional[Callable] = None,
+        is_method: bool = False,
+        is_property: bool = False,
         _force_stored: bool = False
 ) -> Callable[[Callable], Function]: ...
 
@@ -56,6 +57,8 @@ def udf(*args, **kwargs):
         param_types = kwargs.pop('param_types', None)
         batch_size = kwargs.pop('batch_size', None)
         substitute_fn = kwargs.pop('substitute_fn', None)
+        is_method = kwargs.pop('is_method', None)
+        is_property = kwargs.pop('is_property', None)
         force_stored = kwargs.pop('_force_stored', False)
         if len(kwargs) > 0:
             raise excs.Error(f'Invalid @udf decorator kwargs: {", ".join(kwargs.keys())}')
@@ -64,8 +67,15 @@ def udf(*args, **kwargs):
 
         def decorator(decorated_fn: Callable):
             return make_function(
-                decorated_fn, return_type, param_types, batch_size,
-                substitute_fn=substitute_fn, force_stored=force_stored)
+                decorated_fn,
+                return_type,
+                param_types,
+                batch_size,
+                substitute_fn=substitute_fn,
+                is_method=is_method,
+                is_property=is_property,
+                force_stored=force_stored
+            )
 
         return decorator
 
@@ -76,6 +86,8 @@ def make_function(
     param_types: Optional[List[ts.ColumnType]] = None,
     batch_size: Optional[int] = None,
     substitute_fn: Optional[Callable] = None,
+    is_method: bool = False,
+    is_property: bool = False,
     function_name: Optional[str] = None,
     force_stored: bool = False
 ) -> Function:
@@ -112,6 +124,15 @@ def make_function(
     if batch_size is None and len(sig.batched_parameters) > 0:
         raise excs.Error(f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given')
 
+    if is_method and is_property:
+        raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)')
+    if is_property and len(sig.parameters) != 1:
+        raise excs.Error(
+            f"`is_property=True` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}"
+        )
+    if (is_method or is_property) and function_path is None:
+        raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
+
     if substitute_fn is None:
         py_fn = decorated_fn
     else:
@@ -120,7 +141,14 @@ def make_function(
         py_fn = substitute_fn
 
     result = CallableFunction(
-        signature=sig, py_fn=py_fn, self_path=function_path, self_name=function_name, batch_size=batch_size)
+        signature=sig,
+        py_fn=py_fn,
+        self_path=function_path,
+        self_name=function_name,
+        batch_size=batch_size,
+        is_method=is_method,
+        is_property=is_property
+    )
 
     # If this function is part of a module, register it
     if function_path is not None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Optional, Callable, Tuple, Any
+from typing import Any, Callable, Optional
 from uuid import UUID
 
 import cloudpickle
@@ -19,14 +19,21 @@ class CallableFunction(Function):
     """
 
     def __init__(
-            self, signature: Signature, py_fn: Callable, self_path: Optional[str] = None,
-            self_name: Optional[str] = None, batch_size: Optional[int] = None):
+        self,
+        signature: Signature,
+        py_fn: Callable,
+        self_path: Optional[str] = None,
+        self_name: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        is_method: bool = False,
+        is_property: bool = False
+    ):
         assert py_fn is not None
         self.py_fn = py_fn
         self.self_name = self_name
         self.batch_size = batch_size
         self.__doc__ = py_fn.__doc__
-        super().__init__(signature, self_path=self_path)
+        super().__init__(signature, self_path=self_path, is_method=is_method, is_property=is_property)
 
     @property
     def is_batched(self) -> bool:
@@ -78,6 +85,7 @@ class CallableFunction(Function):
     def _as_dict(self) -> dict:
         if self.self_path is None:
             # this is not a module function
+            assert not self.is_method and not self.is_property
             from .function_registry import FunctionRegistry
             id = FunctionRegistry.get().create_stored_function(self)
             return {'id': id.hex}
