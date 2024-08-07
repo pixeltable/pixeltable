@@ -29,11 +29,12 @@ nav:
       - FrameIterator: api/iterators/frame-iterator.md
     - DataFrame: api/data-frame.md
     - Table: api/table.md
-  - Built-in UDFs:
+  - Built-in Functions and Operators:
     - image: api/functions/image.md
     - string: api/functions/string.md
     - timestamp: api/functions/timestamp.md
     - video: api/functions/video.md
+  - Model and Inference Functions:
     - fireworks: api/functions/fireworks.md
     - huggingface: api/functions/huggingface.md
     - openai: api/functions/openai.md
