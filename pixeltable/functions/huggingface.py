@@ -25,7 +25,7 @@ def sentence_transformer(
     sentence: Batch[str], *, model_id: str, normalize_embeddings: bool = False
 ) -> Batch[np.ndarray]:
     """
-    Runs the specified pretrained sentence-transformers model. `model_id` should be a pretrained model, as described
+    Computes sentence embeddings. `model_id` should be a pretrained Sentence Transformers model, as described
     in the [Sentence Transformers Pretrained Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html)
     documentation.
 
@@ -83,8 +83,8 @@ def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embed
 @pxt.udf(batch_size=32)
 def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
     """
-    Runs the specified cross-encoder model to compute similarity scores for pairs of sentences.
-    `model_id` should be a pretrained model, as described in the
+    Performs predicts on the given sentence pair.
+    `model_id` should be a pretrained Cross-Encoder model, as described in the
     [Cross-Encoder Pretrained Models](https://www.sbert.net/docs/cross_encoder/pretrained_models.html)
     documentation.
 
@@ -130,7 +130,27 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
-    """Runs the specified CLIP model on text."""
+    """
+    Computes a CLIP embedding for the specified text. `model_id` should be a reference to a pretrained
+    [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
+
+    __Requirements:__
+
+    - `pip install transformers`
+
+    Args:
+        text: The string to embed.
+        model_id: The pretrained model to use for the embedding.
+
+    Returns:
+        An array containing the output of the embedding model.
+
+    Examples:
+        Add a computed column that applies the model `openai/clip-vit-base-patch32` to an existing
+        Pixeltable column `tbl.text` of the table `tbl`:
+
+        >>> tbl['result'] = clip_text(tbl.text, model_id='openai/clip-vit-base-patch32')
+    """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
@@ -148,7 +168,27 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
-    """Runs the specified CLIP model on images."""
+    """
+    Computes a CLIP embedding for the specified image. `model_id` should be a reference to a pretrained
+    [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
+
+    __Requirements:__
+
+    - `pip install transformers`
+
+    Args:
+        image: The image to embed.
+        model_id: The pretrained model to use for the embedding.
+
+    Returns:
+        An array containing the output of the embedding model.
+
+    Examples:
+        Add a computed column that applies the model `openai/clip-vit-base-patch32` to an existing
+        Pixeltable column `tbl.image` of the table `tbl`:
+
+        >>> tbl['result'] = clip_image(tbl.image, model_id='openai/clip-vit-base-patch32')
+    """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
@@ -178,7 +218,41 @@ def _(model_id: str) -> ts.ArrayType:
 
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
-    """Runs the specified DETR model."""
+    """
+    Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
+    [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr).
+
+    __Requirements:__
+
+    - `pip install transformers`
+
+    Args:
+        image: The image to embed.
+        model_id: The pretrained model to use for the embedding.
+
+    Returns:
+        A dictionary containing the output of the object detection model, in the following format:
+
+    ```python
+    {
+        'scores': [0.99, 0.999],  # list of confidence scores for each detected object
+        'labels': [25, 25],  # list of COCO class labels for each detected object
+        'label_text': ['giraffe', 'giraffe'],  # corresponding text names of class labels
+        'boxes': [[51.942, 356.174, 181.481, 413.975], [383.225, 58.66, 605.64, 361.346]]
+            # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
+    }
+    ```
+
+    Examples:
+        Add a computed column that applies the model `facebook/detr-resnet-50` to an existing
+        Pixeltable column `tbl.image` of the table `tbl`:
+
+        >>> tbl['detections'] = detr_for_object_detection(
+        ...     tbl.image,
+        ...     model_id='facebook/detr-resnet-50',
+        ...     threshold=0.8
+        ... )
+    """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
@@ -210,6 +284,22 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
 
 @pxt.udf
 def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str, Any]:
+    """
+    Converts the output of a DETR object detection model to COCO format.
+
+    Args:
+        image: The image for which detections were computed.
+        detr_info: The output of a DETR object detection model, as returned by `detr_for_object_detection`.
+
+    Returns:
+        A dictionary containing the data from `detr_info`, converted to COCO format.
+
+    Examples:
+        Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image`
+        is the image for which detections were computed:
+
+        >>> tbl['detections_coco'] = detr_to_coco(tbl.image, tbl.detections)
+    """
     bboxes, labels = detr_info['boxes'], detr_info['labels']
     annotations = [
         {'bbox': [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]], 'category': label}

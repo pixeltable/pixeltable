@@ -90,8 +90,8 @@ class Expr(abc.ABC):
 
     def default_column_name(self) -> Optional[str]:
         """
-        Returns: 
-            None if this expression lacks a default name, 
+        Returns:
+            None if this expression lacks a default name,
             or a valid identifier (according to catalog.is_valid_identifer) otherwise.
         """
         return None
@@ -444,17 +444,21 @@ class Expr(abc.ABC):
             return ArraySlice(self, index)
         raise AttributeError(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> Union['pixeltable.exprs.ImageMemberAccess', 'pixeltable.exprs.JsonPath']:
+    def __getattr__(self, name: str) -> Union['pixeltable.exprs.MethodRef', 'pixeltable.exprs.FunctionCall', 'pixeltable.exprs.JsonPath']:
         """
         ex.: <img col>.rotate(60)
         """
-        if self.col_type.is_image_type():
-            from .image_member_access import ImageMemberAccess
-            return ImageMemberAccess(name, self)
         if self.col_type.is_json_type():
-            from .json_path import JsonPath
-            return JsonPath(self).__getattr__(name)
-        raise AttributeError(f'Member access not supported on type {self.col_type}: {name}')
+            return pixeltable.exprs.JsonPath(self).__getattr__(name)
+        else:
+            method_ref = pixeltable.exprs.MethodRef(self, name)
+            if method_ref.fn.is_property:
+                # Marked as a property, so autoinvoke the method to obtain a `FunctionCall`
+                assert method_ref.fn.arity == 1
+                return method_ref.fn(method_ref.base_expr)
+            else:
+                # Return the `MethodRef` object itself; it requires arguments to become a `FunctionCall`
+                return method_ref
 
     def __bool__(self) -> bool:
         raise TypeError(
