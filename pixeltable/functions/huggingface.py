@@ -25,7 +25,7 @@ def sentence_transformer(
     sentence: Batch[str], *, model_id: str, normalize_embeddings: bool = False
 ) -> Batch[np.ndarray]:
     """
-    Runs the specified pretrained sentence-transformers model. `model_id` should be a pretrained model, as described
+    Computes sentence embeddings. `model_id` should be a pretrained Sentence Transformers model, as described
     in the [Sentence Transformers Pretrained Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html)
     documentation.
 
@@ -83,8 +83,8 @@ def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embed
 @pxt.udf(batch_size=32)
 def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
     """
-    Runs the specified cross-encoder model to compute similarity scores for pairs of sentences.
-    `model_id` should be a pretrained model, as described in the
+    Performs predicts on the given sentence pair.
+    `model_id` should be a pretrained Cross-Encoder model, as described in the
     [Cross-Encoder Pretrained Models](https://www.sbert.net/docs/cross_encoder/pretrained_models.html)
     documentation.
 
@@ -131,7 +131,7 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     """
-    Runs the specified CLIP embedding model on text. `model_id` should be a reference to a pretrained
+    Computes a CLIP embedding for the specified text. `model_id` should be a reference to a pretrained
     [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
 
     __Requirements:__
@@ -169,7 +169,7 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 @pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
 def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
     """
-    Runs the specified CLIP embedding model on images. `model_id` should be a reference to a pretrained
+    Computes a CLIP embedding for the specified image. `model_id` should be a reference to a pretrained
     [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
 
     __Requirements:__
@@ -219,7 +219,7 @@ def _(model_id: str) -> ts.ArrayType:
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
     """
-    Runs the specified DETR object detection model. `model_id` should be a reference to a pretrained
+    Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
     [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr).
 
     __Requirements:__
@@ -248,10 +248,10 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
         Pixeltable column `tbl.image` of the table `tbl`:
 
         >>> tbl['detections'] = detr_for_object_detection(
-                tbl.image,
-                model_id='facebook/detr-resnet-50',
-                threshold=0.8
-            )
+        ...     tbl.image,
+        ...     model_id='facebook/detr-resnet-50',
+        ...     threshold=0.8
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -284,6 +284,22 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
 
 @pxt.udf
 def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str, Any]:
+    """
+    Converts the output of a DETR object detection model to COCO format.
+
+    Args:
+        image: The image for which detections were computed.
+        detr_info: The output of a DETR object detection model, as returned by `detr_for_object_detection`.
+
+    Returns:
+        A dictionary containing the data from `detr_info`, converted to COCO format.
+
+    Examples:
+        Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image`
+        is the image for which detections were computed:
+
+        >>> tbl['detections_coco'] = detr_to_coco(tbl.image, tbl.detections)
+    """
     bboxes, labels = detr_info['boxes'], detr_info['labels']
     annotations = [
         {'bbox': [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]], 'category': label}
