@@ -128,10 +128,10 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         # count() doesn't yet support non-SQL Where clauses
         n = len(t.where(t.s.contains('Codd')).collect())
         t['s2'] = t.s.replace('Codd', 'Mohan')
-        m = len(t.where(t.s.contains('Mohan')).collect())
+        m = len(t.where(t.s2.contains('Mohan')).collect())
         assert n == m
         t['s3'] = t.s.replace('C.dd', 'Mohan', regex=True)
-        o = len(t.where(t.s.contains('Mohan')).collect())
+        o = len(t.where(t.s3.contains('Mohan')).collect())
         assert n == o
 
     def test_slice_replace(self, reset_db) -> None:
@@ -237,7 +237,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         for row in res:
             assert row['out'] == row['s'] * row['n']
 
-    def test_contains(self, reset_db) -> None:
+    def testcontains(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
@@ -275,10 +275,11 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_format(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
+        from pixeltable.functions.string import format
 
-        t.add_column(s1=t.s.format('ABC {0}', t.input))
-        t.add_column(s2=t.s.format('DEF {this}', this=t.input))
-        t.add_column(s3=t.s.format('GHI {0} JKL {this}', t.input, this=t.input))
+        t.add_column(s1=format('ABC {0}', t.input))
+        t.add_column(s2=format('DEF {this}', this=t.input))
+        t.add_column(s3=format('GHI {0} JKL {this}', t.input, this=t.input))
         status = t.insert(input='MNO')
         assert status.num_rows == 1
         assert status.num_excs == 0
