@@ -183,7 +183,7 @@ class ColumnType:
         """Two types match if they're equal, aside from nullability"""
         if not isinstance(other, ColumnType):
             pass
-        assert isinstance(other, ColumnType)
+        assert isinstance(other, ColumnType), type(other)
         if type(self) != type(other):
             return False
         for member_var in vars(self).keys():

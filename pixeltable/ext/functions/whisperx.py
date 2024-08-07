@@ -11,6 +11,33 @@ import pixeltable as pxt
 def transcribe(
     audio: str, *, model: str, compute_type: Optional[str] = None, language: Optional[str] = None, chunk_size: int = 30
 ) -> dict:
+    """
+    Transcribe an audio file using WhisperX.
+
+    This UDF runs a transcription model _locally_ using the WhisperX library,
+    equivalent to the WhisperX `transcribe` function, as described in the
+    [WhisperX library documentation](https://github.com/m-bain/whisperX).
+
+    __Requirements:__
+
+    - `pip install whisperx`
+
+    Args:
+        audio: The audio file to transcribe.
+        model: The name of the model to use for transcription.
+
+    See the [WhisperX library documentation](https://github.com/m-bain/whisperX) for details
+    on the remaining parameters.
+
+    Returns:
+        A dictionary containing the transcription and various other metadata.
+
+    Examples:
+        Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio`
+        of the table `tbl`:
+
+        >>> tbl['result'] = transcribe(tbl.audio, model='tiny.en')
+    """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     compute_type = compute_type or ('float16' if device == 'cuda' else 'int8')
     model = _lookup_model(model, device, compute_type)

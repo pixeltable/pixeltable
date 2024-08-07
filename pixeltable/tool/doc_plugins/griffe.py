@@ -1,5 +1,6 @@
 import ast
 from typing import Optional, Union
+import warnings
 
 import griffe
 import griffe.expressions
@@ -34,6 +35,7 @@ class PxtGriffeExtension(Extension):
         """
         func.extra['mkdocstrings']['template'] = 'udf.html.jinja'
         # Dynamically load the UDF reference so we can inspect the Pixeltable signature directly
+        warnings.simplefilter("ignore")
         udf = griffe.dynamic_import(func.path)
         assert isinstance(udf, pxt.Function)
         # Convert the return type to a Pixeltable type reference

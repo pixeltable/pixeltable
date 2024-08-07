@@ -1,3 +1,11 @@
+"""
+Pixeltable [UDF](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+that wraps the OpenAI Whisper library.
+
+This UDF will cause Pixeltable to invoke the relevant model locally. In order to use it, you must
+first `pip install openai-whisper`.
+"""
+
 from typing import TYPE_CHECKING, Optional
 
 import pixeltable as pxt
@@ -39,6 +47,30 @@ def transcribe(
     append_punctuations: str = '"\'.。,，!！?？:：”)]}、',
     decode_options: Optional[dict] = None,
 ) -> dict:
+    """
+    Transcribe an audio file using Whisper.
+
+    This UDF runs a transcription model _locally_ using the Whisper library,
+    equivalent to the Whisper `transcribe` function, as described in the
+    [Whisper library documentation](https://github.com/openai/whisper).
+
+    __Requirements:__
+
+    - `pip install openai-whisper`
+
+    Args:
+        audio: The audio file to transcribe.
+        model: The name of the model to use for transcription.
+
+    Returns:
+        A dictionary containing the transcription and various other metadata.
+
+    Examples:
+        Add a computed column that applies the model `base.en` to an existing Pixeltable column `tbl.audio`
+        of the table `tbl`:
+
+        >>> tbl['result'] = transcribe(tbl.audio, model='base.en')
+    """
     import torch
 
     if decode_options is None:

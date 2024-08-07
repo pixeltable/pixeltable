@@ -244,6 +244,51 @@ class TestFunction:
                 return order_by
         assert 'reserved' in str(exc_info.value)
 
+    @pxt.udf(is_method=True)
+    def increment(n: int) -> int:
+        return n + 1
+
+    @pxt.udf(is_property=True)
+    def successor(n: int) -> int:
+        return n + 1
+
+    @pxt.udf(is_method=True)
+    def append(s: str, suffix: str) -> str:
+        return s + suffix
+
+    def test_member_access_udf(self, reset_db) -> None:
+        t = pxt.create_table('test', {'c1': pxt.StringType(), 'c2': pxt.IntType()})
+        rows = [{'c1': 'a', 'c2': 1}, {'c1': 'b', 'c2': 2}]
+        validate_update_status(t.insert(rows))
+        result = t.select(t.c2.increment(), t.c2.successor, t.c1.append('x')).collect()
+        # properties have a default column name; methods do not
+        assert result[0] == {'col_0': 2, 'successor': 2, 'col_2': 'ax'}
+        assert result[1] == {'col_0': 3, 'successor': 3, 'col_2': 'bx'}
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(is_method=True, is_property=True)
+            def udf7(n: int) -> int:
+                return n + 1
+        assert 'Cannot specify both `is_method` and `is_property` (in function `udf7`)' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(is_property=True)
+            def udf8(a: int, b: int) -> int:
+                return a + b
+        assert "`is_property=True` expects a UDF with exactly 1 parameter, but `udf8` has 2" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(is_method=True, _force_stored=True)
+            def udf9(n: int) -> int:
+                return n + 1
+        assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            @pxt.udf(is_property=True, _force_stored=True)
+            def udf10(n: int) -> int:
+                return n + 1
+        assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
+
     def test_query(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
         name = t.name
