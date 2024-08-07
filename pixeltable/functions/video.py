@@ -96,7 +96,7 @@ _extract_audio_param_types = [
 ]
 
 
-@func.udf(return_type=ts.AudioType(nullable=True), param_types=_extract_audio_param_types)
+@func.udf(return_type=ts.AudioType(nullable=True), param_types=_extract_audio_param_types, is_method=True)
 def extract_audio(
     video_path: str, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
 ) -> Optional[str]:
@@ -128,7 +128,7 @@ def extract_audio(
         return output_filename
 
 
-@func.udf(return_type=ts.JsonType(nullable=False), param_types=[ts.VideoType(nullable=False)])
+@func.udf(return_type=ts.JsonType(nullable=False), param_types=[ts.VideoType(nullable=False)], is_method=True)
 def get_metadata(video: str) -> dict:
     """
     Gets various metadata associated with a video file and returns it as a dictionary.

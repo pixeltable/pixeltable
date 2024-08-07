@@ -15,11 +15,10 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 from typing import Any, Optional
 
 import pixeltable.func as func
-from pixeltable.type_system import StringType
 from pixeltable.utils.code import local_public_names
 
 
-@func.udf
+@func.udf(is_method=True)
 def capitalize(self: str) -> str:
     """
     Return string with its first character capitalized and the rest lowercased.
@@ -28,7 +27,7 @@ def capitalize(self: str) -> str:
     """
     return self.capitalize()
 
-@func.udf
+@func.udf(is_method=True)
 def casefold(self: str) -> str:
     """
     Return a casefolded copy of string.
@@ -37,7 +36,7 @@ def casefold(self: str) -> str:
     """
     return self.casefold()
 
-@func.udf
+@func.udf(is_method=True)
 def center(self: str, width: int, fillchar: str = ' ') -> str:
     """
     Return a centered string of length `width`.
@@ -50,7 +49,7 @@ def center(self: str, width: int, fillchar: str = ' ') -> str:
     """
     return self.center(width, fillchar)
 
-@func.udf
+@func.udf(is_method=True)
 def contains(self: str, pattern: str, case: bool = True, flags: int = 0, regex: bool = True) -> bool:
     """
     Test if string contains pattern or regex.
@@ -72,7 +71,7 @@ def contains(self: str, pattern: str, case: bool = True, flags: int = 0, regex: 
         else:
             return pattern.lower() in self.lower()
 
-@func.udf
+@func.udf(is_method=True)
 def count(self: str, pattern: str, flags: int = 0) -> int:
     """
     Count occurrences of pattern or regex.
@@ -85,7 +84,7 @@ def count(self: str, pattern: str, flags: int = 0) -> int:
     from builtins import len
     return len(re.findall(pattern, self, flags))
 
-@func.udf
+@func.udf(is_method=True)
 def endswith(self: str, pattern: str) -> bool:
     """
     Return `True` if the string ends with the specified suffix, otherwise return `False`.
@@ -97,7 +96,7 @@ def endswith(self: str, pattern: str) -> bool:
     """
     return self.endswith(pattern)
 
-@func.udf
+@func.udf(is_method=True)
 def fill(self: str, width: int, **kwargs: Any) -> str:
     """
     Wraps the single paragraph in string, and returns a single string containing the wrapped paragraph.
@@ -111,7 +110,7 @@ def fill(self: str, width: int, **kwargs: Any) -> str:
     import textwrap
     return textwrap.fill(self, width, **kwargs)
 
-@func.udf
+@func.udf(is_method=True)
 def find(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
     """
     Return the lowest index in string where `substr` is found within the slice `s[start:end]`.
@@ -125,7 +124,7 @@ def find(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = 
     """
     return self.find(substr, start, end)
 
-@func.udf
+@func.udf(is_method=True)
 def findall(self: str, pattern: str, flags: int = 0) -> list:
     """
     Find all occurrences of a regular expression pattern in string.
@@ -139,7 +138,7 @@ def findall(self: str, pattern: str, flags: int = 0) -> list:
     import re
     return re.findall(pattern, self, flags)
 
-@func.udf
+@func.udf(is_method=True)
 def format(self: str, *args: Any, **kwargs: Any) -> str:
     """
     Perform string formatting.
@@ -148,7 +147,7 @@ def format(self: str, *args: Any, **kwargs: Any) -> str:
     """
     return self.format(*args, **kwargs)
 
-@func.udf
+@func.udf(is_method=True)
 def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
     """
     Determine if string fully matches a regular expression.
@@ -166,7 +165,7 @@ def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> boo
     _ = bool(re.fullmatch(pattern, self, flags))
     return bool(re.fullmatch(pattern, self, flags))
 
-@func.udf
+@func.udf(is_method=True)
 def index(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
     """
     Return the lowest index in string where `substr` is found within the slice `[start:end]`.
@@ -181,7 +180,7 @@ def index(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] =
     """
     return self.index(substr, start, end)
 
-@func.udf
+@func.udf(is_method=True)
 def isalnum(self: str) -> bool:
     """
     Return `True` if all characters in the string are alphanumeric and there is at least one character, `False`
@@ -191,7 +190,7 @@ def isalnum(self: str) -> bool:
     """
     return self.isalnum()
 
-@func.udf
+@func.udf(is_method=True)
 def isalpha(self: str) -> bool:
     """
     Return `True` if all characters in the string are alphabetic and there is at least one character, `False` otherwise.
@@ -200,7 +199,7 @@ def isalpha(self: str) -> bool:
     """
     return self.isalpha()
 
-@func.udf
+@func.udf(is_method=True)
 def isascii(self: str) -> bool:
     """
     Return `True` if the string is empty or all characters in the string are ASCII, `False` otherwise.
@@ -209,7 +208,7 @@ def isascii(self: str) -> bool:
     """
     return self.isascii()
 
-@func.udf
+@func.udf(is_method=True)
 def isdecimal(self: str) -> bool:
     """
     Return `True` if all characters in the string are decimal characters and there is at least one character, `False`
@@ -219,7 +218,7 @@ def isdecimal(self: str) -> bool:
     """
     return self.isdecimal()
 
-@func.udf
+@func.udf(is_method=True)
 def isdigit(self: str) -> bool:
     """
     Return `True` if all characters in the string are digits and there is at least one character, `False` otherwise.
@@ -228,7 +227,7 @@ def isdigit(self: str) -> bool:
     """
     return self.isdigit()
 
-@func.udf
+@func.udf(is_method=True)
 def isidentifier(self: str) -> bool:
     """
     Return `True` if the string is a valid identifier according to the language definition, `False` otherwise.
@@ -238,7 +237,7 @@ def isidentifier(self: str) -> bool:
     return self.isidentifier()
 
 
-@func.udf
+@func.udf(is_method=True)
 def islower(self: str) -> bool:
     """
     Return `True` if all cased characters in the string are lowercase and there is at least one cased character, `False` otherwise.
@@ -247,7 +246,7 @@ def islower(self: str) -> bool:
     """
     return self.islower()
 
-@func.udf
+@func.udf(is_method=True)
 def isnumeric(self: str) -> bool:
     """
     Return `True` if all characters in the string are numeric characters, `False` otherwise.
@@ -256,7 +255,7 @@ def isnumeric(self: str) -> bool:
     """
     return self.isnumeric()
 
-@func.udf
+@func.udf(is_method=True)
 def isupper(self: str) -> bool:
     """
     Return `True` if all cased characters in the string are uppercase and there is at least one cased character, `False` otherwise.
@@ -265,7 +264,7 @@ def isupper(self: str) -> bool:
     """
     return self.isupper()
 
-@func.udf
+@func.udf(is_method=True)
 def istitle(self: str) -> bool:
     """
     Return `True` if the string is a titlecased string and there is at least one character, `False` otherwise.
@@ -274,7 +273,7 @@ def istitle(self: str) -> bool:
     """
     return self.istitle()
 
-@func.udf
+@func.udf(is_method=True)
 def isspace(self: str) -> bool:
     """
     Return `True` if there are only whitespace characters in the string and there is at least one character, `False` otherwise.
@@ -283,7 +282,7 @@ def isspace(self: str) -> bool:
     """
     return self.isspace()
 
-@func.udf
+@func.udf(is_method=True)
 def len(self: str) -> int:
     """
     Return the number of characters in the string.
@@ -292,7 +291,7 @@ def len(self: str) -> int:
     """
     return self.__len__()
 
-@func.udf
+@func.udf(is_method=True)
 def ljust(self: str, width: int, fillchar: str = ' ') -> str:
     """
     Return the string left-justified in a string of length `width`.
@@ -305,7 +304,7 @@ def ljust(self: str, width: int, fillchar: str = ' ') -> str:
     """
     return self.ljust(width, fillchar)
 
-@func.udf
+@func.udf(is_method=True)
 def lower(self: str) -> str:
     """
     Return a copy of the string with all the cased characters converted to lowercase.
@@ -314,7 +313,7 @@ def lower(self: str) -> str:
     """
     return self.lower()
 
-@func.udf
+@func.udf(is_method=True)
 def lstrip(self: str, chars: Optional[str] = None) -> str:
     """
     Return a copy of the string with leading characters removed. The `chars` argument is a string specifying the set of
@@ -327,7 +326,7 @@ def lstrip(self: str, chars: Optional[str] = None) -> str:
     """
     return self.lstrip(chars)
 
-@func.udf
+@func.udf(is_method=True)
 def match(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
     """
     Determine if string starts with a match of a regular expression
@@ -342,7 +341,7 @@ def match(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
         flags |= re.IGNORECASE
     return bool(re.match(pattern, self, flags))
 
-@func.udf
+@func.udf(is_method=True)
 def normalize(self: str, form: str) -> str:
     """
     Return the Unicode normal form.
@@ -355,7 +354,7 @@ def normalize(self: str, form: str) -> str:
     import unicodedata
     return unicodedata.normalize(form, self)
 
-@func.udf
+@func.udf(is_method=True)
 def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
     """
     Pad string up to width
@@ -374,7 +373,7 @@ def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
     else:
         raise ValueError(f"Invalid side: {side}")
 
-@func.udf
+@func.udf(is_method=True)
 def partition(self: str, sep: str = ' ') -> list:
     """
     Splits string at the first occurrence of `sep`, and returns 3 elements containing the part before the
@@ -387,7 +386,7 @@ def partition(self: str, sep: str = ' ') -> list:
     from builtins import len
     return [self[:idx], sep, self[idx + len(sep):]]
 
-@func.udf
+@func.udf(is_method=True)
 def removeprefix(self: str, prefix: str) -> str:
     """
     Remove prefix. If the prefix is not present, returns string.
@@ -398,7 +397,7 @@ def removeprefix(self: str, prefix: str) -> str:
         return self[len(prefix):]
     return self
 
-@func.udf
+@func.udf(is_method=True)
 def removesuffix(self: str, suffix: str) -> str:
     """
     Remove suffix. If the suffix is not present, returns string.
@@ -409,14 +408,14 @@ def removesuffix(self: str, suffix: str) -> str:
         return self[:-len(suffix)]
     return self
 
-@func.udf
+@func.udf(is_method=True)
 def repeat(self: str, n: int) -> str:
     """
     Repeat string `n` times.
     """
     return self * n
 
-@func.udf
+@func.udf(is_method=True)
 def replace(
         self: str, pattern: str, repl: str, n: int = -1, case: bool = True, flags: int = 0, regex: bool = False
 ) -> str:
@@ -442,7 +441,7 @@ def replace(
     else:
         return self.replace(pattern, repl, n)
 
-@func.udf
+@func.udf(is_method=True)
 def rfind(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
     """
     Return the highest index where `substr` is found, such that `substr` is contained within `[start:end]`.
@@ -456,7 +455,7 @@ def rfind(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] =
     """
     return self.rfind(substr, start, end)
 
-@func.udf
+@func.udf(is_method=True)
 def rindex(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
     """
     Return the highest index where `substr` is found, such that `substr` is contained within `[start:end]`.
@@ -466,7 +465,7 @@ def rindex(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] 
     """
     return self.rindex(substr, start, end)
 
-@func.udf
+@func.udf(is_method=True)
 def rjust(self: str, width: int, fillchar: str = ' ') -> str:
     """
     Return the string right-justified in a string of length `width`.
@@ -479,7 +478,7 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
     """
     return self.rjust(width, fillchar)
 
-@func.udf
+@func.udf(is_method=True)
 def rpartition(self: str, sep: str = ' ') -> list:
     """
     This method splits string at the last occurrence of `sep`, and returns a list containing the part before the
@@ -491,7 +490,7 @@ def rpartition(self: str, sep: str = ' ') -> list:
     from builtins import len
     return [self[:idx], sep, self[idx + len(sep):]]
 
-@func.udf
+@func.udf(is_method=True)
 def rstrip(self: str, chars: Optional[str] = None) -> str:
     """
     Return a copy of string with trailing characters removed.
@@ -503,7 +502,7 @@ def rstrip(self: str, chars: Optional[str] = None) -> str:
     """
     return self.rstrip(chars)
 
-@func.udf
+@func.udf(is_method=True)
 def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, step: Optional[int] = None) -> str:
     """
     Return a slice.
@@ -515,7 +514,7 @@ def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, st
     """
     return self[start:stop:step]
 
-@func.udf
+@func.udf(is_method=True)
 def slice_replace(self: str, start: Optional[int] = None, stop: Optional[int] = None, repl: Optional[str] = None) -> str:
     """
     Replace a positional slice with another value.
@@ -527,7 +526,7 @@ def slice_replace(self: str, start: Optional[int] = None, stop: Optional[int] = 
     """
     return self[:start] + repl + self[stop:]
 
-@func.udf
+@func.udf(is_method=True)
 def startswith(self: str, pattern: str) -> int:
     """
     Return `True` if string starts with `pattern`, otherwise return `False`.
@@ -539,7 +538,7 @@ def startswith(self: str, pattern: str) -> int:
     """
     return self.startswith(pattern)
 
-@func.udf
+@func.udf(is_method=True)
 def strip(self: str, chars: Optional[str] = None) -> str:
     """
     Return a copy of string with leading and trailing characters removed.
@@ -551,7 +550,7 @@ def strip(self: str, chars: Optional[str] = None) -> str:
     """
     return self.strip(chars)
 
-@func.udf
+@func.udf(is_method=True)
 def swapcase(self: str) -> str:
     """
     Return a copy of string with uppercase characters converted to lowercase and vice versa.
@@ -560,7 +559,7 @@ def swapcase(self: str) -> str:
     """
     return self.swapcase()
 
-@func.udf
+@func.udf(is_method=True)
 def title(self: str) -> str:
     """
     Return a titlecased version of string, i.e. words start with uppercase characters, all remaining cased characters
@@ -570,7 +569,7 @@ def title(self: str) -> str:
     """
     return self.title()
 
-@func.udf
+@func.udf(is_method=True)
 def upper(self: str) -> str:
     """
     Return a copy of string converted to uppercase.
@@ -579,7 +578,7 @@ def upper(self: str) -> str:
     """
     return self.upper()
 
-@func.udf
+@func.udf(is_method=True)
 def wrap(self: str, width: int, **kwargs: Any) -> dict:
     """
     Wraps the single paragraph in string so every line is at most `width` characters long.
@@ -594,7 +593,7 @@ def wrap(self: str, width: int, **kwargs: Any) -> dict:
     import textwrap
     return textwrap.wrap(self, width, **kwargs)
 
-@func.udf
+@func.udf(is_method=True)
 def zfill(self: str, width: int) -> str:
     """
     Pad a numeric string with ASCII `0` on the left to a total length of `width`.
