@@ -5,7 +5,6 @@ from urllib.request import urlretrieve
 
 import PIL.Image
 import numpy as np
-import torch
 
 import pixeltable as pxt
 from pixeltable import env
@@ -14,6 +13,7 @@ from pixeltable.functions.util import normalize_image_mode
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
+    import torch
     from yolox.exp import Exp
     from yolox.models import YOLOX
 
@@ -46,6 +46,7 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
 
         >>> tbl['detections'] = yolox(tbl.image, model_id='yolox_m', threshold=0.8)
     """
+    import torch
     from yolox.utils import postprocess
 
     model, exp = _lookup_model(model_id, 'cpu')
@@ -104,8 +105,10 @@ def yolo_to_coco(detections: dict) -> list:
     return result
 
 
-def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: 'Exp') -> Iterator[torch.Tensor]:
+def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: 'Exp') -> Iterator['torch.Tensor']:
+    import torch
     from yolox.data import ValTransform
+
     _val_transform = ValTransform(legacy=False)
     for image in images:
         image = normalize_image_mode(image)
@@ -114,6 +117,7 @@ def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: 'Exp') -> Iterato
 
 
 def _lookup_model(model_id: str, device: str) -> tuple['YOLOX', 'Exp']:
+    import torch
     from yolox.exp import get_exp
 
     key = (model_id, device)

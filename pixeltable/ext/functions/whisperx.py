@@ -1,7 +1,5 @@
 from typing import Optional, TYPE_CHECKING
 
-import torch
-
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -41,6 +39,7 @@ def transcribe(
 
         >>> tbl['result'] = transcribe(tbl.audio, model='tiny.en')
     """
+    import torch
     import whisperx
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
