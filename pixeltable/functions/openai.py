@@ -1,3 +1,10 @@
+"""
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+that wrap various endpoints from the OpenAI API. In order to use them, you must
+first `pip install openai` and configure your OpenAI credentials, as described in
+the [Working with OpenAI](https://pixeltable.readme.io/docs/working-with-openai) tutorial.
+"""
+
 import base64
 import io
 import pathlib
@@ -51,6 +58,33 @@ def _retry(fn: Callable) -> Callable:
 def speech(
     input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
 ) -> str:
+    """
+    Generates audio from the input text.
+
+    Equivalent to the OpenAI `audio/speech` API endpoint.
+    For additional details, see: [https://platform.openai.com/docs/guides/text-to-speech](https://platform.openai.com/docs/guides/text-to-speech)
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        input: The text to synthesize into speech.
+        model: The model to use for speech synthesis.
+        voice: The voice profile to use for speech synthesis. Supported options include:
+            `alloy`, `echo`, `fable`, `onyx`, `nova`, and `shimmer`.
+
+    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/audio/createSpeech](https://platform.openai.com/docs/api-reference/audio/createSpeech)
+
+    Returns:
+        An audio file containing the synthesized speech.
+
+    Examples:
+        Add a computed column that applies the model `tts-1` to an existing Pixeltable column `tbl.text`
+        of the table `tbl`:
+
+        >>> tbl['audio'] = speech(tbl.text, model='tts-1', voice='nova')
+    """
     content = _retry(_openai_client().audio.speech.create)(
         input=input, model=model, voice=voice, response_format=_opt(response_format), speed=_opt(speed)
     )
@@ -77,6 +111,31 @@ def transcriptions(
     prompt: Optional[str] = None,
     temperature: Optional[float] = None,
 ) -> dict:
+    """
+    Transcribes audio into the input language.
+
+    Equivalent to the OpenAI `audio/transcriptions` API endpoint.
+    For additional details, see: [https://platform.openai.com/docs/guides/speech-to-text](https://platform.openai.com/docs/guides/speech-to-text)
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        audio: The audio to transcribe.
+        model: The model to use for speech transcription.
+
+    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/audio/createTranscription](https://platform.openai.com/docs/api-reference/audio/createTranscription)
+
+    Returns:
+        A dictionary containing the transcription and other metadata.
+
+    Examples:
+        Add a computed column that applies the model `whisper-1` to an existing Pixeltable column `tbl.audio`
+        of the table `tbl`:
+
+        >>> tbl['transcription'] = transcriptions(tbl.audio, model='whisper-1', language='en')
+    """
     file = pathlib.Path(audio)
     transcription = _retry(_openai_client().audio.transcriptions.create)(
         file=file, model=model, language=_opt(language), prompt=_opt(prompt), temperature=_opt(temperature)
@@ -86,6 +145,31 @@ def transcriptions(
 
 @pxt.udf(param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True), ts.FloatType(nullable=True)])
 def translations(audio: str, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
+    """
+    Translates audio into English.
+
+    Equivalent to the OpenAI `audio/translations` API endpoint.
+    For additional details, see: [https://platform.openai.com/docs/guides/speech-to-text](https://platform.openai.com/docs/guides/speech-to-text)
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        audio: The audio to translate.
+        model: The model to use for speech transcription and translation.
+
+    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/audio/createTranslation](https://platform.openai.com/docs/api-reference/audio/createTranslation)
+
+    Returns:
+        A dictionary containing the translation and other metadata.
+
+    Examples:
+        Add a computed column that applies the model `whisper-1` to an existing Pixeltable column `tbl.audio`
+        of the table `tbl`:
+
+        >>> tbl['translation'] = translations(tbl.audio, model='whisper-1', language='en')
+    """
     file = pathlib.Path(audio)
     translation = _retry(_openai_client().audio.translations.create)(
         file=file, model=model, prompt=_opt(prompt), temperature=_opt(temperature)
@@ -118,6 +202,35 @@ def chat_completions(
     tool_choice: Optional[dict] = None,
     user: Optional[str] = None,
 ) -> dict:
+    """
+    Creates a model response for the given chat conversation.
+
+    Equivalent to the OpenAI `chat/completions` API endpoint.
+    For additional details, see: [https://platform.openai.com/docs/guides/chat-completions](https://platform.openai.com/docs/guides/chat-completions)
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        messages: A list of messages to use for chat completion, as described in the OpenAI API documentation.
+        model: The model to use for chat completion.
+
+    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/chat](https://platform.openai.com/docs/api-reference/chat)
+
+    Returns:
+        A dictionary containing the response and other metadata.
+
+    Examples:
+        Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
+        of the table `tbl`:
+
+        >>> messages = [
+                {'role': 'system', 'content': 'You are a helpful assistant.'},
+                {'role': 'user', 'content': tbl.prompt}
+            ]
+            tbl['response'] = chat_completions(messages, model='gpt-4o-mini')
+    """
     result = _retry(_openai_client().chat.completions.create)(
         messages=messages,
         model=model,
@@ -142,6 +255,30 @@ def chat_completions(
 
 @pxt.udf
 def vision(prompt: str, image: PIL.Image.Image, *, model: str) -> str:
+    """
+    Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
+    prompt, and constructs a chat completion request that utilizes OpenAI vision.
+
+    For additional details, see: [https://platform.openai.com/docs/guides/vision](https://platform.openai.com/docs/guides/vision)
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        prompt: A prompt for the OpenAI vision request.
+        image: The image to analyze.
+        model: The model to use for OpenAI vision.
+
+    Returns:
+        The response from the OpenAI vision API.
+
+    Examples:
+        Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.image`
+        of the table `tbl`:
+
+        >>> tbl['response'] = vision("What's in this image?", tbl.image, model='gpt-4o-mini')
+    """
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     bytes_arr = io.BytesIO()
     image.save(bytes_arr, format='png')
@@ -174,6 +311,33 @@ _embedding_dimensions_cache: dict[str, int] = {
 def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
 ) -> Batch[np.ndarray]:
+    """
+    Creates an embedding vector representing the input text.
+
+    Equivalent to the OpenAI `embeddings` API endpoint.
+    For additional details, see: [https://platform.openai.com/docs/guides/embeddings](https://platform.openai.com/docs/guides/embeddings)
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        input: The text to embed.
+        model: The model to use for the embedding.
+        dimensions: The vector length of the embedding. If not specified, Pixeltable will use
+            a default value based on the model.
+
+    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/embeddings](https://platform.openai.com/docs/api-reference/embeddings)
+
+    Returns:
+        An array representing the application of the given embedding to `input`.
+
+    Examples:
+        Add a computed column that applies the model `text-embedding-3-small` to an existing
+        Pixeltable column `tbl.text` of the table `tbl`:
+
+        >>> tbl['embed'] = embeddings(tbl.text, model='text-embedding-3-small')
+    """
     result = _retry(_openai_client().embeddings.create)(
         input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float'
     )
@@ -204,6 +368,31 @@ def image_generations(
     style: Optional[str] = None,
     user: Optional[str] = None,
 ) -> PIL.Image.Image:
+    """
+    Creates an image given a prompt.
+
+    Equivalent to the OpenAI `images/generations` API endpoint.
+    For additional details, see: [https://platform.openai.com/docs/guides/images](https://platform.openai.com/docs/guides/images)
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        prompt: Prompt for the image.
+        model: The model to use for the generations.
+
+    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/images/create](https://platform.openai.com/docs/api-reference/images/create)
+
+    Returns:
+        The generated image.
+
+    Examples:
+        Add a computed column that applies the model `dall-e-2` to an existing
+        Pixeltable column `tbl.text` of the table `tbl`:
+
+        >>> tbl['gen_image'] = image_generations(tbl.text, model='dall-e-2')
+    """
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     result = _retry(_openai_client().images.generate)(
         prompt=prompt,
@@ -241,6 +430,31 @@ def _(size: Optional[str] = None) -> ts.ImageType:
 
 @pxt.udf
 def moderations(input: str, *, model: Optional[str] = None) -> dict:
+    """
+    Classifies if text is potentially harmful.
+
+    Equivalent to the OpenAI `moderations` API endpoint.
+    For additional details, see: [https://platform.openai.com/docs/guides/moderation](https://platform.openai.com/docs/guides/moderation)
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        input: Text to analyze with the moderations model.
+        model: The model to use for moderations.
+
+    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/moderations](https://platform.openai.com/docs/api-reference/moderations)
+
+    Returns:
+        Details of the moderations results.
+
+    Examples:
+        Add a computed column that applies the model `text-moderation-stable` to an existing
+        Pixeltable column `tbl.input` of the table `tbl`:
+
+        >>> tbl['moderations'] = moderations(tbl.text, model='text-moderation-stable')
+    """
     result = _retry(_openai_client().moderations.create)(input=input, model=_opt(model))
     return result.dict()
 
