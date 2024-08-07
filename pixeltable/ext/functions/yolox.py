@@ -145,7 +145,7 @@ def _lookup_model(model_id: str, device: str) -> tuple['YOLOX', 'Exp']:
     return model, exp
 
 
-_model_cache: dict[(str, str), ('YOLOX', 'Exp')] = {}
+_model_cache: dict[tuple[str, str], tuple['YOLOX', 'Exp']] = {}
 
 
 __all__ = local_public_names(__name__)
