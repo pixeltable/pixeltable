@@ -146,7 +146,26 @@ def import_data(
     comment: str = ''
     ) -> Table:
     """
-    Import data into a new Pixeltable `Table`.
+    Creates a new `Table` from a list of dictionaries. The dictionaries must be of the form
+    `{column_name: value, ...}`. Pixeltable will attempt to infer the schema of the table from the
+    supplied data, using the most specific type that can represent all the values in a column. If
+    a column contains `None` values, or is omitted from at least one dictionary, it will be made nullable.
+
+    If `schema_overrides` is specified, then for each entry `(column_name, type)` in `schema_overrides`,
+    Pixeltable will force the specified column to the specified type (and will not attempt any type inference
+    for that column).
+
+    Args:
+        tbl_name: The name of the table to create.
+        data: The list of dictionaries to import.
+        schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
+            as described above.
+        primary_key: The primary key of the table (see `create_table`).
+        num_retained_versions: The number of retained versions of the table (see `create_table`).
+        comment: A comment to attach to the table (see `create_table`).
+
+    Returns:
+        The newly created `Table`.
     """
     if schema_overrides is None:
         schema_overrides = {}
@@ -195,6 +214,19 @@ def import_json(
     Creates a new `Table` from a JSON file. This is a convenience method and is equivalent
     to calling `import_data(table_path, json.loads(file_contents, **kwargs), ...)`, where `file_contents`
     is the contents of the specified `filepath_or_url`.
+
+    Args:
+        tbl_name: The name of the table to create.
+        filepath_or_url: The path or URL of the JSON file.
+        schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
+            (see `import_data`).
+        primary_key: The primary key of the table (see `create_table`).
+        num_retained_versions: The number of retained versions of the table (see `create_table`).
+        comment: A comment to attach to the table (see `create_table`).
+        kwargs: Additional keyword arguments to pass to `json.loads`.
+
+    Returns:
+        The newly created `Table`.
     """
     import json
     import urllib.parse
