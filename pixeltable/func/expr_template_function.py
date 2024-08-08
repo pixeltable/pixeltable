@@ -56,7 +56,7 @@ class ExprTemplateFunction(Function):
             arg_exprs[param_expr] = arg_expr
         result = result.substitute(arg_exprs)
         import pixeltable.exprs as exprs
-        assert not result.contains(exprs.Variable)
+        assert not result._contains(exprs.Variable)
         return result
 
     def exec(self, *args: Any, **kwargs: Any) -> Any:

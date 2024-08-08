@@ -6,7 +6,6 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
-from pixeltable.functions.video import get_metadata
 from pixeltable.iterators import FrameIterator
 from pixeltable.type_system import VideoType, ImageType
 from pixeltable.utils.media_store import MediaStore
@@ -104,7 +103,7 @@ class TestVideo:
     def test_get_metadata(self, reset_db) -> None:
         video_filepaths = get_video_files()
         base_t = pxt.create_table('video_tbl', {'video': VideoType()})
-        base_t['metadata'] = get_metadata(base_t.video)
+        base_t['metadata'] = base_t.video.get_metadata()
         validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         result = base_t.where(base_t.metadata.size == 2234371).select(base_t.metadata).collect()['metadata'][0]
         assert result == {

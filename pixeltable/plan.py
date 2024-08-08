@@ -107,7 +107,7 @@ class Analyzer:
         for e in self.group_by_clause:
             if e.sql_expr() is None:
                 raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
-            if e.contains(filter=lambda e: _is_agg_fn_call(e)):
+            if e._contains(filter=lambda e: _is_agg_fn_call(e)):
                 raise excs.Error(f'Grouping expression contains aggregate function: {e}')
 
         # check that agg fn calls don't have contradicting ordering requirements

@@ -263,7 +263,7 @@ class Expr(abc.ABC):
         if is_match:
             yield self
 
-    def contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
+    def _contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls.
         """

@@ -30,8 +30,7 @@ class TestAudio:
     def test_extract(self, reset_db) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': VideoType()})
-        from pixeltable.functions.video import extract_audio
-        video_t.add_column(audio=extract_audio(video_t.video))
+        video_t.add_column(audio=video_t.video.extract_audio())
 
         # one of the 3 videos doesn't have audio
         status = video_t.insert({'video': p} for p in video_filepaths)
@@ -45,17 +44,17 @@ class TestAudio:
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
 
         # test generating different formats and codecs
-        paths = video_t.select(output=extract_audio(video_t.video, format='wav', codec='pcm_s16le')).collect()['output']
+        paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir
         assert env.Env.get().num_tmp_files() == video_t.where(video_t.audio != None).count()
         for path in [p for p in paths if p is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s16le')
         # higher resolution
-        paths = video_t.select(output=extract_audio(video_t.video, format='wav', codec='pcm_s32le')).collect()['output']
+        paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s32le')).collect()['output']
         for path in [p for p in paths if p is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s32le')
 
         for format in ['mp3', 'flac']:
-            paths = video_t.select(output=extract_audio(video_t.video, format=format)).collect()['output']
+            paths = video_t.select(output=video_t.video.extract_audio(format=format)).collect()['output']
             for path in [p for p in paths if p is not None]:
                 self.check_audio_params(path, format=format)

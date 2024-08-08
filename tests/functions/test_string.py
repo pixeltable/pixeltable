@@ -1,8 +1,10 @@
 import re
+from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
+
 from ..utils import validate_update_status
 
 
@@ -32,11 +34,18 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
-        from pixeltable.functions.string import \
-            capitalize, casefold, center, count, endswith, find, isalnum, isalpha, isascii, isdecimal, isdigit, \
-            isidentifier, islower,  isnumeric, isupper, isspace, istitle, ljust, lower, lstrip, rfind, \
-            rjust, rstrip, startswith, strip, swapcase, title, upper, zfill
-        test_params = [  # (pxt_fn, str_fn, args, kwargs)
+        from pixeltable.functions.string import (capitalize, casefold, center,
+                                                 count, endswith, find,
+                                                 isalnum, isalpha, isascii,
+                                                 isdecimal, isdigit,
+                                                 isidentifier, islower,
+                                                 isnumeric, isspace, istitle,
+                                                 isupper, ljust, lower, lstrip,
+                                                 rfind, rjust, rstrip,
+                                                 startswith, strip, swapcase,
+                                                 title, upper, zfill)
+        test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
+            # (pxt_fn, str_fn, args, kwargs)
             (capitalize, str.capitalize, [], {}),
             (casefold, str.casefold, [], {}),
             (center, str.center, [100], {}),
@@ -78,13 +87,20 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
                 print(pxt_fn)
                 raise e
 
+        # Check that they can all be called with method syntax too
+        for pxt_fn, _, _, _ in test_params:
+            mref = t.s.__getattr__(pxt_fn.name)
+            assert isinstance(mref, pxt.exprs.MethodRef)
+            assert mref.method_name == pxt_fn.name, pxt_fn
+
     def test_removeprefix(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
         from pixeltable.functions.string import removeprefix
+
         # count() doesn't yet support non-SQL Where clauses
-        res = t.select(t.s, out=removeprefix(t.s, 'Codd')).collect()
+        res = t.select(t.s, out=t.s.removeprefix('Codd')).collect()
         for row in res:
             if row['s'].startswith('Codd'):
                 assert row['out'] == row['s'][4:]
@@ -95,9 +111,9 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import removesuffix
+
         # count() doesn't yet support non-SQL Where clauses
-        res = t.select(t.s, out=removesuffix(t.s, '1970')).collect()
+        res = t.select(t.s, out=t.s.removesuffix('1970')).collect()
         for row in res:
             if row['s'].endswith('1970'):
                 assert row['out'] == row['s'][:-4]
@@ -108,23 +124,23 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import replace, contains
+
         # count() doesn't yet support non-SQL Where clauses
-        n = len(t.where(contains(t.s, 'Codd')).collect())
-        t['s2'] = replace(t.s, 'Codd', 'Mohan')
-        m = len(t.where(contains(t.s2, 'Mohan')).collect())
+        n = len(t.where(t.s.contains('Codd')).collect())
+        t['s2'] = t.s.replace('Codd', 'Mohan')
+        m = len(t.where(t.s2.contains('Mohan')).collect())
         assert n == m
-        t['s3'] = replace(t.s, 'C.dd', 'Mohan', regex=True)
-        o = len(t.where(contains(t.s3, 'Mohan')).collect())
+        t['s3'] = t.s.replace('C.dd', 'Mohan', regex=True)
+        o = len(t.where(t.s3.contains('Mohan')).collect())
         assert n == o
 
     def test_slice_replace(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import slice_replace, contains
+
         # count() doesn't yet support non-SQL Where clauses
-        res = t.select(t.s, out=slice_replace(t.s, 50, 51, 'abc')).collect()
+        res = t.select(t.s, out=t.s.slice_replace(50, 51, 'abc')).collect()
         for row in res:
             assert row['out'] == row['s'][:50] + 'abc' + row['s'][51:]
 
@@ -132,11 +148,11 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import partition, contains
+
         # count() doesn't yet support non-SQL Where clauses
-        status = t.add_column(parts=partition(t.s, 'IBM'))
+        status = t.add_column(parts=t.s.partition('IBM'))
         assert status.num_excs == 0
-        res = t.where(contains(t.s, 'IBM')).select(t.s, t.parts).collect()
+        res = t.where(t.s.contains('IBM')).select(t.s, t.parts).collect()
         for row in res:
             assert len(row['parts']) == 3
             assert len(row['parts'][0]) == row['s'].find('IBM')
@@ -146,11 +162,11 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import rpartition, contains
+
         # count() doesn't yet support non-SQL Where clauses
-        status = t.add_column(parts=rpartition(t.s, 'IBM'))
+        status = t.add_column(parts=t.s.rpartition('IBM'))
         assert status.num_excs == 0
-        res = t.where(contains(t.s, 'IBM')).select(t.s, t.parts).collect()
+        res = t.where(t.s.contains('IBM')).select(t.s, t.parts).collect()
         for row in res:
             assert len(row['parts']) == 3
             assert len(row['parts'][0]) == row['s'].rfind('IBM')
@@ -160,12 +176,12 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import fill, wrap
         import textwrap
-        res = t.select(t.s, out=fill(t.s, 5)).collect()
+
+        res = t.select(t.s, out=t.s.fill(5)).collect()
         for row in res:
             assert row['out'] == textwrap.fill(row['s'], 5)
-        res = t.select(t.s, out=wrap(t.s, 5)).collect()
+        res = t.select(t.s, out=t.s.wrap(5)).collect()
         for row in res:
             assert row['out'] == textwrap.wrap(row['s'], 5)
 
@@ -173,8 +189,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import slice
-        res = t.select(t.s, out=slice(t.s, 0, 4)).collect()
+        res = t.select(t.s, out=t.s.slice(0, 4)).collect()
         for row in res:
             assert row['out'] == row['s'][0:4]
 
@@ -182,26 +197,25 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import match
+
         # count() doesn't yet support non-SQL Where clauses
-        assert len(t.where(match(t.s, 'Codd')).collect()) == 2
-        assert len(t.where(match(t.s, 'codd', case=False)).collect()) == 2
+        assert len(t.where(t.s.match('Codd')).collect()) == 2
+        assert len(t.where(t.s.match('codd', case=False)).collect()) == 2
 
     def test_fullmatch(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import fullmatch
+
         # count() doesn't yet support non-SQL Where clauses
-        assert len(t.where(fullmatch(t.s, 'F')).collect()) == 1
-        assert len(t.where(fullmatch(t.s, 'f', case=False)).collect()) == 1
+        assert len(t.where(t.s.fullmatch('F')).collect()) == 1
+        assert len(t.where(t.s.fullmatch('f', case=False)).collect()) == 1
 
     def test_pad(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import pad
-        res = t.select(t.s, out=pad(t.s, width=100, side='both')).collect()
+        res = t.select(t.s, out=t.s.pad(width=100, side='both')).collect()
         for row in res:
             assert row['out'] == row['s'].center(100)
 
@@ -209,9 +223,9 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import normalize
         import unicodedata
-        res = t.select(t.s, out=normalize(t.s, 'NFC')).collect()
+
+        res = t.select(t.s, out=t.s.normalize('NFC')).collect()
         for row in res:
             assert row['out'] == unicodedata.normalize('NFC', row['s'])
 
@@ -219,47 +233,43 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'s': pxt.StringType(), 'n': pxt.IntType()})
         strs = ['a', 'b', 'c', 'd', 'e']
         validate_update_status(t.insert({'s': s, 'n': n} for n, s in enumerate(strs)), expected_rows=len(strs))
-        from pixeltable.functions.string import repeat
-        res = t.select(t.s, t.n, out=repeat(t.s, t.n)).collect()
+        res = t.select(t.s, t.n, out=t.s.repeat(t.n)).collect()
         for row in res:
             assert row['out'] == row['s'] * row['n']
 
-    def test_contains(self, reset_db) -> None:
+    def testcontains(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import contains
-
-        assert t.select(out=contains(t.s, 'IBM')).collect()['out'] == ['IBM' in s for s in test_strs]
-        assert t.select(out=contains(t.s, 'IBM', regex=False)).collect()['out'] == ['IBM' in s for s in test_strs]
-        assert t.select(out=contains(t.s, 'ibm', regex=False, case=True)).collect()['out'] == \
+        assert t.select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in test_strs]
+        assert t.select(out=t.s.contains('IBM', regex=False)).collect()['out'] == ['IBM' in s for s in test_strs]
+        assert t.select(out=t.s.contains('ibm', regex=False, case=True)).collect()['out'] == \
                ['ibm' in s for s in test_strs]
-        assert t.select(out=contains(t.s, 'ibm', regex=False, case=False)).collect()['out'] == \
+        assert t.select(out=t.s.contains('ibm', regex=False, case=False)).collect()['out'] == \
                ['ibm' in s.lower() for s in test_strs]
-        assert t.select(out=contains(t.s, 'ibm', regex=True, flags=re.IGNORECASE)).collect()['out'] == \
+        assert t.select(out=t.s.contains('ibm', regex=True, flags=re.IGNORECASE)).collect()['out'] == \
                ['ibm' in s.lower() for s in test_strs]
-        assert t.select(out=contains(t.s, 'i.m', regex=True, flags=re.IGNORECASE)).collect()['out'] >= \
+        assert t.select(out=t.s.contains('i.m', regex=True, flags=re.IGNORECASE)).collect()['out'] >= \
                ['ibm' in s.lower() for s in test_strs]
 
     def test_index(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import index, rindex, contains
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = t.select(index(t.s, 'IBM')).collect()
+            _ = t.select(t.s.index('IBM')).collect()
         assert 'ValueError' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = t.select(rindex(t.s, 'IBM')).collect()
+            _ = t.select(t.s.rindex('IBM')).collect()
         assert 'ValueError' in str(exc_info.value)
 
-        res = t.where(contains(t.s, 'IBM')).select(t.s, idx=index(t.s, 'IBM')).collect()
+        res = t.where(t.s.contains('IBM')).select(t.s, idx=t.s.index('IBM')).collect()
         for s, idx in zip(res['s'], res['idx']):
             assert s[idx:idx + 3] == 'IBM'
 
-        res = t.where(contains(t.s, 'IBM')).select(t.s, idx=rindex(t.s, 'IBM')).collect()
+        res = t.where(t.s.contains('IBM')).select(t.s, idx=t.s.rindex('IBM')).collect()
         for s, idx in zip(res['s'], res['idx']):
             assert s[idx:idx + 3] == 'IBM'
 
