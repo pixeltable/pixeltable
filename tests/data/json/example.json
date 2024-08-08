@@ -1,0 +1,21 @@
+[{
+    "name": "Manwë",
+    "human": false,
+    "parents": null
+},
+{
+    "name": "Aragorn",
+    "age": 87,
+    "human": true,
+    "parents": ["Arathorn", "Gilraen"]
+},
+{
+    "name": "Galadriel",
+    "age": 7000,
+    "human": false,
+    "parents": ["Finarfin", "Eärwen"]
+},
+{
+    "name": "Melkor",
+    "human": false
+}]
