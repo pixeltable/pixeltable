@@ -49,6 +49,11 @@ echo "v$VERSION tag created and pushed to home repo."
 echo "Enter to proceed; Ctrl-C to abort."
 read
 
+git tag -d release
+git push --delete home release
+git tag release
+git push home release
+
 make clean
 poetry build
 poetry publish --username __token__ --password "$PYPI_API_KEY"
