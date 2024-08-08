@@ -135,9 +135,17 @@ class FunctionRegistry:
     #         assert fqn in self.module_fns, f'{fqn} not found'
     #         return self.module_fns[fqn]
 
+    def get_type_methods(self, base_type: ts.ColumnType.Type) -> list[Function]:
+        """
+        Get a list of all methods (and properties) registered for a given base type.
+        """
+        if base_type in self.type_methods:
+            return list(self.type_methods[base_type].values())
+        return []
+
     def lookup_type_method(self, base_type: ts.ColumnType.Type, name: str) -> Optional[Function]:
         """
-        Look up a method by name for a given base type. If no such method is registered, return None.
+        Look up a method (or property) by name for a given base type. If no such method is registered, return None.
         """
         if base_type in self.type_methods and name in self.type_methods[base_type]:
             return self.type_methods[base_type][name]

@@ -21,7 +21,7 @@ from .type_system import (
 )
 from .utils.help import help
 
-from . import functions, io, iterators
+from . import ext, functions, io, iterators
 from .__version__ import __version__, __version_tuple__
 
 # This is the safest / most maintainable way to do this: start with the default and "blacklist" stuff that

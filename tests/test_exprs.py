@@ -626,9 +626,9 @@ class TestExprs:
         probe = t[t.img].show(1)
         img = probe[0, 0]
 
-        with pytest.raises(excs.Error):
+        with pytest.raises(AttributeError):
             _ = t[t.img.nearest(img)].show(10)
-        with pytest.raises(excs.Error):
+        with pytest.raises(AttributeError):
             _ = t[t.img.nearest('musical instrument')].show(10)
 
     def test_ids(
