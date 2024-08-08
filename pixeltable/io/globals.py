@@ -193,8 +193,8 @@ def import_json(
 ) -> Table:
     """
     Creates a new `Table` from a JSON file. This is a convenience method and is equivalent
-    to calling `import_data(table_path, json.loads(file_contents), ...)`, where `file_contents` is the contents
-    of the specified `filepath_or_url`.
+    to calling `import_data(table_path, json.loads(file_contents, **kwargs), ...)`, where `file_contents`
+    is the contents of the specified `filepath_or_url`.
     """
     import json
     import urllib.parse

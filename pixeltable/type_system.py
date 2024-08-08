@@ -227,16 +227,17 @@ class ColumnType:
     def infer_literal_type(cls, val: Any) -> Optional[ColumnType]:
         if isinstance(val, str):
             return StringType()
+        if isinstance(val, bool):
+            # We have to check bool before int, because isinstance(b, int) is True if b is a Python bool
+            return BoolType()
         if isinstance(val, int):
             return IntType()
         if isinstance(val, float):
             return FloatType()
-        if isinstance(val, bool):
-            return BoolType()
         if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
             return TimestampType()
         if isinstance(val, PIL.Image.Image):
-            return ImageType(width=val.width, height=val.height)
+            return ImageType(width=val.width, height=val.height, mode=val.mode)
         if isinstance(val, np.ndarray):
             col_type = ArrayType.from_literal(val)
             if col_type is not None:
@@ -609,7 +610,7 @@ class ArrayType(ColumnType):
             dtype = StringType()
         else:
             return None
-        return cls(val.shape, dtype=dtype, nullable=True)
+        return cls(val.shape, dtype=dtype)
 
     def is_valid_literal(self, val: np.ndarray) -> bool:
         if not isinstance(val, np.ndarray):
