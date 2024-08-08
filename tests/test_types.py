@@ -1,12 +1,32 @@
 import datetime
-from copy import copy
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from pixeltable.type_system import \
-    ColumnType, StringType, IntType, BoolType, ImageType, InvalidType, FloatType, TimestampType, JsonType, ArrayType
+import numpy as np
+import PIL.Image
+
+import pixeltable as pxt
+from pixeltable.type_system import (ArrayType, BoolType, ColumnType, FloatType,
+                                    ImageType, IntType, InvalidType, JsonType,
+                                    StringType, TimestampType)
 
 
 class TestTypes:
+    def test_infer(self) -> None:
+        test_cases: list[tuple[Any, ColumnType]] = [
+            ('a', StringType()),
+            (1, IntType()),
+            (1.0, FloatType()),
+            (True, BoolType()),
+            (datetime.datetime.now(), TimestampType()),
+            (datetime.date.today(), TimestampType()),
+            (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
+            (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=IntType())),
+            ({'a': 1, 'b': '2'}, pxt.JsonType()),
+            (['3', 4], pxt.JsonType()),
+        ]
+        for val, expected_type in test_cases:
+            assert ColumnType.infer_literal_type(val) == expected_type
+
     def test_serialize(self, init_env) -> None:
         type_vals = [
             InvalidType(), StringType(), IntType(), BoolType(), TimestampType(),

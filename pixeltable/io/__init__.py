@@ -1,5 +1,5 @@
 from .external_store import ExternalStore, SyncStatus
-from .globals import create_label_studio_project
+from .globals import create_label_studio_project, import_data, import_json
 from .hf_datasets import import_huggingface_dataset
 from .pandas import import_csv, import_excel, import_pandas
 from .parquet import import_parquet
