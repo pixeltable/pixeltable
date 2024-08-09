@@ -712,7 +712,8 @@ class TableVersion:
             return result
 
     def batch_update(
-            self, batch: list[dict[Column, 'exprs.Expr']], rowids: list[tuple[int, ...]], cascade: bool = True
+            self, batch: list[dict[Column, 'exprs.Expr']], rowids: list[tuple[int, ...]], insert_if_not_exists: bool,
+            error_if_not_exists: bool, cascade: bool = True,
     ) -> UpdateStatus:
         """Update rows in batch.
         Args:
@@ -721,20 +722,25 @@ class TableVersion:
         """
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-        result_status = UpdateStatus()
         cols_with_excs: set[str] = set()
-        updated_cols: set[str] = set()
-        pk_cols = self.primary_key_columns()
-        use_rowids = len(rowids) > 0
 
         with Env.get().engine.begin() as conn:
             from pixeltable.plan import Planner
 
-            plan, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
-                self.path, batch, rowids, cascade=cascade)
+            plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = \
+                Planner.create_batch_update_plan(self.path, batch, rowids, cascade=cascade)
             result = self.propagate_update(
-                plan, delete_where_clause, recomputed_cols, base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade)
-            result.updated_cols = updated_cols
+                plan, delete_where_clause, recomputed_cols, base_versions=[], conn=conn, timestamp=time.time(),
+                cascade=cascade)
+            result.updated_cols = [c.qualified_name for c in updated_cols]
+
+            unmatched_rows = row_update_node.unmatched_rows()
+            if len(unmatched_rows) > 0:
+                if error_if_not_exists:
+                    raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
+                if insert_if_not_exists:
+                    insert_status = self.insert(unmatched_rows, print_stats=False, fail_on_exception=False)
+                    result += insert_status
             return result
 
     def _validate_update_spec(
@@ -745,6 +751,7 @@ class TableVersion:
             if not isinstance(col_name, str):
                 raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
             if col_name == _ROWID_COLUMN_NAME:
+                # a valid rowid is a list of ints, one per rowid column
                 assert len(val) == len(self.store_tbl.rowid_columns())
                 for el in val:
                     assert isinstance(el, int)

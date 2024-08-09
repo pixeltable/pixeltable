@@ -46,7 +46,7 @@ class SqlNode(ExecNode):
 
         sql_select_list = [e.sql_expr() for e in self.sql_exprs]
         assert len(sql_select_list) == len(self.sql_exprs)
-        assert all([e is not None for e in sql_select_list])
+        assert all(e is not None for e in sql_select_list)
         self.set_pk = set_pk
         self.num_pk_cols = 0
         if set_pk:

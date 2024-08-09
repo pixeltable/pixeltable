@@ -293,12 +293,13 @@ class Planner:
             cls, tbl: catalog.TableVersionPath,
             batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
             cascade: bool
-    ) -> Tuple[exec.ExecNode, sql.ClauseElement, List[str], List[catalog.Column]]:
+    ) -> Tuple[exec.ExecNode, exec.RowUpdateNode, sql.ClauseElement, List[catalog.Column], List[catalog.Column]]:
         """
         Returns:
         - root node of the plan to produce the updated rows
+        - RowUpdateNode of plan
         - Where clause for deleting the current versions of updated rows
-        - list of qualified column names that are getting updated
+        - list of columns that are getting updated
         - list of user-visible columns that are being recomputed
         """
         assert isinstance(tbl, catalog.TableVersionPath)
@@ -333,8 +334,9 @@ class Planner:
         # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further sustitution is needed
         select_list.extend(recomputed_exprs)
 
-        # ExecNode tree:
+        # ExecNode tree (from bottom to top):
         # - SqlLookupNode to retrieve the existing rows
+        # - RowUpdateNode to update the retrieved rows
         # - ExprEvalNode to evaluate the remaining output exprs
         analyzer = Analyzer(tbl, select_list)
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], analyzer.sql_exprs)
@@ -342,21 +344,24 @@ class Planner:
         plan = exec.SqlLookupNode(tbl, row_builder, analyzer.sql_exprs, sa_key_cols, key_vals)
         delete_where_clause = plan.where_clause
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
-        plan = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, plan)
+        plan = row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, plan)
         if not cls._is_contained_in(analyzer.select_list, analyzer.sql_exprs):
             # we need an ExprEvalNode to evaluate the remaining output exprs
             plan = exec.ExprEvalNode(row_builder, analyzer.select_list, analyzer.sql_exprs, input=plan)
         # update row builder with column information
         all_base_cols = copied_cols + list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
         row_builder.substitute_exprs(select_list, remove_duplicates=False)
-        [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
+        for i, col in enumerate(all_base_cols):
+            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
 
         ctx = exec.ExecContext(row_builder)
         # we're returning everything to the user, so we might as well do it in a single batch
         ctx.batch_size = 0
         plan.set_ctx(ctx)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return plan, delete_where_clause, [f'{c.tbl.name}.{c.name}' for c in list(updated_cols) + recomputed_user_cols], recomputed_user_cols
+        return (
+            plan, row_update_node, delete_where_clause, list(updated_cols) + recomputed_user_cols, recomputed_user_cols
+        )
 
     @classmethod
     def create_view_update_plan(
