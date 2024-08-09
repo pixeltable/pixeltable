@@ -15,8 +15,8 @@ import sqlalchemy as sql
 import pixeltable
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 import pixeltable.func as func
+import pixeltable.type_system as ts
 from .data_row import DataRow
 from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
 
@@ -263,7 +263,7 @@ class Expr(abc.ABC):
         if is_match:
             yield self
 
-    def contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
+    def _contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls.
         """
@@ -426,6 +426,14 @@ class Expr(abc.ABC):
         # Return a `FunctionCall` obtained by passing this `Expr` to the new `function`.
         return function(self)
 
+    def __dir__(self) -> list[str]:
+        attrs = ['isin', 'astype', 'apply']
+        attrs += [
+            f.name
+            for f in func.FunctionRegistry.get().get_type_methods(self.col_type.type_enum)
+        ]
+        return attrs
+
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             from .json_path import JsonPath
@@ -433,7 +441,7 @@ class Expr(abc.ABC):
         if self.col_type.is_array_type():
             from .array_slice import ArraySlice
             return ArraySlice(self, index)
-        raise excs.Error(f'Type {self.col_type} is not subscriptable')
+        raise AttributeError(f'Type {self.col_type} is not subscriptable')
 
     def __getattr__(self, name: str) -> Union['pixeltable.exprs.MethodRef', 'pixeltable.exprs.FunctionCall', 'pixeltable.exprs.JsonPath']:
         """

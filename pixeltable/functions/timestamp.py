@@ -17,7 +17,7 @@ import pixeltable.func as func
 from pixeltable.utils.code import local_public_names
 
 
-@func.udf
+@func.udf(is_method=True)
 def year(self: datetime) -> int:
     """
     Between [`MINYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MINYEAR) and
@@ -28,7 +28,7 @@ def year(self: datetime) -> int:
     return self.year
 
 
-@func.udf
+@func.udf(is_method=True)
 def month(self: datetime) -> int:
     """
     Between 1 and 12 inclusive.
@@ -38,7 +38,7 @@ def month(self: datetime) -> int:
     return self.month
 
 
-@func.udf
+@func.udf(is_method=True)
 def day(self: datetime) -> int:
     """
     Between 1 and the number of days in the given month of the given year.
@@ -48,7 +48,7 @@ def day(self: datetime) -> int:
     return self.day
 
 
-@func.udf
+@func.udf(is_method=True)
 def hour(self: datetime) -> int:
     """
     Between 0 and 23 inclusive.
@@ -58,7 +58,7 @@ def hour(self: datetime) -> int:
     return self.hour
 
 
-@func.udf
+@func.udf(is_method=True)
 def minute(self: datetime) -> int:
     """
     Between 0 and 59 inclusive.
@@ -68,7 +68,7 @@ def minute(self: datetime) -> int:
     return self.minute
 
 
-@func.udf
+@func.udf(is_method=True)
 def second(self: datetime) -> int:
     """
     Between 0 and 59 inclusive.
@@ -78,7 +78,7 @@ def second(self: datetime) -> int:
     return self.second
 
 
-@func.udf
+@func.udf(is_method=True)
 def microsecond(self: datetime) -> int:
     """
     Between 0 and 999999 inclusive.
@@ -88,7 +88,7 @@ def microsecond(self: datetime) -> int:
     return self.microsecond
 
 
-@func.udf
+@func.udf(is_method=True)
 def weekday(self: datetime) -> int:
     """
     Between 0 (Monday) and 6 (Sunday) inclusive.
@@ -97,7 +97,7 @@ def weekday(self: datetime) -> int:
     """
     return self.weekday()
 
-@func.udf
+@func.udf(is_method=True)
 def isoweekday(self: datetime) -> int:
     """
     Return the day of the week as an integer, where Monday is 1 and Sunday is 7.
@@ -107,7 +107,7 @@ def isoweekday(self: datetime) -> int:
     return self.isoweekday()
 
 
-@func.udf
+@func.udf(is_method=True)
 def isocalendar(self: datetime) -> dict:
     """
     Return a dictionary with three entries: `'year'`, `'week'`, and `'weekday'`.
@@ -119,7 +119,7 @@ def isocalendar(self: datetime) -> dict:
     return {'year': iso_year, 'week': iso_week, 'weekday': iso_weekday}
 
 
-@func.udf
+@func.udf(is_method=True)
 def isoformat(self: datetime, sep: str = 'T', timespec: str = 'auto') -> str:
     """
     Return a string representing the date and time in ISO 8601 format.
@@ -133,7 +133,7 @@ def isoformat(self: datetime, sep: str = 'T', timespec: str = 'auto') -> str:
     return self.isoformat(sep=sep, timespec=timespec)
 
 
-@func.udf
+@func.udf(is_method=True)
 def strftime(self: datetime, format: str) -> str:
     """
     Return a string representing the date and time, controlled by an explicit format string.
@@ -168,7 +168,7 @@ def strftime(self: datetime, format: str) -> str:
 #     return datetime(1, 1, 1, t.hour, t.minute, t.second, t.microsecond)
 
 
-@func.udf
+@func.udf(is_method=True)
 def replace(
         self: datetime, year: Optional[int] = None, month: Optional[int] = None, day: Optional[int] = None,
         hour: Optional[int] = None, minute: Optional[int] = None, second: Optional[int] = None,
@@ -183,7 +183,7 @@ def replace(
     return self.replace(**kwargs)
 
 
-@func.udf
+@func.udf(is_method=True)
 def toordinal(self: datetime) -> int:
     """
     Return the proleptic Gregorian ordinal of the date, where January 1 of year 1 has ordinal 1.
@@ -193,7 +193,7 @@ def toordinal(self: datetime) -> int:
     return self.toordinal()
 
 
-@func.udf
+@func.udf(is_method=True)
 def posix_timestamp(self: datetime) -> float:
     """
     Return POSIX timestamp corresponding to the datetime instance.
