@@ -152,6 +152,11 @@ class Column:
             return self._records_errors
         return self.is_stored and (self.is_computed or self.col_type.is_media_type())
 
+    @property
+    def qualified_name(self) -> str:
+        assert self.tbl is not None
+        return f'{self.tbl.name}.{self.name}'
+
     def source(self) -> None:
         """
         If this is a computed col and the top-level expr is a function call, print the source, if possible.
