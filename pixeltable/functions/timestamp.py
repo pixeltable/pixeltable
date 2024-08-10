@@ -17,7 +17,7 @@ import pixeltable.func as func
 from pixeltable.utils.code import local_public_names
 
 
-@func.udf(is_method=True)
+@func.udf(is_property=True)
 def year(self: datetime) -> int:
     """
     Between [`MINYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MINYEAR) and
@@ -28,7 +28,7 @@ def year(self: datetime) -> int:
     return self.year
 
 
-@func.udf(is_method=True)
+@func.udf(is_property=True)
 def month(self: datetime) -> int:
     """
     Between 1 and 12 inclusive.
@@ -38,7 +38,7 @@ def month(self: datetime) -> int:
     return self.month
 
 
-@func.udf(is_method=True)
+@func.udf(is_property=True)
 def day(self: datetime) -> int:
     """
     Between 1 and the number of days in the given month of the given year.
@@ -48,7 +48,7 @@ def day(self: datetime) -> int:
     return self.day
 
 
-@func.udf(is_method=True)
+@func.udf(is_property=True)
 def hour(self: datetime) -> int:
     """
     Between 0 and 23 inclusive.
@@ -58,7 +58,7 @@ def hour(self: datetime) -> int:
     return self.hour
 
 
-@func.udf(is_method=True)
+@func.udf(is_property=True)
 def minute(self: datetime) -> int:
     """
     Between 0 and 59 inclusive.
@@ -68,7 +68,7 @@ def minute(self: datetime) -> int:
     return self.minute
 
 
-@func.udf(is_method=True)
+@func.udf(is_property=True)
 def second(self: datetime) -> int:
     """
     Between 0 and 59 inclusive.
@@ -78,7 +78,7 @@ def second(self: datetime) -> int:
     return self.second
 
 
-@func.udf(is_method=True)
+@func.udf(is_property=True)
 def microsecond(self: datetime) -> int:
     """
     Between 0 and 999999 inclusive.
@@ -86,6 +86,19 @@ def microsecond(self: datetime) -> int:
     Equivalent to [`datetime.microsecond`](https://docs.python.org/3/library/datetime.html#datetime.datetime.microsecond).
     """
     return self.microsecond
+
+
+@func.udf(is_method=True)
+def to_tz(self: datetime, tz: str) -> datetime:
+    """
+    Convert the datetime to the given time zone.
+
+    Args:
+        tz: The time zone to convert to. Must be a valid time zone name from the IANA Time Zone Database.
+    """
+    from zoneinfo import ZoneInfo
+    tzinfo = ZoneInfo(tz)
+    return self.astimezone(tzinfo)
 
 
 @func.udf(is_method=True)
@@ -146,17 +159,17 @@ def strftime(self: datetime, format: str) -> str:
     return self.strftime(format)
 
 
-# @func.udf
-# def date(self: datetime) -> datetime:
-#     """
-#     Return the date part of the datetime.
-#
-#     Equivalent to [`datetime.date()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.date).
-#     """
-#     d = self.date()
-#     return datetime(d.year, d.month, d.day)
-#
-#
+@func.udf(is_method=True)
+def date(self: datetime) -> datetime:
+    """
+    Return the date part of the datetime.
+
+    Equivalent to [`datetime.date()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.date).
+    """
+    d = self.date()
+    return datetime(d.year, d.month, d.day)
+
+
 # @func.udf
 # def time(self: datetime) -> datetime:
 #     """

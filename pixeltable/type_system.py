@@ -16,7 +16,7 @@ import av
 import numpy as np
 import sqlalchemy as sql
 
-from pixeltable import exceptions as excs
+from pixeltable import env, exceptions as excs
 
 
 class ColumnType:
@@ -425,7 +425,7 @@ class StringType(ColumnType):
     def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
         if not target.is_timestamp_type():
             return None
-        def convert(val: str) -> Optional[datetime]:
+        def convert(val: str) -> Optional[datetime.datetime]:
             try:
                 dt = datetime.datetime.fromisoformat(val)
                 return dt
@@ -503,7 +503,7 @@ class TimestampType(ColumnType):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
-        return sql.TIMESTAMP()
+        return sql.TIMESTAMP(timezone=True)
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
@@ -511,7 +511,14 @@ class TimestampType(ColumnType):
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
-            return datetime.datetime.fromisoformat(val)
+            val = datetime.datetime.fromisoformat(val)
+        if isinstance(val, datetime.datetime) and val.tzinfo is None:
+            # We have a naive datetime, either because it was specified explicitly this way, or
+            # because we just parsed it. Check whether a default time zone is configured, and if so,
+            # modify the naive datetime to use it (in preference to the system time zone).
+            default_tz = env.Env.get().default_time_zone
+            if default_tz is not None:
+                val = val.replace(tzinfo=default_tz)
         return val
 
 

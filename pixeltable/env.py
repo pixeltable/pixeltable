@@ -15,6 +15,7 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, Dict, Any, List, TYPE_CHECKING
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pgserver
 import sqlalchemy as sql
@@ -82,7 +83,7 @@ class Env:
 
         # config
         self._config_file: Optional[Path] = None
-        self._config: Optional[Dict[str, Any]] = None
+        self._config: Optional[dict[str, Any]] = None
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -102,6 +103,10 @@ class Env:
     def http_address(self) -> str:
         assert self._http_address is not None
         return self._http_address
+
+    @property
+    def default_time_zone(self) -> Optional[ZoneInfo]:
+        return self._default_time_zone
 
     def configure_logging(
         self,
@@ -207,6 +212,18 @@ class Env:
         if 'hide_warnings' in self._config and self._config['hide_warnings']:
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
+
+        # Configure default time zone
+        self._default_time_zone: Optional[ZoneInfo] = None
+        tzname = os.environ.get('PXT_TIME_ZONE', self._config.get('pxt_time_zone', None))
+        if tzname is not None:
+            if not isinstance(tzname, str):
+                self._logger.error(f'Invalid time zone specified in configuration.')
+            else:
+                try:
+                    self._default_time_zone = ZoneInfo(tzname)
+                except ZoneInfoNotFoundError:
+                    self._logger.error(f'Invalid time zone specified in configuration: {tzname}')
 
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')

@@ -5,6 +5,7 @@ from typing import Optional, List, Any, Dict, Tuple
 
 import sqlalchemy as sql
 
+from pixeltable import env
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from .data_row import DataRow
@@ -52,7 +53,14 @@ class Literal(Expr):
         # For some types, we need to explictly record their type, because JSON does not know
         # how to interpret them unambiguously
         if self.col_type.is_timestamp_type():
-            return {'val': self.val.isoformat(), 'val_t': self.col_type._type.name, **super()._as_dict()}
+            if isinstance(self.val, datetime.datetime):
+                # Convert to ISO format in UTC (in keeping with the principle: all timestamps are
+                # stored as UTC in the database)
+                encoded_val = self.val.astimezone(datetime.timezone.utc).isoformat()
+            else:
+                assert isinstance(self.val, datetime.date)
+                encoded_val = self.val.isoformat()
+            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         else:
             return {'val': self.val, **super()._as_dict()}
 
@@ -62,5 +70,13 @@ class Literal(Expr):
         if 'val_t' in d:
             val_t = d['val_t']
             assert val_t == ts.ColumnType.Type.TIMESTAMP.name
-            return cls(datetime.datetime.fromisoformat(d['val']))
-        return cls(d['val'])
+            try:
+                # Try parsing as a date
+                return cls(datetime.date.fromisoformat(d['val']))
+            except ValueError:
+                # If that fails, parse as a datetime
+                dt = datetime.datetime.fromisoformat(d['val'])
+                # Convert from UTC to the default time zone (which may be none, in which case, use system time zone)
+                return cls(dt.astimezone(env.Env.get().default_time_zone))
+        else:
+            return cls(d['val'])
