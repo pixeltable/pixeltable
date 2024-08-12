@@ -38,11 +38,15 @@ def init_env(tmp_path_factory) -> None:
     yield
     # leave db in place for debugging purposes
 
+
 @pytest.fixture(scope='function')
 def reset_db(init_env) -> None:
+    from pixeltable.env import Env
+
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
+    Env.get().default_time_zone = None
     reload_catalog()
 
 

@@ -108,6 +108,20 @@ class Env:
     def default_time_zone(self) -> Optional[ZoneInfo]:
         return self._default_time_zone
 
+    @default_time_zone.setter
+    def default_time_zone(self, tz: Optional[ZoneInfo]) -> None:
+        """
+        This is not a publicly visible setter. It is only intended to be set during initialization
+        or for testing purposes.
+        """
+        assert self._sa_engine is not None
+        # Set the time zone for the database
+        db_tz = 'LOCAL' if tz is None else f"'{tz.key}'"
+        with self._sa_engine.connect() as conn:
+            conn.execute(sql.text(f"SET TIME ZONE {db_tz};"))
+        self._logger.info(f'Database time zone is now: {db_tz}')
+        self._default_time_zone = tz
+
     def configure_logging(
         self,
         *,
@@ -213,18 +227,6 @@ class Env:
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
 
-        # Configure default time zone
-        self._default_time_zone: Optional[ZoneInfo] = None
-        tzname = os.environ.get('PXT_TIME_ZONE', self._config.get('pxt_time_zone', None))
-        if tzname is not None:
-            if not isinstance(tzname, str):
-                self._logger.error(f'Invalid time zone specified in configuration.')
-            else:
-                try:
-                    self._default_time_zone = ZoneInfo(tzname)
-                except ZoneInfoNotFoundError:
-                    self._logger.error(f'Invalid time zone specified in configuration: {tzname}')
-
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
 
@@ -303,6 +305,19 @@ class Env:
             self._create_engine(echo=echo)
 
         print(f'Connected to Pixeltable database at: {self.db_url}')
+
+        self._default_time_zone: Optional[ZoneInfo] = None
+
+        # Configure default time zone
+        tzname = os.environ.get('PXT_TIME_ZONE', self._config.get('pxt_time_zone', None))
+        if tzname is not None:
+            if not isinstance(tzname, str):
+                self._logger.error(f'Invalid time zone specified in configuration.')
+            else:
+                try:
+                    self.default_time_zone = ZoneInfo(tzname)
+                except ZoneInfoNotFoundError:
+                    self._logger.error(f'Invalid time zone specified in configuration: {tzname}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
