@@ -4,9 +4,10 @@ import logging
 from typing import Optional, List, Any, Dict, overload, Iterable
 from uuid import UUID
 
+import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-import pixeltable
+import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
@@ -33,7 +34,7 @@ class InsertableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def create(
-            cls, dir_id: UUID, name: str, schema: Dict[str, ts.ColumnType], primary_key: List[str],
+            cls, dir_id: UUID, name: str, schema: dict[str, ts.ColumnType], df: Optional[pxt.DataFrame], primary_key: List[str],
             num_retained_versions: int, comment: str
     ) -> InsertableTable:
         columns = cls._create_columns(schema)
@@ -50,6 +51,10 @@ class InsertableTable(Table):
         with orm.Session(Env.get().engine, future=True) as session:
             _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, comment)
             tbl = cls(dir_id, tbl_version)
+            if df is not None and len(df) > 0:
+                # A nonempty DataFrame was provided, so insert its contents into the table
+                # (using the same DB session as the table creation)
+                tbl.__insert_df(session, tbl_version, df)
             session.commit()
             cat = Catalog.get()
             cat.tbl_dependents[tbl._id] = []
@@ -58,6 +63,21 @@ class InsertableTable(Table):
             _logger.info(f'Created table `{name}`, id={tbl_version.id}')
             print(f'Created table `{name}`.')
             return tbl
+
+    def __insert_df(self, conn: sql.Connection, df: pxt.DataFrame) -> None:
+        """
+        Inserts the contents of a DataFrame into this table.
+        """
+        for row_batch in df._exec_batches():
+            insert_batch = []
+            for row in row_batch:
+                insert_row = {
+                    df._column_names[i]: row[df._select_list_exprs[i].slot_idx]
+                    for i in range(len(df._column_names))
+                }
+                insert_batch.append(insert_row)
+            self.__validate_input_rows(insert_batch)  # Just in case
+            self._tbl_version.insert(insert_batch, conn=conn)
 
     @overload
     def insert(
@@ -85,7 +105,7 @@ class InsertableTable(Table):
         for row in rows:
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
-        self._validate_input_rows(rows)
+        self.__validate_input_rows(rows)
         result = self._tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
         if result.num_excs == 0:
@@ -102,7 +122,7 @@ class InsertableTable(Table):
         _logger.info(f'InsertableTable {self._name}: {msg}')
         return result
 
-    def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
+    def __validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
         valid_col_names = set(self.column_names())
         reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())
@@ -129,7 +149,7 @@ class InsertableTable(Table):
                     msg = str(e)
                     raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
 
-    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['pxt.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:

@@ -636,14 +636,21 @@ class TableVersion:
         _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
     def insert(
-            self, rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception : bool = True
+            self,
+            rows: list[dict[str, Any]],
+            conn: Optional[sql.engine.Connection] = None,
+            print_stats: bool = False,
+            fail_on_exception : bool = True
     ) -> UpdateStatus:
         """Insert rows into this table.
         """
         assert self.is_insertable()
         from pixeltable.plan import Planner
         plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
-        with Env.get().engine.begin() as conn:
+        if conn is None:
+            with Env.get().engine.begin() as conn:
+                return self._insert(plan, conn, time.time(), print_stats)
+        else:
             return self._insert(plan, conn, time.time(), print_stats)
 
     def _insert(

@@ -83,6 +83,7 @@ def create_table(
         dir._id,
         path.name,
         schema,
+        df,
         primary_key=primary_key,
         num_retained_versions=num_retained_versions,
         comment=comment,

@@ -317,18 +317,6 @@ class DataFrame:
         else:
             yield from exec_plan(conn)
 
-    def _insert_into_tbl(self, tbl: catalog.Table) -> None:
-        self._column_names
-        for row_batch in self._exec_batches():
-            insert_batch = []
-            for row in row_batch:
-                insert_row = {
-                    self._column_names[i]: row[self._select_list_exprs[i].slot_idx]
-                    for i in range(len(self._column_names))
-                }
-                insert_batch.append(insert_row)
-            tbl.insert(insert_batch)
-
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
         return self.limit(n).collect()
