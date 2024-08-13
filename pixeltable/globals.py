@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, overload
 
 import pandas as pd
 import sqlalchemy as sql
@@ -24,7 +24,7 @@ def init() -> None:
 
 def create_table(
     path_str: str,
-    schema: dict[str, Any],
+    schema_or_df: Union[dict[str, Any], DataFrame],
     *,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
@@ -34,8 +34,12 @@ def create_table(
 
     Args:
         path_str: Path to the table.
-        schema: dictionary mapping column names to column types, value expressions, or to column specifications.
+        schema_or_df: Either a dictionary that maps column names to column types, or a `DataFrame`
+            whose contents and schema will be used to pre-populate the table.
+        primary_key: An optional column name or list of column names to use as the primary key(s) of the
+            table.
         num_retained_versions: Number of versions of the table to retain.
+        comment: An optional comment; its meaning is entirely user-defined.
 
     Returns:
         The newly created table.
@@ -46,11 +50,23 @@ def create_table(
     Examples:
         Create a table with an int and a string column:
 
-        >>> table = cl.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
+        >>> table = pxt.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
+
+        Create a table from a select statement over an existing table `tbl`:
+
+        >>> table = pxt.create_table('my_table', tbl.where(tbl.col1 < 10).select(tbl.col2))
     """
     path = catalog.Path(path_str)
     Catalog.get().paths.check_is_valid(path, expected=None)
     dir = Catalog.get().paths[path.parent]
+
+    df: Optional[DataFrame] = None
+    if isinstance(schema_or_df, dict):
+        schema = schema_or_df
+    else:
+        assert isinstance(schema_or_df, DataFrame)
+        df = schema_or_df
+        schema = df.schema
 
     if len(schema) == 0:
         raise excs.Error(f'Table schema is empty: `{path_str}`')
@@ -72,6 +88,9 @@ def create_table(
         comment=comment,
     )
     Catalog.get().paths[path] = tbl
+    if df is not None:
+        df._insert_into_tbl(tbl)
+
     _logger.info(f'Created table `{path_str}`.')
     return tbl
 

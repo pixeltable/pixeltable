@@ -710,7 +710,7 @@ class TestExprs:
             'c3': FloatType(nullable=False),
             'c4': BoolType(nullable=False),
         }
-        new_t = pxt.create_table('insert_test', schema=schema)
+        new_t = pxt.create_table('insert_test', schema)
         new_t.add_column(c2_sum=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)

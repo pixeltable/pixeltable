@@ -89,7 +89,7 @@ class TestTable:
         with pytest.raises(excs.Error):
             _ = pxt.create_table('1test', schema)
         with pytest.raises(excs.Error):
-            _ = pxt.create_table('bad name', schema={'c1': StringType()})
+            _ = pxt.create_table('bad name', {'c1': StringType()})
         with pytest.raises(excs.Error):
             _ = pxt.create_table('test', schema)
         with pytest.raises(excs.Error):
@@ -634,7 +634,7 @@ class TestTable:
 
         # test composite primary key
         schema = {'c1': StringType(), 'c2': IntType(), 'c3': FloatType()}
-        t = pxt.create_table('composite', schema=schema, primary_key=['c1', 'c2'])
+        t = pxt.create_table('composite', schema, primary_key=['c1', 'c2'])
         rows = [{'c1': str(i), 'c2': i, 'c3': float(i)} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
@@ -658,7 +658,7 @@ class TestTable:
         assert 'primary key columns (c2) missing' in str(exc_info.value).lower()
 
         # table without primary key
-        t2 = pxt.create_table('no_pk', schema=schema)
+        t2 = pxt.create_table('no_pk', schema)
         validate_update_status(t2.insert(rows), expected_rows=10)
         with pytest.raises(excs.Error) as exc_info:
             _ = t2.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}])

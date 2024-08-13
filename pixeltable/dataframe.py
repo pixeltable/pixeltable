@@ -15,6 +15,7 @@ import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
+from pixeltable.exec import DataRowBatch
 import pixeltable.exprs as exprs
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
@@ -275,6 +276,10 @@ class DataFrame:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
+        for row_batch in self._exec_batches(conn):
+            yield from row_batch
+
+    def _exec_batches(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[DataRowBatch]:
         # construct a group-by clause if we're grouping by a table
         group_by_clause: List[exprs.Expr] = []
         if self.grouping_tbl is not None:
@@ -298,13 +303,11 @@ class DataFrame:
             limit=self.limit_val if self.limit_val is not None else 0,
         )  # limit_val == 0: no limit_val
 
-        def exec_plan(conn: sql.engine.Connection) -> Iterator[exprs.DataRow]:
+        def exec_plan(conn: sql.engine.Connection) -> Iterator[DataRowBatch]:
             plan.ctx.set_conn(conn)
             plan.open()
             try:
-                for row_batch in plan:
-                    for data_row in row_batch:
-                        yield data_row
+                yield from plan
             finally:
                 plan.close()
 
@@ -313,6 +316,18 @@ class DataFrame:
                 yield from exec_plan(conn)
         else:
             yield from exec_plan(conn)
+
+    def _insert_into_tbl(self, tbl: catalog.Table) -> None:
+        self._column_names
+        for row_batch in self._exec_batches():
+            insert_batch = []
+            for row in row_batch:
+                insert_row = {
+                    self._column_names[i]: row[self._select_list_exprs[i].slot_idx]
+                    for i in range(len(self._column_names))
+                }
+                insert_batch.append(insert_row)
+            tbl.insert(insert_batch)
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
@@ -339,6 +354,11 @@ class DataFrame:
 
     def get_column_types(self) -> List[ColumnType]:
         return [expr.col_type for expr in self._select_list_exprs]
+
+    @property
+    def schema(self) -> dict[str, ColumnType]:
+        assert len(self._column_names) == len(self._select_list_exprs)
+        return {self._column_names[i]: self._select_list_exprs[i].col_type for i in range(len(self._column_names))}
 
     def bind(self, args: dict[str, Any]) -> DataFrame:
         """Bind arguments to parameters and return a new DataFrame."""
