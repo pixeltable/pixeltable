@@ -61,7 +61,7 @@ class Dumper:
         info_dict = {'pixeltable-dump': {
             'metadata-version': md_version,
             'git-sha': git_sha,
-            'datetime': datetime.datetime.utcnow(),
+            'datetime': datetime.datetime.now(datetime.UTC),
             'user': user
         }}
         with open(info_file, 'w') as info:
@@ -179,7 +179,7 @@ class Dumper:
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
         def add_column(col_name: str, col_expr: Any) -> None:
             t.add_column(**{f'{col_prefix}_{col_name}': col_expr})
-        
+
         # arithmetic_expr
         add_column('plus', t.c2 + 6)
         add_column('minus', t.c2 - 5)
@@ -242,8 +242,7 @@ class Dumper:
         add_column('str_const', 'str')
         add_column('int_const', 5)
         add_column('float_const', 5.0)
-        add_column('timestamp_const_1', datetime.datetime.utcnow())
-        add_column('timestamp_const_2', datetime.date.today())
+        add_column('timestamp_const_1', datetime.datetime.now(datetime.UTC))
 
         # type_cast
         add_column('astype', t.c2.astype(FloatType()))

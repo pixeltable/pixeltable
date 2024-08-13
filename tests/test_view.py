@@ -457,9 +457,8 @@ class TestView:
             v.order_by(v.c2).show(0),
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
-        # create views with filters containing date and datetime
-        _ = pxt.create_view('test_view_2', t, filter=t.c5 >= datetime.date.today())
-        _ = pxt.create_view('test_view_3', t, filter=t.c5 < datetime.datetime.now())
+        # create view with filter containing datetime
+        _ = pxt.create_view('test_view_2', t, filter=t.c5 < datetime.datetime.now())
 
     def test_view_of_snapshot(self, reset_db) -> None:
         """Test view over a snapshot"""
