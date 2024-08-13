@@ -89,8 +89,6 @@ def create_table(
         comment=comment,
     )
     Catalog.get().paths[path] = tbl
-    if df is not None:
-        df._insert_into_tbl(tbl)
 
     _logger.info(f'Created table `{path_str}`.')
     return tbl

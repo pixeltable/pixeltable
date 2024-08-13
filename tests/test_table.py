@@ -133,6 +133,20 @@ class TestTable:
             assert tbl.name == tbl_path.split('.')[-1]
             assert tbl.parent.path == '.'.join(tbl_path.split('.')[:-1])
 
+    def test_create_from_df(self, test_tbl: pxt.Table) -> None:
+        t = pxt.get_table('test_tbl')
+        df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
+        t1 = pxt.create_table('test1', df1)
+        assert t1.column_types() == df1.schema
+        assert t1.collect() == df1.collect()
+
+        from pixeltable.functions import sum
+        t.add_column(c2mod=t.c2 % 5)
+        df2 = t.group_by(t.c2mod).select(t.c2mod, sum(t.c2))
+        t2 = pxt.create_table('test2', df2)
+        assert t2.column_types() == df2.schema
+        assert t2.collect() == df2.collect()
+
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('empty_table', {})

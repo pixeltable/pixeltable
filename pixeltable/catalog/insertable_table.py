@@ -51,10 +51,10 @@ class InsertableTable(Table):
         with orm.Session(Env.get().engine, future=True) as session:
             _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, comment)
             tbl = cls(dir_id, tbl_version)
-            if df is not None and len(df) > 0:
+            if df is not None and df.count() > 0:
                 # A nonempty DataFrame was provided, so insert its contents into the table
                 # (using the same DB session as the table creation)
-                tbl.__insert_df(session, tbl_version, df)
+                tbl.__insert_df(session, df)
             session.commit()
             cat = Catalog.get()
             cat.tbl_dependents[tbl._id] = []
@@ -68,12 +68,13 @@ class InsertableTable(Table):
         """
         Inserts the contents of a DataFrame into this table.
         """
+        col_names = list(df.schema.keys())
         for row_batch in df._exec_batches():
             insert_batch = []
             for row in row_batch:
                 insert_row = {
-                    df._column_names[i]: row[df._select_list_exprs[i].slot_idx]
-                    for i in range(len(df._column_names))
+                    col_names[i]: row[df._select_list_exprs[i].slot_idx]
+                    for i in range(len(col_names))
                 }
                 insert_batch.append(insert_row)
             self.__validate_input_rows(insert_batch)  # Just in case
