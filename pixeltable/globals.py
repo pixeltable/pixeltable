@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Optional, Union, overload
+from typing import Any, Optional, Union
 
 import pandas as pd
 import sqlalchemy as sql
