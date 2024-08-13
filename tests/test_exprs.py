@@ -305,7 +305,7 @@ class TestExprs:
     def test_inline_array(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         result = t.select([[t.c2, 1], [t.c2, 2]]).show()
-        t = result.column_types()[0]
+        t = next(iter(result.schema.values()))
         assert t.is_array_type()
         assert isinstance(t, ArrayType)
         assert t.shape == (2, 2)

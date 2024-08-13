@@ -194,7 +194,7 @@ class TestDataFrame:
     def test_select_literal(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.select(1.0).where(t.c2 < 10).collect()
-        assert res[res.column_names()[0]] == [1.0] * 10
+        assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
     def test_html_media_url(self, reset_db) -> None:
         tab = pxt.create_table('test_html_repr', {'video': pxt.VideoType(),
@@ -334,14 +334,13 @@ class TestDataFrame:
         df = t.where(t.row_id < 1)
         assert df.count() > 0
         ds = df.to_pytorch_dataset()
-        type_dict = dict(zip(df.get_column_names(),df.get_column_types()))
         for tup in ds:
-            for col in df.get_column_names():
+            for col in df.schema.keys():
                 assert col in tup
 
             arrval = tup['c_array']
             assert isinstance(arrval, np.ndarray)
-            col_type = type_dict['c_array']
+            col_type = df.schema['c_array']
             assert arrval.dtype == col_type.numpy_dtype()
             assert arrval.shape == col_type.shape
             assert arrval.dtype == np.float32

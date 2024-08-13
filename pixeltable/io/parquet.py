@@ -55,10 +55,8 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
     """
     from pixeltable.utils.arrow import to_arrow_schema
 
-    column_names = df.get_column_names()
-    column_types = df.get_column_types()
-    type_dict = {k: v.as_dict() for k, v in zip(column_names, column_types)}
-    arrow_schema = to_arrow_schema(dict(zip(column_names, column_types)))
+    type_dict = {k: v.as_dict() for k, v in df.schema.items()}
+    arrow_schema = to_arrow_schema(df.schema)
 
     # store the changes atomically
     with transactional_directory(dest_path) as temp_path:
@@ -67,11 +65,11 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
         json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
         batch_num = 0
-        current_value_batch: Dict[str, deque] = {k: deque() for k in column_names}
+        current_value_batch: Dict[str, deque] = {k: deque() for k in df.schema.keys()}
         current_byte_estimate = 0
 
         for data_row in df._exec():  # pylint: disable=protected-access
-            for col_name, col_type, e in zip(column_names, column_types, df._select_list_exprs):  # pylint: disable=protected-access
+            for (col_name, col_type), e in zip(df.schema.items(), df._select_list_exprs):  # pylint: disable=protected-access
                 val = data_row[e.slot_idx]
                 if val is None:
                     current_value_batch[col_name].append(val)
@@ -122,7 +120,7 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
                 assert batch_num < 100_000, 'wrote too many parquet files, unclear ordering'
                 _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
                 batch_num += 1
-                current_value_batch = {k: deque() for k in column_names}
+                current_value_batch = {k: deque() for k in df.schema.keys()}
                 current_byte_estimate = 0
 
         _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')

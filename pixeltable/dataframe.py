@@ -39,27 +39,25 @@ def _create_source_tag(file_path: str) -> str:
 
 
 class DataFrameResultSet:
-    def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
+    def __init__(self, rows: list[list[Any]], schema: dict[str, ColumnType]):
         self._rows = rows
-        self._col_names = col_names
-        self._col_types = col_types
+        self._col_names = list(schema.keys())
+        self.__schema = schema
         self.__formatter = Formatter(len(self._rows), len(self._col_names), Env.get().http_address)
+
+    @property
+    def schema(self) -> dict[str, ColumnType]:
+        return self.__schema
 
     def __len__(self) -> int:
         return len(self._rows)
-
-    def column_names(self) -> List[str]:
-        return self._col_names
-
-    def column_types(self) -> List[ColumnType]:
-        return self._col_types
 
     def __repr__(self) -> str:
         return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
         formatters: dict[str, Callable] = {}
-        for col_name, col_type in zip(self._col_names, self._col_types):
+        for col_name, col_type in self.schema.items():
             formatter = self.__formatter.get_pandas_formatter(col_type)
             if formatter is not None:
                 formatters[col_name] = formatter
@@ -170,8 +168,9 @@ class DataFrame:
         DataFrame._select_list_check_rep(list(zip(select_list_exprs, column_names)))
         # check select list after expansion to catch early
         # the following two lists are always non empty, even if select list is None.
+        assert len(column_names) == len(select_list_exprs)
         self._select_list_exprs = select_list_exprs
-        self._column_names = column_names
+        self._schema = {column_names[i]: select_list_exprs[i].col_type for i in range(len(column_names))}
         self.select_list = select_list
 
         self.where_clause = copy.deepcopy(where_clause)
@@ -337,16 +336,9 @@ class DataFrame:
         result._reverse()
         return result
 
-    def get_column_names(self) -> List[str]:
-        return self._column_names
-
-    def get_column_types(self) -> List[ColumnType]:
-        return [expr.col_type for expr in self._select_list_exprs]
-
     @property
     def schema(self) -> dict[str, ColumnType]:
-        assert len(self._column_names) == len(self._select_list_exprs)
-        return {self._column_names[i]: self._select_list_exprs[i].col_type for i in range(len(self._column_names))}
+        return self._schema
 
     def bind(self, args: dict[str, Any]) -> DataFrame:
         """Bind arguments to parameters and return a new DataFrame."""
@@ -377,7 +369,7 @@ class DataFrame:
         if order_by_exprs is not None:
             exprs.Expr.list_substitute(order_by_exprs, var_exprs)
 
-        select_list = list(zip(select_list_exprs, self._column_names))
+        select_list = list(zip(select_list_exprs, self.schema.keys()))
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None
         if order_by_exprs is not None:
             order_by_clause = [
@@ -417,8 +409,7 @@ class DataFrame:
         except sql.exc.DBAPIError as e:
             raise excs.Error(f'Error during SQL execution:\n{e}')
 
-        col_types = self.get_column_types()
-        return DataFrameResultSet(result_rows, self._column_names, col_types)
+        return DataFrameResultSet(result_rows, self.schema)
 
     def count(self) -> int:
         from pixeltable.plan import Planner
@@ -437,7 +428,7 @@ class DataFrame:
             assert len(self.select_list) > 0
             heading_vals.append('Select')
             heading_vals.extend([''] * (len(self.select_list) - 1))
-            info_vals.extend(self.get_column_names())
+            info_vals.extend(self.schema.keys())
         if self.where_clause is not None:
             heading_vals.append('Where')
             info_vals.append(self.where_clause.display_str(inline=False))
