@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import datetime
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sql
 
-from pixeltable import env
-import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.env import Env
+
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -53,30 +53,25 @@ class Literal(Expr):
         # For some types, we need to explictly record their type, because JSON does not know
         # how to interpret them unambiguously
         if self.col_type.is_timestamp_type():
-            if isinstance(self.val, datetime.datetime):
-                # Convert to ISO format in UTC (in keeping with the principle: all timestamps are
-                # stored as UTC in the database)
-                encoded_val = self.val.astimezone(datetime.timezone.utc).isoformat()
-            else:
-                assert isinstance(self.val, datetime.date)
-                encoded_val = self.val.isoformat()
+            assert isinstance(self.val, datetime.datetime)
+            # Convert to ISO format in UTC (in keeping with the principle: all timestamps are
+            # stored as UTC in the database)
+            encoded_val = self.val.astimezone(datetime.timezone.utc).isoformat()
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         else:
             return {'val': self.val, **super()._as_dict()}
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+        print(f'Found a literal: {d}')
         assert 'val' in d
         if 'val_t' in d:
             val_t = d['val_t']
+            # Currently the only special-cased literal type is TIMESTAMP
             assert val_t == ts.ColumnType.Type.TIMESTAMP.name
-            try:
-                # Try parsing as a date
-                return cls(datetime.date.fromisoformat(d['val']))
-            except ValueError:
-                # If that fails, parse as a datetime
-                dt = datetime.datetime.fromisoformat(d['val'])
-                # Convert from UTC to the default time zone (which may be none, in which case, use system time zone)
-                return cls(dt.astimezone(env.Env.get().default_time_zone))
+            dt = datetime.datetime.fromisoformat(d['val'])
+            assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
+            # Convert from UTC to the default time zone (which may be none, in which case, use system time zone)
+            return cls(dt.astimezone(Env.get().default_time_zone))
         else:
             return cls(d['val'])

@@ -125,3 +125,6 @@ class TestTimestamp:
                 for method in methods_to_test:
                     assert results[method][row] == getattr(effective_dt.astimezone(default_time_zone), method)()
                     assert results[method + '_tz'][row] == getattr(effective_dt.astimezone(query_time_zone), method)()
+
+    def test_time_zone_in_literals(self, reset_db) -> None:
+        t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
