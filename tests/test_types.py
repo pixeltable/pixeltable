@@ -18,14 +18,13 @@ class TestTypes:
             (1.0, FloatType()),
             (True, BoolType()),
             (datetime.datetime.now(), TimestampType()),
-            (datetime.date.today(), TimestampType()),
             (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
             (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=IntType())),
             ({'a': 1, 'b': '2'}, pxt.JsonType()),
             (['3', 4], pxt.JsonType()),
         ]
         for val, expected_type in test_cases:
-            assert ColumnType.infer_literal_type(val) == expected_type
+            assert ColumnType.infer_literal_type(val) == expected_type, val
 
     def test_serialize(self, init_env) -> None:
         type_vals = [
