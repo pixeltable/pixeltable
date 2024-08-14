@@ -13,16 +13,16 @@ class TestImport:
         t1 = pxt.io.import_rows('example1', data)
         assert t1.count() == 4
         assert t1.column_types() == {
-            'name': pxt.StringType(),
-            'human': pxt.BoolType(),
+            'name': pxt.StringType(nullable=True),
+            'human': pxt.BoolType(nullable=True),
             'parents': pxt.JsonType(nullable=True),
             'age': pxt.IntType(nullable=True)
         }
         t2 = pxt.io.import_rows('example2', data, schema_overrides={'age': pxt.FloatType(nullable=True)})
         assert t2.count() == 4
         assert t2.column_types() == {
-            'name': pxt.StringType(),
-            'human': pxt.BoolType(),
+            'name': pxt.StringType(nullable=True),
+            'human': pxt.BoolType(nullable=True),
             'parents': pxt.JsonType(nullable=True),
             'age': pxt.FloatType(nullable=True)
         }
@@ -35,8 +35,8 @@ class TestImport:
         t1 = pxt.io.import_json('example', str(example))
         assert t1.count() == 4
         assert t1.column_types() == {
-            'name': pxt.StringType(),
-            'human': pxt.BoolType(),
+            'name': pxt.StringType(nullable=True),
+            'human': pxt.BoolType(nullable=True),
             'parents': pxt.JsonType(nullable=True),
             'age': pxt.IntType(nullable=True)
         }

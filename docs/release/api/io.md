@@ -4,4 +4,6 @@
         - create_label_studio_project
         - import_csv
         - import_excel
+        - import_json
         - import_pandas
+        - import_rows

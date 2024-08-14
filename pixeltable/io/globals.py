@@ -164,9 +164,9 @@ def import_rows(
         rows: The list of dictionaries to import.
         schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
             as described above.
-        primary_key: The primary key of the table (see `create_table`).
-        num_retained_versions: The number of retained versions of the table (see `create_table`).
-        comment: A comment to attach to the table (see `create_table`).
+        primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
+        num_retained_versions: The number of retained versions of the table (see [`create_table()`][pixeltable.create_table]).
+        comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
 
     Returns:
         The newly created `Table`.
@@ -199,7 +199,7 @@ def import_rows(
                         )
                     schema[col_name] = supertype
             else:
-                cols_with_nones.append(col_name)
+                cols_with_nones.add(col_name)
 
     extraneous_keys = schema_overrides.keys() - schema.keys()
     if len(extraneous_keys) > 0:
@@ -227,7 +227,7 @@ def import_json(
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
-    **kwargs
+    **kwargs: Any
 ) -> Table:
     """
     Creates a new `Table` from a JSON file. This is a convenience method and is equivalent
@@ -238,10 +238,10 @@ def import_json(
         tbl_path: The name of the table to create.
         filepath_or_url: The path or URL of the JSON file.
         schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
-            (see `import_data`).
-        primary_key: The primary key of the table (see `create_table`).
-        num_retained_versions: The number of retained versions of the table (see `create_table`).
-        comment: A comment to attach to the table (see `create_table`).
+            (see [`import_rows()`][pixeltable.io.import_rows]).
+        primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
+        num_retained_versions: The number of retained versions of the table (see [`create_table()`][pixeltable.create_table]).
+        comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
         kwargs: Additional keyword arguments to pass to `json.loads`.
 
     Returns:
