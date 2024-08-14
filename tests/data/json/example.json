@@ -5,15 +5,18 @@
 },
 {
     "name": "Aragorn",
-    "age": 87,
+    "age": 87.1,
     "human": true,
-    "parents": ["Arathorn", "Gilraen"]
+    "parents": ["Arathorn", "Gilraen"],
+    "metadata": {"first_appearance": "The Fellowship of the Ring"},
+    "children": 1
 },
 {
     "name": "Galadriel",
     "age": 7000,
     "human": false,
-    "parents": ["Finarfin", "Eärwen"]
+    "parents": ["Finarfin", "Eärwen"],
+    "children": 1
 },
 {
     "name": "Melkor",
