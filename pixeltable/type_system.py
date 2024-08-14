@@ -233,7 +233,7 @@ class ColumnType:
             return FloatType()
         if isinstance(val, bool):
             return BoolType()
-        if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
+        if isinstance(val, datetime.datetime):
             return TimestampType()
         if isinstance(val, PIL.Image.Image):
             return ImageType(width=val.width, height=val.height)
@@ -276,7 +276,7 @@ class ColumnType:
                 return FloatType()
             if base is bool:
                 return BoolType()
-            if base is datetime.date or base is datetime.datetime:
+            if base is datetime.datetime:
                 return TimestampType()
             if issubclass(base, Sequence) or issubclass(base, Mapping):
                 return JsonType()
@@ -506,8 +506,8 @@ class TimestampType(ColumnType):
         return sql.TIMESTAMP(timezone=True)
 
     def _validate_literal(self, val: Any) -> None:
-        if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
-            raise TypeError(f'Expected datetime.datetime or datetime.date, got {val.__class__.__name__}')
+        if not isinstance(val, datetime.datetime):
+            raise TypeError(f'Expected datetime.datetime, got {val.__class__.__name__}')
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):

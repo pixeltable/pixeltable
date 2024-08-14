@@ -15,8 +15,8 @@ import sqlalchemy as sql
 import pixeltable
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 import pixeltable.func as func
+import pixeltable.type_system as ts
 from .data_row import DataRow
 from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
 
@@ -230,9 +230,8 @@ class Expr(abc.ABC):
             self.components[i] = self.components[i]._retarget(tbl_versions)
         return self
 
-    @abc.abstractmethod
     def __str__(self) -> str:
-        pass
+        return f'<Expression of type {type(self)}>'
 
     def display_str(self, inline: bool = True) -> str:
         """
@@ -426,6 +425,14 @@ class Expr(abc.ABC):
         # Return a `FunctionCall` obtained by passing this `Expr` to the new `function`.
         return function(self)
 
+    def __dir__(self) -> list[str]:
+        attrs = ['isin', 'astype', 'apply']
+        attrs += [
+            f.name
+            for f in func.FunctionRegistry.get().get_type_methods(self.col_type.type_enum)
+        ]
+        return attrs
+
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             from .json_path import JsonPath
@@ -433,7 +440,7 @@ class Expr(abc.ABC):
         if self.col_type.is_array_type():
             from .array_slice import ArraySlice
             return ArraySlice(self, index)
-        raise excs.Error(f'Type {self.col_type} is not subscriptable')
+        raise AttributeError(f'Type {self.col_type} is not subscriptable')
 
     def __getattr__(self, name: str) -> Union['pixeltable.exprs.MethodRef', 'pixeltable.exprs.FunctionCall', 'pixeltable.exprs.JsonPath']:
         """
