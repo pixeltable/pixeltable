@@ -23,8 +23,8 @@ class UpdateStatus:
         self.num_rows += other.num_rows
         self.num_computed_values += other.num_computed_values
         self.num_excs += other.num_excs
-        self.updated_cols = list(set(self.updated_cols + other.updated_cols))
-        self.cols_with_excs = list(set(self.cols_with_excs + other.cols_with_excs))
+        self.updated_cols = list(dict.fromkeys(self.updated_cols + other.updated_cols))
+        self.cols_with_excs = list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs))
         return self
 
 def is_valid_identifier(name: str) -> bool:
