@@ -10,7 +10,7 @@ class TestImport:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example) as fp:
             data = json.loads(fp.read())
-        t1 = pxt.io.import_data('example1', data)
+        t1 = pxt.io.import_rows('example1', data)
         assert t1.count() == 4
         assert t1.column_types() == {
             'name': pxt.StringType(),
@@ -18,7 +18,7 @@ class TestImport:
             'parents': pxt.JsonType(nullable=True),
             'age': pxt.IntType(nullable=True)
         }
-        t2 = pxt.io.import_data('example2', data, schema_overrides={'age': pxt.FloatType(nullable=True)})
+        t2 = pxt.io.import_rows('example2', data, schema_overrides={'age': pxt.FloatType(nullable=True)})
         assert t2.count() == 4
         assert t2.column_types() == {
             'name': pxt.StringType(),
