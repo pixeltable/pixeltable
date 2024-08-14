@@ -63,7 +63,6 @@ class Literal(Expr):
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
-        print(f'Found a literal: {d}')
         assert 'val' in d
         if 'val_t' in d:
             val_t = d['val_t']
