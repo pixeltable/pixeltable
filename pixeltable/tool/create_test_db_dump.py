@@ -61,7 +61,7 @@ class Dumper:
         info_dict = {'pixeltable-dump': {
             'metadata-version': md_version,
             'git-sha': git_sha,
-            'datetime': datetime.datetime.utcnow(),
+            'datetime': datetime.datetime.now(tz=datetime.timezone.utc),
             'user': user
         }}
         with open(info_file, 'w') as info:
@@ -242,8 +242,7 @@ class Dumper:
         add_column('str_const', 'str')
         add_column('int_const', 5)
         add_column('float_const', 5.0)
-        add_column('timestamp_const_1', datetime.datetime.utcnow())
-        add_column('timestamp_const_2', datetime.date.today())
+        add_column('timestamp_const_1', datetime.datetime.now(tz=datetime.timezone.utc))
 
         # type_cast
         add_column('astype', t.c2.astype(FloatType()))
