@@ -14,7 +14,7 @@ from pixeltable.env import Env
 from pixeltable.exprs import FunctionCall
 from pixeltable.func import CallableFunction
 from pixeltable.metadata import VERSION, SystemInfo
-from pixeltable.metadata.notes import version_notes
+from pixeltable.metadata.notes import VERSION_NOTES
 from .conftest import clean_db
 from .utils import reload_catalog, skip_test_if_not_installed
 
@@ -89,7 +89,7 @@ class TestMigration:
             f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'
             f'`python pixeltable/tool/create_test_db_dump.py`\n'
             f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`')
-        assert VERSION in version_notes, (
+        assert VERSION in VERSION_NOTES, (
             f'No version notes found for current schema version {VERSION}. '
             f'Please add them to pixeltable/metadata/notes.py.')
 
