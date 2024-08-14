@@ -230,9 +230,8 @@ class Expr(abc.ABC):
             self.components[i] = self.components[i]._retarget(tbl_versions)
         return self
 
-    @abc.abstractmethod
     def __str__(self) -> str:
-        pass
+        return f'<Expression of type {type(self)}>'
 
     def display_str(self, inline: bool = True) -> str:
         """
