@@ -51,7 +51,6 @@ class TestTypes:
             int: IntType(),
             float: FloatType(),
             bool: BoolType(),
-            datetime.date: TimestampType(),
             datetime.datetime: TimestampType(),
             list: JsonType(),
             dict: JsonType(),

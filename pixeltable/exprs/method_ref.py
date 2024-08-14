@@ -27,7 +27,8 @@ class MethodRef(Expr):
         self.method_name = method_name
         self.fn = FunctionRegistry.get().lookup_type_method(base_expr.col_type.type_enum, method_name)
         if self.fn is None:
-            raise excs.Error(f'Unknown method (of type {base_expr.col_type}): {method_name}')
+            # This has to be an `AttributeError`, or tab-completion won't work properly in ipython.
+            raise AttributeError(f'Unknown method (of type {base_expr.col_type}): {method_name}')
         self.components = [base_expr]
         self.id = self._create_id()
 

@@ -13,30 +13,23 @@ import pixeltable.catalog as catalog
 
 _logger = logging.getLogger('pixeltable')
 
-class SqlScanNode(ExecNode):
-    """Materializes data from the store via SQL
-    """
+class SqlNode(ExecNode):
+    """Materializes data from the store via a Select stmt."""
+
     def __init__(
             self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
-            select_list: Iterable[exprs.Expr],
-            where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Expr] = None,
-            order_by_items: Optional[List[Tuple[exprs.Expr, bool]]] = None,
-            limit: int = 0, set_pk: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
+            select_list: Iterable[exprs.Expr], set_pk: bool = False
     ):
         """
+        Initialize self.stmt with expressions derived from select_list.
+
+        This only provides the select list. The subclass is responsible for the From clause and any additional clauses.
+
         Args:
             select_list: output of the query
-            sql_where_clause: SQL Where clause
-            filter: additional Where-clause predicate that can't be evaluated via SQL
-            limit: max number of rows to return: 0 = no limit
             set_pk: if True, sets the primary for each DataRow
-            exact_version_only: tables for which we only want to see rows created at the current version
         """
         # create Select stmt
-        if order_by_items is None:
-            order_by_items = []
-        if exact_version_only is None:
-            exact_version_only = []
         self.tbl = tbl
         target = tbl.tbl_version  # the stored table we're scanning
         self.sql_exprs = exprs.ExprSet(select_list)
@@ -45,21 +38,15 @@ class SqlScanNode(ExecNode):
             sql_subexprs = iter_arg.subexprs(filter=lambda e: e.sql_expr() is not None, traverse_matches=False)
             [self.sql_exprs.append(e) for e in sql_subexprs]
         super().__init__(row_builder, self.sql_exprs, [], None)  # we materialize self.sql_exprs
-        self.filter = filter
-        self.filter_eval_ctx = \
-            row_builder.create_eval_ctx([filter], exclude=select_list) if filter is not None else None
-        self.limit = limit
 
         # change rowid refs against a base table to rowid refs against the target table, so that we minimize
         # the number of tables that need to be joined to the target table
         for rowid_ref in [e for e in self.sql_exprs if isinstance(e, exprs.RowidRef)]:
             rowid_ref.set_tbl(tbl)
 
-        where_clause_tbl_ids = where_clause.tbl_ids() if where_clause is not None else set()
-        refd_tbl_ids = exprs.Expr.list_tbl_ids(self.sql_exprs) | where_clause_tbl_ids
         sql_select_list = [e.sql_expr() for e in self.sql_exprs]
         assert len(sql_select_list) == len(self.sql_exprs)
-        assert all([e is not None for e in sql_select_list])
+        assert all(e is not None for e in sql_select_list)
         self.set_pk = set_pk
         self.num_pk_cols = 0
         if set_pk:
@@ -69,42 +56,12 @@ class SqlScanNode(ExecNode):
             sql_select_list += pk_columns
 
         self.stmt = sql.select(*sql_select_list)
-        self.stmt = self.create_from_clause(
-            tbl, self.stmt, refd_tbl_ids, exact_version_only={t.id for t in exact_version_only})
 
-        # change rowid refs against a base table to rowid refs against the target table, so that we minimize
-        # the number of tables that need to be joined to the target table
-        for rowid_ref in [e for e, _ in order_by_items if isinstance(e, exprs.RowidRef)]:
-            rowid_ref.set_tbl(tbl)
-        order_by_clause: List[sql.ClauseElement] = []
-        for e, asc in order_by_items:
-            if isinstance(e, exprs.SimilarityExpr):
-                order_by_clause.append(e.as_order_by_clause(asc))
-            else:
-                order_by_clause.append(e.sql_expr().desc() if not asc else e.sql_expr())
-
-        if where_clause is not None:
-            sql_where_clause = where_clause.sql_expr()
-            assert sql_where_clause is not None
-            self.stmt = self.stmt.where(sql_where_clause)
-        if len(order_by_clause) > 0:
-            self.stmt = self.stmt.order_by(*order_by_clause)
-        elif target.id in row_builder.unstored_iter_args:
-            # we are referencing unstored iter columns from this view and try to order by our primary key,
-            # which ensures that iterators will see monotonically increasing pos values
-            self.stmt = self.stmt.order_by(*self.tbl.store_tbl.rowid_columns())
-        if limit != 0 and self.filter is None:
-            # if we need to do post-SQL filtering, we can't use LIMIT
-            self.stmt = self.stmt.limit(limit)
-
+        # additional state
         self.result_cursor: Optional[sql.engine.CursorResult] = None
-
-        try:
-            # log stmt, if possible
-            stmt_str = str(self.stmt.compile(compile_kwargs={'literal_binds': True}))
-            _logger.debug(f'SqlScanNode stmt:\n{stmt_str}')
-        except Exception as e:
-            pass
+        # the filter is provided by the subclass
+        self.filter: Optional[exprs.Expr] = None
+        self.filter_eval_ctx: Optional[exprs.EvalContext] = None
 
     @classmethod
     def create_from_clause(
@@ -223,4 +180,111 @@ class SqlScanNode(ExecNode):
     def _close(self) -> None:
         if self.result_cursor is not None:
             self.result_cursor.close()
+
+
+class SqlScanNode(SqlNode):
+    """
+    Materializes data from the store via a Select stmt.
+
+    Supports filtering and ordering.
+    """
+    def __init__(
+            self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
+            select_list: Iterable[exprs.Expr],
+            where_clause: Optional[exprs.Expr] = None, filter: Optional[exprs.Expr] = None,
+            order_by_items: Optional[List[Tuple[exprs.Expr, bool]]] = None,
+            limit: int = 0, set_pk: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
+    ):
+        """
+        Args:
+            select_list: output of the query
+            sql_where_clause: SQL Where clause
+            filter: additional Where-clause predicate that can't be evaluated via SQL
+            limit: max number of rows to return: 0 = no limit
+            set_pk: if True, sets the primary for each DataRow
+            exact_version_only: tables for which we only want to see rows created at the current version
+        """
+        super().__init__(tbl, row_builder, select_list, set_pk=set_pk)
+        # create Select stmt
+        if order_by_items is None:
+            order_by_items = []
+        if exact_version_only is None:
+            exact_version_only = []
+        target = tbl.tbl_version  # the stored table we're scanning
+        self.filter = filter
+        self.filter_eval_ctx = \
+            row_builder.create_eval_ctx([filter], exclude=select_list) if filter is not None else None
+        self.limit = limit
+
+        where_clause_tbl_ids = where_clause.tbl_ids() if where_clause is not None else set()
+        refd_tbl_ids = exprs.Expr.list_tbl_ids(self.sql_exprs) | where_clause_tbl_ids
+        self.stmt = self.create_from_clause(
+            tbl, self.stmt, refd_tbl_ids, exact_version_only={t.id for t in exact_version_only})
+
+        # change rowid refs against a base table to rowid refs against the target table, so that we minimize
+        # the number of tables that need to be joined to the target table
+        for rowid_ref in [e for e, _ in order_by_items if isinstance(e, exprs.RowidRef)]:
+            rowid_ref.set_tbl(tbl)
+        order_by_clause: List[sql.ClauseElement] = []
+        for e, asc in order_by_items:
+            if isinstance(e, exprs.SimilarityExpr):
+                order_by_clause.append(e.as_order_by_clause(asc))
+            else:
+                order_by_clause.append(e.sql_expr().desc() if not asc else e.sql_expr())
+
+        if where_clause is not None:
+            sql_where_clause = where_clause.sql_expr()
+            assert sql_where_clause is not None
+            self.stmt = self.stmt.where(sql_where_clause)
+        if len(order_by_clause) > 0:
+            self.stmt = self.stmt.order_by(*order_by_clause)
+        elif target.id in row_builder.unstored_iter_args:
+            # we are referencing unstored iter columns from this view and try to order by our primary key,
+            # which ensures that iterators will see monotonically increasing pos values
+            self.stmt = self.stmt.order_by(*self.tbl.store_tbl.rowid_columns())
+        if limit != 0 and self.filter is None:
+            # if we need to do post-SQL filtering, we can't use LIMIT
+            self.stmt = self.stmt.limit(limit)
+
+        try:
+            # log stmt, if possible
+            stmt_str = str(self.stmt.compile(compile_kwargs={'literal_binds': True}))
+            _logger.debug(f'SqlScanNode stmt:\n{stmt_str}')
+        except Exception as e:
+            pass
+
+
+class SqlLookupNode(SqlNode):
+    """
+    Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key values
+    """
+    def __init__(
+            self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
+            select_list: Iterable[exprs.Expr], sa_key_cols: list[sql.Column], key_vals: list[tuple],
+    ):
+        """
+        Args:
+            select_list: output of the query
+            sa_key_cols: list of key columns in the store table
+            key_vals: list of key values to look up
+        """
+        super().__init__(tbl, row_builder, select_list, set_pk=True)
+        target = tbl.tbl_version  # the stored table we're scanning
+        refd_tbl_ids = exprs.Expr.list_tbl_ids(self.sql_exprs)
+        self.stmt = self.create_from_clause(tbl, self.stmt, refd_tbl_ids)
+        # Where clause: (key-col-1, key-col-2, ...) IN ((val-1, val-2, ...), ...)
+        self.where_clause = sql.tuple_(*sa_key_cols).in_(key_vals)
+        self.stmt = self.stmt.where(self.where_clause)
+
+        if target.id in row_builder.unstored_iter_args:
+            # we are referencing unstored iter columns from this view and try to order by our primary key,
+            # which ensures that iterators will see monotonically increasing pos values
+            self.stmt = self.stmt.order_by(*self.tbl.store_tbl.rowid_columns())
+
+        try:
+            # log stmt, if possible
+            stmt_str = str(self.stmt.compile(compile_kwargs={'literal_binds': True}))
+            _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
+        except Exception as e:
+            pass
 
