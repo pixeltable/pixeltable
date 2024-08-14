@@ -179,7 +179,7 @@ class Dumper:
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
         def add_column(col_name: str, col_expr: Any) -> None:
             t.add_column(**{f'{col_prefix}_{col_name}': col_expr})
-        
+
         # arithmetic_expr
         add_column('plus', t.c2 + 6)
         add_column('minus', t.c2 - 5)
