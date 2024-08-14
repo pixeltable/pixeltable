@@ -19,6 +19,14 @@ class UpdateStatus:
     updated_cols: List[str] = dataclasses.field(default_factory=list)
     cols_with_excs: List[str] = dataclasses.field(default_factory=list)
 
+    def __iadd__(self, other: 'UpdateStatus') -> 'UpdateStatus':
+        self.num_rows += other.num_rows
+        self.num_computed_values += other.num_computed_values
+        self.num_excs += other.num_excs
+        self.updated_cols = list(dict.fromkeys(self.updated_cols + other.updated_cols))
+        self.cols_with_excs = list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs))
+        return self
+
 def is_valid_identifier(name: str) -> bool:
     return name.isidentifier() and not name.startswith('_')
 
