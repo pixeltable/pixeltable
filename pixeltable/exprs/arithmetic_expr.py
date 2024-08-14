@@ -78,9 +78,12 @@ class ArithmeticExpr(Expr):
                 # Postgres does not support modulus for floats
                 return None
         if self.operator == ArithmeticOperator.FLOORDIV:
+            # Postgres has a DIV operator, but it behaves differently from Python's // operator
+            # (Postgres rounds toward 0, Python rounds toward negative infinity)
+            # We need the behavior to be consistent, so that expressions will evaluate the same way
+            # whether or not their operands can be translated to SQL. These SQL clauses should
+            # mimic the behavior of Python's // operator.
             if self.col_type.is_int_type():
-                # Postgres has a DIV operator, but it behaves differently from Python's // operator
-                # (Postgres rounds toward 0, Python rounds toward negative infinity)
                 return sql.sql.expression.cast(sql.func.floor(left / right), sql.Integer)
             if self.col_type.is_float_type():
                 return sql.sql.expression.cast(sql.func.floor(left / right), sql.Float)
