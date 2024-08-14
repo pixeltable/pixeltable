@@ -69,3 +69,19 @@ class TestTypes:
             assert ColumnType.from_python_type(py_type) == pxt_type
             opt_pxt_type = pxt_type.copy(nullable=True)
             assert ColumnType.from_python_type(Optional[py_type]) == opt_pxt_type
+
+    def test_supertype(self) -> None:
+        from pixeltable.type_system import ColumnType
+        test_cases = [
+            (IntType(), FloatType(), FloatType()),
+            (BoolType(), IntType(), IntType()),
+            (BoolType(), FloatType(), FloatType()),
+        ]
+        for t1, t2, expected in test_cases:
+            for n1 in [True, False]:
+                for n2 in [True, False]:
+                    t1n = t1.copy(nullable=n1)
+                    t2n = t2.copy(nullable=n2)
+                    expectedn = expected.copy(nullable=(n1 or n2))
+                    assert ColumnType.supertype(t1n, t2n) == expectedn
+                    assert ColumnType.supertype(t2n, t1n) == expectedn

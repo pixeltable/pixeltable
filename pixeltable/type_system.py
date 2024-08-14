@@ -206,7 +206,7 @@ class ColumnType:
         if type1.is_scalar_type() and type2.is_scalar_type():
             t = cls.Type.supertype(type1._type, type2._type, cls.common_supertypes)
             if t is not None:
-                return cls.make_type(t)
+                return cls.make_type(t).copy(nullable=(type1.nullable or type2.nullable))
             return None
 
         if type1._type == type2._type:
@@ -578,7 +578,7 @@ class ArrayType(ColumnType):
         if base_type is None:
             return None
         shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
-        return ArrayType(tuple(shape), base_type)
+        return ArrayType(tuple(shape), base_type, nullable=(type1.nullable or type2.nullable))
 
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
