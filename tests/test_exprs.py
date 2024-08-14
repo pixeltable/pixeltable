@@ -300,6 +300,24 @@ class TestExprs:
             with pytest.raises(excs.Error):
                 _ = t[op1 * op2].show()
 
+        # Test literal exprs
+        results = t.where(t.c2 == 7).select(
+            -t.c2,
+            t.c2 + 2,
+            t.c2 - 2,
+            t.c2 * 2,
+            t.c2 / 2,
+            t.c2 % 2,
+            t.c2 // 2,
+            2 + t.c2,
+            2 - t.c2,
+            2 * t.c2,
+            2 / t.c2,
+            2 % t.c2,
+            2 // t.c2
+        ).collect()
+        assert list(results[0].values()) == [-7, 9, 5, 14, 3.5, 1, 3, 9, -5, 14, 0.2857142857142857, 2, 0]
+
         # Test that arithmetic operations give the right answers. We do this two ways:
         # (i) with primitive operators only, to ensure that the arithmetic operations are done in SQL when possible;
         # (ii) with a Python function call interposed, to ensure that the arithmetic operations are always done in Python.
