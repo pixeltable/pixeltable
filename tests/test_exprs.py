@@ -1,4 +1,5 @@
 import json
+import math
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -275,6 +276,10 @@ class TestExprs:
                 _ = t[op1 * op2]
             with pytest.raises(excs.Error):
                 _ = t[op1 / op2]
+            with pytest.raises(excs.Error):
+                _ = t[op1 % op2]
+            with pytest.raises(excs.Error):
+                _ = t[op1 // op2]
 
         # TODO: test division; requires predicate
         for op1, op2 in [(t.c6.f2, t.c6.f2), (t.c6.f3, t.c6.f3)]:
@@ -295,6 +300,30 @@ class TestExprs:
             with pytest.raises(excs.Error):
                 _ = t[op1 * op2].show()
 
+        # Test that arithmetic operations give the right answers. We do this two ways:
+        # (i) with primitive operators only, to ensure that the arithmetic operations are done in SQL when possible;
+        # (ii) with a Python function call interposed, to ensure that the arithmetic operations are always done in Python.
+        primitive_ops = (t.c2, t.c3)
+        forced_python_ops = (t.c2.apply(math.floor, col_type=IntType()), t.c3.apply(math.floor, col_type=FloatType()))
+        for (int_operand, float_operand) in (primitive_ops, forced_python_ops):
+            results = t.where(t.c2 == 7).select(
+                add_int=int_operand + (t.c2 - 4),
+                sub_int=int_operand - (t.c2 - 4),
+                mul_int=int_operand * (t.c2 - 4),
+                truediv_int=int_operand / (t.c2 - 4),
+                mod_int=int_operand % (t.c2 - 4),
+                neg_floordiv_int=(int_operand * -1) // (t.c2 - 4),
+                add_float=float_operand + (t.c3 - 4.0),
+                sub_float=float_operand - (t.c3 - 4.0),
+                mul_float=float_operand * (t.c3 - 4.0),
+                truediv_float=float_operand / (t.c3 - 4.0),
+                mod_float=float_operand % (t.c3 - 4.0),
+                floordiv_float=float_operand // (t.c3 - 4.0),
+                neg_floordiv_float=(float_operand * -1) // (t.c3 - 4.0),
+            ).collect()
+            assert list(results[0].values()) == [10, 4, 21, 2.3333333333333335, 1, -3, 10.0, 4.0, 21.0, 2.3333333333333335, 1.0, 2.0, -3.0], (
+                f'Failed with operands: {int_operand}, {float_operand}'
+            )
 
     def test_inline_dict(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

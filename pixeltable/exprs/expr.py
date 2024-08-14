@@ -515,6 +515,9 @@ class Expr(abc.ABC):
     def __mod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MOD, other)
 
+    def __floordiv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         """
         other: Union[Expr, LiteralPythonTypes]

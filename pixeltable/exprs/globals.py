@@ -68,6 +68,7 @@ class ArithmeticOperator(enum.Enum):
     MUL = 2
     DIV = 3
     MOD = 4
+    FLOORDIV = 5
 
     def __str__(self) -> str:
         if self == self.ADD:
@@ -80,4 +81,5 @@ class ArithmeticOperator(enum.Enum):
             return '/'
         if self == self.MOD:
             return '%'
-
+        if self == self.FLOORDIV:
+            return '//'
