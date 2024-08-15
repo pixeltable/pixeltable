@@ -40,6 +40,7 @@ pgserver = "==0.1.4"
 mistune = "^3.0.2"
 pymupdf = "^1.24.1"
 ftfy = "^6.2.0"
+tzdata = ">=2022.1"  # Required for time zone support on Windows
 
 [tool.poetry.group.dev]
 optional = true
