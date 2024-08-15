@@ -9,14 +9,16 @@ import urllib.parse
 import urllib.request
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
+from typing import (Any, Callable, Dict, List, Mapping, Optional, Sequence,
+                    Tuple, Union)
 
-import PIL.Image
 import av
 import numpy as np
+import PIL.Image
 import sqlalchemy as sql
 
-from pixeltable import env, exceptions as excs
+import pixeltable.exceptions as excs
+from pixeltable.env import Env
 
 
 class ColumnType:
@@ -512,13 +514,6 @@ class TimestampType(ColumnType):
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
             val = datetime.datetime.fromisoformat(val)
-        if isinstance(val, datetime.datetime) and val.tzinfo is None:
-            # We have a naive datetime, either because it was specified explicitly this way, or
-            # because we just parsed it. Check whether a default time zone is configured, and if so,
-            # modify the naive datetime to use it (in preference to the system time zone).
-            default_tz = env.Env.get().default_time_zone
-            if default_tz is not None:
-                val = val.replace(tzinfo=default_tz)
         return val
 
 

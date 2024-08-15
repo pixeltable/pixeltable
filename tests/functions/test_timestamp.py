@@ -127,4 +127,16 @@ class TestTimestamp:
                     assert results[method + '_tz'][row] == getattr(effective_dt.astimezone(query_time_zone), method)()
 
     def test_time_zone_in_literals(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
+        Env.get().default_time_zone = ZoneInfo('America/Anchorage')
+        t = pxt.create_table('test_tbl', {'n': pxt.IntType(), 'dt': pxt.TimestampType()})
+        start = datetime.fromisoformat('2024-07-01T00:00:00+00:00')
+        validate_update_status(
+            t.insert({'n': n, 'dt': start + timedelta(minutes=n)} for n in range(1440)),
+            expected_rows=1440
+        )
+        # Ensure literals are displayed correctly in the default TZ (with naive datetimes interpreted
+        # as being in the default time zone)
+        assert str(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00')) == "dt >= '2024-07-01T00:00:00-08:00'"
+        assert str(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00-04:00')) == "dt >= '2024-06-30T20:00:00-08:00'"
+        assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00')).count() == 960
+        assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00-04:00')).count() == 1200

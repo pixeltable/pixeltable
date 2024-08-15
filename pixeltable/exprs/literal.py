@@ -23,6 +23,16 @@ class Literal(Expr):
             if col_type is None:
                 raise TypeError(f'Not a valid literal: {val}')
         super().__init__(col_type)
+        if isinstance(val, datetime.datetime):
+            # Normalize the datetime to UTC: all timestamps are stored as UTC (both in the database and in literals)
+            if val.tzinfo is None:
+                # We have a naive datetime. If a default time zone is configured, modify the naive datetime to use it
+                # (in preference to the system time zone)
+                default_tz = Env.get().default_time_zone
+                if default_tz is not None:
+                    val = val.replace(tzinfo=default_tz)
+            # Now convert to UTC
+            val = val.astimezone(datetime.timezone.utc)
         self.val = val
         self.id = self._create_id()
 
@@ -30,8 +40,12 @@ class Literal(Expr):
         return 'Literal'
 
     def __str__(self) -> str:
-        if self.col_type.is_string_type() or self.col_type.is_timestamp_type():
+        if self.col_type.is_string_type():
             return f"'{self.val}'"
+        if self.col_type.is_timestamp_type():
+            assert isinstance(self.val, datetime.datetime)
+            default_tz = Env.get().default_time_zone
+            return f"'{self.val.astimezone(default_tz).isoformat()}'"
         return str(self.val)
 
     def _equals(self, other: Literal) -> bool:
@@ -54,9 +68,10 @@ class Literal(Expr):
         # how to interpret them unambiguously
         if self.col_type.is_timestamp_type():
             assert isinstance(self.val, datetime.datetime)
+            assert self.val.tzinfo == datetime.timezone.utc  # Must be UTC in a literal
             # Convert to ISO format in UTC (in keeping with the principle: all timestamps are
             # stored as UTC in the database)
-            encoded_val = self.val.astimezone(datetime.timezone.utc).isoformat()
+            encoded_val = self.val.isoformat()
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         else:
             return {'val': self.val, **super()._as_dict()}
@@ -70,7 +85,6 @@ class Literal(Expr):
             assert val_t == ts.ColumnType.Type.TIMESTAMP.name
             dt = datetime.datetime.fromisoformat(d['val'])
             assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
-            # Convert from UTC to the default time zone (which may be none, in which case, use system time zone)
-            return cls(dt.astimezone(Env.get().default_time_zone))
+            return cls(dt)
         else:
             return cls(d['val'])
