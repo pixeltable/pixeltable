@@ -89,7 +89,7 @@ def microsecond(self: datetime) -> int:
 
 
 @func.udf(is_method=True)
-def to_tz(self: datetime, tz: str) -> datetime:
+def astimezone(self: datetime, tz: str) -> datetime:
     """
     Convert the datetime to the given time zone.
 
@@ -159,17 +159,17 @@ def strftime(self: datetime, format: str) -> str:
     return self.strftime(format)
 
 
-@func.udf(is_method=True)
-def date(self: datetime) -> datetime:
-    """
-    Return the date part of the datetime.
-
-    Equivalent to [`datetime.date()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.date).
-    """
-    d = self.date()
-    return datetime(d.year, d.month, d.day)
-
-
+# @func.udf(is_method=True)
+# def date(self: datetime) -> datetime:
+#     """
+#     Return the date part of the datetime.
+#
+#     Equivalent to [`datetime.date()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.date).
+#     """
+#     d = self.date()
+#     return datetime(d.year, d.month, d.day)
+#
+#
 # @func.udf
 # def time(self: datetime) -> datetime:
 #     """

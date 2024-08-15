@@ -93,13 +93,13 @@ class TestTimestamp:
             pxt.drop_table('test_tbl', force=True)
             t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
             t.insert({'dt': dt} for dt in timestamps)
-            selection = {'dt': t.dt, 'dt_tz': t.dt.to_tz(query_time_zone.key)}
+            selection = {'dt': t.dt, 'dt_tz': t.dt.astimezone(query_time_zone.key)}
             for prop in props_to_test:
                 selection[prop] = getattr(t.dt, prop)
-                selection[prop + '_tz'] = getattr(t.dt.to_tz(query_time_zone.key), prop)
+                selection[prop + '_tz'] = getattr(t.dt.astimezone(query_time_zone.key), prop)
             for method in methods_to_test:
                 selection[method] = getattr(t.dt, method)()
-                selection[method + '_tz'] = getattr(t.dt.to_tz(query_time_zone.key), method)()
+                selection[method + '_tz'] = getattr(t.dt.astimezone(query_time_zone.key), method)()
             results = t.select(**selection).collect()
 
             assert len(results) == len(timestamps)

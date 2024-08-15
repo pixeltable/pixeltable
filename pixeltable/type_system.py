@@ -513,7 +513,7 @@ class TimestampType(ColumnType):
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
-            val = datetime.datetime.fromisoformat(val)
+            return datetime.datetime.fromisoformat(val)
         return val
 
 
