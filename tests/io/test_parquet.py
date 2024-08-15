@@ -1,7 +1,5 @@
 import pathlib
 
-import pyarrow.parquet
-
 import pixeltable as pxt
 
 from ..utils import make_test_arrow_table, skip_test_if_not_installed
@@ -11,6 +9,7 @@ class TestParquet:
     def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
+        import pyarrow.parquet
 
         from pixeltable.utils.arrow import iter_tuples
 
