@@ -11,6 +11,7 @@ from ..utils import validate_update_status
 
 
 class TestTimestamp:
+    # All test datetimes are in America/Los_Angeles time zone
     TEST_DATETIMES = [
         "2024-01-01T12:34:56-08:00",
         "2023-12-31T23:59:59-08:00",
@@ -20,6 +21,7 @@ class TestTimestamp:
     ]
 
     def test_all(self, reset_db) -> None:
+        Env.get().default_time_zone = ZoneInfo('America/Los_Angeles')
         t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
