@@ -1,8 +1,7 @@
-from datetime import datetime, timedelta, tzinfo
-from typing import Callable, Optional
+import time
+from datetime import datetime, timedelta
+from typing import Callable
 from zoneinfo import ZoneInfo
-
-import pytest
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -57,9 +56,16 @@ class TestTimestamp:
             (posix_timestamp, datetime.timestamp, [], {}),
         ]
 
+        def debug_str() -> str:
+            system_tz = time.tzname
+            db_dts = [dt.isoformat() for dt in t.select(out=t.dt).collect()['out']]
+            return f'system_tz={system_tz}, db_dts={db_dts}'
+
         for pxt_fn, dt_fn, args, kwargs in test_params:
-            assert (t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
-                == [dt_fn(dt, *args, **kwargs) for dt in test_dts])
+            assert (
+                t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
+                    == [dt_fn(dt, *args, **kwargs) for dt in test_dts]
+            ), debug_str()
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
