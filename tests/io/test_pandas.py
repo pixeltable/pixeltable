@@ -46,7 +46,7 @@ class TestPandas:
         t3 = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', parse_dates=['ts', 'ts_n'])
         assert t3.count() == 4
         assert t3.column_types() == {
-            'int': pxt.IntType(nullable=True),
+            'c__int': pxt.IntType(nullable=True),
             'float': pxt.FloatType(nullable=True),
             'float_n': pxt.FloatType(nullable=True),
             'bool': pxt.BoolType(nullable=True),
@@ -56,7 +56,7 @@ class TestPandas:
             'ts_n': pxt.TimestampType(nullable=True),
         }
         result_set = t3.collect()
-        assert result_set['int'] == [2, 3, 5, 22]
+        assert result_set['c__int'] == [2, 3, 5, 22]
         assert result_set['float'] == [1.7, 3.0, 6.2, -1.0]
         _assert_equals_with_nans(result_set['float_n'], [1.0, 5.0, float('nan'), 1.0])
         assert result_set['bool'] == [True, False, True, True]
@@ -102,6 +102,26 @@ class TestPandas:
                 'online_foods', 'tests/data/datasets/onlinefoods.csv', schema_overrides={'Non-Column': pxt.StringType(nullable=True)}
             )
         assert '`Non-Column` specified in `schema_overrides` does not exist' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = import_csv(
+                'edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key=['!!int', 'Non-Column']
+            )
+        assert 'Primary key column `Non-Column` does not exist' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = import_csv(
+                # String with null values
+                'edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key='string#n'
+            )
+        assert 'Primary key column `string#n` cannot contain null values.' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = import_csv(
+                # Timestamp with null values
+                'edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key='ts_n'
+            )
+        assert 'Primary key column `ts_n` cannot contain null values.' in str(exc_info.value)
 
 
 def _assert_equals_with_nans(a: list[float], b: list[float]) -> bool:
