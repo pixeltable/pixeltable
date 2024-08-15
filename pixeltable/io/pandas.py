@@ -1,4 +1,4 @@
-from typing import Optional, Any, Iterable, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -15,7 +15,7 @@ def import_pandas(
     comment: str = ''
 ) -> pxt.catalog.InsertableTable:
     """Creates a new `Table` from a Pandas `DataFrame`, with the specified name. The schema of the table
-    will be inferred from the `DataFrame`, unless `schema` is specified.
+    will be inferred from the `DataFrame`.
 
     The column names of the new `Table` will be identical to those in the `DataFrame`, as long as they are valid
     Pixeltable identifiers. If a column name is not a valid Pixeltable identifier, it will be normalized according to
@@ -32,9 +32,9 @@ def import_pandas(
             `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid
             Pixeltable identifiers).
     """
-    schema = _df_to_pxt_schema(df, schema_overrides)
+    schema, pxt_pk = _df_to_pxt_schema(df, schema_overrides, primary_key)
     tbl_rows = (dict(_df_row_to_pxt_row(row, schema)) for row in df.itertuples())
-    table = pxt.create_table(tbl_name, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+    table = pxt.create_table(tbl_name, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment)
     table.insert(tbl_rows)
     return table
 
@@ -72,8 +72,8 @@ def import_excel(
 
 
 def _df_to_pxt_schema(
-    df: pd.DataFrame, schema_overrides: Optional[dict[str, pxt.ColumnType]]
-) -> dict[str, pxt.ColumnType]:
+    df: pd.DataFrame, schema_overrides: Optional[dict[str, pxt.ColumnType]], primary_key: Optional[Union[str, list[str]]]
+) -> tuple[dict[str, pxt.ColumnType], Optional[list[str]]]:
     if schema_overrides is not None:
         for pd_name in schema_overrides:
             if pd_name not in df.columns:
@@ -81,11 +81,13 @@ def _df_to_pxt_schema(
                     f'Column `{pd_name}` specified in `schema_overrides` does not exist in the given `DataFrame`.'
                 )
     schema = {}
+    pxt_pk = []
     for pd_name, pd_dtype in zip(df.columns, df.dtypes):
+        is_pk = pd_name == primary_key or (primary_key is not None and isinstance(primary_key, list) and pd_name in primary_key)
         if schema_overrides is not None and pd_name in schema_overrides:
             pxt_type = schema_overrides[pd_name]
         else:
-            pxt_type = _np_dtype_to_pxt_type(pd_dtype, df[pd_name])
+            pxt_type = _np_dtype_to_pxt_type(pd_dtype, df[pd_name], is_pk)
         pxt_name = _normalize_pxt_col_name(pd_name)
         # Ensure that column names are unique by appending a distinguishing suffix
         # to any collisions
@@ -95,7 +97,9 @@ def _df_to_pxt_schema(
                 n += 1
             pxt_name = f'{pxt_name}_{n}'
         schema[pxt_name] = pxt_type
-    return schema
+        if is_pk:
+            pxt_pk.append(pxt_name)
+    return schema, pxt_pk if len(pxt_pk) > 0 else None
 
 
 def _normalize_pxt_col_name(pd_name: str) -> str:
@@ -113,22 +117,26 @@ def _normalize_pxt_col_name(pd_name: str) -> str:
     return id
 
 
-def _np_dtype_to_pxt_type(np_dtype: np.dtype, data_col: pd.Series) -> pxt.ColumnType:
+def _np_dtype_to_pxt_type(np_dtype: np.dtype, data_col: pd.Series, is_pk: bool) -> pxt.ColumnType:
     """
     Infers a Pixeltable type based on a Numpy dtype.
     """
     if np.issubdtype(np_dtype, np.integer):
-        return pxt.IntType()
+        return pxt.IntType(nullable=(not is_pk))
     if np.issubdtype(np_dtype, np.floating):
-        return pxt.FloatType()
+        return pxt.FloatType(nullable=(not is_pk))
     if np.issubdtype(np_dtype, np.bool_):
-        return pxt.BoolType()
+        return pxt.BoolType(nullable=(not is_pk))
     if np_dtype == np.object_ or np.issubdtype(np_dtype, np.character):
         has_nan = any(isinstance(val, float) and np.isnan(val) for val in data_col)
-        return pxt.StringType(nullable=has_nan)
+        if is_pk and has_nan:
+            raise excs.Error(f'Primary key column `{data_col.name}` cannot contain null values.')
+        return pxt.StringType(nullable=(not is_pk))
     if np.issubdtype(np_dtype, np.datetime64):
         has_nat = any(pd.isnull(val) for val in data_col)
-        return pxt.TimestampType(nullable=has_nat)
+        if is_pk and has_nat:
+            raise excs.Error(f'Primary key column `{data_col.name}` cannot contain null values.')
+        return pxt.TimestampType(nullable=(not is_pk))
     raise excs.Error(f'Unsupported dtype: {np_dtype}')
 
 
