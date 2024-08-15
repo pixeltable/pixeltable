@@ -317,17 +317,20 @@ class Expr(abc.ABC):
         """
         if isinstance(o, Expr):
             return o
-        # try to create a literal
+        # Try to create a literal. We need to check for InlineArray/InlineDict
+        # first, to prevent arrays from inappropriately being interpreted as JsonType
+        # literals.
+        # TODO: general cleanup of InlineArray/InlineDict
+        if isinstance(o, list):
+            from .inline_array import InlineArray
+            return InlineArray(tuple(o))
+        if isinstance(o, dict):
+            from .inline_dict import InlineDict
+            return InlineDict(o)
         obj_type = ts.ColumnType.infer_literal_type(o)
         if obj_type is not None:
             from .literal import Literal
             return Literal(o, col_type=obj_type)
-        if isinstance(o, dict):
-            from .inline_dict import InlineDict
-            return InlineDict(o)
-        elif isinstance(o, list):
-            from .inline_array import InlineArray
-            return InlineArray(tuple(o))
         return None
 
     @abc.abstractmethod
