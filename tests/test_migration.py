@@ -5,7 +5,7 @@ import platform
 import subprocess
 import sys
 
-import pgserver
+import pixeltable_pgserver
 import pytest
 import sqlalchemy.orm as orm
 
@@ -30,7 +30,7 @@ class TestMigration:
         import toml
 
         env = Env.get()
-        pg_package_dir = os.path.dirname(pgserver.__file__)
+        pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
         pg_restore_binary = f'{pg_package_dir}/pginstall/bin/pg_restore'
         _logger.info(f'Using pg_restore binary at: {pg_restore_binary}')
         dump_files = glob.glob('tests/data/dbdumps/*.dump.gz')

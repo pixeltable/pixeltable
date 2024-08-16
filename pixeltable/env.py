@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable, Optional, Dict, Any, List, TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import pgserver
+import pixeltable_pgserver
 import sqlalchemy as sql
 import yaml
 from tqdm import TqdmWarning
@@ -61,7 +61,7 @@ class Env:
         self._sa_engine: Optional[sql.engine.base.Engine] = None
         self._pgdata_dir: Optional[Path] = None
         self._db_name: Optional[str] = None
-        self._db_server: Optional[pgserver.PostgresServer] = None
+        self._db_server: Optional[pixeltable_pgserver.PostgresServer] = None
         self._db_url: Optional[str] = None
 
         # info about installed packages that are utilized by some parts of the code;
@@ -285,8 +285,8 @@ class Env:
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
         self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
 
-        # in pgserver.get_server(): cleanup_mode=None will leave db on for debugging purposes
-        self._db_server = pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
+        # in pixeltable_pgserver.get_server(): cleanup_mode=None will leave db on for debugging purposes
+        self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
         self._db_url = self._db_server.get_uri(database=self._db_name)
 
         if reinit_db:

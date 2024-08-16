@@ -6,7 +6,7 @@ import pathlib
 import subprocess
 from typing import Any
 
-import pgserver
+import pixeltable_pgserver
 import toml
 
 import pixeltable as pxt
@@ -41,7 +41,7 @@ class Dumper:
         md_version = metadata.VERSION
         dump_file = self.output_dir / f'pixeltable-v{md_version:03d}-test.dump.gz'
         _logger.info(f'Creating database dump at: {dump_file}')
-        pg_package_dir = os.path.dirname(pgserver.__file__)
+        pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
         pg_dump_binary = f'{pg_package_dir}/pginstall/bin/pg_dump'
         _logger.info(f'Using pg_dump binary at: {pg_dump_binary}')
         with open(dump_file, 'wb') as dump:

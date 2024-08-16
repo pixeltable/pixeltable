@@ -1,5 +1,7 @@
-from typing import Any, Optional, Literal
+from typing import Any, Literal, Optional, Union
+import urllib.request
 
+import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import Table
 from pixeltable.io.external_store import SyncStatus
@@ -134,3 +136,133 @@ def create_label_studio_project(
         return t.sync()
     else:
         return SyncStatus.empty()
+
+
+def import_rows(
+    tbl_path: str,
+    rows: list[dict[str, Any]],
+    *,
+    schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
+    primary_key: Optional[Union[str, list[str]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = ''
+    ) -> Table:
+    """
+    Creates a new `Table` from a list of dictionaries. The dictionaries must be of the form
+    `{column_name: value, ...}`. Pixeltable will attempt to infer the schema of the table from the
+    supplied data, using the most specific type that can represent all the values in a column.
+
+    If `schema_overrides` is specified, then for each entry `(column_name, type)` in `schema_overrides`,
+    Pixeltable will force the specified column to the specified type (and will not attempt any type inference
+    for that column).
+
+    All column types of the new `Table` will be nullable unless explicitly specified as non-nullable in
+    `schema_overrides`.
+
+    Args:
+        tbl_path: The qualified name of the table to create.
+        rows: The list of dictionaries to import.
+        schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
+            as described above.
+        primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
+        num_retained_versions: The number of retained versions of the table (see [`create_table()`][pixeltable.create_table]).
+        comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
+
+    Returns:
+        The newly created `Table`.
+    """
+    if schema_overrides is None:
+        schema_overrides = {}
+    schema: dict[str, pxt.ColumnType] = {}
+    cols_with_nones: set[str] = set()
+
+    for n, row in enumerate(rows):
+        for col_name, value in row.items():
+            if col_name in schema_overrides:
+                # We do the insertion here; this will ensure that the column order matches the order
+                # in which the column names are encountered in the input data, even if `schema_overrides`
+                # is specified.
+                if col_name not in schema:
+                    schema[col_name] = schema_overrides[col_name]
+            elif value is not None:
+                # If `key` is not in `schema_overrides`, then we infer its type from the data.
+                # The column type will always be nullable by default.
+                col_type = pxt.ColumnType.infer_literal_type(value).copy(nullable=True)
+                if col_name not in schema:
+                    schema[col_name] = col_type
+                else:
+                    supertype = pxt.ColumnType.supertype(schema[col_name], col_type)
+                    if supertype is None:
+                        raise excs.Error(
+                            f'Could not infer type of column `{col_name}`; the value in row {n} does not match preceding type {schema[col_name]}: {value!r}\n'
+                            'Consider specifying the type explicitly in `schema_overrides`.'
+                        )
+                    schema[col_name] = supertype
+            else:
+                cols_with_nones.add(col_name)
+
+    extraneous_keys = schema_overrides.keys() - schema.keys()
+    if len(extraneous_keys) > 0:
+        raise excs.Error(f'The following columns specified in `schema_overrides` are not present in the data: {", ".join(extraneous_keys)}')
+
+    entirely_none_cols = cols_with_nones - schema.keys()
+    if len(entirely_none_cols) > 0:
+        # A column can only end up in `entirely_null_cols` if it was not in `schema_overrides` and
+        # was not encountered in any row with a non-None value.
+        raise excs.Error(
+            f'The following columns have no non-null values: {", ".join(entirely_none_cols)}\n'
+            'Consider specifying the type(s) explicitly in `schema_overrides`.'
+        )
+
+    t = pxt.create_table(tbl_path, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+    t.insert(rows)
+    return t
+
+
+def import_json(
+    tbl_path: str,
+    filepath_or_url: str,
+    *,
+    schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
+    primary_key: Optional[Union[str, list[str]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    **kwargs: Any
+) -> Table:
+    """
+    Creates a new `Table` from a JSON file. This is a convenience method and is equivalent
+    to calling `import_data(table_path, json.loads(file_contents, **kwargs), ...)`, where `file_contents`
+    is the contents of the specified `filepath_or_url`.
+
+    Args:
+        tbl_path: The name of the table to create.
+        filepath_or_url: The path or URL of the JSON file.
+        schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
+            (see [`import_rows()`][pixeltable.io.import_rows]).
+        primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
+        num_retained_versions: The number of retained versions of the table (see [`create_table()`][pixeltable.create_table]).
+        comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
+        kwargs: Additional keyword arguments to pass to `json.loads`.
+
+    Returns:
+        The newly created `Table`.
+    """
+    import json
+    import urllib.parse
+    import urllib.request
+
+    # TODO Consolidate this logic with other places where files/URLs are parsed
+    parsed = urllib.parse.urlparse(filepath_or_url)
+    if len(parsed.scheme) <= 1 or parsed.scheme == 'file':
+        # local file path
+        if len(parsed.scheme) <= 1:
+            filepath = filepath_or_url
+        else:
+            filepath = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+        with open(filepath) as fp:
+            contents = fp.read()
+    else:
+        # URL
+        contents = urllib.request.urlopen(filepath_or_url).read()
+    data = json.loads(contents, **kwargs)
+    return import_rows(tbl_path, data, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)

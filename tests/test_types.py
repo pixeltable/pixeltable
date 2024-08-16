@@ -1,12 +1,31 @@
 import datetime
-from copy import copy
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from pixeltable.type_system import \
-    ColumnType, StringType, IntType, BoolType, ImageType, InvalidType, FloatType, TimestampType, JsonType, ArrayType
+import numpy as np
+import PIL.Image
+
+import pixeltable as pxt
+from pixeltable.type_system import (ArrayType, BoolType, ColumnType, FloatType,
+                                    ImageType, IntType, InvalidType, JsonType,
+                                    StringType, TimestampType)
 
 
 class TestTypes:
+    def test_infer(self) -> None:
+        test_cases: list[tuple[Any, ColumnType]] = [
+            ('a', StringType()),
+            (1, IntType()),
+            (1.0, FloatType()),
+            (True, BoolType()),
+            (datetime.datetime.now(), TimestampType()),
+            (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
+            (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=IntType())),
+            ({'a': 1, 'b': '2'}, pxt.JsonType()),
+            (['3', 4], pxt.JsonType()),
+        ]
+        for val, expected_type in test_cases:
+            assert ColumnType.infer_literal_type(val) == expected_type, val
+
     def test_serialize(self, init_env) -> None:
         type_vals = [
             InvalidType(), StringType(), IntType(), BoolType(), TimestampType(),
@@ -48,3 +67,19 @@ class TestTypes:
             assert ColumnType.from_python_type(py_type) == pxt_type
             opt_pxt_type = pxt_type.copy(nullable=True)
             assert ColumnType.from_python_type(Optional[py_type]) == opt_pxt_type
+
+    def test_supertype(self) -> None:
+        from pixeltable.type_system import ColumnType
+        test_cases = [
+            (IntType(), FloatType(), FloatType()),
+            (BoolType(), IntType(), IntType()),
+            (BoolType(), FloatType(), FloatType()),
+        ]
+        for t1, t2, expected in test_cases:
+            for n1 in [True, False]:
+                for n2 in [True, False]:
+                    t1n = t1.copy(nullable=n1)
+                    t2n = t2.copy(nullable=n2)
+                    expectedn = expected.copy(nullable=(n1 or n2))
+                    assert ColumnType.supertype(t1n, t2n) == expectedn
+                    assert ColumnType.supertype(t2n, t1n) == expectedn

@@ -208,7 +208,7 @@ class ColumnType:
         if type1.is_scalar_type() and type2.is_scalar_type():
             t = cls.Type.supertype(type1._type, type2._type, cls.common_supertypes)
             if t is not None:
-                return cls.make_type(t)
+                return cls.make_type(t).copy(nullable=(type1.nullable or type2.nullable))
             return None
 
         if type1._type == type2._type:
@@ -229,22 +229,23 @@ class ColumnType:
     def infer_literal_type(cls, val: Any) -> Optional[ColumnType]:
         if isinstance(val, str):
             return StringType()
+        if isinstance(val, bool):
+            # We have to check bool before int, because isinstance(b, int) is True if b is a Python bool
+            return BoolType()
         if isinstance(val, int):
             return IntType()
         if isinstance(val, float):
             return FloatType()
-        if isinstance(val, bool):
-            return BoolType()
         if isinstance(val, datetime.datetime):
             return TimestampType()
         if isinstance(val, PIL.Image.Image):
-            return ImageType(width=val.width, height=val.height)
+            return ImageType(width=val.width, height=val.height, mode=val.mode)
         if isinstance(val, np.ndarray):
             col_type = ArrayType.from_literal(val)
             if col_type is not None:
                 return col_type
             # this could still be json-serializable
-        if isinstance(val, dict) or isinstance(val, np.ndarray):
+        if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray):
             try:
                 JsonType().validate_literal(val)
                 return JsonType()
@@ -579,7 +580,7 @@ class ArrayType(ColumnType):
         if base_type is None:
             return None
         shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
-        return ArrayType(tuple(shape), base_type)
+        return ArrayType(tuple(shape), base_type, nullable=(type1.nullable or type2.nullable))
 
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
@@ -611,7 +612,7 @@ class ArrayType(ColumnType):
             dtype = StringType()
         else:
             return None
-        return cls(val.shape, dtype=dtype, nullable=True)
+        return cls(val.shape, dtype=dtype)
 
     def is_valid_literal(self, val: np.ndarray) -> bool:
         if not isinstance(val, np.ndarray):
@@ -697,7 +698,7 @@ class ImageType(ColumnType):
         return f'{self._type.name.lower()}{params_str}'
 
     def _is_supertype_of(self, other: ImageType) -> bool:
-        if self.mode != other.mode:
+        if self.mode is not None and self.mode != other.mode:
             return False
         if self.width is None and self.height is None:
             return True
