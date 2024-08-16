@@ -14,7 +14,7 @@
         <link rel="prev" href="../data-frame/">
       
       
-        <link rel="next" href="../functions/huggingface/">
+        <link rel="next" href="../functions/image/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -915,7 +915,7 @@
             
   
   <span class="md-ellipsis">
-    Pixeltable Functions
+    Built-in Functions and Operators
   </span>
   
 
@@ -925,7 +925,7 @@
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
-            Pixeltable Functions
+            Built-in Functions and Operators
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
@@ -936,11 +936,11 @@
   
   
     <li class="md-nav__item">
-      <a href="../functions/huggingface/" class="md-nav__link">
+      <a href="../functions/image/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
-    Huggingface
+    image
   </span>
   
 
@@ -961,7 +961,28 @@
         
   
   <span class="md-ellipsis">
-    StringType
+    string
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/timestamp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    timestamp
   </span>
   
 
@@ -982,7 +1003,154 @@
         
   
   <span class="md-ellipsis">
-    VideoType
+    video
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Model and Inference Functions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/fireworks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    fireworks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/huggingface/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    huggingface
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/openai/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/together/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    together
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/whisper/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    whisper
   </span>
   
 
@@ -1910,7 +2078,9 @@ and with a specific name; <code>string_embed</code> is also specified in order t
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">batch_update</span><span class="p">(</span>
-    <span class="n">rows</span><span class="p">:</span> <span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span> <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">rows</span><span class="p">:</span> <span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span>
+    <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">if_not_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;insert&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.globals.UpdateStatus">UpdateStatus</span></span>
 </code></pre></div>
 
@@ -1940,12 +2110,34 @@ and with a specific name; <code>string_embed</code> is also specified in order t
             <p>if True, also update all computed columns that transitively depend on the updated columns.</p>
           </div>
         </li>
+        <li class="doc-section-item field-body">
+          <b><code>if_not_exists</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;error&#39;, &#39;ignore&#39;, &#39;insert&#39;]</code>, default:
+                  <code>&#39;error&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Specifies the behavior if a row to update does not exist:</p>
+<ul>
+<li><code>'error'</code>: Raise an error.</li>
+<li><code>'ignore'</code>: Skip the row silently.</li>
+<li><code>'insert'</code>: Insert the row.</li>
+</ul>
+          </div>
+        </li>
     </ul>
 
 
 <p><span class="doc-section-title">Examples:</span></p>
-    <p>Update the 'name' and 'age' columns for the rows with ids 1 and 2 (assuming 'id' is the primary key):</p>
+    <p>Update the <code>name</code> and <code>age</code> columns for the rows with ids 1 and 2 (assuming <code>id</code> is the primary key).
+If either row does not exist, this raises an error:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">([{</span><span class="s1">&#39;id&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="s1">&#39;Alice&#39;</span><span class="p">,</span> <span class="s1">&#39;age&#39;</span><span class="p">:</span> <span class="mi">30</span><span class="p">},</span> <span class="p">{</span><span class="s1">&#39;id&#39;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="s1">&#39;Bob&#39;</span><span class="p">,</span> <span class="s1">&#39;age&#39;</span><span class="p">:</span> <span class="mi">40</span><span class="p">}])</span>
+</code></pre></div>
+    <p>Update the <code>name</code> and <code>age</code> columns for the row with <code>id</code> 1 (assuming <code>id</code> is the primary key) and insert
+the row with new <code>id</code> 3 (assuming this key does not exist):</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+<span class="go">    [{&#39;id&#39;: 1, &#39;name&#39;: &#39;Alice&#39;, &#39;age&#39;: 30}, {&#39;id&#39;: 3, &#39;name&#39;: &#39;Bob&#39;, &#39;age&#39;: 40}],</span>
+<span class="go">    if_not_exists=&#39;insert&#39;)</span>
 </code></pre></div>
 
     </div>

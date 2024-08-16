@@ -11,10 +11,10 @@
       
       
       
-        <link rel="prev" href="../huggingface/">
+        <link rel="prev" href="../image/">
       
       
-        <link rel="next" href="../video/">
+        <link rel="next" href="../timestamp/">
       
       
       <link rel="icon" href="../../../assets/images/favicon.png">
@@ -22,7 +22,7 @@
     
     
       
-        <title>StringType - Pixeltable API</title>
+        <title>string - Pixeltable API</title>
       
     
     
@@ -104,7 +104,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              StringType
+              string
             
           </span>
         </div>
@@ -509,7 +509,7 @@
             
   
   <span class="md-ellipsis">
-    Pixeltable Functions
+    Built-in Functions and Operators
   </span>
   
 
@@ -519,7 +519,7 @@
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
-            Pixeltable Functions
+            Built-in Functions and Operators
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
@@ -530,11 +530,11 @@
   
   
     <li class="md-nav__item">
-      <a href="../huggingface/" class="md-nav__link">
+      <a href="../image/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
-    Huggingface
+    image
   </span>
   
 
@@ -562,7 +562,7 @@
           
   
   <span class="md-ellipsis">
-    StringType
+    string
   </span>
   
 
@@ -573,7 +573,7 @@
         
   
   <span class="md-ellipsis">
-    StringType
+    string
   </span>
   
 
@@ -1064,11 +1064,179 @@
   
   
     <li class="md-nav__item">
+      <a href="../timestamp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    timestamp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../video/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
-    VideoType
+    video
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Model and Inference Functions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fireworks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    fireworks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../huggingface/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    huggingface
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../openai/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../together/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    together
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../whisper/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    whisper
   </span>
   
 
@@ -1586,7 +1754,7 @@
   
 
 
-  <h1>StringType</h1>
+  <h1>string</h1>
 
 <div class="doc doc-object doc-module">
 
@@ -1630,12 +1798,12 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">capitalize</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">capitalize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return <code>s</code> with its first character capitalized and the rest lowercased.</p>
+      <p>Return string with its first character capitalized and the rest lowercased.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.capitalize"><code>str.capitalize()</code></a>.</p>
 
     </div>
@@ -1650,12 +1818,12 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">casefold</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">casefold</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return a casefolded copy of <code>s</code>.</p>
+      <p>Return a casefolded copy of string.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.casefold"><code>str.casefold()</code></a>.</p>
 
     </div>
@@ -1670,7 +1838,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">center</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">center</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1681,14 +1849,6 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
               (<code>int</code>)
@@ -1722,25 +1882,21 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">contains</span><span class="p">(</span>
-    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">regex</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">regex</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Test if pattern or regex is contained within a string.</p>
+      <p>Test if string contains pattern or regex.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
               (<code>str</code>)
@@ -1793,24 +1949,16 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">count</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">count</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Count occurrences of pattern or regex in <code>s</code>.</p>
+      <p>Count occurrences of pattern or regex.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
               (<code>str</code>)
@@ -1843,7 +1991,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">endswith</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">endswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1854,14 +2002,6 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
               (<code>str</code>)
@@ -1884,25 +2024,17 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fill</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fill</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Wraps the single paragraph in <code>s</code>, and returns a single string containing the wrapped paragraph.</p>
+      <p>Wraps the single paragraph in string, and returns a single string containing the wrapped paragraph.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/textwrap.html#textwrap.fill"><code>textwrap.fill()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
               (<code>int</code>)
@@ -1936,26 +2068,18 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">find</span><span class="p">(</span>
-    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return the lowest index in <code>s</code> where <code>substr</code> is found within the slice <code>s[start:end]</code>.</p>
+      <p>Return the lowest index in string where <code>substr</code> is found within the slice <code>s[start:end]</code>.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.find"><code>str.find()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>substr</code></b>
               (<code>str</code>)
@@ -1998,25 +2122,17 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">findall</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">findall</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Find all occurrences of a regular expression pattern in a string.</p>
+      <p>Find all occurrences of a regular expression pattern in string.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/re.html#re.findall"><code>re.findall()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
               (<code>str</code>)
@@ -2049,7 +2165,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nb">format</span><span class="p">(</span><span class="nf">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nb">format</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="nf">args</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2069,25 +2185,17 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fullmatch</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fullmatch</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Determine if <code>s</code> fully matches a regular expression.</p>
+      <p>Determine if string fully matches a regular expression.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/re.html#re.fullmatch"><code>re.fullmatch()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
               (<code>str</code>)
@@ -2131,26 +2239,19 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">index</span><span class="p">(</span>
-    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return the lowest index in <code>s</code> where <code>substr</code> is found within the slice <code>s[start:end]</code>. Raises ValueError if <code>substr</code> is not found.</p>
+      <p>Return the lowest index in string where <code>substr</code> is found within the slice <code>[start:end]</code>.
+Raises ValueError if <code>substr</code> is not found.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.index"><code>str.index()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>substr</code></b>
               (<code>str</code>)
@@ -2193,7 +2294,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalnum</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalnum</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2214,7 +2315,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalpha</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalpha</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2234,7 +2335,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isascii</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isascii</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2254,7 +2355,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdecimal</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdecimal</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2275,7 +2376,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdigit</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdigit</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2295,7 +2396,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isidentifier</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isidentifier</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2315,7 +2416,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">islower</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">islower</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2335,7 +2436,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isnumeric</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isnumeric</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2355,7 +2456,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isspace</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isspace</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2375,7 +2476,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">istitle</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">istitle</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2395,7 +2496,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isupper</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isupper</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2415,7 +2516,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nb">len</span><span class="p">(</span><span class="nf">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2435,25 +2536,17 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">ljust</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">ljust</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return the string left-justified in a string of length <code>width</code>. Padding is done using the specified <code>fillchar</code> (default is a space).</p>
+      <p>Return the string left-justified in a string of length <code>width</code>.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.ljust"><code>str.ljust()</code></a></p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
               (<code>int</code>)
@@ -2486,7 +2579,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lower</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lower</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2506,7 +2599,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lstrip</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lstrip</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2518,14 +2611,6 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>chars</code></b>
               (<code>Optional[str]</code>, default:
@@ -2550,7 +2635,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="k">match</span><span class="p">(</span><span class="nf">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="k">match</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="nf">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2560,14 +2645,6 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
               (<code>str</code>)
@@ -2610,25 +2687,17 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">normalize</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">form</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">normalize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">form</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return the Unicode normal form for <code>s</code>.</p>
+      <p>Return the Unicode normal form.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/unicodedata.html#unicodedata.normalize"><code>unicodedata.normalize()</code></a></p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>form</code></b>
               (<code>str</code>)
@@ -2651,7 +2720,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">pad</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">side</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;left&#39;</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">pad</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">side</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;left&#39;</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2661,14 +2730,6 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
               (<code>int</code>)
@@ -2711,14 +2772,14 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">partition</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">partition</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Splits <code>s</code> at the first occurrence of <code>sep</code>, and returns 3 elements containing the part before the
+      <p>Splits string at the first occurrence of <code>sep</code>, and returns 3 elements containing the part before the
 separator, the separator itself, and the part after the separator. If the separator is not found, return 3 elements
-containing <code>s</code> itself, followed by two empty strings.</p>
+containing string itself, followed by two empty strings.</p>
 
     </div>
 
@@ -2732,12 +2793,12 @@ containing <code>s</code> itself, followed by two empty strings.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removeprefix</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removeprefix</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Remove prefix from <code>s</code>. If the prefix is not present, returns <code>s</code>.</p>
+      <p>Remove prefix. If the prefix is not present, returns string.</p>
 
     </div>
 
@@ -2751,12 +2812,12 @@ containing <code>s</code> itself, followed by two empty strings.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removesuffix</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">suffix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removesuffix</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">suffix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Remove suffix from <code>s</code>. If the suffix is not present, returns <code>s</code>.</p>
+      <p>Remove suffix. If the suffix is not present, returns string.</p>
 
     </div>
 
@@ -2770,12 +2831,12 @@ containing <code>s</code> itself, followed by two empty strings.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">repeat</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">repeat</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Repeat <code>s</code> <code>n</code> times.</p>
+      <p>Repeat string <code>n</code> times.</p>
 
     </div>
 
@@ -2790,7 +2851,7 @@ containing <code>s</code> itself, followed by two empty strings.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">replace</span><span class="p">(</span>
-    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">repl</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">n</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
@@ -2802,21 +2863,13 @@ containing <code>s</code> itself, followed by two empty strings.</p>
 
     <div class="doc doc-contents ">
 
-      <p>Replace occurrences of <code>pattern</code> in <code>s</code> with <code>repl</code>.</p>
+      <p>Replace occurrences of <code>pattern</code> with <code>repl</code>.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.replace"><code>str.replace()</code></a> or
 <a href="https://docs.python.org/3/library/re.html#re.sub"><code>re.sub()</code></a>, depending on the value of regex.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
               (<code>str</code>)
@@ -2888,26 +2941,18 @@ containing <code>s</code> itself, followed by two empty strings.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">rfind</span><span class="p">(</span>
-    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return the highest index in <code>s</code> where <code>substr</code> is found, such that <code>substr</code> is contained within <code>s[start:end]</code>.</p>
+      <p>Return the highest index where <code>substr</code> is found, such that <code>substr</code> is contained within <code>[start:end]</code>.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.rfind"><code>str.rfind()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>substr</code></b>
               (<code>str</code>)
@@ -2951,13 +2996,13 @@ containing <code>s</code> itself, followed by two empty strings.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">rindex</span><span class="p">(</span>
-    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return the highest index in <code>s</code> where <code>substr</code> is found, such that <code>substr</code> is contained within <code>s[start:end]</code>.
+      <p>Return the highest index where <code>substr</code> is found, such that <code>substr</code> is contained within <code>[start:end]</code>.
 Raises ValueError if <code>substr</code> is not found.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.rindex"><code>str.rindex()</code></a>.</p>
 
@@ -2973,25 +3018,17 @@ Raises ValueError if <code>substr</code> is not found.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rjust</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rjust</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return <code>s</code> right-justified in a string of length <code>width</code>.</p>
+      <p>Return the string right-justified in a string of length <code>width</code>.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.rjust"><code>str.rjust()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
               (<code>int</code>)
@@ -3024,12 +3061,12 @@ Raises ValueError if <code>substr</code> is not found.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rpartition</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rpartition</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>This method splits <code>s</code> at the last occurrence of <code>sep</code>, and returns a list containing the part before the
+      <p>This method splits string at the last occurrence of <code>sep</code>, and returns a list containing the part before the
 separator, the separator itself, and the part after the separator.</p>
 
     </div>
@@ -3044,25 +3081,17 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rstrip</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rstrip</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return a copy of <code>s</code> with trailing characters removed.</p>
+      <p>Return a copy of string with trailing characters removed.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.rstrip"><code>str.rstrip()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>chars</code></b>
               (<code>Optional[str]</code>, default:
@@ -3088,8 +3117,8 @@ separator, the separator itself, and the part after the separator.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nb">slice</span><span class="p">(</span>
-    <span class="nf">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="nf">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">step</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
@@ -3097,19 +3126,11 @@ separator, the separator itself, and the part after the separator.</p>
 
     <div class="doc doc-contents ">
 
-      <p>Return a slice of <code>s</code>.</p>
+      <p>Return a slice.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>start</code></b>
               (<code>Optional[int]</code>, default:
@@ -3155,7 +3176,7 @@ separator, the separator itself, and the part after the separator.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">slice_replace</span><span class="p">(</span>
-    <span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">repl</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3164,19 +3185,11 @@ separator, the separator itself, and the part after the separator.</p>
 
     <div class="doc doc-contents ">
 
-      <p>Replace a positional slice of a string with another value.</p>
+      <p>Replace a positional slice with another value.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>start</code></b>
               (<code>Optional[int]</code>, default:
@@ -3221,25 +3234,17 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">startswith</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">startswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return <code>True</code> if <code>s</code> starts with <code>pattern</code>, otherwise return <code>False</code>.</p>
+      <p>Return <code>True</code> if string starts with <code>pattern</code>, otherwise return <code>False</code>.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.startswith"><code>str.startswith()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
               (<code>str</code>)
@@ -3262,25 +3267,17 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">strip</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">strip</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return a copy of <code>s</code> with leading and trailing characters removed.</p>
+      <p>Return a copy of string with leading and trailing characters removed.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.strip"><code>str.strip()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>chars</code></b>
               (<code>Optional[str]</code>, default:
@@ -3305,12 +3302,12 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">swapcase</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">swapcase</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return a copy of <code>s</code> with uppercase characters converted to lowercase and vice versa.</p>
+      <p>Return a copy of string with uppercase characters converted to lowercase and vice versa.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.swapcase"><code>str.swapcase()</code></a>.</p>
 
     </div>
@@ -3325,13 +3322,13 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">title</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">title</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return a titlecased version of <code>s</code>, i.e. words start with uppercase characters, all remaining cased characters are
-lowercase.</p>
+      <p>Return a titlecased version of string, i.e. words start with uppercase characters, all remaining cased characters
+are lowercase.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.title"><code>str.title()</code></a>.</p>
 
     </div>
@@ -3346,13 +3343,13 @@ lowercase.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">upper</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">upper</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return a copy of <code>s</code> converted to uppercase.
-Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.upper"><code>str.upper()</code></a>.</p>
+      <p>Return a copy of string converted to uppercase.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.upper"><code>str.upper()</code></a>.</p>
 
     </div>
 
@@ -3366,26 +3363,18 @@ Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.upper
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">wrap</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">wrap</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Wraps the single paragraph in <code>s</code> so every line is at most <code>width</code> characters long.
+      <p>Wraps the single paragraph in string so every line is at most <code>width</code> characters long.
 Returns a list of output lines, without final newlines.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/textwrap.html#textwrap.fill"><code>textwrap.fill()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
               (<code>int</code>)
@@ -3418,25 +3407,17 @@ Returns a list of output lines, without final newlines.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">zfill</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">zfill</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Pad a numeric string <code>s</code> with ASCII <code>0</code> on the left to a total length of <code>width</code>.</p>
+      <p>Pad a numeric string with ASCII <code>0</code> on the left to a total length of <code>width</code>.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.zfill"><code>str.zfill()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
-        <li class="doc-section-item field-body">
-          <b><code>s</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>String.</p>
-          </div>
-        </li>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
               (<code>int</code>)
