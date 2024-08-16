@@ -434,7 +434,7 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
-            stored: Optional[bool] = None
+            stored: bool = True
             primary_key: Optional[bool] = None
 
             if isinstance(spec, ts.ColumnType):
@@ -455,7 +455,7 @@ class Table(SchemaObject):
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it
                     value_expr = value_expr.copy()
-                stored = spec.get('stored')
+                stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key')
 
             column = Column(
@@ -478,12 +478,10 @@ class Table(SchemaObject):
             raise excs.Error(f'Column name conflicts with a registered query: {col.name!r}')
         if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
             raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed image columns')
-        if col.stored is False and not (col.col_type.is_image_type() and not col.has_window_fn_call()):
+        if col.stored is False and col.has_window_fn_call():
             raise excs.Error((
                 f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a streaming '
                 f'function'))
-        if col.stored is None:
-            col.stored = not (col.is_computed and col.col_type.is_image_type() and not col.has_window_fn_call())
 
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:

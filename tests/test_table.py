@@ -1021,18 +1021,18 @@ class TestTable:
         t = pxt.create_table('test', schema)
         t.add_column(c2=t.img.width)
         # c3 is not stored by default
-        t.add_column(c3=t.img.rotate(90))
+        t.add_column(c3=t.img.rotate(90), stored=False)
         self._test_computed_img_cols(t, stores_img_col=False)
 
         t = pxt.create_table('test2', schema)
         # c3 is now stored
-        t.add_column(c3=t.img.rotate(90), stored=True)
+        t.add_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
         _ = t[t.c3.errortype].show(0)
 
         # computed img col with exceptions
         t = pxt.create_table('test3', schema)
-        t.add_column(c3=self.img_fn_with_exc(t.img), stored=True)
+        t.add_column(c3=self.img_fn_with_exc(t.img))
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         t.insert(rows, fail_on_exception=False)
