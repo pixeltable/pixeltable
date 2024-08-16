@@ -21,6 +21,9 @@ class InlineArray(Expr):
     is `True`, it will always be cast as a `JsonType`. If `force_json` is `False`, it will be cast as an
     `ArrayType` if it is a homogenous array of scalars or arrays, or a `JsonType` otherwise.
     """
+
+    elements: List[Tuple[Optional[int], Any]]
+
     def __init__(self, elements: Tuple, force_json: bool = False):
         # we need to call this in order to populate self.components
         super().__init__(ts.ArrayType((len(elements),), ts.IntType()))
@@ -28,7 +31,7 @@ class InlineArray(Expr):
         # elements contains
         # - for Expr elements: (index into components, None)
         # - for non-Expr elements: (None, value)
-        self.elements: List[Tuple[Optional[int], Any]] = []
+        self.elements = []
         for el in elements:
             el = copy.deepcopy(el)
             if isinstance(el, list):
@@ -43,14 +46,16 @@ class InlineArray(Expr):
             else:
                 self.elements.append((None, el))
 
-        inferred_element_type = ts.InvalidType()
-        for idx, val in self.elements:
-            if idx is not None:
-                inferred_element_type = ts.ColumnType.supertype(inferred_element_type, self.components[idx].col_type)
-            else:
-                inferred_element_type = ts.ColumnType.supertype(inferred_element_type, ts.ColumnType.infer_literal_type(val))
-            if inferred_element_type is None:
-                break
+        inferred_element_type: Optional[ts.ColumnType] = ts.InvalidType()
+        if not force_json:
+            # try to infer the element type
+            for idx, val in self.elements:
+                if idx is not None:
+                    inferred_element_type = ts.ColumnType.supertype(inferred_element_type, self.components[idx].col_type)
+                else:
+                    inferred_element_type = ts.ColumnType.supertype(inferred_element_type, ts.ColumnType.infer_literal_type(val))
+                if inferred_element_type is None:
+                    break
 
         if force_json or inferred_element_type is None:
             # JSON conversion is forced, or there is no common supertype
@@ -93,7 +98,7 @@ class InlineArray(Expr):
             data_row[self.slot_idx] = result
 
     def _as_dict(self) -> Dict:
-        return {'elements': self.elements, **super()._as_dict()}
+        return {'elements': self.elements, 'is_json': self.col_type.is_json_type(), **super()._as_dict()}
 
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
@@ -106,4 +111,6 @@ class InlineArray(Expr):
                 arg.append(components[idx])
             else:
                 arg.append(val)
-        return cls(tuple(arg))
+        # in order to avoid a schema version change, we'll interpret the absence of 'is_json' to indicate an ArrayType
+        is_json = d.get('is_json', False)
+        return cls(tuple(arg), force_json=is_json)

@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import validate_update_status
+from ..utils import validate_update_status, reload_catalog
 
 
 class TestString:
@@ -285,3 +285,11 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         assert status.num_excs == 0
         row = t.head()[0]
         assert row == {'input': 'MNO', 's1': 'ABC MNO', 's2': 'DEF MNO', 's3': 'GHI MNO JKL MNO'}
+
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        status = t.insert(input='PQR')
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+        row = t.head()[1]
+        assert row == {'input': 'PQR', 's1': 'ABC PQR', 's2': 'DEF PQR', 's3': 'GHI PQR JKL PQR'}
