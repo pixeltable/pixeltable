@@ -1,4 +1,4 @@
-int,float,float_n,bool,string,string_n,ts,ts_n
+!!int,float,float n,bool,string,string#n,ts,ts_n
 2,1.7,1.0,true,fish,fish,2024-05-03,2024-05-03
 3,3,5,false,cake,cake,2024-05-04
 5,6.2,,true,salad,,2024-05-05
