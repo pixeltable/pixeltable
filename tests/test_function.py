@@ -299,8 +299,8 @@ class TestFunction:
         def lt_x(x: int) -> int:
             return t.where(t.c2 < x).select(t.c2, t.c1)
 
-        res1 = t.select(out=t.lt_x(t.c2)).order_by(t.c2).collect()
-        validate_update_status(t.add_column(query1=t.lt_x(t.c2)))
+        res1 = t.select(out=t.lt_x(t.c1)).order_by(t.c2).collect()
+        validate_update_status(t.add_column(query1=t.lt_x(t.c1)))
         _ = t.select(t.query1).collect()
 
         reload_catalog()

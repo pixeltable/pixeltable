@@ -695,7 +695,7 @@ class ImageType(ColumnType):
         return f'{self._type.name.lower()}{params_str}'
 
     def _is_supertype_of(self, other: ImageType) -> bool:
-        if self.mode != other.mode:
+        if self.mode is not None and self.mode != other.mode:
             return False
         if self.width is None and self.height is None:
             return True

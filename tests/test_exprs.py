@@ -438,6 +438,34 @@ class TestExprs:
         status = t.add_column(c2_as_string=t.c2.astype(StringType()))
         assert status.num_excs == t.count()
 
+    def test_astype_str_to_img(self, reset_db) -> None:
+        img_files = get_image_files()
+        img_files = img_files[:5]
+        # store relative paths in the table
+        parent_dir = Path(img_files[0]).parent
+        assert(all(parent_dir == Path(img_file).parent for img_file in img_files))
+        t = pxt.create_table('astype_test', schema={'rel_path': StringType()})
+        validate_update_status(t.insert({'rel_path': Path(f).name} for f in img_files), expected_rows=len(img_files))
+
+        # create a computed image column constructed from the relative paths
+        import pixeltable.functions as pxtf
+        validate_update_status(
+            t.add_column(
+                img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.ImageType()), stored=True)
+        )
+        loaded_imgs = t.select(t.img).collect()['img']
+        orig_imgs = [PIL.Image.open(f) for f in img_files]
+        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
+            assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
+
+        # the same for a select list item
+        loaded_imgs = (
+            t.select(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.ImageType()))
+            .collect()['img']
+        )
+        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
+            assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
+
     def test_apply(self, test_tbl: catalog.Table) -> None:
 
         t = test_tbl
@@ -716,30 +744,6 @@ class TestExprs:
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.show(0)
-
-    def test_str_to_img(self, reset_db) -> None:
-        img_files = get_image_files()
-        img_files = img_files[:5]
-        # insert relative paths into a table
-        parent_dir = Path(img_files[0]).parent
-        t = pxt.create_table('astype_test', schema={'rel_path': StringType()})
-        validate_update_status(t.insert([{'rel_path': Path(f).name} for f in img_files]), expected_rows=len(img_files))
-
-        # create a computed image column constructed from the relative paths
-        import pixeltable.functions as pxtf
-        validate_update_status(
-            t.add_column(img=pxtf.string.format(f'{parent_dir}/{{0}}', t.rel_path).astype(pxt.ImageType()), stored=True)
-        )
-        loaded_imgs = t.select(t.img).collect()['img']
-        orig_imgs = [PIL.Image.open(f) for f in img_files]
-        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
-            assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
-
-        # the same for a select list item
-        loaded_imgs = \
-            t.select(img=pxtf.string.format(f'{parent_dir}/{{0}}', t.rel_path).astype(pxt.ImageType())).collect()['img']
-        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
-            assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
     def test_aggregates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
