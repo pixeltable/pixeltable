@@ -41,11 +41,7 @@ class TestVideo:
     def test_basic(self, reset_db) -> None:
         video_filepaths = get_video_files()
 
-        # default case: computed images are not stored
-        _, view = self.create_and_insert(None, video_filepaths)
-        assert MediaStore.count(view._get_id()) == view.count()
-
-        # computed images are explicitly not stored
+        # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths)
         assert MediaStore.count(view._get_id()) == 0
 

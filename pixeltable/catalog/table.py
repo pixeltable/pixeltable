@@ -434,8 +434,8 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
-            stored: bool = True
             primary_key: Optional[bool] = None
+            stored = True
 
             if isinstance(spec, ts.ColumnType):
                 # TODO: create copy
