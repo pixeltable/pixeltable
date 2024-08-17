@@ -20,7 +20,9 @@ class TestTimestamp:
     ]
 
     def test_all(self, reset_db) -> None:
-        Env.get().default_time_zone = ZoneInfo('America/Los_Angeles')
+        # Set a default time zone that's likely to be different from the system time zone of most test environments
+        default_tz = ZoneInfo('America/Anchorage')
+        Env.get().default_time_zone = default_tz
         t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
@@ -62,10 +64,22 @@ class TestTimestamp:
             return f'system_tz={system_tz}, db_dts={db_dts}'
 
         for pxt_fn, dt_fn, args, kwargs in test_params:
-            assert (
-                t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
-                    == [dt_fn(dt, *args, **kwargs) for dt in test_dts]
-            ), debug_str()
+            print(f'Testing {pxt_fn.name} ...')
+            # We have to call astimezone(default_tz.key) on the timestamps that come out of the DB. They are already
+            # in the default time zone at that point (Postgres does this for us); *but* SQLAlchemy returns them
+            # expressed as offsets rather than IANA time zones (even though Postgres thinks in terms of IANA zones).
+            # This matters only in the specific case of `replace()`: if we `replace()` the year, month, and day in a
+            # way that crosses a daylight savings boundary, the offset will change if the time zone is expressed as
+            # an IANA zone, but remain the same if it's expressed as a hardcoded offset. Thus `replace()` will give
+            # different answers in each case. None of the other functions depend on this distinction.
+            # TODO: We might consider explicitly casting timestamps to the IANA time zone in SqlScanNode, as soon as
+            # we receive them from SQLAlchemy. That would be a more consistent solution for the user (it would also
+            # result in the datetime being cast back into a naive datetime if no default_tz is configured, which is
+            # probably the most logical thing to do anyway). However, doing this would require inspecting every value
+            # returned from the DB, so I didn't want to make that change lightly.
+            actual = t.select(out=pxt_fn(t.dt.astimezone(default_tz.key), *args, **kwargs)).collect()['out']
+            expected = [dt_fn(dt.astimezone(default_tz), *args, **kwargs) for dt in test_dts]
+            assert actual == expected, debug_str()
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
