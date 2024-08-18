@@ -1,5 +1,4 @@
 import datetime
-import platform
 
 import numpy as np
 import pandas as pd
