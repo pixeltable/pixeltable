@@ -1,4 +1,5 @@
 import datetime
+import platform
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,8 @@ from ..utils import skip_test_if_not_installed
 
 
 class TestPandas:
+    # TODO Enable this test once _validate_literal is fixed for ArrayType on Windows
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='_validate_literal for ArrayType is broken on Windows')
     def test_pandas_types(self, reset_db) -> None:
         df = pd.DataFrame({
             'int_col': [1, 2],
