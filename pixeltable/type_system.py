@@ -181,8 +181,6 @@ class ColumnType:
 
     def matches(self, other: object) -> bool:
         """Two types match if they're equal, aside from nullability"""
-        if not isinstance(other, ColumnType):
-            pass
         assert isinstance(other, ColumnType), type(other)
         if type(self) != type(other):
             return False
@@ -571,19 +569,23 @@ class ArrayType(ColumnType):
         assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
         self.dtype = dtype._type
 
+    @classmethod
     def _supertype(cls, type1: ArrayType, type2: ArrayType) -> Optional[ArrayType]:
         if len(type1.shape) != len(type2.shape):
             return None
-        base_type = ColumnType.supertype(type1.dtype, type2.dtype)
+        base_type = cls.Type.supertype(type1.dtype, type2.dtype, cls.common_supertypes)
         if base_type is None:
             return None
         shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
-        return ArrayType(tuple(shape), base_type, nullable=(type1.nullable or type2.nullable))
+        return ArrayType(tuple(shape), cls.make_type(base_type), nullable=(type1.nullable or type2.nullable))
 
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
         result.update(shape=list(self.shape), dtype=self.dtype.value)
         return result
+
+    def __repr__(self) -> str:
+        return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name}, nullable={self.nullable})'
 
     def __str__(self) -> str:
         return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name})'

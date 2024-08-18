@@ -1,5 +1,6 @@
 import datetime
 
+import pandas as pd
 import numpy as np
 import pytest
 
@@ -9,6 +10,33 @@ from ..utils import skip_test_if_not_installed
 
 
 class TestPandas:
+    def test_pandas_types(self, reset_db) -> None:
+        df = pd.DataFrame({
+            'int_col': [1, 2],
+            'float_col': [1.0, 2.0],
+            'bool_col': [True, False],
+            'str_col': ['a', 'b'],
+            'dt_col': [datetime.datetime(2024, 1, 1), datetime.datetime(2024, 1, 2)],
+            'aware_dt_col': [datetime.datetime(2024, 1, 1), datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)],
+            'json_col_1': [[1, 2], [3, 4]],
+            'json_col_2': [{'a': 1}, {'b': 2}],
+            'array_col_1': [np.ndarray((1, 2), dtype=int), np.ndarray((3, 2), dtype=int)],
+            'array_col_2': [np.ndarray((1, 2), dtype=int), np.ndarray((3, 4), dtype=int)],
+        })
+        t = pxt.io.import_pandas('test_types', df)
+        assert(t.column_types() == {
+            'int_col': pxt.IntType(nullable=True),
+            'float_col': pxt.FloatType(nullable=True),
+            'bool_col': pxt.BoolType(nullable=True),
+            'str_col': pxt.StringType(nullable=True),
+            'dt_col': pxt.TimestampType(nullable=True),
+            'aware_dt_col': pxt.TimestampType(nullable=True),
+            'json_col_1': pxt.JsonType(nullable=True),
+            'json_col_2': pxt.JsonType(nullable=True),
+            'array_col_1': pxt.ArrayType(shape=(None, 2), dtype=pxt.IntType(), nullable=True),
+            'array_col_2': pxt.ArrayType(shape=(None, None), dtype=pxt.IntType(), nullable=True),
+        })
+
     def test_pandas_csv(self, reset_db) -> None:
         from pixeltable.io import import_csv
 
