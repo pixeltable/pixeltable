@@ -13,8 +13,6 @@ from ..utils import skip_test_if_not_installed
 
 
 class TestPandas:
-    # TODO Enable this test once _validate_literal is fixed for ArrayType on Windows
-    @pytest.mark.skipif(platform.system() == 'Windows', reason='_validate_literal for ArrayType is broken on Windows')
     def test_pandas_types(self, reset_db) -> None:
         df = pd.DataFrame({
             'int_col': [1, 2],
@@ -25,8 +23,8 @@ class TestPandas:
             'aware_dt_col': [datetime.datetime(2024, 1, 1), datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)],
             'json_col_1': [[1, 2], [3, 4]],
             'json_col_2': [{'a': 1}, {'b': 2}],
-            'array_col_1': [np.ndarray((1, 2), dtype=int), np.ndarray((3, 2), dtype=int)],
-            'array_col_2': [np.ndarray((1, 2), dtype=int), np.ndarray((3, 4), dtype=int)],
+            'array_col_1': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 2), dtype=np.int64)],
+            'array_col_2': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 4), dtype=np.int64)],
             'array_col_3': [np.ndarray((1, 2), dtype=np.float32), np.ndarray((3, 4), dtype=np.float32)],
             'image_col': [PIL.Image.new('RGB', (100, 100)), PIL.Image.new('L', (100, 200))],
         })
