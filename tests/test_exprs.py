@@ -229,7 +229,7 @@ class TestExprs:
             assert 'only valid for' in str(excinfo.value)
 
         # fileurl/localpath doesn't apply to unstored computed img columns
-        img_t.add_column(c9=img_t.img.rotate(30))
+        img_t.add_column(c9=img_t.img.rotate(30), stored=False)
         with pytest.raises(excs.Error) as excinfo:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
