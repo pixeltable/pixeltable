@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.request
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
+from typing import Any, Iterable, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
 
 import PIL.Image
 import av
@@ -191,35 +191,22 @@ class ColumnType:
                 return False
         return True
 
-    @classmethod
-    def supertype(cls, type1: ColumnType, type2: ColumnType) -> Optional[ColumnType]:
-        if type1 == type2:
-            return type1
+    def supertype(self, other: ColumnType) -> Optional[ColumnType]:
+        if self == other:
+            return self
 
-        if type1.is_invalid_type():
-            return type2
-        if type2.is_invalid_type():
-            return type1
+        if self.is_invalid_type():
+            return other
+        if other.is_invalid_type():
+            return self
 
-        if type1.is_scalar_type() and type2.is_scalar_type():
-            t = cls.Type.supertype(type1._type, type2._type, cls.common_supertypes)
+        if self.is_scalar_type() and other.is_scalar_type():
+            t = self.Type.supertype(self._type, other._type, self.common_supertypes)
             if t is not None:
-                return cls.make_type(t).copy(nullable=(type1.nullable or type2.nullable))
+                return self.make_type(t).copy(nullable=(self.nullable or other.nullable))
             return None
 
-        if type1._type == type2._type:
-            return cls._supertype(type1, type2)
-
         return None
-
-    @classmethod
-    @abc.abstractmethod
-    def _supertype(cls, type1: ColumnType, type2: ColumnType) -> Optional[ColumnType]:
-        """
-        Class-specific implementation of determining the supertype. type1 and type2 are from the same subclass of
-        ColumnType.
-        """
-        pass
 
     @classmethod
     def infer_literal_type(cls, val: Any) -> Optional[ColumnType]:
@@ -248,6 +235,19 @@ class ColumnType:
             except TypeError:
                 return None
         return None
+
+    @classmethod
+    def infer_common_type(cls, vals: Iterable[Any]) -> Optional[ColumnType]:
+        inferred_type: Optional[ColumnType] = None
+        for val in vals:
+            val_type = cls.infer_literal_type(val)
+            if inferred_type is None:
+                inferred_type = val_type
+            else:
+                inferred_type = inferred_type.supertype(val_type)
+                if inferred_type is None:
+                    return None
+        return inferred_type
 
     @classmethod
     def from_python_type(cls, t: type) -> Optional[ColumnType]:
@@ -562,30 +562,27 @@ class JsonType(ColumnType):
 
 
 class ArrayType(ColumnType):
-    def __init__(
-            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
+    def __init__(self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         self.shape = shape
         assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
         self.dtype = dtype._type
 
-    @classmethod
-    def _supertype(cls, type1: ArrayType, type2: ArrayType) -> Optional[ArrayType]:
-        if len(type1.shape) != len(type2.shape):
+    def supertype(self, other: ColumnType) -> Optional[ArrayType]:
+        if not isinstance(other, ArrayType):
             return None
-        base_type = cls.Type.supertype(type1.dtype, type2.dtype, cls.common_supertypes)
+        if len(self.shape) != len(other.shape):
+            return None
+        base_type = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
         if base_type is None:
             return None
-        shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
-        return ArrayType(tuple(shape), cls.make_type(base_type), nullable=(type1.nullable or type2.nullable))
+        shape = [n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape)]
+        return ArrayType(tuple(shape), self.make_type(base_type), nullable=(self.nullable or other.nullable))
 
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
         result.update(shape=list(self.shape), dtype=self.dtype.value)
         return result
-
-    def __repr__(self) -> str:
-        return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name}, nullable={self.nullable})'
 
     def __str__(self) -> str:
         return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name})'
@@ -700,10 +697,19 @@ class ImageType(ColumnType):
     def _is_supertype_of(self, other: ImageType) -> bool:
         if self.mode is not None and self.mode != other.mode:
             return False
-        if self.width is None and self.height is None:
-            return True
-        if self.width != other.width and self.height != other.height:
+        if self.width is not None and self.width != other.width:
             return False
+        if self.height is not None and self.height != other.height:
+            return False
+        return True
+
+    def supertype(self, other: ColumnType) -> Optional[ImageType]:
+        if not isinstance(other, ImageType):
+            return None
+        width = self.width if self.width == other.width else None
+        height = self.height if self.height == other.height else None
+        mode = self.mode if self.mode == other.mode else None
+        return ImageType(width=width, height=height, mode=mode, nullable=(self.nullable or other.nullable))
 
     @property
     def size(self) -> Optional[Tuple[int, int]]:

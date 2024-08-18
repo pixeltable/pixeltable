@@ -1,11 +1,13 @@
 import datetime
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+
 from ..utils import skip_test_if_not_installed
 
 
@@ -22,6 +24,8 @@ class TestPandas:
             'json_col_2': [{'a': 1}, {'b': 2}],
             'array_col_1': [np.ndarray((1, 2), dtype=int), np.ndarray((3, 2), dtype=int)],
             'array_col_2': [np.ndarray((1, 2), dtype=int), np.ndarray((3, 4), dtype=int)],
+            'array_col_3': [np.ndarray((1, 2), dtype=np.float32), np.ndarray((3, 4), dtype=np.float32)],
+            'image_col': [PIL.Image.new('RGB', (100, 100)), PIL.Image.new('L', (100, 200))],
         })
         t = pxt.io.import_pandas('test_types', df)
         assert(t.column_types() == {
@@ -35,6 +39,8 @@ class TestPandas:
             'json_col_2': pxt.JsonType(nullable=True),
             'array_col_1': pxt.ArrayType(shape=(None, 2), dtype=pxt.IntType(), nullable=True),
             'array_col_2': pxt.ArrayType(shape=(None, None), dtype=pxt.IntType(), nullable=True),
+            'array_col_3': pxt.ArrayType(shape=(None, None), dtype=pxt.FloatType(), nullable=True),
+            'image_col': pxt.ImageType(width=100, nullable=True),
         })
 
     def test_pandas_csv(self, reset_db) -> None:

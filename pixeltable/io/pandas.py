@@ -163,43 +163,17 @@ def __np_dtype_to_pxt_type(np_dtype: np.dtype, data_col: pd.Series, nullable: bo
         has_nan = any(isinstance(val, float) and np.isnan(val) for val in data_col)
         if has_nan and not nullable:
             raise excs.Error(f'Primary key column `{data_col.name}` cannot contain null values.')
-        data_col = data_col.dropna()  # Now drop any NaN values for type inference
+        data_col = data_col.dropna()  # Now drop any null values for type inference purposes
 
-        # JsonType?
-        # TODO We should also allow int, float, str, and bool here, but we first need to allow
-        # Pixeltable to accept those types in a JsonType column.
-        if all(isinstance(val, (list, dict)) for val in data_col):
-            return pxt.JsonType(nullable=nullable)
-        # ImageType?
-        if all(isinstance(val, PIL.Image.Image) for val in data_col):
-            return pxt.ImageType(nullable=nullable)
-        # TimestampType? (This can happen if there are aware datatimes in the Pandas DataFrame)
-        if all(isinstance(val, datetime.datetime) for val in data_col):
-            return pxt.TimestampType(nullable=nullable)
-        # ArrayType?
-        array_type = __infer_array_type_from_col(data_col)
-        if array_type is not None:
-            return array_type.copy(nullable=nullable)
-        # As a last resort, stringify the objects.
-        # TODO Should we throw an exception instead?
-        return pxt.StringType(nullable=nullable)
+        if len(data_col) == 0:
+            # No non-null values; default to FloatType (the Pandas type of an all-NaN column)
+            return pxt.FloatType(nullable=nullable)
+
+        inferred_type = pxt.ColumnType.infer_common_type(data_col)
+        if inferred_type is not None:
+            return inferred_type.copy(nullable=nullable)
 
     raise excs.Error(f'Could not infer Pixeltable type of column: {data_col.name} (dtype: {np_dtype})')
-
-
-def __infer_array_type_from_col(col: pd.Series) -> Optional[pxt.ArrayType]:
-    array_type: Optional[pxt.ArrayType] = None
-    for val in col:
-        if not isinstance(val, np.ndarray):
-            return None
-        this_type = pxt.ArrayType.from_literal(val)
-        if array_type is None:
-            array_type = this_type
-        else:
-            array_type = pxt.ArrayType._supertype(array_type, this_type)
-            if array_type is None:
-                return None
-    return array_type
 
 
 def __df_row_to_pxt_row(row: tuple[Any, ...], schema: dict[str, pxt.ColumnType]) -> dict[str, Any]:
