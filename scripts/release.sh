@@ -33,7 +33,7 @@ if [ -z "$PYPI_API_KEY" ]; then
 fi
 
 git fetch home
-git checkout home/master
+git checkout home/main
 
 echo -n "Enter version number for release: "
 read VERSION
