@@ -69,7 +69,6 @@ class TestTypes:
             assert ColumnType.from_python_type(Optional[py_type]) == opt_pxt_type
 
     def test_supertype(self) -> None:
-        from pixeltable.type_system import ColumnType
         test_cases = [
             (IntType(), FloatType(), FloatType()),
             (BoolType(), IntType(), IntType()),

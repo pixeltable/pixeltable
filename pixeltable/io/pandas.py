@@ -105,6 +105,17 @@ def __df_to_pxt_schema(
         if pd_name in schema_overrides:
             pxt_type = schema_overrides[pd_name]
         else:
+            # This complicated-looking condition is necessary because we cannot safely call `pd.isna()` on
+            # general objects, so we need to check for nulls in the specific cases where we might expect them.
+            # isinstance(val, float) will check for NaN values in float columns *as well as* floats appearing
+            # in object columns (where Pandas uses NaN as a general null).
+            # np.issubdtype(pd_dtype, np.datetime64) checks for NaT values specifically in datetime columns.
+            has_na = any(
+                (isinstance(val, float) or np.issubdtype(pd_dtype, np.datetime64)) and pd.isna(val)
+                for val in df[pd_name]
+            )
+            if has_na and pd_name in primary_key:
+                raise excs.Error(f'Primary key column `{pd_name}` cannot contain null values.')
             pxt_type = __np_dtype_to_pxt_type(pd_dtype, df[pd_name], pd_name not in primary_key)
         pxt_name = __normalize_pxt_col_name(pd_name)
         # Ensure that column names are unique by appending a distinguishing suffix
@@ -153,23 +164,19 @@ def __np_dtype_to_pxt_type(np_dtype: np.dtype, data_col: pd.Series, nullable: bo
         return pxt.StringType(nullable=nullable)
 
     if np.issubdtype(np_dtype, np.datetime64):
-        has_nat = any(pd.isnull(val) for val in data_col)
-        if has_nat and not nullable:
-            raise excs.Error(f'Primary key column `{data_col.name}` cannot contain null values.')
         return pxt.TimestampType(nullable=nullable)
 
     if np_dtype == np.object_:
-        # The `object_` dtype can mean all sorts of things; see if we can infer the Pixeltable type.
-        has_nan = any(isinstance(val, float) and np.isnan(val) for val in data_col)
-        if has_nan and not nullable:
-            raise excs.Error(f'Primary key column `{data_col.name}` cannot contain null values.')
-        data_col = data_col.dropna()  # Now drop any null values for type inference purposes
+        # The `object_` dtype can mean all sorts of things; see if we can infer the Pixeltable type
+        # based on the actual data in `data_col`.
+        # First drop any null values (they don't contribute to type inference).
+        data_col = data_col.dropna()
 
         if len(data_col) == 0:
             # No non-null values; default to FloatType (the Pandas type of an all-NaN column)
             return pxt.FloatType(nullable=nullable)
 
-        inferred_type = pxt.ColumnType.infer_common_type(data_col)
+        inferred_type = pxt.ColumnType.infer_common_literal_type(data_col)
         if inferred_type is not None:
             return inferred_type.copy(nullable=nullable)
 

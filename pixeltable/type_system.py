@@ -166,22 +166,14 @@ class ColumnType:
         return self._type.name.lower()
 
     def __eq__(self, other: object) -> bool:
-        return self.matches(other) and self.nullable == other.nullable
+        return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
 
-    def is_supertype_of(self, other: ColumnType) -> bool:
-        if type(self) != type(other):
-            return False
-        if self.matches(other):
-            return True
-        return self._is_supertype_of(other)
+    def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False) -> bool:
+        operand = self.copy(nullable=True) if ignore_nullable else self
+        return operand.supertype(other) == operand
 
-    @abc.abstractmethod
-    def _is_supertype_of(self, other: ColumnType) -> bool:
-        return False
-
-    def matches(self, other: object) -> bool:
+    def matches(self, other: ColumnType) -> bool:
         """Two types match if they're equal, aside from nullability"""
-        assert isinstance(other, ColumnType), type(other)
         if type(self) != type(other):
             return False
         for member_var in vars(self).keys():
@@ -192,8 +184,8 @@ class ColumnType:
         return True
 
     def supertype(self, other: ColumnType) -> Optional[ColumnType]:
-        if self == other:
-            return self
+        if self.copy(nullable=True) == other.copy(nullable=True):
+            return self.copy(nullable=(self.nullable or other.nullable))
 
         if self.is_invalid_type():
             return other
@@ -237,7 +229,14 @@ class ColumnType:
         return None
 
     @classmethod
-    def infer_common_type(cls, vals: Iterable[Any]) -> Optional[ColumnType]:
+    def infer_common_literal_type(cls, vals: Iterable[Any]) -> Optional[ColumnType]:
+        """
+        Returns the most specific type that is a supertype of all literals in `vals`. If no such type
+        exists, returns None.
+
+        Args:
+            vals: A collection of literals.
+        """
         inferred_type: Optional[ColumnType] = None
         for val in vals:
             val_type = cls.infer_literal_type(val)
@@ -693,15 +692,6 @@ class ImageType(ColumnType):
         else:
             params_str = ''
         return f'{self._type.name.lower()}{params_str}'
-
-    def _is_supertype_of(self, other: ImageType) -> bool:
-        if self.mode is not None and self.mode != other.mode:
-            return False
-        if self.width is not None and self.width != other.width:
-            return False
-        if self.height is not None and self.height != other.height:
-            return False
-        return True
 
     def supertype(self, other: ColumnType) -> Optional[ImageType]:
         if not isinstance(other, ImageType):
