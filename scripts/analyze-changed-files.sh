@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script will analyze the .py files that differ from master. It is intended to be
+# This script will analyze the .py files that differ from main. It is intended to be
 # run against a PR in CI, analyzing just the files affected by the PR. It can also be
 # run in a dev environment in order to replicate the behavior of CI.
 
@@ -10,7 +10,7 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
-PY_FILES="$(git diff --name-only --diff-filter=ACMRTUXB origin/master | grep -E '.py$')"
+PY_FILES="$(git diff --name-only --diff-filter=ACMRTUXB origin/main | grep -E '.py$')"
 
 echo -e "\n============= Running pixeltable analyzer script against tools:\n"
 
@@ -23,7 +23,7 @@ if [ -z "$PY_FILES" ]; then
   exit 0
 fi
 
-echo -e '\n============= The following files differ from `master` and will be analyzed:\n'
+echo -e '\n============= The following files differ from `main` and will be analyzed:\n'
 
 echo "$PY_FILES"
 
