@@ -503,6 +503,9 @@ class Expr(abc.ABC):
             return Comparison(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
+    def __neg__(self) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
+
     def __add__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
@@ -518,6 +521,27 @@ class Expr(abc.ABC):
     def __mod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MOD, other)
 
+    def __floordiv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
+    def __radd__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
+
+    def __rsub__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
+
+    def __rmul__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
+
+    def __rtruediv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.DIV, other)
+
+    def __rmod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.MOD, other)
+
+    def __rfloordiv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         """
         other: Union[Expr, LiteralPythonTypes]
@@ -529,6 +553,19 @@ class Expr(abc.ABC):
             return ArithmeticExpr(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return ArithmeticExpr(op, self, Literal(other))  # type: ignore[arg-type]
+        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+
+    def _rmake_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        """
+        Right-handed version of _make_arithmetic_expr. other must be a literal; if it were an Expr,
+        the operation would have already been evaluated in its left-handed form.
+        """
+        # TODO: check for compatibility
+        from .arithmetic_expr import ArithmeticExpr
+        from .literal import Literal
+        assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
+        if isinstance(other, typing.get_args(LiteralPythonTypes)):
+            return ArithmeticExpr(op, Literal(other), self)  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def __and__(self, other: object) -> Expr:
