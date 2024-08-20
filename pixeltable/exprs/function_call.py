@@ -201,9 +201,9 @@ class FunctionCall(Expr):
                 pass
             else:
                 assert param.col_type is not None
-                # Check that the argument is consistent the expected parameter type, with the allowance that
-                # non-nullable parameters can still accept nullable arguments (the execution engine will map
-                # Nones to Nones by default)
+                # Check that the argument is consistent with the expected parameter type, with the allowance that
+                # non-nullable parameters can still accept nullable arguments (since function calls with Nones
+                # assigned to non-nullable parameters will always return None)
                 if not param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True):
                     raise excs.Error(
                         f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
