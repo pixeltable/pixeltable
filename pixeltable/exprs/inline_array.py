@@ -51,9 +51,9 @@ class InlineArray(Expr):
             # try to infer the element type
             for idx, val in self.elements:
                 if idx is not None:
-                    inferred_element_type = ts.ColumnType.supertype(inferred_element_type, self.components[idx].col_type)
+                    inferred_element_type = inferred_element_type.supertype(self.components[idx].col_type)
                 else:
-                    inferred_element_type = ts.ColumnType.supertype(inferred_element_type, ts.ColumnType.infer_literal_type(val))
+                    inferred_element_type = inferred_element_type.supertype(ts.ColumnType.infer_literal_type(val))
                 if inferred_element_type is None:
                     break
 

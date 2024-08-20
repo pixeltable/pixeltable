@@ -191,7 +191,7 @@ def import_rows(
                 if col_name not in schema:
                     schema[col_name] = col_type
                 else:
-                    supertype = pxt.ColumnType.supertype(schema[col_name], col_type)
+                    supertype = schema[col_name].supertype(col_type)
                     if supertype is None:
                         raise excs.Error(
                             f'Could not infer type of column `{col_name}`; the value in row {n} does not match preceding type {schema[col_name]}: {value!r}\n'
