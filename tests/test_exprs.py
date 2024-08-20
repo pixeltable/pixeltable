@@ -1,4 +1,5 @@
 import json
+import math
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -255,13 +256,20 @@ class TestExprs:
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
+        # Add nullable int and float columns
+        t.add_column(c2n=IntType(nullable=True))
+        t.add_column(c3n=FloatType(nullable=True))
+        t.where(t.c2 % 7 != 0).update({'c2n': t.c2, 'c3n': t.c3})
+
         _ = t[t.c2, t.c6.f3, t.c2 + t.c6.f3, (t.c2 + t.c6.f3) / (t.c6.f3 + 1)].show()
         _ = t[t.c2 + t.c2].show()
-        for op1, op2 in [(t.c2, t.c2), (t.c3, t.c3)]:
+        for op1, op2 in [(t.c2, t.c2), (t.c3, t.c3), (t.c2, t.c2n), (t.c2n, t.c2)]:
             _ = t.select(op1 + op2).show()
             _ = t.select(op1 - op2).show()
             _ = t.select(op1 * op2).show()
             _ = t.where(op1 > 0).select(op1 / op2).show()
+            _ = t.where(op1 > 0).select(op1 % op2).show()
+            _ = t.where(op1 > 0).select(op1 // op2).show()
 
         # non-numeric types
         for op1, op2 in [
@@ -276,6 +284,10 @@ class TestExprs:
                 _ = t[op1 * op2]
             with pytest.raises(excs.Error):
                 _ = t[op1 / op2]
+            with pytest.raises(excs.Error):
+                _ = t[op1 % op2]
+            with pytest.raises(excs.Error):
+                _ = t[op1 // op2]
 
         # TODO: test division; requires predicate
         for op1, op2 in [(t.c6.f2, t.c6.f2), (t.c6.f3, t.c6.f3)]:
@@ -295,6 +307,58 @@ class TestExprs:
                 _ = t[op1 - op2].show()
             with pytest.raises(excs.Error):
                 _ = t[op1 * op2].show()
+
+        # Test literal exprs
+        results = t.where(t.c2 == 7).select(
+            -t.c2,
+            t.c2 + 2,
+            t.c2 - 2,
+            t.c2 * 2,
+            t.c2 / 2,
+            t.c2 % 2,
+            t.c2 // 2,
+            2 + t.c2,
+            2 - t.c2,
+            2 * t.c2,
+            2 / t.c2,
+            2 % t.c2,
+            2 // t.c2,
+        ).collect()
+        assert list(results[0].values()) == [-7, 9, 5, 14, 3.5, 1, 3, 9, -5, 14, 0.2857142857142857, 2, 0]
+
+        # Test that arithmetic operations give the right answers. We do this two ways:
+        # (i) with primitive operators only, to ensure that the arithmetic operations are done in SQL when possible;
+        # (ii) with a Python function call interposed, to ensure that the arithmetic operations are always done in Python;
+        # (iii) and (iv), as (i) and (ii) but with JsonType expressions.
+        primitive_ops = (t.c2, t.c3)
+        forced_python_ops = (t.c2.apply(math.floor, col_type=IntType()), t.c3.apply(math.floor, col_type=FloatType()))
+        json_primitive_ops = (t.c6.f2, t.c6.f3)
+        json_forced_python_ops = (t.c6.f2.apply(math.floor, col_type=IntType()), t.c6.f3.apply(math.floor, col_type=FloatType()))
+        for (int_operand, float_operand) in (primitive_ops, forced_python_ops, json_primitive_ops, json_forced_python_ops):
+            results = t.where(t.c2 == 7).select(
+                add_int=int_operand + (t.c2 - 4),
+                sub_int=int_operand - (t.c2 - 4),
+                mul_int=int_operand * (t.c2 - 4),
+                truediv_int=int_operand / (t.c2 - 4),
+                mod_int=int_operand % (t.c2 - 4),
+                neg_floordiv_int=(int_operand * -1) // (t.c2 - 4),
+                add_float=float_operand + (t.c3 - 4.0),
+                sub_float=float_operand - (t.c3 - 4.0),
+                mul_float=float_operand * (t.c3 - 4.0),
+                truediv_float=float_operand / (t.c3 - 4.0),
+                mod_float=float_operand % (t.c3 - 4.0),
+                floordiv_float=float_operand // (t.c3 - 4.0),
+                neg_floordiv_float=(float_operand * -1) // (t.c3 - 4.0),
+                add_int_to_nullable=int_operand + (t.c2n - 4),
+                add_float_to_nullable=float_operand + (t.c3n - 4.0),
+            ).collect()
+            assert list(results[0].values()) == [10, 4, 21, 2.3333333333333335, 1, -3, 10.0, 4.0, 21.0, 2.3333333333333335, 1.0, 2.0, -3.0, None, None], (
+                f'Failed with operands: {int_operand}, {float_operand}'
+            )
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.select(t.c6 + t.c2.apply(math.floor, col_type=IntType())).collect()
+        assert '+ requires numeric type, but c6 has type dict' in str(exc_info.value)
 
 
     def test_inline_dict(self, test_tbl: catalog.Table) -> None:
