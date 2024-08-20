@@ -114,13 +114,23 @@ class Env:
         This is not a publicly visible setter. It is only intended to be set during initialization
         or for testing purposes.
         """
-        assert self._sa_engine is not None
-        # Set the time zone for the database
-        db_tz = 'LOCAL' if tz is None else f"'{tz.key}'"
-        with self._sa_engine.connect() as conn:
-            conn.execute(sql.text(f"SET TIME ZONE {db_tz};"))
-        self._logger.info(f'Database time zone is now: {db_tz}')
-        self._default_time_zone = tz
+        if tz is None:
+            # System time zone. Since Postgres and Python may interpret the default time zone differently,
+            # we first set the Postgres time zone to its default, and then query Postgres for the IANA zone
+            # name, using the latter to set an explicit default time zone in Python.
+            with self.engine.begin() as conn:
+                conn.execute(sql.text('SET TIME ZONE LOCAL;'))
+            with self.engine.begin() as conn:
+                tz_name = conn.execute(sql.text('SHOW TIME ZONE;')).scalar()
+                assert isinstance(tz_name, str)
+                self._logger.info(f'Database time zone is now: LOCAL; IANA equivalent is (from Postgres): {tz_name}')
+                self._default_time_zone = ZoneInfo(tz_name)
+        else:
+            with self.engine.begin() as conn:
+                # Explicit default time zone.
+                conn.execute(sql.text(f"SET TIME ZONE '{tz.key}';"))
+                self._logger.info(f'Database time zone is now: {tz.key}')
+                self._default_time_zone = tz
 
     def configure_logging(
         self,
@@ -309,15 +319,19 @@ class Env:
         self._default_time_zone: Optional[ZoneInfo] = None
 
         # Configure default time zone
+        tz: Optional[ZoneInfo] = None
         tzname = os.environ.get('PXT_TIME_ZONE', self._config.get('pxt_time_zone', None))
         if tzname is not None:
             if not isinstance(tzname, str):
                 self._logger.error(f'Invalid time zone specified in configuration.')
             else:
                 try:
-                    self.default_time_zone = ZoneInfo(tzname)
+                    tz = ZoneInfo(tzname)
                 except ZoneInfoNotFoundError:
                     self._logger.error(f'Invalid time zone specified in configuration: {tzname}')
+        # Set the default time zone; we need to do this even if tz is None, in order to set the system time zone
+        # properly
+        self.default_time_zone = tz
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()

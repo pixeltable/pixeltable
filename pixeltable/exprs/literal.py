@@ -26,8 +26,7 @@ class Literal(Expr):
         if isinstance(val, datetime.datetime):
             # Normalize the datetime to UTC: all timestamps are stored as UTC (both in the database and in literals)
             if val.tzinfo is None:
-                # We have a naive datetime. If a default time zone is configured, modify the naive datetime to use it
-                # (in preference to the system time zone)
+                # We have a naive datetime. Modify it to use the configured default time zone
                 default_tz = Env.get().default_time_zone
                 if default_tz is not None:
                     val = val.replace(tzinfo=default_tz)

@@ -141,7 +141,7 @@ class DataRow:
             return sql.sql.null()
 
         if isinstance(self.vals[index], datetime.datetime) and self.vals[index].tzinfo is None:
-            # if the datetime is naive, cast it to the default time zone, if one is configured
+            # if the datetime is naive, cast it to the default time zone
             return self.vals[index].replace(tzinfo=env.Env.get().default_time_zone)
 
         return self.vals[index]
