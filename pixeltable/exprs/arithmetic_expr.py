@@ -18,10 +18,9 @@ class ArithmeticExpr(Expr):
     Allows arithmetic exprs on json paths
     """
     def __init__(self, operator: ArithmeticOperator, op1: Expr, op2: Expr):
-        # TODO: determine most specific common supertype
         if op1.col_type.is_json_type() or op2.col_type.is_json_type() or operator == ArithmeticOperator.DIV:
             # we assume it's a float
-            super().__init__(ts.FloatType())
+            super().__init__(ts.FloatType(nullable=(op1.col_type.nullable or op2.col_type.nullable)))
         else:
             super().__init__(ts.ColumnType.supertype(op1.col_type, op2.col_type))
         self.operator = operator
@@ -56,7 +55,7 @@ class ArithmeticExpr(Expr):
         return self.components[1]
 
     def sql_expr(self) -> Optional[sql.ClauseElement]:
-        assert self.col_type.is_int_type() or self.col_type.is_float_type()
+        assert self.col_type.is_int_type() or self.col_type.is_float_type() or self.col_type.is_json_type()
         left = self._op1.sql_expr()
         right = self._op2.sql_expr()
         if left is None or right is None:
@@ -91,13 +90,19 @@ class ArithmeticExpr(Expr):
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         op1_val = data_row[self._op1.slot_idx]
         op2_val = data_row[self._op2.slot_idx]
-        # check types if we couldn't do that prior to execution
+
+        # if one or both columns is JsonTyped, we need a dynamic check that they are numeric
         if self._op1.col_type.is_json_type() and not isinstance(op1_val, int) and not isinstance(op1_val, float):
             raise excs.Error(
                 f'{self.operator} requires numeric type, but {self._op1} has type {type(op1_val).__name__}')
         if self._op2.col_type.is_json_type() and not isinstance(op2_val, int) and not isinstance(op2_val, float):
             raise excs.Error(
                 f'{self.operator} requires numeric type, but {self._op2} has type {type(op2_val).__name__}')
+
+        # if either operand is None, always return None
+        if op1_val is None or op2_val is None:
+            data_row[self.slot_idx] = None
+            return
 
         if self.operator == ArithmeticOperator.ADD:
             data_row[self.slot_idx] = op1_val + op2_val
