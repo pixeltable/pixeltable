@@ -519,6 +519,28 @@ class JsonType(ColumnType):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_spec = type_spec
 
+    def supertype(self, other: ColumnType) -> Optional[JsonType]:
+        if self.type_spec is None:
+            # we don't have a type spec and can accept anything accepted by other
+            return type(self)(nullable=(self.nullable or other.nullable))
+        if other.type_spec is None:
+            # we have a type spec but other doesn't
+            return type(self)(nullable=(self.nullable or other.nullable))
+
+        # we both have type specs; the supertype's type spec is the union of the two
+        type_spec = deepcopy(self.type_spec)
+        for other_field_name, other_field_type in other.type_spec.items():
+            if other_field_name not in type_spec:
+                type_spec[other_field_name] = other_field_type.copy()
+            else:
+                # both type specs have this field
+                field_type = type_spec[other_field_name].supertype(other_field_type)
+                if field_type is None:
+                    # conflicting types
+                    return None
+                type_spec[other_field_name] = field_type
+        return type(self)(type_spec, nullable=(self.nullable or other.nullable))
+
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
         if self.type_spec is not None:
