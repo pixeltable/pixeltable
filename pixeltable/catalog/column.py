@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union, Callable, Any
-from uuid import UUID
+from typing import Any, Callable, Optional, Union
 
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .globals import is_valid_identifier
 
 _logger = logging.getLogger('pixeltable')
@@ -21,7 +21,7 @@ class Column:
     def __init__(
             self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
             computed_with: Optional[Union['Expr', Callable]] = None,
-            is_pk: bool = False, stored: Optional[bool] = None,
+            is_pk: bool = False, stored: bool = True,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
             schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
             records_errors: Optional[bool] = None, value_expr_dict: Optional[dict[str, Any]] = None,
@@ -151,6 +151,11 @@ class Column:
         if self._records_errors is not None:
             return self._records_errors
         return self.is_stored and (self.is_computed or self.col_type.is_media_type())
+
+    @property
+    def qualified_name(self) -> str:
+        assert self.tbl is not None
+        return f'{self.tbl.name}.{self.name}'
 
     def source(self) -> None:
         """

@@ -637,14 +637,40 @@ class TestTable:
 
     def test_batch_update(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
+        num_rows = t.count()
+        # update existing rows
         validate_update_status(t.batch_update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]), expected_rows=2)
+        assert t.count() == num_rows  # make sure we didn't lose any rows
         assert t.where(t.c2 == 1).collect()[0]['c1'] == '1'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == '2'
+        # the same, but with _rowid
         validate_update_status(
             t.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
         )
+        assert t.count() == num_rows  # make sure we didn't lose any rows
         assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
+
+        # unknown primary key: raise error
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.batch_update([{'c1': 'eins', 'c2': 1}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='error')
+        assert '1 row(s) not found' in str(exc_info.value).lower()
+
+        # unknown primary key: ignore
+        validate_update_status(
+            t.batch_update([{'c1': 'eins', 'c2': 1}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='ignore'),
+            expected_rows=1)
+        assert t.count() == num_rows  # make sure we didn't lose any rows
+        assert t.where(t.c2 == 1).collect()[0]['c1'] == 'eins'
+        assert t.where(t.c2 == 200).count() == 0
+
+        # unknown primary key: insert
+        validate_update_status(
+            t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
+            expected_rows=2)
+        assert t.count() == num_rows + 1
+        assert t.where(t.c2 == 2).collect()[0]['c1'] == 'zwei'
+        assert t.where(t.c2 == 200).collect()[0]['c1'] == 'zweihundert'
 
         # test composite primary key
         schema = {'c1': StringType(), 'c2': IntType(), 'c3': FloatType()}
@@ -655,6 +681,9 @@ class TestTable:
         validate_update_status(
             t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}, {'c1': '2', 'c2': 2, 'c3': 3.0}]), expected_rows=2
         )
+        assert t.count() == len(rows)
+        assert t.where(t.c2 == 1).collect()[0]['c3'] == 2.0
+        assert t.where(t.c2 == 2).collect()[0]['c3'] == 3.0
 
         with pytest.raises(excs.Error) as exc_info:
             # can't mix _rowid with primary key
@@ -682,6 +711,7 @@ class TestTable:
         validate_update_status(
             t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
         )
+        assert t2.count() == len(rows)
         assert t2.where(t2.c2 == 1).collect()[0]['c1'] == 'one'
         assert t2.where(t2.c2 == 2).collect()[0]['c1'] == 'two'
         with pytest.raises(AssertionError):
@@ -1005,18 +1035,18 @@ class TestTable:
         t = pxt.create_table('test', schema)
         t.add_column(c2=t.img.width)
         # c3 is not stored by default
-        t.add_column(c3=t.img.rotate(90))
+        t.add_column(c3=t.img.rotate(90), stored=False)
         self._test_computed_img_cols(t, stores_img_col=False)
 
         t = pxt.create_table('test2', schema)
         # c3 is now stored
-        t.add_column(c3=t.img.rotate(90), stored=True)
+        t.add_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
         _ = t[t.c3.errortype].show(0)
 
         # computed img col with exceptions
         t = pxt.create_table('test3', schema)
-        t.add_column(c3=self.img_fn_with_exc(t.img), stored=True)
+        t.add_column(c3=self.img_fn_with_exc(t.img))
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         t.insert(rows, fail_on_exception=False)

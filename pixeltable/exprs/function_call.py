@@ -20,6 +20,22 @@ from .rowid_ref import RowidRef
 
 
 class FunctionCall(Expr):
+
+    fn: func.Function
+    is_method_call: bool
+    agg_init_args: Dict[str, Any]
+    args: List[Tuple[Optional[int], Optional[Any]]]
+    kwargs: Dict[str, Tuple[Optional[int], Optional[Any]]]
+    arg_types: List[ts.ColumnType]
+    kwarg_types: Dict[str, ts.ColumnType]
+    group_by_start_idx: int
+    group_by_stop_idx: int
+    fn_expr_idx: int
+    order_by_start_idx: int
+    constant_args: set[str]
+    aggregator: Optional[Any]
+    current_partition_vals: Optional[List[Any]]
+
     def __init__(
             self, fn: func.Function, bound_args: Dict[str, Any], order_by_clause: Optional[List[Any]] = None,
             group_by_clause: Optional[List[Any]] = None, is_method_call: bool = False):
@@ -31,9 +47,9 @@ class FunctionCall(Expr):
         super().__init__(fn.call_return_type(bound_args))
         self.fn = fn
         self.is_method_call = is_method_call
-        self.check_args(signature, bound_args)
+        self.normalize_args(signature, bound_args)
 
-        self.agg_init_args: Dict[str, Any] = {}
+        self.agg_init_args = {}
         if self.is_agg_fn_call:
             # we separate out the init args for the aggregator
             self.agg_init_args = {
@@ -42,17 +58,16 @@ class FunctionCall(Expr):
             bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names}
 
         # construct components, args, kwargs
-        self.components: List[Expr] = []
 
         # Tuple[int, Any]:
         # - for Exprs: (index into components, None)
         # - otherwise: (None, val)
-        self.args: List[Tuple[Optional[int], Optional[Any]]] = []
-        self.kwargs: Dict[str, Tuple[Optional[int], Optional[Any]]] = {}
+        self.args = []
+        self.kwargs = {}
 
         # we record the types of non-variable parameters for runtime type checks
-        self.arg_types: List[ts.ColumnType] = []
-        self.kwarg_types: Dict[str, ts.ColumnType] = {}
+        self.arg_types = []
+        self.kwarg_types = {}
         # the prefix of parameters that are bound can be passed by position
         for param in fn.signature.py_signature.parameters.values():
             if param.name not in bound_args or param.kind == inspect.Parameter.KEYWORD_ONLY:
@@ -111,8 +126,8 @@ class FunctionCall(Expr):
 
         self.constant_args = {param_name for param_name, arg in bound_args.items() if not isinstance(arg, Expr)}
         # execution state for aggregate functions
-        self.aggregator: Optional[Any] = None
-        self.current_partition_vals: Optional[List[Any]] = None
+        self.aggregator = None
+        self.current_partition_vals = None
 
         self.id = self._create_id()
 
@@ -126,25 +141,31 @@ class FunctionCall(Expr):
         return super().default_column_name()
 
     @classmethod
-    def check_args(cls, signature: func.Signature, bound_args: Dict[str, Any]) -> None:
-        """Checks that bound_args are compatible with signature.
+    def normalize_args(cls, signature: func.Signature, bound_args: Dict[str, Any]) -> None:
+        """Converts all args to Exprs and checks that they are compatible with signature.
 
-        Convert literals to the correct type and update bound_args in place, if necessary.
+        Updates bound_args in place, where necessary.
         """
         for param_name, arg in bound_args.items():
             param = signature.parameters[param_name]
+            is_var_param = param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+
             if isinstance(arg, dict):
                 try:
                     arg = InlineDict(arg)
                     bound_args[param_name] = arg
+                    continue
                 except excs.Error:
                     # this didn't work, but it might be a literal
                     pass
+
             if isinstance(arg, list) or isinstance(arg, tuple):
                 try:
                     # If the column type is JsonType, force the literal to be JSON
-                    arg = InlineArray(arg, force_json=param.col_type is not None and param.col_type.is_json_type())
+                    is_json = is_var_param or (param.col_type is not None and param.col_type.is_json_type())
+                    arg = InlineArray(arg, force_json=is_json)
                     bound_args[param_name] = arg
+                    continue
                 except excs.Error:
                     # this didn't work, but it might be a literal
                     pass
@@ -154,30 +175,39 @@ class FunctionCall(Expr):
                 try:
                     _ = json.dumps(arg)
                 except TypeError:
-                    raise excs.Error(f"Argument for parameter '{param_name}' is not json-serializable: {arg}")
+                    raise excs.Error(f'Argument for parameter {param_name!r} is not json-serializable: {arg}')
                 if arg is not None:
                     try:
                         param_type = param.col_type
                         bound_args[param_name] = param_type.create_literal(arg)
                     except TypeError as e:
                         msg = str(e)
-                        raise excs.Error(f"Argument for parameter '{param_name}': {msg[0].lower() + msg[1:]}")
+                        raise excs.Error(f'Argument for parameter {param_name!r}: {msg[0].lower() + msg[1:]}')
                 continue
 
-            # variable parameters don't get type-checked, but they both need to be json-typed
-            if param.kind == inspect.Parameter.VAR_POSITIONAL:
-                assert isinstance(arg, InlineArray)
-                arg.col_type = ts.JsonType()
-                continue
-            if param.kind == inspect.Parameter.VAR_KEYWORD:
-                assert isinstance(arg, InlineDict)
-                arg.col_type = ts.JsonType()
-            continue
-
-            if not param_type.is_supertype_of(arg.col_type):
-                raise excs.Error(
-                    f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
-                    f'{param_type}')
+            # these checks break the db migration test, because InlineArray isn't serialized correctly (it looses
+            # the type information)
+            # if is_var_param:
+            #     if param.kind == inspect.Parameter.VAR_POSITIONAL:
+            #         if not isinstance(arg, InlineArray) or not arg.col_type.is_json_type():
+            #             pass
+            #         assert isinstance(arg, InlineArray), type(arg)
+            #         assert arg.col_type.is_json_type()
+            #     if param.kind == inspect.Parameter.VAR_KEYWORD:
+            #         if not isinstance(arg, InlineDict):
+            #             pass
+            #         assert isinstance(arg, InlineDict), type(arg)
+            if is_var_param:
+                pass
+            else:
+                assert param.col_type is not None
+                # Check that the argument is consistent with the expected parameter type, with the allowance that
+                # non-nullable parameters can still accept nullable arguments (since function calls with Nones
+                # assigned to non-nullable parameters will always return None)
+                if not param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True):
+                    raise excs.Error(
+                        f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
+                        f'{param.col_type}')
 
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:

@@ -41,11 +41,7 @@ class TestVideo:
     def test_basic(self, reset_db) -> None:
         video_filepaths = get_video_files()
 
-        # default case: computed images are not stored
-        _, view = self.create_and_insert(None, video_filepaths)
-        assert MediaStore.count(view._get_id()) == 0
-
-        # computed images are explicitly not stored
+        # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths)
         assert MediaStore.count(view._get_id()) == 0
 
@@ -96,7 +92,7 @@ class TestVideo:
         view_t.add_column(c3=view_t.c2.rotate(20))
         view_t.add_column(c4=view_t.c1.rotate(30))
         for name in ['c1', 'c2', 'c3', 'c4']:
-            assert not view_t._tbl_version_path.tbl_version.cols_by_name[name].is_stored
+            assert view_t._tbl_version_path.tbl_version.cols_by_name[name].is_stored
         base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].show(0)
 

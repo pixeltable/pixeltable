@@ -223,35 +223,70 @@ class StoreBase:
         """
         num_excs = 0
         num_rows = 0
-        for row_batch in exec_plan:
-            num_rows += len(row_batch)
-            for result_row in row_batch:
-                values_dict: Dict[sql.Column, Any] = {}
 
-                if col.is_computed:
-                    if result_row.has_exc(value_expr_slot_idx):
-                        num_excs += 1
-                        value_exc = result_row.get_exc(value_expr_slot_idx)
-                        # we store a NULL value and record the exception/exc type
-                        error_type = type(value_exc).__name__
-                        error_msg = str(value_exc)
-                        values_dict = {
-                            col.sa_col: None,
-                            col.sa_errortype_col: error_type,
-                            col.sa_errormsg_col: error_msg
-                        }
-                    else:
-                        val = result_row.get_stored_val(value_expr_slot_idx, col.sa_col.type)
-                        if col.col_type.is_media_type():
-                            val = self._move_tmp_media_file(val, col, result_row.pk[-1])
-                        values_dict = {col.sa_col: val}
+        # create temp table to store output of exec_plan, with the same primary key as the store table
+        tmp_name = f'temp_{self._storage_name()}'
+        tmp_pk_cols = [sql.Column(col.name, col.type, primary_key=True) for col in self.pk_columns()]
+        tmp_cols = tmp_pk_cols.copy()
+        tmp_val_col = sql.Column(col.sa_col.name, col.sa_col.type)
+        tmp_cols.append(tmp_val_col)
+        # add error columns if the store column records errors
+        if col.records_errors:
+            tmp_errortype_col = sql.Column(col.sa_errortype_col.name, col.sa_errortype_col.type)
+            tmp_cols.append(tmp_errortype_col)
+            tmp_errormsg_col = sql.Column(col.sa_errormsg_col.name, col.sa_errormsg_col.type)
+            tmp_cols.append(tmp_errormsg_col)
+        tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
+        tmp_tbl.create(bind=conn)
 
-                update_stmt = sql.update(self.sa_tbl).values(values_dict)
-                for pk_col, pk_val in zip(self.pk_columns(), result_row.pk):
-                    update_stmt = update_stmt.where(pk_col == pk_val)
-                log_stmt(_logger, update_stmt)
-                conn.execute(update_stmt)
+        try:
+            # insert rows from exec_plan into temp table
+            for row_batch in exec_plan:
+                num_rows += len(row_batch)
+                tbl_rows: list[dict[str, Any]] = []
+                for result_row in row_batch:
+                    tbl_row: dict[str, Any] = {}
+                    for pk_col, pk_val in zip(self.pk_columns(), result_row.pk):
+                        tbl_row[pk_col.name] = pk_val
 
+                    if col.is_computed:
+                        if result_row.has_exc(value_expr_slot_idx):
+                            num_excs += 1
+                            value_exc = result_row.get_exc(value_expr_slot_idx)
+                            # we store a NULL value and record the exception/exc type
+                            error_type = type(value_exc).__name__
+                            error_msg = str(value_exc)
+                            tbl_row[col.sa_col.name] = None
+                            tbl_row[col.sa_errortype_col.name] = error_type
+                            tbl_row[col.sa_errormsg_col.name] = error_msg
+                        else:
+                            val = result_row.get_stored_val(value_expr_slot_idx, col.sa_col.type)
+                            if col.col_type.is_media_type():
+                                val = self._move_tmp_media_file(val, col, result_row.pk[-1])
+                            tbl_row[col.sa_col.name] = val
+                            if col.records_errors:
+                                tbl_row[col.sa_errortype_col.name] = None
+                                tbl_row[col.sa_errormsg_col.name] = None
+
+                    tbl_rows.append(tbl_row)
+                conn.execute(sql.insert(tmp_tbl), tbl_rows)
+
+            # update store table with values from temp table
+            update_stmt = sql.update(self.sa_tbl)
+            for pk_col, tmp_pk_col in zip(self.pk_columns(), tmp_pk_cols):
+                update_stmt = update_stmt.where(pk_col == tmp_pk_col)
+            update_stmt = update_stmt.values({col.sa_col: tmp_val_col})
+            if col.records_errors:
+                update_stmt = update_stmt.values({
+                    col.sa_errortype_col: tmp_errortype_col,
+                    col.sa_errormsg_col: tmp_errormsg_col
+                })
+            log_explain(_logger, update_stmt, conn)
+            conn.execute(update_stmt)
+
+        finally:
+            tmp_tbl.drop(bind=conn)
+            self.sa_md.remove(tmp_tbl)
         return num_excs
 
     def insert_rows(
@@ -295,6 +330,8 @@ class StoreBase:
                                     file=sys.stdout
                                 )
                             progress_bar.update(1)
+
+                    # insert batch of rows
                     self._move_tmp_media_files(table_rows, media_cols, v_min)
                     conn.execute(sql.insert(self.sa_tbl), table_rows)
             if progress_bar is not None:

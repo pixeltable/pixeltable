@@ -29,6 +29,8 @@ class ComparisonOperator(enum.Enum):
             return '<='
         if self == self.EQ:
             return '=='
+        if self == self.NE:
+            return '!='
         if self == self.GT:
             return '>'
         if self == self.GE:

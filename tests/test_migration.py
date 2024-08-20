@@ -5,7 +5,7 @@ import platform
 import subprocess
 import sys
 
-import pgserver
+import pixeltable_pgserver
 import pytest
 import sqlalchemy.orm as orm
 
@@ -14,6 +14,7 @@ from pixeltable.env import Env
 from pixeltable.exprs import FunctionCall
 from pixeltable.func import CallableFunction
 from pixeltable.metadata import VERSION, SystemInfo
+from pixeltable.metadata.notes import VERSION_NOTES
 from .conftest import clean_db
 from .utils import reload_catalog, skip_test_if_not_installed
 
@@ -29,7 +30,7 @@ class TestMigration:
         import toml
 
         env = Env.get()
-        pg_package_dir = os.path.dirname(pgserver.__file__)
+        pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
         pg_restore_binary = f'{pg_package_dir}/pginstall/bin/pg_restore'
         _logger.info(f'Using pg_restore binary at: {pg_restore_binary}')
         dump_files = glob.glob('tests/data/dbdumps/*.dump.gz')
@@ -84,10 +85,13 @@ class TestMigration:
                 self._run_v17_tests()
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
-        assert VERSION in versions_found, \
-            f'No DB dump found for current schema version {VERSION}. You can generate one with:\n' \
-            f'`python pixeltable/tool/create_test_db_dump.py`\n' \
-            f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
+        assert VERSION in versions_found, (
+            f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'
+            f'`python pixeltable/tool/create_test_db_dump.py`\n'
+            f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`')
+        assert VERSION in VERSION_NOTES, (
+            f'No version notes found for current schema version {VERSION}. '
+            f'Please add them to pixeltable/metadata/notes.py.')
 
     @classmethod
     def _run_v13_tests(cls) -> None:
@@ -108,6 +112,14 @@ class TestMigration:
     @classmethod
     def _run_v15_tests(cls) -> None:
         """Tests that apply to DB artifacts of version 15+."""
+        # Test that computed column metadata of tables and views loads properly by forcing
+        # the tables to describe themselves
+        pxt.get_table('base_table').describe()
+        pxt.get_table('views.view').describe()
+        pxt.get_table('views.snapshot').describe()
+        pxt.get_table('views.view_of_views').describe()
+        pxt.get_table('views.empty_view').describe()
+
         v = pxt.get_table('views.view')
         e = pxt.get_table('views.empty_view')
 

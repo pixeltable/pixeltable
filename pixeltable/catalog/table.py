@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Union, Any, Optional, Callable, Set, Tuple, Iterable, overload, Type
+from typing import Union, Any, Optional, Callable, Set, Tuple, Iterable, overload, Type, Literal
 from uuid import UUID
 import abc
 
@@ -434,8 +434,8 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
-            stored: Optional[bool] = None
             primary_key: Optional[bool] = None
+            stored = True
 
             if isinstance(spec, ts.ColumnType):
                 # TODO: create copy
@@ -455,7 +455,7 @@ class Table(SchemaObject):
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it
                     value_expr = value_expr.copy()
-                stored = spec.get('stored')
+                stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key')
 
             column = Column(
@@ -478,12 +478,10 @@ class Table(SchemaObject):
             raise excs.Error(f'Column name conflicts with a registered query: {col.name!r}')
         if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
             raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed image columns')
-        if col.stored is False and not (col.col_type.is_image_type() and not col.has_window_fn_call()):
+        if col.stored is False and col.has_window_fn_call():
             raise excs.Error((
                 f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a streaming '
                 f'function'))
-        if col.stored is None:
-            col.stored = not (col.is_computed and col.col_type.is_image_type() and not col.has_window_fn_call())
 
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
@@ -745,18 +743,34 @@ class Table(SchemaObject):
         self._check_is_dropped()
         return self._tbl_version.update(value_spec, where, cascade)
 
-    def batch_update(self, rows: Iterable[dict[str, Any]], cascade: bool = True) -> UpdateStatus:
+    def batch_update(
+            self, rows: Iterable[dict[str, Any]], cascade: bool = True,
+            if_not_exists: Literal['error', 'ignore', 'insert'] = 'error'
+    ) -> UpdateStatus:
         """Update rows in this table.
 
         Args:
             rows: an Iterable of dictionaries containing values for the updated columns plus values for the primary key
                   columns.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
+            if_not_exists: Specifies the behavior if a row to update does not exist:
+
+                - `'error'`: Raise an error.
+                - `'ignore'`: Skip the row silently.
+                - `'insert'`: Insert the row.
 
         Examples:
-            Update the 'name' and 'age' columns for the rows with ids 1 and 2 (assuming 'id' is the primary key):
+            Update the `name` and `age` columns for the rows with ids 1 and 2 (assuming `id` is the primary key).
+            If either row does not exist, this raises an error:
 
             >>> tbl.update([{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}])
+
+            Update the `name` and `age` columns for the row with `id` 1 (assuming `id` is the primary key) and insert
+            the row with new `id` 3 (assuming this key does not exist):
+
+            >>> tbl.update(
+                [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
+                if_not_exists='insert')
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot update a snapshot')
@@ -784,7 +798,9 @@ class Table(SchemaObject):
                     missing_cols = pk_col_names - set(col.name for col in col_vals.keys())
                     raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
-        return self._tbl_version.batch_update(row_updates, rowids, cascade)
+        return self._tbl_version.batch_update(
+            row_updates, rowids, error_if_not_exists=if_not_exists == 'error',
+            insert_if_not_exists=if_not_exists == 'insert', cascade=cascade)
 
     def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.

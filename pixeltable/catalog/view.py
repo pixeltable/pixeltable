@@ -92,7 +92,7 @@ class View(Table):
                 ]
                 sig = func.Signature(InvalidType(), params)
                 from pixeltable.exprs import FunctionCall
-                FunctionCall.check_args(sig, bound_args)
+                FunctionCall.normalize_args(sig, bound_args)
             except TypeError as e:
                 raise Error(f'Cannot instantiate iterator with given arguments: {e}')
 
