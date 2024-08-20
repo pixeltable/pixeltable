@@ -177,8 +177,8 @@ class Dumper:
         assert t.base_table_image_rot.col in project.stored_proxies
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
-        def add_column(col_name: str, col_expr: Any) -> None:
-            t.add_column(**{f'{col_prefix}_{col_name}': col_expr})
+        def add_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
+            t.add_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
 
         # arithmetic_expr
         add_column('plus', t.c2 + 6)
@@ -217,7 +217,7 @@ class Dumper:
 
         # image_member_access
         add_column('image_mode', t.c8.mode)
-        add_column('image_rot', t.c8.rotate(180))
+        add_column('image_rot', t.c8.rotate(180), stored=False)
 
         # in_predicate
         add_column('isin_1', t.c1.isin(['test string 1', 'test string 2', 'test string 3']))

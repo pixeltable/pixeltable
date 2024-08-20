@@ -22,7 +22,7 @@ class ArithmeticExpr(Expr):
             # we assume it's a float
             super().__init__(ts.FloatType())
         else:
-            super().__init__(ts.ColumnType.supertype(op1.col_type, op2.col_type))
+            super().__init__(op1.col_type.supertype(op2.col_type))
         self.operator = operator
         self.components = [op1, op2]
 
