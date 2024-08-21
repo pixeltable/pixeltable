@@ -124,7 +124,7 @@ class TableVersion:
         self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
-        self.external_stores: dict[str, pixeltable.io.ExternalStore] = {}
+        self.external_stores: dict[str, pxt.io.ExternalStore] = {}
 
         self._init_schema(tbl_md, schema_version_md)
 
@@ -1004,11 +1004,11 @@ class TableVersion:
     def _init_external_stores(self, tbl_md: schema.TableMd) -> None:
         for store_md in tbl_md.external_stores:
             store_cls = resolve_symbol(store_md['class'])
-            assert isinstance(store_cls, type) and issubclass(store_cls, pixeltable.io.ExternalStore)
+            assert isinstance(store_cls, type) and issubclass(store_cls, pxt.io.ExternalStore)
             store = store_cls.from_dict(store_md['md'])
             self.external_stores[store.name] = store
 
-    def link_external_store(self, store: pixeltable.io.ExternalStore) -> None:
+    def link_external_store(self, store: pxt.io.ExternalStore) -> None:
         with Env.get().engine.begin() as conn:
             store.link(self, conn)  # May result in additional metadata changes
             self.external_stores[store.name] = store
@@ -1022,7 +1022,7 @@ class TableVersion:
             del self.external_stores[store_name]
             self._update_md(time.time(), conn, update_tbl_version=False)
 
-        if delete_external_data and isinstance(store, pixeltable.io.external_store.Project):
+        if delete_external_data and isinstance(store, pxt.io.external_store.Project):
             store.delete()
 
     def is_view(self) -> bool:

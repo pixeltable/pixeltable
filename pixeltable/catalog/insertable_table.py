@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Any, Dict, overload, Iterable
+from typing import Any, Dict, Iterable, List, Optional, overload
 from uuid import UUID
 
-import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+
 from .catalog import Catalog
 from .globals import UpdateStatus
 from .table import Table
@@ -91,7 +91,7 @@ class InsertableTable(Table):
         for row in rows:
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
-        self.__validate_input_rows(rows)
+        self._validate_input_rows(rows)
         result = self._tbl_version.insert(rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
         if result.num_excs == 0:
@@ -108,7 +108,7 @@ class InsertableTable(Table):
         _logger.info(f'InsertableTable {self._name}: {msg}')
         return result
 
-    def __validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
+    def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
         valid_col_names = set(self.column_names())
         reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())

@@ -1,16 +1,14 @@
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Iterator, List, Optional, Set, Tuple
 from uuid import UUID
 
 import sqlalchemy as sql
 
+import pixeltable as pxt
 import pixeltable.exec as exec
 import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable import exprs
-
-if TYPE_CHECKING:
-    import pixeltable as pxt
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -230,7 +228,10 @@ class Planner:
                 plan = exec.CachePrefetchNode(tbl.id, media_input_cols, input=plan)
                 plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
         if df is not None:
-            plan = exec.DataNode(tbl, cls.__df_insert_batches(df), row_builder, tbl.next_rowid)
+            # Create a DataNode that iterates over the batches in the given DataFrame. We can skip media
+            # validation, since any needed validation will have already occurred in the Table that underlies
+            # the DataFrame.
+            plan = exec.DataNode(tbl, cls.__df_insert_batches(df), row_builder, tbl.next_rowid, validate_media=False)
 
         computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
         if len(computed_exprs) > 0:

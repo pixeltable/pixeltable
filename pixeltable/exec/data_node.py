@@ -13,19 +13,30 @@ _logger = logging.getLogger('pixeltable')
 
 class DataNode(ExecNode):
     """
-    Outputs in-memory data as a DataRowBatch of a particular table.
+    Outputs batches of explicitly specified data as DataRowBatches of a particular table.
 
     Populates slots of all non-computed columns (ie, output ColumnRefs)
     - with the values provided in the input rows
     - if an input row doesn't provide a value, sets the slot to the column default
     """
+
+    tbl: catalog.TableVersionPath
+    next_row_id: int
+    input_row_iter: Iterator[list[dict[str, Any]]]
+    total_rows: int
+    validate_media: bool
+    user_cols_by_name: dict[str, exprs.ColumnSlotIdx]
+    output_cols_by_idx: dict[int, exprs.ColumnSlotIdx]
+    output_slot_idxs: set[int]
+
     def __init__(
         self,
         tbl: catalog.TableVersionPath,
         input_row_batches: Iterable[list[dict[str, Any]]],
         row_builder: exprs.RowBuilder,
         start_row_id: int,
-        total_rows: Optional[int] = None
+        total_rows: int = 0,
+        validate_media: bool = True
     ):
         # we materialize all output slots
         output_exprs = [e for e in row_builder.get_output_exprs() if isinstance(e, exprs.ColumnRef)]
@@ -35,6 +46,7 @@ class DataNode(ExecNode):
         self.next_row_id = start_row_id
         self.input_row_iter: Iterator[list[dict[str, Any]]] = iter(input_row_batches)
         self.total_rows = total_rows
+        self.validate_media = validate_media
 
         self.user_cols_by_name = {
             col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
@@ -47,7 +59,7 @@ class DataNode(ExecNode):
         self.output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
     def _open(self) -> None:
-        self.ctx.num_rows = 0 if self.total_rows is None else self.total_rows
+        self.ctx.num_rows = self.total_rows
 
     def __next__(self) -> DataRowBatch:
         input_rows = next(self.input_row_iter)
@@ -59,7 +71,7 @@ class DataNode(ExecNode):
             for col_name, val in input_row.items():
                 col_info = self.user_cols_by_name.get(col_name)
                 assert col_info is not None
-                if col_info.col.col_type.is_image_type() and isinstance(val, bytes):
+                if self.validate_media and col_info.col.col_type.is_image_type() and isinstance(val, bytes):
                     # this is a literal image, ie, a sequence of bytes; we save this as a media file and store the path
                     path = str(MediaStore.prepare_media_path(self.tbl.id, col_info.col.id, self.tbl.version))
                     open(path, 'wb').write(val)
