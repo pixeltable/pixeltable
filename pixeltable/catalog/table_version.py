@@ -12,7 +12,7 @@ from uuid import UUID
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-import pixeltable
+import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.func as func
@@ -56,7 +56,7 @@ class TableVersion:
 
     def __init__(
             self, id: UUID, tbl_md: schema.TableMd, version: int, schema_version_md: schema.TableSchemaVersionMd,
-            base: Optional[TableVersion] = None, base_path: Optional['pixeltable.catalog.TableVersionPath'] = None,
+            base: Optional[TableVersion] = None, base_path: Optional['pxt.catalog.TableVersionPath'] = None,
             is_snapshot: Optional[bool] = None
     ):
         # only one of base and base_path can be non-None
@@ -145,7 +145,7 @@ class TableVersion:
     @classmethod
     def create(
             cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int,
-            comment: str, base_path: Optional['pixeltable.catalog.TableVersionPath'] = None,
+            comment: str, base_path: Optional['pxt.catalog.TableVersionPath'] = None,
             view_md: Optional[schema.ViewMd] = None
     ) -> Tuple[UUID, Optional[TableVersion]]:
         # assign ids
@@ -637,16 +637,19 @@ class TableVersion:
 
     def insert(
             self,
-            rows: list[dict[str, Any]],
+            rows: Optional[list[dict[str, Any]]],
+            df: Optional[pxt.DataFrame],
             conn: Optional[sql.engine.Connection] = None,
             print_stats: bool = False,
-            fail_on_exception : bool = True
+            fail_on_exception: bool = True
     ) -> UpdateStatus:
         """Insert rows into this table.
         """
-        assert self.is_insertable()
         from pixeltable.plan import Planner
-        plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
+
+        assert self.is_insertable()
+        assert (rows is None) != (df is None)  # Exactly one must be specified
+        plan = Planner.create_insert_plan(self, rows, df, ignore_errors=not fail_on_exception)
         if conn is None:
             with Env.get().engine.begin() as conn:
                 return self._insert(plan, conn, time.time(), print_stats)
@@ -746,7 +749,7 @@ class TableVersion:
                 if error_if_not_exists:
                     raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
                 if insert_if_not_exists:
-                    insert_status = self.insert(unmatched_rows, print_stats=False, fail_on_exception=False)
+                    insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
                     result += insert_status
             return result
 
@@ -1063,7 +1066,7 @@ class TableVersion:
         return names
 
     @classmethod
-    def _create_value_expr(cls, col: Column, path: 'pixeltable.catalog.TableVersionPath') -> None:
+    def _create_value_expr(cls, col: Column, path: 'pxt.catalog.TableVersionPath') -> None:
         """
         Create col.value_expr, given col.compute_func.
         Interprets compute_func's parameters to be references to columns and construct ColumnRefs as args.
@@ -1130,7 +1133,7 @@ class TableVersion:
         return column_md
 
     @classmethod
-    def _create_stores_md(cls, stores: Iterable['pixeltable.io.ExternalStore']) -> list[dict[str, Any]]:
+    def _create_stores_md(cls, stores: Iterable['pxt.io.ExternalStore']) -> list[dict[str, Any]]:
         return [
             {
                 'class': f'{type(store).__module__}.{type(store).__qualname__}',

@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, List, Set, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Set, Tuple
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -8,6 +8,9 @@ import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable import exprs
+
+if TYPE_CHECKING:
+    import pixeltable as pxt
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -200,27 +203,34 @@ class Planner:
 
     @classmethod
     def create_insert_plan(
-            cls, tbl: catalog.TableVersion, rows: List[Dict[str, Any]], ignore_errors: bool
+        cls,
+        tbl: catalog.TableVersion,
+        rows: Optional[list[dict[str, Any]]],
+        df: Optional['pxt.DataFrame'],
+        ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
+        assert (rows is None) != (df is None)  # Exactly one must be specified
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols if c.is_stored]
         assert len(stored_cols) > 0
 
         row_builder = exprs.RowBuilder([], stored_cols, [])
 
-        # create InMemoryDataNode for 'rows'
+        # create DataNode for 'rows' or 'df'
         stored_col_info = row_builder.output_slot_idxs()
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         input_col_info = [info for info in stored_col_info if not info.col.is_computed]
-        plan = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
-
-        media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
-        if len(media_input_cols) > 0:
-            # prefetch external files for all input column refs for validation
-            plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
-            plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
+        if rows is not None:
+            plan = exec.DataNode(tbl, [rows], row_builder, tbl.next_rowid, total_rows=len(rows))
+            media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
+            if len(media_input_cols) > 0:
+                # prefetch external files for all input column refs for validation
+                plan = exec.CachePrefetchNode(tbl.id, media_input_cols, input=plan)
+                plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
+        if df is not None:
+            plan = exec.DataNode(tbl, cls.__df_insert_batches(df), row_builder, tbl.next_rowid)
 
         computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
         if len(computed_exprs) > 0:
@@ -233,6 +243,21 @@ class Planner:
                 row_builder, batch_size=0, show_pbar=True, num_computed_exprs=len(computed_exprs),
                 ignore_errors=ignore_errors))
         return plan
+
+    @classmethod
+    def __df_insert_batches(cls, df: 'pxt.DataFrame') -> Iterator[list[dict[str, Any]]]:
+        col_names = list(df.schema.keys())
+        # Note that df._exec_batches() will not actually be invoked until the first time next()
+        # is called on the iterator (which will happen after node execution begins)
+        for row_batch in df._exec_batches():
+            insert_batch = []
+            for row in row_batch:
+                insert_row = {
+                    col_names[i]: row[df._select_list_exprs[i].slot_idx]
+                    for i in range(len(col_names))
+                }
+                insert_batch.append(insert_row)
+            yield insert_batch
 
     @classmethod
     def create_update_plan(
