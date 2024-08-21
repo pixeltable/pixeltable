@@ -809,6 +809,19 @@ class TestExprs:
         new_t.insert(rows)
         _ = new_t.show(0)
 
+    def test_make_list(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        import pixeltable.functions as pxtf
+        # create a json column with an InlineDict; the type will have a type spec
+        t.add_column(json_col={'a': t.c1, 'b': t.c2})
+        res = t.select(out=pxtf.json.make_list(t.json_col)).collect()
+        assert len(res) == 1
+        val = res[0]['out']
+        assert len(val) == t.count()
+        res2 = t.select(t.json_col).collect()['json_col']
+        # need to use frozensets because dicts are not hashable
+        assert set(frozenset(d.items()) for d in val) == set(frozenset(d.items()) for d in res2)
+
     def test_aggregates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         _ = t[t.c2 % 2, sum(t.c2), count(t.c2), sum(t.c2) + count(t.c2), sum(t.c2) + (t.c2 % 2)]\
