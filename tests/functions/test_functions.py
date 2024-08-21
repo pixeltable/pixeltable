@@ -1,12 +1,12 @@
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
-from pixeltable.type_system import VideoType, StringType
+from pixeltable.type_system import VideoType
 
 from ..utils import get_video_files, skip_test_if_not_installed
 
 
 class TestFunctions:
-    def test_eval_detections(self, reset_db) -> None:
+    def test_vision(self, reset_db) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.ext.functions.yolox import yolox
 
@@ -19,8 +19,8 @@ class TestFunctions:
         v.add_column(frame_s=v.frame.resize([640, 480]))
         v.add_column(detections_a=yolox(v.frame_s, model_id='yolox_nano'))
         v.add_column(detections_b=yolox(v.frame_s, model_id='yolox_s'))
-        v.add_column(gt=yolox(v.frame_s, model_id='yolox_l'))
-        from pixeltable.functions.eval import eval_detections, mean_ap
+        v.add_column(gt=yolox(v.frame_s, model_id='yolox_m'))
+        from pixeltable.functions.vision import eval_detections, mean_ap, draw_bounding_boxes
 
         res = v.select(
             eval_detections(
@@ -39,3 +39,5 @@ class TestFunctions:
         )
         _ = v.select(mean_ap(v.eval_a)).show()[0, 0]
         _ = v.select(mean_ap(v.eval_b)).show()[0, 0]
+        _ = v.select(draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels)).collect()
+        pass

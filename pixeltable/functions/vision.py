@@ -1,11 +1,26 @@
-from typing import List, Tuple, Dict
-from collections import defaultdict
-import sys
+"""
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for Computer Vision.
 
+Example:
+```python
+import pixeltable as pxt
+from pixeltable.functions import vision as pxtv
+
+t = pxt.get_table(...)
+t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect()
+```
+"""
+
+from collections import defaultdict
+from typing import Optional, Union
+
+import PIL.Image
+import PIL.Image
 import numpy as np
 
-import pixeltable.type_system as ts
 import pixeltable.func as func
+import pixeltable.type_system as ts
+from pixeltable.utils.code import local_public_names
 
 
 # TODO: figure out a better submodule structure
@@ -14,7 +29,7 @@ import pixeltable.func as func
 # the following function has been adapted from MMEval
 # (sources at https://github.com/open-mmlab/mmeval)
 # Copyright (c) OpenMMLab. All rights reserved.
-def calculate_bboxes_area(bboxes: np.ndarray) -> np.ndarray:
+def _calculate_bboxes_area(bboxes: np.ndarray) -> np.ndarray:
     """Calculate area of bounding boxes.
 
     Args:
@@ -31,7 +46,7 @@ def calculate_bboxes_area(bboxes: np.ndarray) -> np.ndarray:
 # the following function has been adapted from MMEval
 # (sources at https://github.com/open-mmlab/mmeval)
 # Copyright (c) OpenMMLab. All rights reserved.
-def calculate_overlaps(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
+def _calculate_overlaps(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
     """Calculate the overlap between each bbox of bboxes1 and bboxes2.
 
     Args:
@@ -58,8 +73,8 @@ def calculate_overlaps(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
         exchange = False
 
     # Calculate the bboxes area.
-    area1 = calculate_bboxes_area(bboxes1)
-    area2 = calculate_bboxes_area(bboxes2)
+    area1 = _calculate_bboxes_area(bboxes1)
+    area2 = _calculate_bboxes_area(bboxes2)
     eps = np.finfo(np.float32).eps
 
     for i in range(bboxes1.shape[0]):
@@ -80,9 +95,9 @@ def calculate_overlaps(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
 # the following function has been adapted from MMEval
 # (sources at https://github.com/open-mmlab/mmeval)
 # Copyright (c) OpenMMLab. All rights reserved.
-def calculate_image_tpfp(
+def _calculate_image_tpfp(
     pred_bboxes: np.ndarray, pred_scores: np.ndarray, gt_bboxes: np.ndarray, min_iou: float
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Calculate the true positive and false positive on an image.
 
     Args:
@@ -121,7 +136,7 @@ def calculate_image_tpfp(
 
     # Step 4. Calculate the IoUs between the predicted bboxes and the
     # ground truth bboxes.
-    ious = calculate_overlaps(pred_bboxes, gt_bboxes)
+    ious = _calculate_overlaps(pred_bboxes, gt_bboxes)
     # For each pred bbox, the max iou with all gts.
     ious_max = ious.max(axis=1)
     # For each pred bbox, which gt overlaps most with it.
@@ -160,14 +175,17 @@ def calculate_image_tpfp(
     ],
 )
 def eval_detections(
-    pred_bboxes: List[List[int]],
-    pred_labels: List[int],
-    pred_scores: List[float],
-    gt_bboxes: List[List[int]],
-    gt_labels: List[int],
-) -> Dict:
+    pred_bboxes: list[list[int]],
+    pred_labels: list[int],
+    pred_scores: list[float],
+    gt_bboxes: list[list[int]],
+    gt_labels: list[int],
+) -> dict:
+    """
+    Evaluates the performance of a set of predicted bounding boxes against a set of ground truth bounding boxes.
+    """
     class_idxs = list(set(pred_labels + gt_labels))
-    result: List[Dict] = []
+    result: list[dict] = []
     pred_bboxes_arr = np.asarray(pred_bboxes)
     pred_classes_arr = np.asarray(pred_labels)
     pred_scores_arr = np.asarray(pred_scores)
@@ -177,7 +195,7 @@ def eval_detections(
         pred_filter = pred_classes_arr == class_idx
         gt_filter = gt_classes_arr == class_idx
         class_pred_scores = pred_scores_arr[pred_filter]
-        tp, fp = calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], [0.5])
+        tp, fp = _calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], [0.5])
         ordered_class_pred_scores = -np.sort(-class_pred_scores)
         result.append(
             {
@@ -194,17 +212,21 @@ def eval_detections(
 
 @func.uda(update_types=[ts.JsonType()], value_type=ts.JsonType(), allows_std_agg=True, allows_window=False)
 class mean_ap(func.Aggregator):
+    """
+    Calculates the mean average precision (mAP) over
+    [`eval_detections()`][pixeltable.functions.vision.eval_detections] results.
+    """
     def __init__(self):
-        self.class_tpfp: Dict[int, List[Dict]] = defaultdict(list)
+        self.class_tpfp: dict[int, list[dict]] = defaultdict(list)
 
-    def update(self, eval_dicts: List[Dict]) -> None:
+    def update(self, eval_dicts: list[dict]) -> None:
         for eval_dict in eval_dicts:
             class_idx = eval_dict['class']
             self.class_tpfp[class_idx].append(eval_dict)
 
-    def value(self) -> Dict:
+    def value(self) -> dict:
         eps = np.finfo(np.float32).eps
-        result: Dict[int, float] = {}
+        result: dict[int, float] = {}
         for class_idx, tpfp in self.class_tpfp.items():
             a1 = [x['tp'] for x in tpfp]
             tp = np.concatenate([x['tp'] for x in tpfp], axis=0)
@@ -225,3 +247,96 @@ class mean_ap(func.Aggregator):
             ap = np.sum((mrec[ind + 1] - mrec[ind]) * mpre[ind + 1])
             result[class_idx] = ap.item()
         return result
+
+
+@func.udf
+def draw_bounding_boxes(
+        img: PIL.Image.Image,
+        boxes: list[list[int]],
+        labels: Optional[list[Union[str, int]]] = None,
+        color: Optional[str] = None,
+        label_colors: Optional[dict[Union[str, int], str]] = None,
+        box_colors: Optional[list[str]] = None,
+        fill: Optional[bool]  = False,
+        width: int = 1,
+        font: Optional[str] = None,
+        font_size: Optional[int] = None,
+) -> PIL.Image.Image:
+    """
+    Draws bounding boxes on the given image.
+
+    Labels can be either strings or ints (category ids).
+    Colors can be specified as strings (e.g., 'red') or as RGB hex codes (e.g., '#FF0000').
+
+    Args:
+        img: The image on which to draw the bounding boxes.
+        boxes: List of bounding boxes, each represented as [xmin, ymin, xmax, ymax].
+        labels: List of labels for each bounding box.
+        color: Single color to be used for all bounding boxes and labels.
+        label_colors: Dictionary mapping labels to colors.
+        box_colors: List of colors, one per bounding box.
+        fill: Whether to fill the bounding boxes with color.
+        width: Width of the bounding box borders.
+        font: Path to a TrueType font file.
+        font_size: Size of the font used for labels.
+
+    Returns:
+        The image with bounding boxes drawn on it.
+    """
+    color_params = sum([color is not None, label_colors is not None, box_colors is not None])
+    if color_params > 1:
+        raise ValueError("Only one of 'color', 'label_colors', or 'box_colors' can be set")
+
+    # ensure the number of labels matches the number of boxes
+    num_boxes = len(boxes)
+    if labels is None:
+        labels = [None] * num_boxes
+    elif len(labels) != num_boxes:
+        raise ValueError("Number of boxes and labels must match")
+
+    if box_colors is not None:
+        if len(box_colors) != num_boxes:
+            raise ValueError("Number of boxes and box colors must match")
+    else:
+        if color is not None:
+            box_colors = [color] * num_boxes
+        elif label_colors is not None:
+            box_colors = [label_colors.get(label, "red") for label in labels]
+        else:
+            box_colors = ["red"] * num_boxes
+
+    from PIL import ImageDraw, ImageFont, ImageColor
+    # set default font if not provided
+    if font is None:
+        txt_font = ImageFont.load_default()
+    else:
+        txt_font = ImageFont.truetype(font=font, size=font_size or 10)
+
+    img_to_draw = img.copy()
+    draw = ImageDraw.Draw(img_to_draw, "RGBA" if fill else "RGB")
+
+    for i, (bbox, label) in enumerate(zip(boxes, labels)):
+        # determine color for the current box and label
+        color = box_colors[i % len(box_colors)]
+
+        if fill:
+            rgb_color = ImageColor.getrgb(color)
+            fill_color = rgb_color + (100,)  # semi-transparent
+            draw.rectangle(bbox, outline=color, width=width, fill=fill_color)
+        else:
+            draw.rectangle(bbox, outline=color, width=width)
+
+        if label is not None:
+            if not isinstance(label, str):
+                label = f'Category {label}'
+            margin = width + 1
+            draw.text((bbox[0] + margin, bbox[1] + margin), label, fill=color, font=txt_font)
+
+    return img_to_draw
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__

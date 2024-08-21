@@ -34,6 +34,7 @@ nav:
     - string: api/functions/string.md
     - timestamp: api/functions/timestamp.md
     - video: api/functions/video.md
+    - Computer Vision: api/functions/vision.md
   - Model and Inference Functions:
     - fireworks: api/functions/fireworks.md
     - huggingface: api/functions/huggingface.md
