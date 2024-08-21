@@ -818,7 +818,9 @@ class TestExprs:
         assert len(res) == 1
         val = res[0]['out']
         assert len(val) == t.count()
-        # we can't compare the values directly, because the order of the elements in the list is not guaranteed
+        res2 = t.select(t.json_col).collect()['json_col']
+        # need to use frozensets because dicts are not hashable
+        assert set(frozenset(d.items()) for d in val) == set(frozenset(d.items()) for d in res2)
 
     def test_aggregates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
