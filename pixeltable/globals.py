@@ -1,6 +1,7 @@
 import dataclasses
 import logging
 from typing import Any, Optional, Union
+from uuid import UUID
 
 import pandas as pd
 import sqlalchemy as sql
@@ -302,7 +303,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in Catalog.get().paths.get_children(path, child_type=catalog.Table, recursive=recursive)]
 
 
-def create_dir(path_str: str, ignore_errors: bool = False) -> catalog.Dir:
+def create_dir(path_str: str, ignore_errors: bool = False) -> Optional[catalog.Dir]:
     """Create a directory.
 
     Args:
@@ -330,6 +331,7 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> catalog.Dir:
             session.add(dir_record)
             session.flush()
             assert dir_record.id is not None
+            assert isinstance(dir_record.id, UUID)
             dir = catalog.Dir(dir_record.id, parent._id, path.name)
             Catalog.get().paths[path] = dir
             session.commit()
@@ -338,7 +340,7 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> catalog.Dir:
             return dir
     except excs.Error as e:
         if ignore_errors:
-            return
+            return None
         else:
             raise e
 
