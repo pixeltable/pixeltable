@@ -51,7 +51,7 @@ pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 coverage = "^7.4"
 toml = "^0.10.2"
 # type checking
-mypy = "^1.11.0"
+mypy = "^1.10.1"
 pandas-stubs = ">=2.0"
 pytype = [{version = ">=2024.4", platform = "linux"}, {version = ">=2024.4", platform = "darwin"}]
 pyarrow-stubs = "^10.0.1.7"
