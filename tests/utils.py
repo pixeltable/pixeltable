@@ -274,6 +274,7 @@ def get_video_files(include_bad_video: bool = False) -> List[str]:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
 
     half_res = [f for f in glob_result if 'half_res' in f or 'bad_video' in f]
+    half_res.sort()
     return half_res
 
 
