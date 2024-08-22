@@ -13,6 +13,8 @@ t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect
 
 from collections import defaultdict
 from typing import Optional, Union
+import colorsys
+import random
 
 import PIL.Image
 import PIL.Image
@@ -110,11 +112,8 @@ def _calculate_image_tpfp(
 
     Returns:
         tuple (tp, fp):
-
-        - tp (numpy.ndarray): Shape (N,),
-          the true positive flag of each predicted bbox on this image.
-        - fp (numpy.ndarray): Shape (N,),
-          the false positive flag of each predicted bbox on this image.
+        tp: Shape (N,), the true positive flag of each predicted bbox on this image.
+        fp: Shape (N,), the false positive flag of each predicted bbox on this image.
     """
     # Step 1. Concatenate `gt_bboxes` and `ignore_gt_bboxes`, then set
     # the `ignore_gt_flags`.
@@ -249,6 +248,18 @@ class mean_ap(func.Aggregator):
         return result
 
 
+def _create_distinct_colors(n: int) -> list[str]:
+    hues = [i / n for i in range(n)]
+    random.shuffle(hues)  # avoid similar adjacent colors
+    colors: list[str] = []
+    for i in range(n):
+        hue = hues[i]
+        rgb = colorsys.hsv_to_rgb(hue, 0.7, 0.95)
+        hex_color = '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+        colors.append(hex_color)
+    return colors
+
+
 @func.udf
 def draw_bounding_boxes(
         img: PIL.Image.Image,
@@ -257,7 +268,7 @@ def draw_bounding_boxes(
         color: Optional[str] = None,
         label_colors: Optional[dict[Union[str, int], str]] = None,
         box_colors: Optional[list[str]] = None,
-        fill: Optional[bool]  = False,
+        fill: bool  = False,
         width: int = 1,
         font: Optional[str] = None,
         font_size: Optional[int] = None,
@@ -266,7 +277,10 @@ def draw_bounding_boxes(
     Draws bounding boxes on the given image.
 
     Labels can be either strings or ints (category ids).
-    Colors can be specified as strings (e.g., 'red') or as RGB hex codes (e.g., '#FF0000').
+
+    Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's
+    [`ImageColor`](https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module) module or as
+    RGB hex codes (e.g., '#FF0000'). If no colors are specified, this function randomly assigns a color to each label.
 
     Args:
         img: The image on which to draw the bounding boxes.
@@ -277,8 +291,11 @@ def draw_bounding_boxes(
         box_colors: List of colors, one per bounding box.
         fill: Whether to fill the bounding boxes with color.
         width: Width of the bounding box borders.
-        font: Path to a TrueType font file.
-        font_size: Size of the font used for labels.
+        font: Path to a TrueType font file, as required by
+            [`PIL.ImageFont.truetype()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.truetype).
+            If `None`, uses the default provided by
+            [`PIL.ImageFont.load_default()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.load_default).
+        font_size: Size of the font used for labels in points. Only used in conjunction with non-`None` `font` argument.
 
     Returns:
         The image with bounding boxes drawn on it.
@@ -292,18 +309,21 @@ def draw_bounding_boxes(
     if labels is None:
         labels = [None] * num_boxes
     elif len(labels) != num_boxes:
-        raise ValueError("Number of boxes and labels must match")
+        raise ValueError('Number of boxes and labels must match')
 
+    DEFAULT_COLOR = 'red'
     if box_colors is not None:
         if len(box_colors) != num_boxes:
-            raise ValueError("Number of boxes and box colors must match")
+            raise ValueError('Number of boxes and box colors must match')
     else:
         if color is not None:
             box_colors = [color] * num_boxes
         elif label_colors is not None:
-            box_colors = [label_colors.get(label, "red") for label in labels]
+            box_colors = [label_colors.get(label, DEFAULT_COLOR) for label in labels]
         else:
-            box_colors = ["red"] * num_boxes
+            random_colors = _create_distinct_colors(len(set(labels)))
+            label_colors = dict(zip(set(labels), random_colors))
+            box_colors = [label_colors[label] for label in labels]
 
     from PIL import ImageDraw, ImageFont, ImageColor
     # set default font if not provided
@@ -313,7 +333,7 @@ def draw_bounding_boxes(
         txt_font = ImageFont.truetype(font=font, size=font_size or 10)
 
     img_to_draw = img.copy()
-    draw = ImageDraw.Draw(img_to_draw, "RGBA" if fill else "RGB")
+    draw = ImageDraw.Draw(img_to_draw, 'RGBA' if fill else 'RGB')
 
     for i, (bbox, label) in enumerate(zip(boxes, labels)):
         # determine color for the current box and label
