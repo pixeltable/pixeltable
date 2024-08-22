@@ -15,13 +15,19 @@ _logger = logging.getLogger('pixeltable')
 
 
 class FrameIterator(ComponentIterator):
-    """Iterator over frames of a video.
+    """
+    Iterator over frames of a video. At most one of `fps` or `num_frames` may be specified. If `fps` is specified,
+    then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified, then the
+    exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The first
+    frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
 
         Args:
-            video: URL or file of the video to use for frame extraction
-            fps: number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-                If set to 0.0, then the native framerate of the video will be used (all frames will be extracted).
-                Default: 0.0
+            video: URL or path of the video to use for frame extraction.
+            fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
+                If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be
+                extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
+            num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
+                `num_frames` is greater than the number of frames in the video, all frames will be extracted.
     """
     def __init__(self, video: str, *, fps: Optional[float] = None, num_frames: Optional[int] = None):
         if fps is not None and num_frames is not None:
@@ -58,8 +64,9 @@ class FrameIterator(ComponentIterator):
                 self.frames_to_extract = range(num_video_frames)
             else:
                 # Extract frames at the implied frequency
-                n = math.ceil(num_video_frames * fps / video_fps)  # number of frames to extract
-                self.frames_to_extract = list(round(i * video_fps / fps) for i in range(n))
+                freq = fps / video_fps
+                n = math.ceil(num_video_frames * freq)  # number of frames to extract
+                self.frames_to_extract = list(round(i / freq) for i in range(n))
 
         # We need the list of frames as both a list (for set_pos) and a set (for fast lookups when
         # there are lots of frames)
@@ -71,8 +78,8 @@ class FrameIterator(ComponentIterator):
     def input_schema(cls) -> dict[str, ColumnType]:
         return {
             'video': VideoType(nullable=False),
-            'fps': FloatType(),
-            'num_frames': IntType(),
+            'fps': FloatType(nullable=True),
+            'num_frames': IntType(nullable=True),
         }
 
     @classmethod
