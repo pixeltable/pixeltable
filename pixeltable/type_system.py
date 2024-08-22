@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
 
 import PIL.Image
-import av
+import av  # type: ignore
 import numpy as np
 import sqlalchemy as sql
 
@@ -39,10 +39,10 @@ class ColumnType:
 
         @classmethod
         def supertype(
-                cls, type1: 'Type', type2: 'Type',
+                cls, type1: 'ColumnType.Type', type2: 'ColumnType.Type',
                 # we need to pass this in because we can't easily append it as a class member
-                common_supertypes: Dict[Tuple['Type', 'Type'], 'Type']
-        ) -> Optional['Type']:
+                common_supertypes: Dict[Tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type']
+        ) -> Optional['ColumnType.Type']:
             if type1 == type2:
                 return type1
             t = common_supertypes.get((type1, type2))
@@ -136,7 +136,7 @@ class ColumnType:
         Default implementation: simply invoke c'tor
         """
         assert 'nullable' in d
-        return cls(nullable=d['nullable'])
+        return cls(nullable=d['nullable'])  # type: ignore
 
     @classmethod
     def make_type(cls, t: Type) -> ColumnType:
@@ -314,10 +314,8 @@ class ColumnType:
     @abc.abstractmethod
     def _validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
-        pass
 
-    @abc.abstractmethod
-    def _create_literal(self, val : Any) -> Any:
+    def _create_literal(self, val: Any) -> Any:
         """Create a literal of this type from val, including any needed conversions.
              val is guaranteed to be non-None"""
         return val
@@ -386,21 +384,6 @@ class ColumnType:
         """
         pass
 
-    @staticmethod
-    def no_conversion(v: Any) -> Any:
-        """
-        Special return value of conversion_fn() that indicates that no conversion is necessary.
-        Should not be called
-        """
-        assert False
-
-    def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
-        """
-        Return Callable that converts a column value of type self to a value of type 'target'.
-        Returns None if conversion isn't possible.
-        """
-        return None
-
 
 class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -419,17 +402,6 @@ class InvalidType(ColumnType):
 class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.STRING, nullable=nullable)
-
-    def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
-        if not target.is_timestamp_type():
-            return None
-        def convert(val: str) -> Optional[datetime.datetime]:
-            try:
-                dt = datetime.datetime.fromisoformat(val)
-                return dt
-            except ValueError:
-                return None
-        return convert
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.String()
@@ -599,7 +571,7 @@ class ArrayType(ColumnType):
         # determine our dtype
         assert isinstance(val, np.ndarray)
         if np.issubdtype(val.dtype, np.integer):
-            dtype = IntType()
+            dtype: ColumnType = IntType()
         elif np.issubdtype(val.dtype, np.floating):
             dtype = FloatType()
         elif val.dtype == np.bool_:
@@ -707,10 +679,6 @@ class ImageType(ColumnType):
             return None
         return (self.width, self.height)
 
-    @property
-    def num_channels(self) -> Optional[int]:
-        return None if self.mode is None else self.mode.num_channels()
-
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
         result.update(width=self.width, height=self.height, mode=self.mode)
@@ -722,26 +690,6 @@ class ImageType(ColumnType):
         assert 'height' in d
         assert 'mode' in d
         return cls(width=d['width'], height=d['height'], mode=d['mode'], nullable=d['nullable'])
-
-    def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
-        if not target.is_image_type():
-            return None
-        assert isinstance(target, ImageType)
-        if (target.width is None) != (target.height is None):
-            # we can't resize only one dimension
-            return None
-        if (target.width == self.width or target.width is None) \
-            and (target.height == self.height or target.height is None) \
-            and (target.mode == self.mode or target.mode is None):
-            # nothing to do
-            return self.no_conversion
-        def convert(img: PIL.Image.Image) -> PIL.Image.Image:
-            if self.width != target.width or self.height != target.height:
-                img = img.resize((target.width, target.height))
-            if self.mode != target.mode:
-                img = img.convert(target.mode.to_pil())
-            return img
-        return convert
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.String()
