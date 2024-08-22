@@ -13,6 +13,7 @@ class ExecContext:
     ):
         self.show_pbar = show_pbar
         self.batch_size = batch_size
+        self.row_builder = row_builder
         self.profile = exprs.ExecProfile(row_builder)
         # num_rows is used to compute the total number of computed cells used for the progress bar
         self.num_rows: Optional[int] = None
@@ -20,3 +21,7 @@ class ExecContext:
         self.pk_clause = pk_clause
         self.num_computed_exprs = num_computed_exprs
         self.ignore_errors = ignore_errors
+
+    def set_conn(self, conn: sql.engine.Connection) -> None:
+        self.conn = conn
+        self.row_builder.set_conn(conn)

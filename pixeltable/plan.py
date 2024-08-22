@@ -40,7 +40,7 @@ class Analyzer:
 
     def __init__(
             self, tbl: catalog.TableVersionPath, select_list: List[exprs.Expr],
-            where_clause: Optional[exprs.Predicate] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
+            where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
             order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None):
         if group_by_clause is None:
             group_by_clause = []
@@ -58,7 +58,7 @@ class Analyzer:
         # Where clause of the Select stmt of the SQL scan
         self.sql_where_clause: Optional[exprs.Expr] = None
         # filter predicate applied to output rows of the SQL scan
-        self.filter: Optional[exprs.Predicate] = None
+        self.filter: Optional[exprs.Expr] = None
         # not executable
         #self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
         if where_clause is not None:
@@ -107,7 +107,7 @@ class Analyzer:
         for e in self.group_by_clause:
             if e.sql_expr() is None:
                 raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
-            if e.contains(filter=lambda e: _is_agg_fn_call(e)):
+            if e._contains(filter=lambda e: _is_agg_fn_call(e)):
                 raise excs.Error(f'Grouping expression contains aggregate function: {e}')
 
         # check that agg fn calls don't have contradicting ordering requirements
@@ -183,7 +183,7 @@ class Planner:
     # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
     def create_count_stmt(
-            cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Predicate] = None
+            cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Expr] = None
     ) -> sql.Select:
         stmt = sql.select(sql.func.count('*'))
         refd_tbl_ids: Set[UUID] = set()
@@ -217,15 +217,15 @@ class Planner:
         plan = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
 
         media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
+        if len(media_input_cols) > 0:
+            # prefetch external files for all input column refs for validation
+            plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
+            plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
 
-        # prefetch external files for all input column refs for validation
-        plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
-        plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
-
-        computed_exprs = row_builder.default_eval_ctx.target_exprs
+        computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
         if len(computed_exprs) > 0:
             # add an ExprEvalNode when there are exprs to compute
-            plan = exec.ExprEvalNode(row_builder, computed_exprs, [], input=plan)
+            plan = exec.ExprEvalNode(row_builder, computed_exprs, plan.output_exprs, input=plan)
 
         plan.set_stored_img_cols(stored_img_col_info)
         plan.set_ctx(
@@ -239,7 +239,7 @@ class Planner:
             cls, tbl: catalog.TableVersionPath,
             update_targets: dict[catalog.Column, exprs.Expr],
             recompute_targets: List[catalog.Column],
-            where_clause: Optional[exprs.Predicate], cascade: bool
+            where_clause: Optional[exprs.Expr], cascade: bool
     ) -> Tuple[exec.ExecNode, List[str], List[catalog.Column]]:
         """Creates a plan to materialize updated rows.
         The plan:
@@ -251,7 +251,7 @@ class Planner:
         Returns:
             - root node of the plan
             - list of qualified column names that are getting updated
-            - list of columns that are being recomputed
+            - list of user-visible columns that are being recomputed
         """
         # retrieve all stored cols and all target exprs
         assert isinstance(tbl, catalog.TableVersionPath)
@@ -260,7 +260,10 @@ class Planner:
         if len(recompute_targets) > 0:
             recomputed_cols = recompute_targets.copy()
         else:
-            recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else {}
+            recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
+            # regardless of cascade, we need to update all indices on any updated column
+            idx_val_cols = target.get_idx_val_columns(updated_cols)
+            recomputed_cols.update(idx_val_cols)
             # we only need to recompute stored columns (unstored ones are substituted away)
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
@@ -273,8 +276,8 @@ class Planner:
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
         # recomputed cols reference the new values of the updated cols
-        for col, e in update_targets.items():
-            exprs.Expr.list_substitute(recomputed_exprs, exprs.ColumnRef(col), e)
+        spec = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
+        exprs.Expr.list_substitute(recomputed_exprs, spec)
         select_list.extend(recomputed_exprs)
 
         # we need to retrieve the PK columns of the existing rows
@@ -282,7 +285,83 @@ class Planner:
         all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
         [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
-        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + list(recomputed_cols)], list(recomputed_cols)
+        recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
+        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
+
+    @classmethod
+    def create_batch_update_plan(
+            cls, tbl: catalog.TableVersionPath,
+            batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
+            cascade: bool
+    ) -> Tuple[exec.ExecNode, exec.RowUpdateNode, sql.ClauseElement, List[catalog.Column], List[catalog.Column]]:
+        """
+        Returns:
+        - root node of the plan to produce the updated rows
+        - RowUpdateNode of plan
+        - Where clause for deleting the current versions of updated rows
+        - list of columns that are getting updated
+        - list of user-visible columns that are being recomputed
+        """
+        assert isinstance(tbl, catalog.TableVersionPath)
+        target = tbl.tbl_version  # the one we need to update
+        sa_key_cols: list[sql.Column] = []
+        key_vals: list[tuple] = []
+        if len(rowids) > 0:
+            sa_key_cols = target.store_tbl.rowid_columns()
+            key_vals = rowids
+        else:
+            pk_cols = target.primary_key_columns()
+            sa_key_cols = [c.sa_col for c in pk_cols]
+            key_vals = [tuple(row[col].val for col in pk_cols) for row in batch]
+
+        # retrieve all stored cols and all target exprs
+        updated_cols = batch[0].keys() - target.primary_key_columns()
+        recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
+        # regardless of cascade, we need to update all indices on any updated column
+        idx_val_cols = target.get_idx_val_columns(updated_cols)
+        recomputed_cols.update(idx_val_cols)
+        # we only need to recompute stored columns (unstored ones are substituted away)
+        recomputed_cols = {c for c in recomputed_cols if c.is_stored}
+        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
+        copied_cols = [
+            col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
+        ]
+        select_list = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list.extend([exprs.ColumnRef(col) for col in updated_cols])
+
+        recomputed_exprs = \
+            [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
+        # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further sustitution is needed
+        select_list.extend(recomputed_exprs)
+
+        # ExecNode tree (from bottom to top):
+        # - SqlLookupNode to retrieve the existing rows
+        # - RowUpdateNode to update the retrieved rows
+        # - ExprEvalNode to evaluate the remaining output exprs
+        analyzer = Analyzer(tbl, select_list)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], analyzer.sql_exprs)
+        analyzer.finalize(row_builder)
+        plan = exec.SqlLookupNode(tbl, row_builder, analyzer.sql_exprs, sa_key_cols, key_vals)
+        delete_where_clause = plan.where_clause
+        col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
+        plan = row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, plan)
+        if not cls._is_contained_in(analyzer.select_list, analyzer.sql_exprs):
+            # we need an ExprEvalNode to evaluate the remaining output exprs
+            plan = exec.ExprEvalNode(row_builder, analyzer.select_list, analyzer.sql_exprs, input=plan)
+        # update row builder with column information
+        all_base_cols = copied_cols + list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
+        row_builder.substitute_exprs(select_list, remove_duplicates=False)
+        for i, col in enumerate(all_base_cols):
+            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+
+        ctx = exec.ExecContext(row_builder)
+        # we're returning everything to the user, so we might as well do it in a single batch
+        ctx.batch_size = 0
+        plan.set_ctx(ctx)
+        recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
+        return (
+            plan, row_update_node, delete_where_clause, list(updated_cols) + recomputed_user_cols, recomputed_user_cols
+        )
 
     @classmethod
     def create_view_update_plan(
@@ -351,7 +430,8 @@ class Planner:
         # - we can ignore stored non-computed columns because they have a default value that is supplied directly by
         #   the store
         target = view.tbl_version  # the one we need to populate
-        stored_cols = [c for c in target.cols if c.is_stored and (c.is_computed or target.is_iterator_column(c))]
+        #stored_cols = [c for c in target.cols if c.is_stored and (c.is_computed or target.is_iterator_column(c))]
+        stored_cols = [c for c in target.cols if c.is_stored]
         # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
@@ -500,7 +580,7 @@ class Planner:
     @classmethod
     def create_query_plan(
             cls, tbl: catalog.TableVersionPath, select_list: Optional[List[exprs.Expr]] = None,
-            where_clause: Optional[exprs.Predicate] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
+            where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
             order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None, limit: Optional[int] = None,
             with_pk: bool = False, ignore_errors: bool = False, exact_version_only: Optional[List[catalog.TableVersion]] = None
     ) -> exec.ExecNode:
@@ -592,7 +672,7 @@ class Planner:
         return plan
 
     @classmethod
-    def analyze(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Predicate) -> Analyzer:
+    def analyze(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Expr) -> Analyzer:
         return Analyzer(tbl, [], where_clause=where_clause)
 
     @classmethod

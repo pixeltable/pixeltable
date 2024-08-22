@@ -10,6 +10,7 @@ import pixeltable.func as func
 
 # TODO: figure out a better submodule structure
 
+
 # the following function has been adapted from MMEval
 # (sources at https://github.com/open-mmlab/mmeval)
 # Copyright (c) OpenMMLab. All rights reserved.
@@ -21,10 +22,11 @@ def calculate_bboxes_area(bboxes: np.ndarray) -> np.ndarray:
      Returns:
         numpy.ndarray: The area of bboxes.
     """
-    bboxes_w = (bboxes[..., 2] - bboxes[..., 0])
-    bboxes_h = (bboxes[..., 3] - bboxes[..., 1])
+    bboxes_w = bboxes[..., 2] - bboxes[..., 0]
+    bboxes_h = bboxes[..., 3] - bboxes[..., 1]
     areas = bboxes_w * bboxes_h
     return areas
+
 
 # the following function has been adapted from MMEval
 # (sources at https://github.com/open-mmlab/mmeval)
@@ -146,6 +148,7 @@ def calculate_image_tpfp(
 
     return tp, fp
 
+
 @func.udf(
     return_type=ts.JsonType(nullable=False),
     param_types=[
@@ -153,12 +156,16 @@ def calculate_image_tpfp(
         ts.JsonType(nullable=False),
         ts.JsonType(nullable=False),
         ts.JsonType(nullable=False),
-        ts.JsonType(nullable=False)
-    ])
+        ts.JsonType(nullable=False),
+    ],
+)
 def eval_detections(
-        pred_bboxes: List[List[int]], pred_labels: List[int], pred_scores: List[float],
-        gt_bboxes: List[List[int]], gt_labels: List[int]
-) -> list[dict]:
+    pred_bboxes: List[List[int]],
+    pred_labels: List[int],
+    pred_scores: List[float],
+    gt_bboxes: List[List[int]],
+    gt_labels: List[int],
+) -> Dict:
     class_idxs = list(set(pred_labels + gt_labels))
     result: List[Dict] = []
     pred_bboxes_arr = np.asarray(pred_bboxes)
@@ -170,17 +177,22 @@ def eval_detections(
         pred_filter = pred_classes_arr == class_idx
         gt_filter = gt_classes_arr == class_idx
         class_pred_scores = pred_scores_arr[pred_filter]
-        tp, fp = calculate_image_tpfp(
-            pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], 0.5)
+        tp, fp = calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], [0.5])
         ordered_class_pred_scores = -np.sort(-class_pred_scores)
-        result.append({
-            'min_iou': 0.5, 'class': class_idx, 'tp': tp.tolist(), 'fp': fp.tolist(),
-            'scores': ordered_class_pred_scores.tolist(), 'num_gts': gt_filter.sum().item(),
-        })
+        result.append(
+            {
+                'min_iou': 0.5,
+                'class': class_idx,
+                'tp': tp.tolist(),
+                'fp': fp.tolist(),
+                'scores': ordered_class_pred_scores.tolist(),
+                'num_gts': gt_filter.sum().item(),
+            }
+        )
     return result
 
-@func.uda(
-    update_types=[ts.JsonType()], value_type=ts.JsonType(), allows_std_agg=True, allows_window=False)
+
+@func.uda(update_types=[ts.JsonType()], value_type=ts.JsonType(), allows_std_agg=True, allows_window=False)
 class mean_ap(func.Aggregator):
     def __init__(self):
         self.class_tpfp: Dict[int, List[Dict]] = defaultdict(list)

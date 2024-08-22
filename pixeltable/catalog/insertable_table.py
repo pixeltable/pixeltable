@@ -60,62 +60,17 @@ class InsertableTable(Table):
             return tbl
 
     @overload
-    def insert(self, rows: Iterable[Dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True) -> UpdateStatus: ...
+    def insert(
+            self, rows: Iterable[Dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True
+    ) -> UpdateStatus: ...
 
     @overload
     def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
 
-    def insert(self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus:
-        """Inserts rows into this table. There are two mutually exclusive call patterns:
-
-        To insert multiple rows at a time:
-        ``insert(rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True)``
-
-        To insert just a single row, you can use the more convenient syntax:
-        ``insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
-
-        Args:
-            rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
-                names to values.
-            kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
-            print_stats: If ``True``, print statistics about the cost of computed columns.
-            fail_on_exception:
-                Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
-                are handled.
-                If ``False``, store error information (accessible as column properties 'errortype' and 'errormsg')
-                for those cases, but continue inserting rows.
-                If ``True``, raise an exception that aborts the insert.
-
-        Returns:
-            execution status
-
-        Raises:
-            Error: if a row does not match the table schema or contains values for computed columns
-
-        Examples:
-            Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Column ``c`` is nullable.
-
-            >>> tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])
-
-            Insert a single row into a table with three int columns ``a``, ``b``, and ``c``.
-
-            >>> tbl.insert(a=1, b=1, c=1)
-        """
-        # The commented code is the intended implementation, with signature (*args, **kwargs).
-        # That signature cannot be used currently, due to a present limitation in mkdocs.
-        # See: https://github.com/mkdocstrings/mkdocstrings/issues/669
-
-        # print_stats = kwargs.pop('print_stats', False)
-        # fail_on_exception = kwargs.pop('fail_on_exception', True)
-        # if len(args) > 0:
-        #     # There's a positional argument; this means `rows` is expressed as a
-        #     # list of dicts (multi-insert)
-        #     rows = list(args[0])
-        # else:
-        #     # No positional argument; this means we're inserting a single row
-        #     # using kwargs syntax
-        #     rows = [kwargs]
-
+    def insert(
+            self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
+            fail_on_exception: bool = True, **kwargs: Any
+    ) -> UpdateStatus:
         if rows is None:
             rows = [kwargs]
         else:
@@ -131,7 +86,7 @@ class InsertableTable(Table):
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
         self._validate_input_rows(rows)
-        result = self.tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
+        result = self._tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
         if result.num_excs == 0:
             cols_with_excs_str = ''
@@ -150,8 +105,8 @@ class InsertableTable(Table):
     def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
         valid_col_names = set(self.column_names())
-        reqd_col_names = set(self.tbl_version_path.tbl_version.get_required_col_names())
-        computed_col_names = set(self.tbl_version_path.tbl_version.get_computed_col_names())
+        reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())
+        computed_col_names = set(self._tbl_version_path.tbl_version.get_computed_col_names())
         for row in rows:
             assert isinstance(row, dict)
             col_names = set(row.keys())
@@ -165,7 +120,7 @@ class InsertableTable(Table):
                     raise excs.Error(f'Value for computed column {col_name} in row {row}')
 
                 # validate data
-                col = self.tbl_version_path.get_column(col_name)
+                col = self._tbl_version_path.get_column(col_name)
                 try:
                     # basic sanity checks here
                     checked_val = col.col_type.create_literal(val)
@@ -174,11 +129,11 @@ class InsertableTable(Table):
                     msg = str(e)
                     raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
 
-    def delete(self, where: Optional['pixeltable.exprs.Predicate'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
-            where: a Predicate to filter rows to delete.
+            where: a predicate to filter rows to delete.
 
         Examples:
             Delete all rows in a table:
@@ -189,14 +144,4 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        from pixeltable.exprs import Predicate
-        from pixeltable.plan import Planner
-        if where is not None:
-            if not isinstance(where, Predicate):
-                raise excs.Error(f"'where' argument must be a Predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self.tbl_version_path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
-
-        return self.tbl_version.delete(where)
+        return self._tbl_version.delete(where=where)

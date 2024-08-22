@@ -8,7 +8,7 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.type_system import IntType, FloatType, ImageType
-from .utils import create_test_tbl, assert_resultset_eq, reload_catalog
+from .utils import create_test_tbl, assert_resultset_eq, reload_catalog, validate_update_status
 
 logger = logging.getLogger('pixeltable')
 
@@ -30,8 +30,24 @@ class TestView:
         t.add_column(d2=t.c3 - t.c10)
         return t
 
+    def test_errors(self, reset_db) -> None:
+        t = self.create_tbl()
+        assert t.base is None
+
+        v = pxt.create_view('test_view', t)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = v.insert([{'bad_col': 1}])
+        assert 'cannot insert into view' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = v.insert(bad_col=1)
+        assert 'cannot insert into view' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = v.delete()
+        assert 'cannot delete from view' in str(exc_info.value)
+
     def test_basic(self, reset_db) -> None:
         t = self.create_tbl()
+        assert t.base is None
 
         # create view with filter and computed columns
         schema = {
@@ -53,6 +69,7 @@ class TestView:
         v.add_column(v4=v.v2[0])
 
         def check_view(t: pxt.Table, v: pxt.Table) -> None:
+            assert v.base == t
             assert v.count() == t.where(t.c2 < 10).count()
             assert_resultset_eq(
                 v.select(v.v1).order_by(v.c2).collect(),
@@ -93,6 +110,12 @@ class TestView:
         assert t.count() == 110
         check_view(t, v)
 
+        # check alternate view creation syntax (via a DataFrame)
+        v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), schema=schema)
+        validate_update_status(v2.add_column(v3=v2.v1 * 2.0), expected_rows=10)
+        validate_update_status(v2.add_column(v4=v2.v2[0]), expected_rows=10)
+        check_view(t, v2)
+
         # test delete view
         pxt.drop_table('test_view')
         with pytest.raises(excs.Error) as exc_info:
@@ -108,6 +131,31 @@ class TestView:
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, schema={'v1': lambda c3: c3 * 2.0})
         assert 'computed with a callable' in str(exc_info.value).lower()
+
+    def test_from_dataframe(self, reset_db) -> None:
+        t = self.create_tbl()
+
+        # TODO(aaron-siegel): We actually do want to support this one
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.select(t.c2))
+        assert 'Cannot use `create_view` after `select`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.group_by(t.c2))
+        assert 'Cannot use `create_view` after `group_by`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.order_by(t.c2))
+        assert 'Cannot use `create_view` after `order_by`' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.limit(10))
+        assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
+
+        # combination of filter + dataframe
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t.where(t.c2 < 10), filter=t.c2 >= 8)
+        assert 'Cannot specify a `filter` directly' in str(exc_info.value)
 
     def test_parallel_views(self, reset_db) -> None:
         """Two views over the same base table, with non-overlapping filters"""
@@ -409,9 +457,8 @@ class TestView:
             v.order_by(v.c2).show(0),
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
-        # create views with filters containing date and datetime
-        _ = pxt.create_view('test_view_2', t, filter=t.c5 >= datetime.date.today())
-        _ = pxt.create_view('test_view_3', t, filter=t.c5 < datetime.datetime.now())
+        # create view with filter containing datetime
+        _ = pxt.create_view('test_view_2', t, filter=t.c5 < datetime.datetime.now())
 
     def test_view_of_snapshot(self, reset_db) -> None:
         """Test view over a snapshot"""
@@ -470,11 +517,11 @@ class TestView:
 
         with pytest.raises(excs.Error) as exc_info:
             v = pxt.create_view('test_view', s, schema={'v1': t.c3 * 2.0})
-        assert 'value expression cannot be computed in the context of the base test_snap' in str(exc_info.value)
+        assert 'value expression cannot be computed in the context of the base test_tbl' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             v = pxt.create_view('test_view', s, filter=t.c2 < 10)
-        assert 'filter cannot be computed in the context of the base test_snap' in str(exc_info.value).lower()
+        assert 'filter cannot be computed in the context of the base test_tbl' in str(exc_info.value).lower()
 
         # create view with filter and computed columns
         schema = {
@@ -525,3 +572,29 @@ class TestView:
         t.delete(where=t.c2 < 5)
         assert t.count() == 110
         check(s, v, view_s)
+
+    def test_column_defaults(self, reset_db) -> None:
+        """
+        Test that during insert() manually-supplied columns are materialized with their defaults and can be referenced
+        in computed columns.
+        """
+        # TODO: use non-None default values once we have them
+        t = pxt.create_table('table_1', {'id': pxt.IntType(), 'json_0': pxt.JsonType(nullable=True)})
+        # computed column depends on nullable non-computed column json_0
+        t.add_column(computed_0=t.json_0.a)
+        validate_update_status(t.insert(id=0, json_0={'a': 'b'}), expected_rows=1)
+        assert t.where(t.computed_0 == None).count() == 0
+
+        v = pxt.create_view('view_1', t, schema={'json_1': pxt.JsonType(nullable=True)}, filter=(t.id >= 0))
+        # computed column depends on nullable non-computed column json_1
+        validate_update_status(v.add_column(computed_1=v.json_1.a))
+        assert v.where(v.computed_1 == None).count() == 1
+        validate_update_status(v.update({'json_1': {'a': 'b'}}), expected_rows=1)
+        assert v.where(v.computed_1 == None).count() == 0
+
+        # insert a new row with nulls in json_0/1
+        validate_update_status(t.insert(id=1))
+        # computed base table column for new row is null
+        assert t.where(t.computed_0 == None).count() == 1
+        # computed view column for new row is null
+        assert v.where(v.computed_1 == None).count() == 1

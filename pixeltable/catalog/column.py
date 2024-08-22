@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union, Callable, Set
+from typing import Any, Callable, Optional, Union
 
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .globals import is_valid_identifier
 
 _logger = logging.getLogger('pixeltable')
@@ -20,9 +21,10 @@ class Column:
     def __init__(
             self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
             computed_with: Optional[Union['Expr', Callable]] = None,
-            is_pk: bool = False, stored: Optional[bool] = None,
+            is_pk: bool = False, stored: bool = True,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
-            schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None
+            schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
+            records_errors: Optional[bool] = None, value_expr_dict: Optional[dict[str, Any]] = None,
     ):
         """Column constructor.
 
@@ -55,8 +57,9 @@ class Column:
         if col_type is None and computed_with is None:
             raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
-        self.value_expr: Optional['Expr'] = None
+        self._value_expr: Optional['Expr'] = None
         self.compute_func: Optional[Callable] = None
+        self.value_expr_dict = value_expr_dict
         from pixeltable import exprs
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
@@ -72,19 +75,21 @@ class Column:
                 # column name references and for that we need to wait until we're assigned to a Table
                 self.compute_func = computed_with
             else:
-                self.value_expr = value_expr.copy()
-                self.col_type = self.value_expr.col_type
+                self._value_expr = value_expr.copy()
+                self.col_type = self._value_expr.col_type
 
         if col_type is not None:
             self.col_type = col_type
         assert self.col_type is not None
 
         self.stored = stored
-        self.dependent_cols: Set[Column] = set()  # cols with value_exprs that reference us; set by TableVersion
+        self.dependent_cols: set[Column] = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
         self.is_pk = is_pk
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
+
+        self._records_errors = records_errors
 
         # column in the stored table for the values of this Column
         self.sa_col: Optional[sql.schema.Column] = None
@@ -93,15 +98,26 @@ class Column:
         # computed cols also have storage columns for the exception string and type
         self.sa_errormsg_col: Optional[sql.schema.Column] = None
         self.sa_errortype_col: Optional[sql.schema.Column] = None
+
         from .table_version import TableVersion
         self.tbl: Optional[TableVersion] = None  # set by owning TableVersion
 
-    def __hash__(self) -> int:
-        assert self.tbl is not None
-        return hash((self.tbl.id, self.id))
+    @property
+    def value_expr(self) -> Optional['Expr']:
+        """Instantiate value_expr on-demand"""
+        # TODO: instantiate expr in the c'tor and add an Expr.prepare() that can create additional state after the
+        # catalog has been fully loaded; that way, we encounter bugs in the serialization/deserialization logic earlier
+        if self.value_expr_dict is not None and self._value_expr is None:
+            from pixeltable import exprs
+            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
+        return self._value_expr
+
+    def set_value_expr(self, value_expr: 'Expr') -> None:
+        self._value_expr = value_expr
+        self.value_expr_dict = None
 
     def check_value_expr(self) -> None:
-        assert self.value_expr is not None
+        assert self._value_expr is not None
         if self.stored == False and self.is_computed and self.has_window_fn_call():
             raise excs.Error(
                 f'Column {self.name}: stored={self.stored} not supported for columns computed with window functions:'
@@ -120,7 +136,7 @@ class Column:
 
     @property
     def is_computed(self) -> bool:
-        return self.compute_func is not None or self.value_expr is not None
+        return self.compute_func is not None or self._value_expr is not None or self.value_expr_dict is not None
 
     @property
     def is_stored(self) -> bool:
@@ -131,7 +147,15 @@ class Column:
     @property
     def records_errors(self) -> bool:
         """True if this column also stores error information."""
+        # default: record errors for computed and media columns
+        if self._records_errors is not None:
+            return self._records_errors
         return self.is_stored and (self.is_computed or self.col_type.is_media_type())
+
+    @property
+    def qualified_name(self) -> str:
+        assert self.tbl is not None
+        return f'{self.tbl.name}.{self.name}'
 
     def source(self) -> None:
         """
@@ -172,10 +196,15 @@ class Column:
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'
 
+    def __hash__(self) -> int:
+        # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column
+        #     abstraction (perhaps separating out the version-dependent properties into a different abstraction).
+        assert self.tbl is not None
+        return hash((self.tbl.id, self.id))
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Column):
             return False
         assert self.tbl is not None
         assert other.tbl is not None
         return self.tbl.id == other.tbl.id and self.id == other.id
-

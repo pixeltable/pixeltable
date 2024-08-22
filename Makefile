@@ -11,15 +11,14 @@ help:
 	@echo "Targets:"
 	@echo "  install       Install the development environment"
 	@echo "  test          Run pytest"
+	@echo "  nbtest        Run notebook tests"
 	@echo "  lint          Run linting tools against changed files"
 	@echo "  format        Format changed files with ruff (updates .py files in place)"
 	@echo "  notebooks     Execute notebooks (updates .ipynb files in place)"
 	@echo "  release       Create a pypi release and post to github"
 	@echo "  release-docs  Build and deploy API documentation"
 	@echo "  clean         Remove generated files and temp files"
-
-.PHONY: install
-install: check-conda .make-install
+	@echo "  *.ipynb       Run the notebook/notebooks (updates output cells in place)"
 
 .PHONY: check-conda
 check-conda:
@@ -52,10 +51,23 @@ endif
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@touch .make-install
 
+.PHONY: install
+install: check-conda .make-install
+
 .PHONY: test
 test: install
 	@echo "Running pytest ..."
 	@ulimit -n 4000; pytest -v
+
+NB_CELL_TIMEOUT := 3600
+# We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal
+# to the timeout. This ensures it will pretty-print if --overwrite is set on nbmake.
+# see: https://github.com/tqdm/tqdm?tab=readme-ov-file#faq-and-known-issues
+.PHONY: nbtest
+nbtest: install
+	@export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
+	@echo "Running pytest on notebooks ..."
+	@ulimit -n 4000; pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) docs/release/**/*.ipynb
 
 .PHONY: lint
 lint: install
@@ -64,11 +76,6 @@ lint: install
 .PHONY: format
 format: install
 	@scripts/format-changed-files.sh
-
-.PHONY: notebooks
-notebooks: install
-	@echo "Running notebooks and overwriting outputs ..."
-	@pytest --overwrite --nbmake --nbmake-kernel=$(KERNEL_NAME) docs/release/tutorials/*.ipynb
 
 .PHONY: release
 release: install

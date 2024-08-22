@@ -9,7 +9,7 @@ from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 from pixeltable.type_system import VideoType, ImageType
 from pixeltable.utils.media_store import MediaStore
-from .utils import get_video_files, skip_test_if_not_installed, reload_catalog
+from .utils import get_video_files, skip_test_if_not_installed, reload_catalog, validate_update_status
 
 
 class TestVideo:
@@ -30,33 +30,29 @@ class TestVideo:
         view_t.add_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
         total_num_rows = view_t.count()
-        result = view_t[view_t.frame_idx >= 5][view_t.frame_idx, view_t.frame, view_t.transform].show(0)
+        result = view_t.where(view_t.frame_idx >= 5).select(view_t.frame_idx, view_t.frame, view_t.transform).show(0)
         assert len(result) == total_num_rows - len(paths) * 5
-        result = view_t[view_t.frame_idx, view_t.frame, view_t.transform].show(3)
+        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(3)
         assert len(result) == 3
-        result = view_t[view_t.frame_idx, view_t.frame, view_t.transform].show(0)
+        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(0)
         assert len(result) == total_num_rows
         return base_t, view_t
 
     def test_basic(self, reset_db) -> None:
         video_filepaths = get_video_files()
 
-        # default case: computed images are not stored
-        _, view = self.create_and_insert(None, video_filepaths)
-        assert MediaStore.count(view.get_id()) == 0
-
-        # computed images are explicitly not stored
+        # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths)
-        assert MediaStore.count(view.get_id()) == 0
+        assert MediaStore.count(view._get_id()) == 0
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths)
-        assert MediaStore.count(view.get_id()) == view.count()
+        assert MediaStore.count(view._get_id()) == view.count()
 
         # revert() also removes computed images
         tbl.insert({'video': p} for p in video_filepaths)
         tbl.revert()
-        assert MediaStore.count(view.get_id()) == view.count()
+        assert MediaStore.count(view._get_id()) == view.count()
 
     def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
@@ -78,12 +74,11 @@ class TestVideo:
     def test_fps(self, reset_db) -> None:
         path = get_video_files()[0]
         videos = pxt.create_table('videos', {'video': VideoType()})
-        frames_1_0 = pxt.create_view(
-            'frames_1_0', videos, iterator=FrameIterator.create(video=videos.video, fps=1))
-        frames_0_5 = pxt.create_view(
-            'frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1/2))
+        frames_1_0 = pxt.create_view('frames_1_0', videos, iterator=FrameIterator.create(video=videos.video, fps=1))
+        frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2))
         frames_0_33 = pxt.create_view(
-            'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1/3))
+            'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 3)
+        )
         videos.insert(video=path)
         assert frames_0_5.count() == frames_1_0.count() // 2 or frames_0_5.count() == frames_1_0.count() // 2 + 1
         assert frames_0_33.count() == frames_1_0.count() // 3 or frames_0_33.count() == frames_1_0.count() // 3 + 1
@@ -97,19 +92,119 @@ class TestVideo:
         view_t.add_column(c3=view_t.c2.rotate(20))
         view_t.add_column(c4=view_t.c1.rotate(30))
         for name in ['c1', 'c2', 'c3', 'c4']:
-            assert not view_t.tbl_version_path.tbl_version.cols_by_name[name].is_stored
+            assert view_t._tbl_version_path.tbl_version.cols_by_name[name].is_stored
         base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].show(0)
 
+    def test_get_metadata(self, reset_db) -> None:
+        video_filepaths = get_video_files()
+        base_t = pxt.create_table('video_tbl', {'video': VideoType()})
+        base_t['metadata'] = base_t.video.get_metadata()
+        validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
+        result = base_t.where(base_t.metadata.size == 2234371).select(base_t.metadata).collect()['metadata'][0]
+        assert result == {
+            'bit_exact': False,
+            'bit_rate': 967260,
+            'size': 2234371,
+            'metadata': {
+                'encoder': 'Lavf60.16.100',
+                'major_brand': 'isom',
+                'minor_version': '512',
+                'compatible_brands': 'isomiso2avc1mp41',
+            },
+            'streams': [
+                {
+                    'type': 'video',
+                    'width': 640,
+                    'height': 360,
+                    'frames': 462,
+                    'time_base': 1.0 / 12800,
+                    'duration': 236544,
+                    'duration_seconds': 236544.0 / 12800,
+                    'average_rate': 25.0,
+                    'base_rate': 25.0,
+                    'guessed_rate': 25.0,
+                    'metadata': {
+                        'language': 'und',
+                        'handler_name': 'L-SMASH Video Handler',
+                        'vendor_id': '[0][0][0][0]',
+                        'encoder': 'Lavc60.31.102 libx264'
+                    },
+                    'codec_context': {
+                        'name': 'h264',
+                        'codec_tag': 'avc1',
+                        'profile': 'High',
+                        'pix_fmt': 'yuv420p'
+                    }
+                }
+            ],
+        }
+        # Test a video with an audio stream and a bunch of other edge cases
+        result = base_t.where(base_t.metadata.size == 980192).select(base_t.metadata).collect()['metadata'][0]
+        assert result == {
+            'bit_exact': False,
+            'bit_rate': 521864,
+            'size': 980192,
+            'metadata': {'ENCODER': 'Lavf60.16.100'},
+            'streams': [
+                {
+                    'type': 'video',
+                    'duration': None,
+                    'time_base': 0.001,
+                    'duration_seconds': None,
+                    'frames': 0,
+                    'metadata': {
+                        'language': 'eng',
+                        'ENCODER': 'Lavc60.31.102 libvpx-vp9',
+                        'DURATION': '00:00:14.981000000'},
+                    'average_rate': 30000.0 / 1001,
+                    'base_rate': 30000.0 / 1001,
+                    'guessed_rate': 30000.0 / 1001,
+                    'width': 640,
+                    'height': 360,
+                    'codec_context': {
+                        'name': 'vp9',
+                        'codec_tag': '\\x00\\x00\\x00\\x00',
+                        'profile': 'Profile 0',
+                        'pix_fmt': 'yuv420p'
+                    }
+                },
+                {
+                    'type': 'audio',
+                    'duration': None,
+                    'time_base': 0.001,
+                    'duration_seconds': None,
+                    'frames': 0,
+                    'metadata': {
+                        'language': 'eng',
+                        'ENCODER': 'Lavc60.31.102 libopus',
+                        'DURATION': '00:00:15.026000000'
+                    },
+                    'codec_context': {
+                        'name': 'opus',
+                        'codec_tag': '\\x00\\x00\\x00\\x00',
+                        'profile': None,
+                        'channels': 2
+                    }
+                }
+            ]
+        }
+
     # window function that simply passes through the frame
     @pxt.uda(
-        update_types=[ImageType()], value_type=ImageType(),
-        requires_order_by=True, allows_std_agg=False, allows_window=True)
+        update_types=[ImageType()],
+        value_type=ImageType(),
+        requires_order_by=True,
+        allows_std_agg=False,
+        allows_window=True,
+    )
     class agg_fn:
         def __init__(self):
             self.img = None
+
         def update(self, frame: PIL.Image.Image) -> None:
             self.img = frame
+
         def value(self) -> PIL.Image.Image:
             return self.img
 
@@ -118,7 +213,8 @@ class TestVideo:
         base_t, view_t = self.create_tbls()
         base_t.insert({'video': p} for p in video_filepaths)
         # reference to the frame col requires ordering by base, pos
-        from pixeltable.functions import make_video
+        from pixeltable.functions.video import make_video
+
         _ = view_t.select(make_video(view_t.pos, view_t.frame)).group_by(base_t).show()
         # the same without frame col
         view_t.add_column(transformed=view_t.frame.rotate(30), stored=True)
@@ -132,9 +228,11 @@ class TestVideo:
             _ = view_t.select(make_video(view_t.frame, order_by=view_t.pos)).show()
         with pytest.raises(excs.Error):
             # incompatible ordering requirements
-            _ = view_t.select(
-                make_video(view_t.pos, view_t.frame),
-                make_video(view_t.pos - 1, view_t.transformed)).group_by(base_t).show()
+            _ = (
+                view_t.select(make_video(view_t.pos, view_t.frame), make_video(view_t.pos - 1, view_t.transformed))
+                .group_by(base_t)
+                .show()
+            )
 
         # make sure it works
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
@@ -148,5 +246,5 @@ class TestVideo:
 
         # reload from store
         reload_catalog()
-        base_t, view_t = pxt.get_table(base_t.get_name()), pxt.get_table(view_t.get_name())
+        base_t, view_t = pxt.get_table(base_t.name), pxt.get_table(view_t.name)
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()

@@ -7,7 +7,6 @@ import inspect
 import json
 import sys
 import typing
-from itertools import islice
 from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Type
 from uuid import UUID
 
@@ -16,8 +15,8 @@ import sqlalchemy as sql
 import pixeltable
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 import pixeltable.func as func
+import pixeltable.type_system as ts
 from .data_row import DataRow
 from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
 
@@ -91,8 +90,8 @@ class Expr(abc.ABC):
 
     def default_column_name(self) -> Optional[str]:
         """
-        Returns: 
-            None if this expression lacks a default name, 
+        Returns:
+            None if this expression lacks a default name,
             or a valid identifier (according to catalog.is_valid_identifer) otherwise.
         """
         return None
@@ -158,7 +157,9 @@ class Expr(abc.ABC):
         return result
 
     @classmethod
-    def copy_list(cls, expr_list: List[Expr]) -> List[Expr]:
+    def copy_list(cls, expr_list: Optional[List[Expr]]) -> Optional[List[Expr]]:
+        if expr_list is None:
+            return None
         return [e.copy() for e in expr_list]
 
     def __deepcopy__(self, memo=None) -> Expr:
@@ -169,15 +170,21 @@ class Expr(abc.ABC):
         memo[id(self)] = result
         return result
 
-    def substitute(self, old: Expr, new: Expr) -> Expr:
+    def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
         Replace 'old' with 'new' recursively.
         """
-        if self.equals(old):
-            return new.copy()
+        for old, new in spec.items():
+            if self.equals(old):
+                return new.copy()
         for i in range(len(self.components)):
-            self.components[i] = self.components[i].substitute(old, new)
+            self.components[i] = self.components[i].substitute(spec)
         return self
+
+    @classmethod
+    def list_substitute(cls, expr_list: List[Expr], spec: dict[Expr, Expr]) -> None:
+        for i in range(len(expr_list)):
+            expr_list[i] = expr_list[i].substitute(spec)
 
     def resolve_computed_cols(self, resolve_cols: Optional[Set[catalog.Column]] = None) -> Expr:
         """
@@ -196,9 +203,7 @@ class Expr(abc.ABC):
             ])
             if len(target_col_refs) == 0:
                 return result
-            for ref in target_col_refs:
-                assert ref.col.value_expr is not None
-                result = result.substitute(ref, ref.col.value_expr)
+            result = result.substitute({ref: ref.col.value_expr for ref in target_col_refs})
 
     def is_bound_by(self, tbl: catalog.TableVersionPath) -> bool:
         """Returns True if this expr can be evaluated in the context of tbl."""
@@ -225,14 +230,8 @@ class Expr(abc.ABC):
             self.components[i] = self.components[i]._retarget(tbl_versions)
         return self
 
-    @classmethod
-    def list_substitute(cls, expr_list: List[Expr], old: Expr, new: Expr) -> None:
-        for i in range(len(expr_list)):
-            expr_list[i] = expr_list[i].substitute(old, new)
-
-    @abc.abstractmethod
     def __str__(self) -> str:
-        pass
+        return f'<Expression of type {type(self)}>'
 
     def display_str(self, inline: bool = True) -> str:
         """
@@ -263,7 +262,7 @@ class Expr(abc.ABC):
         if is_match:
             yield self
 
-    def contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
+    def _contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls.
         """
@@ -299,23 +298,39 @@ class Expr(abc.ABC):
         return ids
 
     @classmethod
+    def get_refd_columns(cls, expr_dict: dict[str, Any]) -> list[catalog.Column]:
+        """Return Columns referenced by expr_dict."""
+        result: list[catalog.Column] = []
+        assert '_classname' in expr_dict
+        from .column_ref import ColumnRef
+        if expr_dict['_classname'] == 'ColumnRef':
+            result.append(ColumnRef.get_column(expr_dict))
+        if 'components' in expr_dict:
+            for component_dict in expr_dict['components']:
+                result.extend(cls.get_refd_columns(component_dict))
+        return result
+
+    @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
         """
         Try to turn a literal object into an Expr.
         """
         if isinstance(o, Expr):
             return o
-        # try to create a literal
+        # Try to create a literal. We need to check for InlineArray/InlineDict
+        # first, to prevent arrays from inappropriately being interpreted as JsonType
+        # literals.
+        # TODO: general cleanup of InlineArray/InlineDict
+        if isinstance(o, list):
+            from .inline_array import InlineArray
+            return InlineArray(tuple(o))
+        if isinstance(o, dict):
+            from .inline_dict import InlineDict
+            return InlineDict(o)
         obj_type = ts.ColumnType.infer_literal_type(o)
         if obj_type is not None:
             from .literal import Literal
             return Literal(o, col_type=obj_type)
-        if isinstance(o, dict):
-            from .inline_dict import InlineDict
-            return InlineDict(o)
-        elif isinstance(o, list):
-            from .inline_array import InlineArray
-            return InlineArray(tuple(o))
         return None
 
     @abc.abstractmethod
@@ -413,6 +428,14 @@ class Expr(abc.ABC):
         # Return a `FunctionCall` obtained by passing this `Expr` to the new `function`.
         return function(self)
 
+    def __dir__(self) -> list[str]:
+        attrs = ['isin', 'astype', 'apply']
+        attrs += [
+            f.name
+            for f in func.FunctionRegistry.get().get_type_methods(self.col_type.type_enum)
+        ]
+        return attrs
+
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             from .json_path import JsonPath
@@ -420,19 +443,23 @@ class Expr(abc.ABC):
         if self.col_type.is_array_type():
             from .array_slice import ArraySlice
             return ArraySlice(self, index)
-        raise excs.Error(f'Type {self.col_type} is not subscriptable')
+        raise AttributeError(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> Union['pixeltable.exprs.ImageMemberAccess', 'pixeltable.exprs.JsonPath']:
+    def __getattr__(self, name: str) -> Union['pixeltable.exprs.MethodRef', 'pixeltable.exprs.FunctionCall', 'pixeltable.exprs.JsonPath']:
         """
         ex.: <img col>.rotate(60)
         """
-        if self.col_type.is_image_type():
-            from .image_member_access import ImageMemberAccess
-            return ImageMemberAccess(name, self)
         if self.col_type.is_json_type():
-            from .json_path import JsonPath
-            return JsonPath(self).__getattr__(name)
-        raise excs.Error(f'Member access not supported on type {self.col_type}: {name}')
+            return pixeltable.exprs.JsonPath(self).__getattr__(name)
+        else:
+            method_ref = pixeltable.exprs.MethodRef(self, name)
+            if method_ref.fn.is_property:
+                # Marked as a property, so autoinvoke the method to obtain a `FunctionCall`
+                assert method_ref.fn.arity == 1
+                return method_ref.fn(method_ref.base_expr)
+            else:
+                # Return the `MethodRef` object itself; it requires arguments to become a `FunctionCall`
+                return method_ref
 
     def __bool__(self) -> bool:
         raise TypeError(
@@ -476,6 +503,9 @@ class Expr(abc.ABC):
             return Comparison(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
+    def __neg__(self) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
+
     def __add__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
@@ -491,6 +521,27 @@ class Expr(abc.ABC):
     def __mod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MOD, other)
 
+    def __floordiv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
+    def __radd__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
+
+    def __rsub__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
+
+    def __rmul__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
+
+    def __rtruediv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.DIV, other)
+
+    def __rmod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.MOD, other)
+
+    def __rfloordiv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         """
         other: Union[Expr, LiteralPythonTypes]
@@ -503,6 +554,51 @@ class Expr(abc.ABC):
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return ArithmeticExpr(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
+
+    def _rmake_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        """
+        Right-handed version of _make_arithmetic_expr. other must be a literal; if it were an Expr,
+        the operation would have already been evaluated in its left-handed form.
+        """
+        # TODO: check for compatibility
+        from .arithmetic_expr import ArithmeticExpr
+        from .literal import Literal
+        assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
+        if isinstance(other, typing.get_args(LiteralPythonTypes)):
+            return ArithmeticExpr(op, Literal(other), self)  # type: ignore[arg-type]
+        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+
+    def __and__(self, other: object) -> Expr:
+        if not isinstance(other, Expr):
+            raise TypeError(f'Other needs to be an expression: {type(other)}')
+        if not other.col_type.is_bool_type():
+            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
+        from .compound_predicate import CompoundPredicate
+        return CompoundPredicate(LogicalOperator.AND, [self, other])
+
+    def __or__(self, other: object) -> Expr:
+        if not isinstance(other, Expr):
+            raise TypeError(f'Other needs to be an expression: {type(other)}')
+        if not other.col_type.is_bool_type():
+            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
+        from .compound_predicate import CompoundPredicate
+        return CompoundPredicate(LogicalOperator.OR, [self, other])
+
+    def __invert__(self) -> Expr:
+        from .compound_predicate import CompoundPredicate
+        return CompoundPredicate(LogicalOperator.NOT, [self])
+
+    def split_conjuncts(
+            self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
+        """
+        Returns clauses of a conjunction that meet condition in the first element.
+        The second element contains remaining clauses, rolled into a conjunction.
+        """
+        assert self.col_type.is_bool_type()  # only valid for predicates
+        if condition(self):
+            return [self], None
+        else:
+            return [], self
 
     def _make_applicator_function(self, fn: Callable, col_type: Optional[ts.ColumnType]) -> 'pixeltable.func.Function':
         """

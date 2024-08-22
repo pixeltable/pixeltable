@@ -124,13 +124,12 @@ class TestComponentView:
         view_t = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
 
         rows = [{'video': p} for p in video_filepaths]
-        video_t.insert(rows)
+        validate_update_status(video_t.insert(rows))
         # adding a non-computed column backfills it with nulls
-        view_t.add_column(annotation=JsonType(nullable=True))
+        validate_update_status(view_t.add_column(annotation=JsonType(nullable=True)))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
         # adding more data via the base table sets the column values to null
-        video_t.insert(rows)
-        _ = view_t.where(view_t.annotation == None).count()
+        validate_update_status(video_t.insert(rows))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
         with pytest.raises(excs.Error) as excinfo:

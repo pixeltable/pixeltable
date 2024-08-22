@@ -4,16 +4,15 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.type_system import StringType, JsonType, ImageType, BoolType, FloatType
-from ..utils import skip_test_if_not_installed, get_sentences, get_image_files, \
-    SAMPLE_IMAGE_URL, reload_catalog
+from ..utils import skip_test_if_not_installed, get_sentences, get_image_files, SAMPLE_IMAGE_URL, reload_catalog
 
 
 class TestHuggingface:
-
     def test_hf_function(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': StringType(), 'bool_col': BoolType()})
         from pixeltable.functions.huggingface import sentence_transformer
+
         model_id = 'intfloat/e5-large-v2'
         t.add_column(e5=sentence_transformer(t.input, model_id=model_id))
         sents = get_sentences()
@@ -43,6 +42,7 @@ class TestHuggingface:
 
         # run multiple models one at a time in order to exercise batching
         from pixeltable.functions.huggingface import sentence_transformer, sentence_transformer_list
+
         model_ids = ['sentence-transformers/all-mpnet-base-v2', 'BAAI/bge-reranker-base']
         num_dims = [768, 768]
         for idx, model_id in enumerate(model_ids):
@@ -79,6 +79,7 @@ class TestHuggingface:
 
         # run multiple models one at a time in order to exercise batching
         from pixeltable.functions.huggingface import cross_encoder, cross_encoder_list
+
         model_ids = ['cross-encoder/ms-marco-MiniLM-L-6-v2', 'cross-encoder/ms-marco-TinyBERT-L-2-v2']
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
@@ -115,6 +116,7 @@ class TestHuggingface:
 
         # run multiple models one at a time in order to exercise batching
         from pixeltable.functions.huggingface import clip_text, clip_image
+
         model_ids = ['openai/clip-vit-base-patch32', 'laion/CLIP-ViT-B-32-laion2B-s34B-b79K']
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed_text{idx}'
@@ -141,8 +143,10 @@ class TestHuggingface:
 
     def test_detr_for_object_detection(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
-        t = pxt.create_table('test_tbl', {'img': ImageType()})
         from pixeltable.functions.huggingface import detr_for_object_detection
+        from pixeltable.utils import coco
+
+        t = pxt.create_table('test_tbl', {'img': ImageType()})
         t['detect'] = detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
         status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
@@ -151,3 +155,7 @@ class TestHuggingface:
         assert 'orange' in result['label_text']
         assert 'bowl' in result['label_text']
         assert 'broccoli' in result['label_text']
+        label_text = {coco.COCO_2017_CATEGORIES[i] for i in result['labels']}
+        assert 'orange' in label_text
+        assert 'bowl' in label_text
+        assert 'broccoli' in label_text

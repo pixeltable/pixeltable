@@ -1,7 +1,8 @@
-import datetime
-from typing import Union
-import enum
+from __future__ import annotations
 
+import datetime
+import enum
+from typing import Union
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
@@ -28,10 +29,23 @@ class ComparisonOperator(enum.Enum):
             return '<='
         if self == self.EQ:
             return '=='
+        if self == self.NE:
+            return '!='
         if self == self.GT:
             return '>'
         if self == self.GE:
             return '>='
+
+    def reverse(self) -> ComparisonOperator:
+        if self == self.LT:
+            return self.GT
+        if self == self.LE:
+            return self.GE
+        if self == self.GT:
+            return self.LT
+        if self == self.GE:
+            return self.LE
+        return self
 
 
 class LogicalOperator(enum.Enum):
@@ -54,6 +68,7 @@ class ArithmeticOperator(enum.Enum):
     MUL = 2
     DIV = 3
     MOD = 4
+    FLOORDIV = 5
 
     def __str__(self) -> str:
         if self == self.ADD:
@@ -66,4 +81,5 @@ class ArithmeticOperator(enum.Enum):
             return '/'
         if self == self.MOD:
             return '%'
-
+        if self == self.FLOORDIV:
+            return '//'
