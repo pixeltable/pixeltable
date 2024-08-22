@@ -492,6 +492,8 @@ class JsonType(ColumnType):
         self.type_spec = type_spec
 
     def supertype(self, other: ColumnType) -> Optional[JsonType]:
+        if not isinstance(other, JsonType):
+            return None
         if self.type_spec is None:
             # we don't have a type spec and can accept anything accepted by other
             return JsonType(nullable=(self.nullable or other.nullable))
