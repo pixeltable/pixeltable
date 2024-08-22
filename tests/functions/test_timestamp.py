@@ -1,4 +1,3 @@
-import platform
 import time
 from datetime import datetime, timedelta
 from typing import Callable
@@ -12,7 +11,6 @@ from pixeltable.env import Env
 from ..utils import validate_update_status
 
 
-@pytest.mark.skipif(platform.system == 'Windows', reason='Time zone support is not working on Windows.')
 class TestTimestamp:
     # All test datetimes are in America/Los_Angeles time zone
     TEST_DATETIMES = [
