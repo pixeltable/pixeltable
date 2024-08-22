@@ -32,7 +32,7 @@ from pixeltable.utils.code import local_public_names
 # the following function has been adapted from MMEval
 # (sources at https://github.com/open-mmlab/mmeval)
 # Copyright (c) OpenMMLab. All rights reserved.
-def _calculate_bboxes_area(bboxes: np.ndarray) -> np.ndarray:
+def __calculate_bboxes_area(bboxes: np.ndarray) -> np.ndarray:
     """Calculate area of bounding boxes.
 
     Args:
@@ -49,7 +49,7 @@ def _calculate_bboxes_area(bboxes: np.ndarray) -> np.ndarray:
 # the following function has been adapted from MMEval
 # (sources at https://github.com/open-mmlab/mmeval)
 # Copyright (c) OpenMMLab. All rights reserved.
-def _calculate_overlaps(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
+def __calculate_overlaps(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
     """Calculate the overlap between each bbox of bboxes1 and bboxes2.
 
     Args:
@@ -76,8 +76,8 @@ def _calculate_overlaps(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
         exchange = False
 
     # Calculate the bboxes area.
-    area1 = _calculate_bboxes_area(bboxes1)
-    area2 = _calculate_bboxes_area(bboxes2)
+    area1 = __calculate_bboxes_area(bboxes1)
+    area2 = __calculate_bboxes_area(bboxes2)
     eps = np.finfo(np.float32).eps
 
     for i in range(bboxes1.shape[0]):
@@ -98,7 +98,7 @@ def _calculate_overlaps(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
 # the following function has been adapted from MMEval
 # (sources at https://github.com/open-mmlab/mmeval)
 # Copyright (c) OpenMMLab. All rights reserved.
-def _calculate_image_tpfp(
+def __calculate_image_tpfp(
     pred_bboxes: np.ndarray, pred_scores: np.ndarray, gt_bboxes: np.ndarray, min_iou: float
 ) -> tuple[np.ndarray, np.ndarray]:
     """Calculate the true positive and false positive on an image.
@@ -136,7 +136,7 @@ def _calculate_image_tpfp(
 
     # Step 4. Calculate the IoUs between the predicted bboxes and the
     # ground truth bboxes.
-    ious = _calculate_overlaps(pred_bboxes, gt_bboxes)
+    ious = __calculate_overlaps(pred_bboxes, gt_bboxes)
     # For each pred bbox, the max iou with all gts.
     ious_max = ious.max(axis=1)
     # For each pred bbox, which gt overlaps most with it.
@@ -195,7 +195,7 @@ def eval_detections(
         pred_filter = pred_classes_arr == class_idx
         gt_filter = gt_classes_arr == class_idx
         class_pred_scores = pred_scores_arr[pred_filter]
-        tp, fp = _calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], [0.5])
+        tp, fp = __calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], [0.5])
         ordered_class_pred_scores = -np.sort(-class_pred_scores)
         result.append(
             {
@@ -272,7 +272,7 @@ def _create_label_colors(labels: list[Any]) -> dict[Any, str]:
 def draw_bounding_boxes(
         img: PIL.Image.Image,
         boxes: list[list[int]],
-        labels: Optional[list[Union[str, int]]] = None,
+        labels: Optional[list[Any]] = None,
         color: Optional[str] = None,
         label_colors: Optional[dict[Union[str, int], str]] = None,
         box_colors: Optional[list[str]] = None,
@@ -284,7 +284,7 @@ def draw_bounding_boxes(
     """
     Draws bounding boxes on the given image.
 
-    Labels can be either strings or ints (category ids).
+    Labels can be any type that supports `str()` and is hashable (e.g., strings, ints, etc.).
 
     Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's
     [`ImageColor`](https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module) module or as
@@ -321,7 +321,7 @@ def draw_bounding_boxes(
     elif len(labels) != num_boxes:
         raise ValueError('Number of boxes and labels must match')
 
-    DEFAULT_COLOR = 'red'
+    DEFAULT_COLOR = 'white'
     if box_colors is not None:
         if len(box_colors) != num_boxes:
             raise ValueError('Number of boxes and box colors must match')
@@ -356,10 +356,9 @@ def draw_bounding_boxes(
             draw.rectangle(bbox, outline=color, width=width)
 
         if label is not None:
-            if not isinstance(label, str):
-                label = f'Category {label}'
+            label_str = str(label)
             margin = width + 1
-            draw.text((bbox[0] + margin, bbox[1] + margin), label, fill=color, font=txt_font)
+            draw.text((bbox[0] + margin, bbox[1] + margin), label_str, fill=color, font=txt_font)
 
     return img_to_draw
 
