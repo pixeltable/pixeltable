@@ -11,10 +11,11 @@ t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect
 ```
 """
 
-from collections import defaultdict
-from typing import Optional, Union
 import colorsys
+import hashlib
 import random
+from collections import defaultdict
+from typing import Optional, Union, Any
 
 import PIL.Image
 import PIL.Image
@@ -248,16 +249,23 @@ class mean_ap(func.Aggregator):
         return result
 
 
-def _create_distinct_colors(n: int) -> list[str]:
-    hues = [i / n for i in range(n)]
-    random.shuffle(hues)  # avoid similar adjacent colors
-    colors: list[str] = []
-    for i in range(n):
-        hue = hues[i]
+def _create_label_colors(labels: list[Any]) -> dict[Any, str]:
+    """
+    Create random colors for labels such that a particular label always gets the same color.
+
+    Returns:
+        dict mapping labels to colors
+    """
+    distinct_labels = set(labels)
+    result: dict[Any, str] = {}
+    for label in distinct_labels:
+        # consistent hash for the label
+        label_hash = int(hashlib.md5(str(label).encode()).hexdigest(), 16)
+        hue = (label_hash % 360) / 360.0
         rgb = colorsys.hsv_to_rgb(hue, 0.7, 0.95)
         hex_color = '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
-        colors.append(hex_color)
-    return colors
+        result[label] = hex_color
+    return result
 
 
 @func.udf
@@ -280,7 +288,9 @@ def draw_bounding_boxes(
 
     Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's
     [`ImageColor`](https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module) module or as
-    RGB hex codes (e.g., '#FF0000'). If no colors are specified, this function randomly assigns a color to each label.
+    RGB hex codes (e.g., '#FF0000').
+
+    If no colors are specified, this function randomly assigns each label a specific color based on a hash of the label.
 
     Args:
         img: The image on which to draw the bounding boxes.
@@ -321,8 +331,7 @@ def draw_bounding_boxes(
         elif label_colors is not None:
             box_colors = [label_colors.get(label, DEFAULT_COLOR) for label in labels]
         else:
-            random_colors = _create_distinct_colors(len(set(labels)))
-            label_colors = dict(zip(set(labels), random_colors))
+            label_colors = _create_label_colors(labels)
             box_colors = [label_colors[label] for label in labels]
 
     from PIL import ImageDraw, ImageFont, ImageColor
