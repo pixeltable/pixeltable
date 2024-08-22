@@ -21,8 +21,8 @@ class Dir(SchemaObject):
     def display_name(cls) -> str:
         return 'directory'
 
-    def move(self, new_name: str, new_dir_id: UUID) -> None:
-        super().move(new_name, new_dir_id)
+    def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        super()._move(new_name, new_dir_id)
         with Env.get().engine.begin() as conn:
             dir_md = schema.DirMd(name=new_name)
             conn.execute(

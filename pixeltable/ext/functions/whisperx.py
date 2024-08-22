@@ -1,8 +1,9 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-import torch
-import whisperx
-from whisperx.asr import FasterWhisperPipeline
+from pixeltable.utils.code import local_public_names
+
+if TYPE_CHECKING:
+    from whisperx.asr import FasterWhisperPipeline
 
 import pixeltable as pxt
 
@@ -11,6 +12,36 @@ import pixeltable as pxt
 def transcribe(
     audio: str, *, model: str, compute_type: Optional[str] = None, language: Optional[str] = None, chunk_size: int = 30
 ) -> dict:
+    """
+    Transcribe an audio file using WhisperX.
+
+    This UDF runs a transcription model _locally_ using the WhisperX library,
+    equivalent to the WhisperX `transcribe` function, as described in the
+    [WhisperX library documentation](https://github.com/m-bain/whisperX).
+
+    __Requirements:__
+
+    - `pip install whisperx`
+
+    Args:
+        audio: The audio file to transcribe.
+        model: The name of the model to use for transcription.
+
+    See the [WhisperX library documentation](https://github.com/m-bain/whisperX) for details
+    on the remaining parameters.
+
+    Returns:
+        A dictionary containing the transcription and various other metadata.
+
+    Examples:
+        Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio`
+        of the table `tbl`:
+
+        >>> tbl['result'] = transcribe(tbl.audio, model='tiny.en')
+    """
+    import torch
+    import whisperx
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     compute_type = compute_type or ('float16' if device == 'cuda' else 'int8')
     model = _lookup_model(model, device, compute_type)
@@ -19,7 +50,9 @@ def transcribe(
     return result
 
 
-def _lookup_model(model_id: str, device: str, compute_type: str) -> FasterWhisperPipeline:
+def _lookup_model(model_id: str, device: str, compute_type: str) -> 'FasterWhisperPipeline':
+    import whisperx
+
     key = (model_id, device, compute_type)
     if key not in _model_cache:
         model = whisperx.load_model(model_id, device, compute_type=compute_type)
@@ -28,3 +61,10 @@ def _lookup_model(model_id: str, device: str, compute_type: str) -> FasterWhispe
 
 
 _model_cache = {}
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__

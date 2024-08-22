@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Optional, Callable, Tuple, Any
+from typing import Any, Callable, Optional
 from uuid import UUID
 
 import cloudpickle
@@ -19,14 +19,21 @@ class CallableFunction(Function):
     """
 
     def __init__(
-            self, signature: Signature, py_fn: Callable, self_path: Optional[str] = None,
-            self_name: Optional[str] = None, batch_size: Optional[int] = None):
+        self,
+        signature: Signature,
+        py_fn: Callable,
+        self_path: Optional[str] = None,
+        self_name: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        is_method: bool = False,
+        is_property: bool = False
+    ):
         assert py_fn is not None
         self.py_fn = py_fn
         self.self_name = self_name
         self.batch_size = batch_size
-        py_signature = inspect.signature(self.py_fn)
-        super().__init__(signature, py_signature, self_path=self_path)
+        self.__doc__ = py_fn.__doc__
+        super().__init__(signature, self_path=self_path, is_method=is_method, is_property=is_property)
 
     @property
     def is_batched(self) -> bool:
@@ -78,6 +85,7 @@ class CallableFunction(Function):
     def _as_dict(self) -> dict:
         if self.self_path is None:
             # this is not a module function
+            assert not self.is_method and not self.is_property
             from .function_registry import FunctionRegistry
             id = FunctionRegistry.get().create_stored_function(self)
             return {'id': id.hex}
@@ -91,16 +99,19 @@ class CallableFunction(Function):
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:
-        md = self.signature.as_dict()
-        if self.batch_size is not None:
-            md['batch_size'] = self.batch_size
+        md = {
+            'signature': self.signature.as_dict(),
+            'batch_size': self.batch_size,
+        }
         return md, cloudpickle.dumps(self.py_fn)
 
     @classmethod
     def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
         py_fn = cloudpickle.loads(binary_obj)
         assert isinstance(py_fn, Callable)
-        return CallableFunction(Signature.from_dict(md), py_fn, self_name=name, batch_size=md.get('batch_size'))
+        sig = Signature.from_dict(md['signature'])
+        batch_size = md['batch_size']
+        return CallableFunction(sig, py_fn, self_name=name, batch_size=batch_size)
 
     def validate_call(self, bound_args: dict[str, Any]) -> None:
         import pixeltable.exprs as exprs
@@ -111,3 +122,6 @@ class CallableFunction(Function):
                         f'{self.display_name}(): '
                         f'parameter {param.name} must be a constant value, not a Pixeltable expression'
                     )
+
+    def __repr__(self) -> str:
+        return f'<Pixeltable UDF {self.name}>'

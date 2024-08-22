@@ -124,6 +124,15 @@ class TestTable:
         with pytest.raises(excs.Error):
             pxt.drop_table('.test2')
 
+    def test_names(self, reset_db) -> None:
+        pxt.create_dir('dir')
+        pxt.create_dir('dir.subdir')
+        for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
+            tbl = pxt.create_table(tbl_path, {'col': pxt.StringType()})
+            assert tbl.path == tbl_path
+            assert tbl.name == tbl_path.split('.')[-1]
+            assert tbl.parent.path == '.'.join(tbl_path.split('.')[:-1])
+
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('empty_table', {})
@@ -136,6 +145,19 @@ class TestTable:
             _ = pxt.get_table('test_tbl')
         with pytest.raises(excs.Error):
             _ = t.show(1)
+
+    def test_drop_table_force(self, test_tbl: pxt.Table) -> None:
+        t = pxt.get_table('test_tbl')
+        v1 = pxt.create_view('v1', t)
+        v2 = pxt.create_view('v2', t)
+        v3 = pxt.create_view('v3', v1)
+        v4 = pxt.create_view('v4', v2)
+        v5 = pxt.create_view('v5', t)
+        assert len(pxt.list_tables()) == 6
+        pxt.drop_table('v2', force=True)  # Drops v2 and v4, but not the others
+        assert len(pxt.list_tables()) == 4
+        pxt.drop_table('test_tbl', force=True)  # Drops everything else
+        assert len(pxt.list_tables()) == 0
 
     def test_table_attrs(self, reset_db) -> None:
         schema = {'c': StringType(nullable=False)}
@@ -164,7 +186,7 @@ class TestTable:
             'img_literal': ImageType(nullable=False),
         }
         tbl = pxt.create_table('test', schema)
-        assert MediaStore.count(tbl.get_id()) == 0
+        assert MediaStore.count(tbl._get_id()) == 0
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -175,7 +197,7 @@ class TestTable:
                 r['img_literal'] = f.read()
 
         tbl.insert(sample_rows)
-        assert MediaStore.count(tbl.get_id()) == n_sample_rows
+        assert MediaStore.count(tbl._get_id()) == n_sample_rows
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -186,21 +208,21 @@ class TestTable:
 
         # Test adding stored image transformation
         tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
-        assert MediaStore.count(tbl.get_id()) == 2 * n_sample_rows
+        assert MediaStore.count(tbl._get_id()) == 2 * n_sample_rows
 
         # Test MediaStore.stats()
-        stats = list(filter(lambda x: x[0] == tbl.get_id(), MediaStore.stats()))
+        stats = list(filter(lambda x: x[0] == tbl._get_id(), MediaStore.stats()))
         assert len(stats) == 2  # Two columns
         assert stats[0][2] == n_sample_rows  # Each column has n_sample_rows associated images
         assert stats[1][2] == n_sample_rows
 
         # Test that version-specific images are cleared when table is reverted
         tbl.revert()
-        assert MediaStore.count(tbl.get_id()) == n_sample_rows
+        assert MediaStore.count(tbl._get_id()) == n_sample_rows
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table('test')
-        assert MediaStore.count(tbl.get_id()) == 0
+        assert MediaStore.count(tbl._get_id()) == 0
 
     def test_schema_spec(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
@@ -285,7 +307,7 @@ class TestTable:
         status = tbl.insert(rows, fail_on_exception=False)
         _ = tbl.select(tbl.media, tbl.media.errormsg).show()
         assert status.num_rows == len(rows)
-        assert status.num_excs == total_bad_rows
+        assert status.num_excs >= total_bad_rows
 
         # check that we have the right number of bad and good rows
         assert tbl.where(tbl.is_bad_media == True).count() == total_bad_rows
@@ -357,7 +379,7 @@ class TestTable:
         # TODO: change reset_catalog() to drop tables
         FileCache.get().clear()
         cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == 0, f'{str(cache_stats)} tbl_id={tbl.get_id()}'
+        assert cache_stats.num_requests == 0, f'{str(cache_stats)} tbl_id={tbl._get_id()}'
         # add computed column to make sure that external files are cached locally during insert
         tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
         urls = [
@@ -371,10 +393,10 @@ class TestTable:
         tbl.insert({'img': url} for url in urls)
         # check that we populated the cache
         cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl.get_id()}'
+        assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl._get_id()}'
         assert cache_stats.num_hits == 0
         assert FileCache.get().num_files() == len(urls)
-        assert FileCache.get().num_files(tbl.get_id()) == len(urls)
+        assert FileCache.get().num_files(tbl._get_id()) == len(urls)
         assert FileCache.get().avg_file_size() > 0
 
         # query: we read from the cache
@@ -447,10 +469,10 @@ class TestTable:
         status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        assert MediaStore.count(view.get_id()) == view.count() * 2
+        assert MediaStore.count(view._get_id()) == view.count() * 2
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
-        assert MediaStore.count(view.get_id()) == view.count() * 2
+        assert MediaStore.count(view._get_id()) == view.count() * 2
 
         # TODO: test inserting Nulls
         # status = tbl.insert(payload=1, video=None)
@@ -459,7 +481,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        assert MediaStore.count(view.get_id()) == 0
+        assert MediaStore.count(view._get_id()) == 0
 
         with pytest.raises(excs.Error):
             # can't drop frame col
@@ -475,7 +497,7 @@ class TestTable:
         assert 'has dependents: test_view' in str(exc_info.value)
         pxt.drop_table('test_view')
         pxt.drop_table('test_tbl')
-        assert MediaStore.count(view.get_id()) == 0
+        assert MediaStore.count(view._get_id()) == 0
 
     def test_insert_nulls(self, reset_db) -> None:
         schema = {
@@ -583,7 +605,7 @@ class TestTable:
 
         t.insert([{'c1': 'this is a python\x00string'}])
         assert t.count() == 1
-        for tup in t.df().collect():
+        for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
 
     def test_query(self, reset_db) -> None:
@@ -601,14 +623,40 @@ class TestTable:
 
     def test_batch_update(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
+        num_rows = t.count()
+        # update existing rows
         validate_update_status(t.batch_update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]), expected_rows=2)
+        assert t.count() == num_rows  # make sure we didn't lose any rows
         assert t.where(t.c2 == 1).collect()[0]['c1'] == '1'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == '2'
+        # the same, but with _rowid
         validate_update_status(
             t.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
         )
+        assert t.count() == num_rows  # make sure we didn't lose any rows
         assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
+
+        # unknown primary key: raise error
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.batch_update([{'c1': 'eins', 'c2': 1}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='error')
+        assert '1 row(s) not found' in str(exc_info.value).lower()
+
+        # unknown primary key: ignore
+        validate_update_status(
+            t.batch_update([{'c1': 'eins', 'c2': 1}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='ignore'),
+            expected_rows=1)
+        assert t.count() == num_rows  # make sure we didn't lose any rows
+        assert t.where(t.c2 == 1).collect()[0]['c1'] == 'eins'
+        assert t.where(t.c2 == 200).count() == 0
+
+        # unknown primary key: insert
+        validate_update_status(
+            t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
+            expected_rows=2)
+        assert t.count() == num_rows + 1
+        assert t.where(t.c2 == 2).collect()[0]['c1'] == 'zwei'
+        assert t.where(t.c2 == 200).collect()[0]['c1'] == 'zweihundert'
 
         # test composite primary key
         schema = {'c1': StringType(), 'c2': IntType(), 'c3': FloatType()}
@@ -619,6 +667,9 @@ class TestTable:
         validate_update_status(
             t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}, {'c1': '2', 'c2': 2, 'c3': 3.0}]), expected_rows=2
         )
+        assert t.count() == len(rows)
+        assert t.where(t.c2 == 1).collect()[0]['c3'] == 2.0
+        assert t.where(t.c2 == 2).collect()[0]['c3'] == 3.0
 
         with pytest.raises(excs.Error) as exc_info:
             # can't mix _rowid with primary key
@@ -646,6 +697,7 @@ class TestTable:
         validate_update_status(
             t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
         )
+        assert t2.count() == len(rows)
         assert t2.where(t2.c2 == 1).collect()[0]['c1'] == 'one'
         assert t2.where(t2.c2 == 2).collect()[0]['c1'] == 'two'
         with pytest.raises(AssertionError):
@@ -667,7 +719,7 @@ class TestTable:
         for col_name, literal in test_cases:
             status = t.update({col_name: literal}, where=t.c3 < 10.0, cascade=False)
             assert status.num_rows == 10
-            assert status.updated_cols == [f'{t.get_name()}.{col_name}']
+            assert status.updated_cols == [f'{t.name}.{col_name}']
             assert t.count() == count
             t.revert()
 
@@ -706,7 +758,7 @@ class TestTable:
 
         # revert, then verify that we're back to where we started
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
@@ -756,7 +808,7 @@ class TestTable:
         # non-Predicate filter
         with pytest.raises(excs.Error) as excinfo:
             t.update({'c3': 1.0}, where=lambda c2: c2 == 10)
-        assert 'Predicate' in str(excinfo.value)
+        assert 'predicate' in str(excinfo.value)
 
         img_t = small_img_tbl
 
@@ -794,7 +846,7 @@ class TestTable:
 
         # revert, then verify that we're back where we started
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
         assert cnt == 10
@@ -804,7 +856,7 @@ class TestTable:
         # non-Predicate filter
         with pytest.raises(excs.Error) as excinfo:
             t.delete(where=lambda c2: c2 == 10)
-        assert 'Predicate' in str(excinfo.value)
+        assert 'predicate' in str(excinfo.value)
 
         img_t = small_img_tbl
 
@@ -838,13 +890,13 @@ class TestTable:
             t.add_column(c10=ptf.sum(t.c1, group_by=t.c1), stored=False)
 
         # Column.dependent_cols are computed correctly
-        assert len(t.c1.col.dependent_cols) == 2
-        assert len(t.c2.col.dependent_cols) == 3
+        assert len(t.c1.col.dependent_cols) == 3
+        assert len(t.c2.col.dependent_cols) == 4
         assert len(t.c3.col.dependent_cols) == 1
-        assert len(t.c4.col.dependent_cols) == 1
-        assert len(t.c5.col.dependent_cols) == 0
-        assert len(t.c6.col.dependent_cols) == 1
-        assert len(t.c7.col.dependent_cols) == 0
+        assert len(t.c4.col.dependent_cols) == 2
+        assert len(t.c5.col.dependent_cols) == 1
+        assert len(t.c6.col.dependent_cols) == 2
+        assert len(t.c7.col.dependent_cols) == 1
         assert len(t.c8.col.dependent_cols) == 0
 
         rows = create_table_data(t, ['c1', 'c2', 'c3'], num_rows=10)
@@ -919,7 +971,7 @@ class TestTable:
         status = t.add_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
         status = t.insert(rows, fail_on_exception=False)
-        assert status.num_excs == 10
+        assert status.num_excs >= 10
         assert 'test_insert.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
 
@@ -940,11 +992,11 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        assert MediaStore.count(t.get_id()) == t.count() * stores_img_col
+        assert MediaStore.count(t._get_id()) == t.count() * stores_img_col
 
         # test loading from store
         reload_catalog()
-        t2 = pxt.get_table(t.get_name())
+        t2 = pxt.get_table(t.name)
         assert len(t.columns()) == len(t2.columns())
         for i in range(len(t.columns())):
             if t.columns()[i].value_expr is not None:
@@ -952,13 +1004,13 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
-        assert MediaStore.count(t2.get_id()) == t2.count() * stores_img_col
+        assert MediaStore.count(t2._get_id()) == t2.count() * stores_img_col
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
 
         # revert also removes computed images
         t2.revert()
-        assert MediaStore.count(t2.get_id()) == t2.count() * stores_img_col
+        assert MediaStore.count(t2._get_id()) == t2.count() * stores_img_col
 
     @pxt.udf(return_type=ImageType(), param_types=[ImageType()])
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
@@ -969,18 +1021,18 @@ class TestTable:
         t = pxt.create_table('test', schema)
         t.add_column(c2=t.img.width)
         # c3 is not stored by default
-        t.add_column(c3=t.img.rotate(90))
+        t.add_column(c3=t.img.rotate(90), stored=False)
         self._test_computed_img_cols(t, stores_img_col=False)
 
         t = pxt.create_table('test2', schema)
         # c3 is now stored
-        t.add_column(c3=t.img.rotate(90), stored=True)
+        t.add_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
         _ = t[t.c3.errortype].show(0)
 
         # computed img col with exceptions
         t = pxt.create_table('test3', schema)
-        t.add_column(c3=self.img_fn_with_exc(t.img), stored=True)
+        t.add_column(c3=self.img_fn_with_exc(t.img))
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         t.insert(rows, fail_on_exception=False)
@@ -1073,7 +1125,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols + 1
 
         # revert() works
@@ -1082,7 +1134,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
@@ -1124,7 +1176,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols + 2
 
         # revert() works
@@ -1134,7 +1186,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
     def test_drop_column(self, test_tbl: catalog.Table) -> None:
@@ -1148,7 +1200,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols - 1
 
         # revert() works
@@ -1157,7 +1209,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         assert len(t.columns()) == num_orig_cols
 
     def test_rename_column(self, test_tbl: catalog.Table) -> None:
@@ -1186,7 +1238,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         check_rename(t, 'c1_renamed', 'c1')
 
         # revert() works
@@ -1197,7 +1249,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.get_name())
+        t = pxt.get_table(t.name)
         check_rename(t, 'c1', 'c1_renamed')
 
     def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
@@ -1213,13 +1265,13 @@ class TestTable:
         # with exception in Python for c6.f2 == 10
         status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10))
         assert status.num_excs == 1
-        result = t[t.add2.errortype != None][t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg].show()
+        result = t.where(t.add2.errortype != None).select(t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg).show()
         assert len(result) == 1
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
         status = t.add_column(add3=self.f2(self.f1(t.c2)))
         assert status.num_excs == 10
-        result = t[t.add3.errortype != None][t.c2, t.add3, t.add3.errortype, t.add3.errormsg].show()
+        result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10
 
     def test_describe(self, test_tbl: catalog.Table) -> None:

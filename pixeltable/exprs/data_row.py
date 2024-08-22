@@ -133,6 +133,10 @@ class DataRow:
             np.save(buffer, np_array)
             return buffer.getvalue()
 
+        # for JSON columns, we need to store None as an explicit NULL, otherwise it stores a json 'null'
+        if self.vals[index] is None and sa_col_type is not None and isinstance(sa_col_type, sql.JSON):
+            return sql.sql.null()
+
         return self.vals[index]
 
     def __setitem__(self, idx: object, val: Any) -> None:
@@ -197,3 +201,10 @@ class DataRow:
             pass
         self.vals[index] = None
 
+    @property
+    def rowid(self) -> Tuple[int]:
+        return self.pk[:-1]
+
+    @property
+    def v_min(self) -> int:
+        return self.pk[-1]

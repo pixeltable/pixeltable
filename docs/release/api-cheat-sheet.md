@@ -11,28 +11,30 @@ import pixeltable.functions as pxtf
 | Task                        | Code                                                                                                                             |
 |-----------------------------|----------------------------------------------------------------------------------------------------------------------------------|
 | Create a (mutable) table    | t = [`pxt.create_table`][pixeltable.create_table]('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})        |
-| Create a view               | t = [`pxt.create_view`][pixeltable.create_view]('view_name', base_tbl, filter=base_tbl.col > 10)                                 |
+| Create a view               | t = [`pxt.create_view`][pixeltable.create_view]('view_name', base_tbl.where(base_tbl.col > 10))                                  |
 | Create a view with iterator | t = [`pxt.create_view`][pixeltable.create_view]('view_name', base_tbl, iterator=FrameIterator.create(video=base_tbl.col, fps=0)) |
-| Create a snapshot           | t = [`pxt.create_view`][pixeltable.create_view]('snapshot_name', t, is_snapshot=True)                                            |
+| Create a snapshot           | t = [`pxt.create_view`][pixeltable.create_view]('snapshot_name', base_tbl, is_snapshot=True)                                     |
 
 The following functions apply to tables, views, and snapshots.
 
-| Task                  | Code                                                                  |
-|-----------------------|-----------------------------------------------------------------------|
-| Use an existing table | t = [`pxt.get_table`][pixeltable.get_table]('video_data')             |
-| Rename a table        | [`pxt.move`][pixeltable.move]('video_data', 'vd')                     |
-| Move a table          | [`pxt.move`][pixeltable.move]('video_data', 'experiments.video_data') |
-| List tables           | [`pxt.list_tables`][pixeltable.list_tables]()                         |
-| Delete a table        | [`pxt.drop_table`][pixeltable.drop_table]('video_data')               |
+| Task                             | Code                                                                  |
+|----------------------------------|-----------------------------------------------------------------------|
+| Use an existing table            | t = [`pxt.get_table`][pixeltable.get_table]('video_data')             |
+| Rename a table                   | [`pxt.move`][pixeltable.move]('video_data', 'vd')                     |
+| Move a table                     | [`pxt.move`][pixeltable.move]('video_data', 'experiments.video_data') |
+| List tables                      | [`pxt.list_tables`][pixeltable.list_tables]()                         |
+| Delete a table                   | [`pxt.drop_table`][pixeltable.drop_table]('video_data')               |
+| Delete a table and all its views | [`pxt.drop_table`][pixeltable.drop_table]('video_data', force=True)   |
 
 
 ### Directories
-| Task                       | Code                                                                  |
-|----------------------------|-----------------------------------------------------------------------|
-| Create a directory         | [`pxt.create_dir`][pixeltable.create_dir]('experiments')              |
-| Rename or move a directory | [`pxt.move`][pixeltable.move]('experiments', 'project_x.experiments') |
-| Delete a directory         | f = [`pxt.rm_dir`][pixeltable.rm_dir]('experiments')                  |
-| List directories           | [`pxt.list_dirs`][pixeltable.list_dirs]('project_x')                  |
+| Task                                    | Code                                                                  |
+|-----------------------------------------|-----------------------------------------------------------------------|
+| Create a directory                      | [`pxt.create_dir`][pixeltable.create_dir]('experiments')              |
+| Rename or move a directory              | [`pxt.move`][pixeltable.move]('experiments', 'project_x.experiments') |
+| Delete a directory                      | [`pxt.drop_dir`][pixeltable.drop_dir]('experiments')                  |
+| Delete a directory and all its contents | [`pxt.drop_dir`][pixeltable.drop_dir]('experiments', force=True)      |
+| List directories                        | [`pxt.list_dirs`][pixeltable.list_dirs]('project_x')                  |
 
 ## Frame extraction for video data
 Create a table with video data and view for the frames:
@@ -40,7 +42,7 @@ Create a table with video data and view for the frames:
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 t = pxt.create_table('tbl_name', {'video': pxt.VideoType()})
-f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(videos=t, fps=0))
+f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t, fps=0))
 ```
 
 `fps=0` extracts frames at the original frame rate.
@@ -66,8 +68,8 @@ f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(videos=t
 |-------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
 | Print table schema                                                | t.[`describe`][pixeltable.Table.describe]()                                                          |
 | Query a table                                                     | t.[`select`][pixeltable.Table.select](t.col2, t.col3 + 5).where(t.col1 == 'green').show()            |
-| Insert a single row into a table                                  | t.[`insert`][pixeltable.InsertableTable.insert](col1='green', ...)                                   |
-| Insert multiple rows into a table                                 | t.[`insert`][pixeltable.InsertableTable.insert]([{'col1': 'green', ...}, {'col1': 'red', ...}, ...]) |
+| Insert a single row into a table                                  | t.[`insert`][pixeltable.Table.insert](col1='green', ...)                                   |
+| Insert multiple rows into a table                                 | t.[`insert`][pixeltable.Table.insert]([{'col1': 'green', ...}, {'col1': 'red', ...}, ...]) |
 | Add a column                                                      | t.[`add_column`][pixeltable.Table.add_column](new_col_name=pxt.IntType())                            |
 | Add a column (alternate form)                                     | t[new_col_name] = pxt.IntType()                                                                      |
 | Rename a column                                                   | t.[`rename_column`][pixeltable.Table.rename_column]('col_name', 'new_col_name')                      |

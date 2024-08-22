@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import abc
-import importlib
 import inspect
-from typing import Optional, Any, Type, List, Dict, Callable
-import itertools
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .function import Function
-from .signature import Signature, Parameter
 from .globals import validate_symbol_path
+from .signature import Parameter, Signature
+
+if TYPE_CHECKING:
+    import pixeltable
 
 
 class Aggregator(abc.ABC):
@@ -40,30 +42,33 @@ class AggregateFunction(Function):
         self.requires_order_by = requires_order_by
         self.allows_std_agg = allows_std_agg
         self.allows_window = allows_window
+        self.__doc__ = aggregator_class.__doc__
 
         # our signature is the signature of 'update', but without self,
         # plus the parameters of 'init' as keyword-only parameters
-        update_params = list(inspect.signature(self.agg_cls.update).parameters.values())[1:]  # leave out self
-        assert len(update_params) == len(update_types)
-        init_params = [
-            inspect.Parameter(p.name, inspect.Parameter.KEYWORD_ONLY, default=p.default)
-            # starting at 1: leave out self
-            for p in itertools.islice(inspect.signature(self.agg_cls.__init__).parameters.values(), 1, None)
+        py_update_params = list(inspect.signature(self.agg_cls.update).parameters.values())[1:]  # leave out self
+        assert len(py_update_params) == len(update_types)
+        update_params = [
+            Parameter(p.name, col_type=update_types[i], kind=p.kind, default=p.default)
+            for i, p in enumerate(py_update_params)
         ]
-        assert len(init_params) == len(init_types)
+        # starting at 1: leave out self
+        py_init_params = list(inspect.signature(self.agg_cls.__init__).parameters.values())[1:]
+        assert len(py_init_params) == len(init_types)
+        init_params = [
+            Parameter(p.name, col_type=init_types[i], kind=inspect.Parameter.KEYWORD_ONLY, default=p.default)
+            for i, p in enumerate(py_init_params)
+        ]
         duplicate_params = set(p.name for p in init_params) & set(p.name for p in update_params)
         if len(duplicate_params) > 0:
             raise excs.Error(
                 f'__init__() and update() cannot have parameters with the same name: '
                 f'{", ".join(duplicate_params)}'
             )
-        py_params = update_params + init_params  # init_params are keyword-only and come last
-        py_signature = inspect.Signature(py_params)
+        params = update_params + init_params  # init_params are keyword-only and come last
 
-        params = [Parameter(p.name, update_types[i], p.kind, is_batched=False) for i, p in enumerate(update_params)]
-        params.extend([Parameter(p.name, init_types[i], p.kind, is_batched=False) for i, p in enumerate(init_params)])
         signature = Signature(value_type, params)
-        super().__init__(signature, py_signature=py_signature, self_path=self_path)
+        super().__init__(signature, self_path=self_path)
         self.init_param_names = [p.name for p in init_params]
 
         # make sure the signature doesn't contain reserved parameter names;
@@ -115,7 +120,7 @@ class AggregateFunction(Function):
                     f'{self.display_name}(): group_by invalid with an aggregate function that does not allow windows')
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
-        bound_args = self.py_signature.bind(*args, **kwargs)
+        bound_args = self.signature.py_signature.bind(*args, **kwargs)
         self.validate_call(bound_args.arguments)
         return exprs.FunctionCall(
             self, bound_args.arguments,
@@ -132,6 +137,9 @@ class AggregateFunction(Function):
                     f'{self.display_name}(): init() parameter {param_name} needs to be a constant, not a Pixeltable '
                     f'expression'
                 )
+
+    def __repr__(self) -> str:
+        return f'<Pixeltable Aggregator {self.name}>'
 
 
 def uda(

@@ -1,20 +1,21 @@
 import logging
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterable, Iterator, TYPE_CHECKING
 from urllib.request import urlretrieve
 
 import PIL.Image
 import numpy as np
-import torch
-from yolox.data import ValTransform
-from yolox.exp import get_exp, Exp
-from yolox.models import YOLOX
-from yolox.utils import postprocess
 
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.func import Batch
-from pixeltable.functions.util import resolve_torch_device
+from pixeltable.functions.util import normalize_image_mode
+from pixeltable.utils.code import local_public_names
+
+if TYPE_CHECKING:
+    import torch
+    from yolox.exp import Exp
+    from yolox.models import YOLOX
 
 _logger = logging.getLogger('pixeltable')
 
@@ -22,15 +23,32 @@ _logger = logging.getLogger('pixeltable')
 @pxt.udf(batch_size=4)
 def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
     """
-    Runs the specified YOLOX object detection model on an image.
+    Computes YOLOX object detections for the specified image. `model_id` should reference one of the models
+    defined in the [YOLOX documentation](https://github.com/Megvii-BaseDetection/YOLOX).
 
     YOLOX support is part of the `pixeltable.ext` package: long-term support is not guaranteed, and it is not
     intended for use in production applications.
 
-    Parameters:
-    - `model_id` - one of: `yolox_nano, `yolox_tiny`, `yolox_s`, `yolox_m`, `yolox_l`, `yolox_x`
-    - `threshold` - the threshold for object detection
+    __Requirements__:
+
+    - `pip install git+https://github.com/Megvii-BaseDetection/YOLOX`
+
+    Args:
+        model_id: one of: `yolox_nano`, `yolox_tiny`, `yolox_s`, `yolox_m`, `yolox_l`, `yolox_x`
+        threshold: the threshold for object detection
+
+    Returns:
+        A dictionary containing the output of the object detection model.
+
+    Examples:
+        Add a computed column that applies the model `yolox_m` to an existing
+        Pixeltable column `tbl.image` of the table `tbl`:
+
+        >>> tbl['detections'] = yolox(tbl.image, model_id='yolox_m', threshold=0.8)
     """
+    import torch
+    from yolox.utils import postprocess
+
     model, exp = _lookup_model(model_id, 'cpu')
     image_tensors = list(_images_to_tensors(images, exp))
     batch_tensor = torch.stack(image_tensors)
@@ -58,6 +76,21 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
 
 @pxt.udf
 def yolo_to_coco(detections: dict) -> list:
+    """
+    Converts the output of a YOLOX object detection model to COCO format.
+
+    Args:
+        detections: The output of a YOLOX object detection model, as returned by `yolox`.
+
+    Returns:
+        A dictionary containing the data from `detections`, converted to COCO format.
+
+    Examples:
+        Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image`
+        is the image for which detections were computed:
+
+        >>> tbl['detections_coco'] = yolo_to_coco(tbl.detections)
+    """
     bboxes, labels = detections['bboxes'], detections['labels']
     num_annotations = len(detections['bboxes'])
     assert num_annotations == len(detections['labels'])
@@ -72,13 +105,21 @@ def yolo_to_coco(detections: dict) -> list:
     return result
 
 
-def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: Exp) -> Iterator[torch.Tensor]:
+def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: 'Exp') -> Iterator['torch.Tensor']:
+    import torch
+    from yolox.data import ValTransform
+
+    _val_transform = ValTransform(legacy=False)
     for image in images:
+        image = normalize_image_mode(image)
         image_transform, _ = _val_transform(np.array(image), None, exp.test_size)
         yield torch.from_numpy(image_transform)
 
 
-def _lookup_model(model_id: str, device: str) -> (YOLOX, Exp):
+def _lookup_model(model_id: str, device: str) -> tuple['YOLOX', 'Exp']:
+    import torch
+    from yolox.exp import get_exp
+
     key = (model_id, device)
     if key in _model_cache:
         return _model_cache[key]
@@ -104,5 +145,11 @@ def _lookup_model(model_id: str, device: str) -> (YOLOX, Exp):
     return model, exp
 
 
-_model_cache = {}
-_val_transform = ValTransform(legacy=False)
+_model_cache: dict[tuple[str, str], tuple['YOLOX', 'Exp']] = {}
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__

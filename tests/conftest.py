@@ -14,8 +14,7 @@ from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
 from pixeltable.type_system import FloatType
-from .utils import create_test_tbl, create_all_datatypes_tbl, clip_img_embed, \
-    clip_text_embed, create_img_tbl, skip_test_if_not_installed, reload_catalog
+from .utils import create_test_tbl, create_all_datatypes_tbl, create_img_tbl, skip_test_if_not_installed, reload_catalog
 
 
 @pytest.fixture(scope='session')
@@ -148,5 +147,6 @@ def small_img_tbl(reset_db) -> catalog.Table:
 def indexed_img_tbl(reset_db) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
-    t.add_embedding_index('img', metric='cosine', img_embed=clip_img_embed, text_embed=clip_text_embed)
+    from .utils import clip_img_embed, clip_text_embed
+    t.add_embedding_index('img', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
     return t

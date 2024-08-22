@@ -7,9 +7,9 @@ import json
 import typing
 import urllib.parse
 import urllib.request
-from copy import copy
+from copy import deepcopy
 from pathlib import Path
-from typing import Any, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping, _SpecialForm
+from typing import Any, Iterable, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
 
 import PIL.Image
 import av
@@ -82,7 +82,11 @@ class ColumnType:
 
     def __init__(self, t: Type, nullable: bool = False):
         self._type = t
-        self.nullable = nullable
+        self._nullable = nullable
+
+    @property
+    def nullable(self) -> bool:
+        return self._nullable
 
     @property
     def type_enum(self) -> Type:
@@ -90,6 +94,12 @@ class ColumnType:
 
     def serialize(self) -> str:
         return json.dumps(self.as_dict())
+
+    def copy(self, nullable: Optional[bool] = None) -> ColumnType:
+        result = deepcopy(self)
+        if nullable is not None:
+            result._nullable = nullable
+        return result
 
     @classmethod
     def serialize_list(cls, type_list: List[ColumnType]) -> str:
@@ -150,95 +160,93 @@ class ColumnType:
         if t == cls.Type.AUDIO:
             return AudioType()
         if t == cls.Type.DOCUMENT:
-            return AudioType()
+            return DocumentType()
 
     def __str__(self) -> str:
         return self._type.name.lower()
 
     def __eq__(self, other: object) -> bool:
-        return self.matches(other) and self.nullable == other.nullable
+        return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
 
-    def is_supertype_of(self, other: ColumnType) -> bool:
-        if type(self) != type(other):
-            return False
-        if self.matches(other):
-            return True
-        return self._is_supertype_of(other)
+    def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False) -> bool:
+        operand = self.copy(nullable=True) if ignore_nullable else self
+        return operand.supertype(other) == operand
 
-    @abc.abstractmethod
-    def _is_supertype_of(self, other: ColumnType) -> bool:
-        return False
-
-    def matches(self, other: object) -> bool:
+    def matches(self, other: ColumnType) -> bool:
         """Two types match if they're equal, aside from nullability"""
-        if not isinstance(other, ColumnType):
-            pass
-        assert isinstance(other, ColumnType)
         if type(self) != type(other):
             return False
         for member_var in vars(self).keys():
-            if member_var == 'nullable':
+            if member_var == '_nullable':
                 continue
             if getattr(self, member_var) != getattr(other, member_var):
                 return False
         return True
 
-    @classmethod
-    def supertype(cls, type1: ColumnType, type2: ColumnType) -> Optional[ColumnType]:
-        if type1 == type2:
-            return type1
+    def supertype(self, other: ColumnType) -> Optional[ColumnType]:
+        if self.copy(nullable=True) == other.copy(nullable=True):
+            return self.copy(nullable=(self.nullable or other.nullable))
 
-        if type1.is_invalid_type():
-            return type2
-        if type2.is_invalid_type():
-            return type1
+        if self.is_invalid_type():
+            return other
+        if other.is_invalid_type():
+            return self
 
-        if type1.is_scalar_type() and type2.is_scalar_type():
-            t = cls.Type.supertype(type1._type, type2._type, cls.common_supertypes)
+        if self.is_scalar_type() and other.is_scalar_type():
+            t = self.Type.supertype(self._type, other._type, self.common_supertypes)
             if t is not None:
-                return cls.make_type(t)
+                return self.make_type(t).copy(nullable=(self.nullable or other.nullable))
             return None
 
-        if type1._type == type2._type:
-            return cls._supertype(type1, type2)
-
         return None
-
-    @classmethod
-    @abc.abstractmethod
-    def _supertype(cls, type1: ColumnType, type2: ColumnType) -> Optional[ColumnType]:
-        """
-        Class-specific implementation of determining the supertype. type1 and type2 are from the same subclass of
-        ColumnType.
-        """
-        pass
 
     @classmethod
     def infer_literal_type(cls, val: Any) -> Optional[ColumnType]:
         if isinstance(val, str):
             return StringType()
+        if isinstance(val, bool):
+            # We have to check bool before int, because isinstance(b, int) is True if b is a Python bool
+            return BoolType()
         if isinstance(val, int):
             return IntType()
         if isinstance(val, float):
             return FloatType()
-        if isinstance(val, bool):
-            return BoolType()
-        if isinstance(val, datetime.datetime) or isinstance(val, datetime.date):
+        if isinstance(val, datetime.datetime):
             return TimestampType()
         if isinstance(val, PIL.Image.Image):
-            return ImageType(width=val.width, height=val.height)
+            return ImageType(width=val.width, height=val.height, mode=val.mode)
         if isinstance(val, np.ndarray):
             col_type = ArrayType.from_literal(val)
             if col_type is not None:
                 return col_type
             # this could still be json-serializable
-        if isinstance(val, dict) or isinstance(val, np.ndarray):
+        if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray):
             try:
                 JsonType().validate_literal(val)
                 return JsonType()
             except TypeError:
                 return None
         return None
+
+    @classmethod
+    def infer_common_literal_type(cls, vals: Iterable[Any]) -> Optional[ColumnType]:
+        """
+        Returns the most specific type that is a supertype of all literals in `vals`. If no such type
+        exists, returns None.
+
+        Args:
+            vals: A collection of literals.
+        """
+        inferred_type: Optional[ColumnType] = None
+        for val in vals:
+            val_type = cls.infer_literal_type(val)
+            if inferred_type is None:
+                inferred_type = val_type
+            else:
+                inferred_type = inferred_type.supertype(val_type)
+                if inferred_type is None:
+                    return None
+        return inferred_type
 
     @classmethod
     def from_python_type(cls, t: type) -> Optional[ColumnType]:
@@ -252,7 +260,7 @@ class ColumnType:
                 # We treat it as the underlying type but with nullable=True.
                 underlying = cls.from_python_type(union_args[0])
                 if underlying is not None:
-                    underlying.nullable = True
+                    underlying._nullable = True
                     return underlying
         elif typing.get_origin(t) is typing.Annotated:
             annotated_args = typing.get_args(t)
@@ -287,7 +295,7 @@ class ColumnType:
                 return FloatType()
             if base is bool:
                 return BoolType()
-            if base is datetime.date or base is datetime.datetime:
+            if base is datetime.datetime:
                 return TimestampType()
             if issubclass(base, Sequence) or issubclass(base, Mapping):
                 return JsonType()
@@ -436,7 +444,7 @@ class StringType(ColumnType):
     def conversion_fn(self, target: ColumnType) -> Optional[Callable[[Any], Any]]:
         if not target.is_timestamp_type():
             return None
-        def convert(val: str) -> Optional[datetime]:
+        def convert(val: str) -> Optional[datetime.datetime]:
             try:
                 dt = datetime.datetime.fromisoformat(val)
                 return dt
@@ -517,8 +525,8 @@ class TimestampType(ColumnType):
         return sql.TIMESTAMP()
 
     def _validate_literal(self, val: Any) -> None:
-        if not isinstance(val, datetime.datetime) and not isinstance(val, datetime.date):
-            raise TypeError(f'Expected datetime.datetime or datetime.date, got {val.__class__.__name__}')
+        if not isinstance(val, datetime.datetime):
+            raise TypeError(f'Expected datetime.datetime, got {val.__class__.__name__}')
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
@@ -574,21 +582,22 @@ class JsonType(ColumnType):
 
 
 class ArrayType(ColumnType):
-    def __init__(
-            self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
+    def __init__(self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         self.shape = shape
         assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
         self.dtype = dtype._type
 
-    def _supertype(cls, type1: ArrayType, type2: ArrayType) -> Optional[ArrayType]:
-        if len(type1.shape) != len(type2.shape):
+    def supertype(self, other: ColumnType) -> Optional[ArrayType]:
+        if not isinstance(other, ArrayType):
             return None
-        base_type = ColumnType.supertype(type1.dtype, type2.dtype)
+        if len(self.shape) != len(other.shape):
+            return None
+        base_type = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
         if base_type is None:
             return None
-        shape = [n1 if n1 == n2 else None for n1, n2 in zip(type1.shape, type2.shape)]
-        return ArrayType(tuple(shape), base_type)
+        shape = [n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape)]
+        return ArrayType(tuple(shape), self.make_type(base_type), nullable=(self.nullable or other.nullable))
 
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
@@ -620,7 +629,7 @@ class ArrayType(ColumnType):
             dtype = StringType()
         else:
             return None
-        return cls(val.shape, dtype=dtype, nullable=True)
+        return cls(val.shape, dtype=dtype)
 
     def is_valid_literal(self, val: np.ndarray) -> bool:
         if not isinstance(val, np.ndarray):
@@ -705,13 +714,13 @@ class ImageType(ColumnType):
             params_str = ''
         return f'{self._type.name.lower()}{params_str}'
 
-    def _is_supertype_of(self, other: ImageType) -> bool:
-        if self.mode != other.mode:
-            return False
-        if self.width is None and self.height is None:
-            return True
-        if self.width != other.width and self.height != other.height:
-            return False
+    def supertype(self, other: ColumnType) -> Optional[ImageType]:
+        if not isinstance(other, ImageType):
+            return None
+        width = self.width if self.width == other.width else None
+        height = self.height if self.height == other.height else None
+        mode = self.mode if self.mode == other.mode else None
+        return ImageType(width=width, height=height, mode=mode, nullable=(self.nullable or other.nullable))
 
     @property
     def size(self) -> Optional[Tuple[int, int]]:

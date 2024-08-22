@@ -24,6 +24,7 @@ class EmbeddingIndex(IndexBase):
     - similarity_clause() converts those metrics back to their original form; it is used in expressions outside
       the Order By clause
     - order_by_clause() is used exclusively in the ORDER BY clause
+    - embedding function parameters are named '<type-name>_embed', where type-name is ColumnType.Type.name
     """
 
     class Metric(enum.Enum):
@@ -38,30 +39,30 @@ class EmbeddingIndex(IndexBase):
     }
 
     def __init__(
-            self, c: catalog.Column, metric: str, text_embed: Optional[func.Function] = None,
-            img_embed: Optional[func.Function] = None):
+            self, c: catalog.Column, metric: str, string_embed: Optional[func.Function] = None,
+            image_embed: Optional[func.Function] = None):
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
         if not c.col_type.is_string_type() and not c.col_type.is_image_type():
             raise excs.Error(f'Embedding index requires string or image column')
-        if c.col_type.is_string_type() and text_embed is None:
-                raise excs.Error(f'Text embedding function is required for column {c.name} (parameter `txt_embed`)')
-        if c.col_type.is_image_type() and img_embed is None:
-            raise excs.Error(f'Image embedding function is required for column {c.name} (parameter `img_embed`)')
-        if text_embed is not None:
+        if c.col_type.is_string_type() and string_embed is None:
+                raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
+        if c.col_type.is_image_type() and image_embed is None:
+            raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
+        if string_embed is not None:
             # verify signature
-            self._validate_embedding_fn(text_embed, 'txt_embed', ts.ColumnType.Type.STRING)
-        if img_embed is not None:
+            self._validate_embedding_fn(string_embed, 'string_embed', ts.ColumnType.Type.STRING)
+        if image_embed is not None:
             # verify signature
-            self._validate_embedding_fn(img_embed, 'img_embed', ts.ColumnType.Type.IMAGE)
+            self._validate_embedding_fn(image_embed, 'image_embed', ts.ColumnType.Type.IMAGE)
 
         self.metric = self.Metric[metric.upper()]
         from pixeltable.exprs import ColumnRef
-        self.value_expr = text_embed(ColumnRef(c)) if c.col_type.is_string_type() else img_embed(ColumnRef(c))
+        self.value_expr = string_embed(ColumnRef(c)) if c.col_type.is_string_type() else image_embed(ColumnRef(c))
         assert self.value_expr.col_type.is_array_type()
-        self.txt_embed = text_embed
-        self.img_embed = img_embed
+        self.string_embed = string_embed
+        self.image_embed = image_embed
         vector_size = self.value_expr.col_type.shape[0]
         assert vector_size is not None
         self.index_col_type = pgvector.sqlalchemy.Vector(vector_size)
@@ -70,7 +71,10 @@ class EmbeddingIndex(IndexBase):
         """Return expression that computes the value that goes into the index"""
         return self.value_expr
 
-    def index_sa_type(self) -> sql.sqltypes.TypeEngine:
+    def records_value_errors(self) -> bool:
+        return True
+
+    def index_sa_type(self) -> sql.types.TypeEngine:
         """Return the sqlalchemy type of the index value column"""
         return self.index_col_type
 
@@ -85,14 +89,14 @@ class EmbeddingIndex(IndexBase):
         idx.create(bind=conn)
 
     def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ClauseElement:
-        """Create a ClauseElement to that represents '<val_column> <op> <item>'"""
+        """Create a ClauseElement that represents '<val_column> <op> <item>'"""
         assert isinstance(item, (str, PIL.Image.Image))
         if isinstance(item, str):
-            assert self.txt_embed is not None
-            embedding = self.txt_embed.exec(item)
+            assert self.string_embed is not None
+            embedding = self.string_embed.exec(item)
         if isinstance(item, PIL.Image.Image):
-            assert self.img_embed is not None
-            embedding = self.img_embed.exec(item)
+            assert self.image_embed is not None
+            embedding = self.image_embed.exec(item)
 
         if self.metric == self.Metric.COSINE:
             return val_column.sa_col.cosine_distance(embedding) * -1 + 1
@@ -107,11 +111,11 @@ class EmbeddingIndex(IndexBase):
         assert isinstance(item, (str, PIL.Image.Image))
         embedding: Optional[np.ndarray] = None
         if isinstance(item, str):
-            assert self.txt_embed is not None
-            embedding = self.txt_embed.exec(item)
+            assert self.string_embed is not None
+            embedding = self.string_embed.exec(item)
         if isinstance(item, PIL.Image.Image):
-            assert self.img_embed is not None
-            embedding = self.img_embed.exec(item)
+            assert self.image_embed is not None
+            embedding = self.image_embed.exec(item)
         assert embedding is not None
 
         if self.metric == self.Metric.COSINE:
@@ -157,12 +161,12 @@ class EmbeddingIndex(IndexBase):
     def as_dict(self) -> dict:
         return {
             'metric': self.metric.name.lower(),
-            'txt_embed': None if self.txt_embed is None else self.txt_embed.as_dict(),
-            'img_embed': None if self.img_embed is None else self.img_embed.as_dict()
+            'string_embed': None if self.string_embed is None else self.string_embed.as_dict(),
+            'image_embed': None if self.image_embed is None else self.image_embed.as_dict()
         }
 
     @classmethod
     def from_dict(cls, c: catalog.Column, d: dict) -> EmbeddingIndex:
-        txt_embed = func.Function.from_dict(d['txt_embed']) if d['txt_embed'] is not None else None
-        img_embed = func.Function.from_dict(d['img_embed']) if d['img_embed'] is not None else None
-        return cls(c, metric=d['metric'], text_embed=txt_embed, img_embed=img_embed)
+        string_embed = func.Function.from_dict(d['string_embed']) if d['string_embed'] is not None else None
+        image_embed = func.Function.from_dict(d['image_embed']) if d['image_embed'] is not None else None
+        return cls(c, metric=d['metric'], string_embed=string_embed, image_embed=image_embed)

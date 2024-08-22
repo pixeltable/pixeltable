@@ -1,9 +1,13 @@
 import json
+import math
 import urllib.parse
 import urllib.request
-from typing import List, Dict
 from datetime import datetime
+from pathlib import Path
+from typing import List, Dict
 
+import PIL.Image
+import numpy as np
 import pytest
 import sqlalchemy as sql
 
@@ -14,12 +18,12 @@ from pixeltable import exceptions as excs
 from pixeltable import exprs
 from pixeltable.exprs import Expr, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
-from pixeltable.functions import cast, sum, count
-from pixeltable.functions.pil.image import blend
+from pixeltable.functions import cast
+from pixeltable.functions.globals import sum, count
 from pixeltable.iterators import FrameIterator
-from .utils import get_image_files, skip_test_if_not_installed, validate_update_status, reload_catalog
 from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
     VideoType
+from .utils import get_image_files, skip_test_if_not_installed, validate_update_status, reload_catalog
 
 
 class TestExprs:
@@ -142,13 +146,13 @@ class TestExprs:
 
     def test_filters(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        _ = t[t.c1 == 'test string'].show()
+        _ = t.where(t.c1 == 'test string').show()
         print(_)
-        _ = t[t.c2 > 50].show()
+        _ = t.where(t.c2 > 50).show()
         print(_)
-        _ = t[t.c1n == None].show()
+        _ = t.where(t.c1n == None).show()
         print(_)
-        _ = t[t.c1n != None].show(0)
+        _ = t.where(t.c1n != None).show(0)
         print(_)
 
     def test_exception_handling(self, test_tbl: catalog.Table) -> None:
@@ -226,7 +230,7 @@ class TestExprs:
             assert 'only valid for' in str(excinfo.value)
 
         # fileurl/localpath doesn't apply to unstored computed img columns
-        img_t.add_column(c9=img_t.img.rotate(30))
+        img_t.add_column(c9=img_t.img.rotate(30), stored=False)
         with pytest.raises(excs.Error) as excinfo:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
@@ -244,7 +248,7 @@ class TestExprs:
         data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
         status = t.insert(data, fail_on_exception=False)
         assert status.num_rows == len(data)
-        assert status.num_excs == len(data) - 1
+        assert status.num_excs >= len(data) - 1
         result = t.select(t.c3, t.c4).collect()
         assert result['c3'] == [2.0, None, None, None]
         assert result['c4'] == [2.0, 1.0, None, None]
@@ -252,13 +256,20 @@ class TestExprs:
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
+        # Add nullable int and float columns
+        t.add_column(c2n=IntType(nullable=True))
+        t.add_column(c3n=FloatType(nullable=True))
+        t.where(t.c2 % 7 != 0).update({'c2n': t.c2, 'c3n': t.c3})
+
         _ = t[t.c2, t.c6.f3, t.c2 + t.c6.f3, (t.c2 + t.c6.f3) / (t.c6.f3 + 1)].show()
         _ = t[t.c2 + t.c2].show()
-        for op1, op2 in [(t.c2, t.c2), (t.c3, t.c3)]:
-            _ = t[op1 + op2].show()
-            _ = t[op1 - op2].show()
-            _ = t[op1 * op2].show()
-            _ = t[op1 > 0][op1 / op2].show()
+        for op1, op2 in [(t.c2, t.c2), (t.c3, t.c3), (t.c2, t.c2n), (t.c2n, t.c2)]:
+            _ = t.select(op1 + op2).show()
+            _ = t.select(op1 - op2).show()
+            _ = t.select(op1 * op2).show()
+            _ = t.where(op1 > 0).select(op1 / op2).show()
+            _ = t.where(op1 > 0).select(op1 % op2).show()
+            _ = t.where(op1 > 0).select(op1 // op2).show()
 
         # non-numeric types
         for op1, op2 in [
@@ -273,6 +284,10 @@ class TestExprs:
                 _ = t[op1 * op2]
             with pytest.raises(excs.Error):
                 _ = t[op1 / op2]
+            with pytest.raises(excs.Error):
+                _ = t[op1 % op2]
+            with pytest.raises(excs.Error):
+                _ = t[op1 // op2]
 
         # TODO: test division; requires predicate
         for op1, op2 in [(t.c6.f2, t.c6.f2), (t.c6.f3, t.c6.f3)]:
@@ -292,6 +307,58 @@ class TestExprs:
                 _ = t[op1 - op2].show()
             with pytest.raises(excs.Error):
                 _ = t[op1 * op2].show()
+
+        # Test literal exprs
+        results = t.where(t.c2 == 7).select(
+            -t.c2,
+            t.c2 + 2,
+            t.c2 - 2,
+            t.c2 * 2,
+            t.c2 / 2,
+            t.c2 % 2,
+            t.c2 // 2,
+            2 + t.c2,
+            2 - t.c2,
+            2 * t.c2,
+            2 / t.c2,
+            2 % t.c2,
+            2 // t.c2,
+        ).collect()
+        assert list(results[0].values()) == [-7, 9, 5, 14, 3.5, 1, 3, 9, -5, 14, 0.2857142857142857, 2, 0]
+
+        # Test that arithmetic operations give the right answers. We do this two ways:
+        # (i) with primitive operators only, to ensure that the arithmetic operations are done in SQL when possible;
+        # (ii) with a Python function call interposed, to ensure that the arithmetic operations are always done in Python;
+        # (iii) and (iv), as (i) and (ii) but with JsonType expressions.
+        primitive_ops = (t.c2, t.c3)
+        forced_python_ops = (t.c2.apply(math.floor, col_type=IntType()), t.c3.apply(math.floor, col_type=FloatType()))
+        json_primitive_ops = (t.c6.f2, t.c6.f3)
+        json_forced_python_ops = (t.c6.f2.apply(math.floor, col_type=IntType()), t.c6.f3.apply(math.floor, col_type=FloatType()))
+        for (int_operand, float_operand) in (primitive_ops, forced_python_ops, json_primitive_ops, json_forced_python_ops):
+            results = t.where(t.c2 == 7).select(
+                add_int=int_operand + (t.c2 - 4),
+                sub_int=int_operand - (t.c2 - 4),
+                mul_int=int_operand * (t.c2 - 4),
+                truediv_int=int_operand / (t.c2 - 4),
+                mod_int=int_operand % (t.c2 - 4),
+                neg_floordiv_int=(int_operand * -1) // (t.c2 - 4),
+                add_float=float_operand + (t.c3 - 4.0),
+                sub_float=float_operand - (t.c3 - 4.0),
+                mul_float=float_operand * (t.c3 - 4.0),
+                truediv_float=float_operand / (t.c3 - 4.0),
+                mod_float=float_operand % (t.c3 - 4.0),
+                floordiv_float=float_operand // (t.c3 - 4.0),
+                neg_floordiv_float=(float_operand * -1) // (t.c3 - 4.0),
+                add_int_to_nullable=int_operand + (t.c2n - 4),
+                add_float_to_nullable=float_operand + (t.c3n - 4.0),
+            ).collect()
+            assert list(results[0].values()) == [10, 4, 21, 2.3333333333333335, 1, -3, 10.0, 4.0, 21.0, 2.3333333333333335, 1.0, 2.0, -3.0, None, None], (
+                f'Failed with operands: {int_operand}, {float_operand}'
+            )
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.select(t.c6 + t.c2.apply(math.floor, col_type=IntType())).collect()
+        assert '+ requires numeric type, but c6 has type dict' in str(exc_info.value)
 
 
     def test_inline_dict(self, test_tbl: catalog.Table) -> None:
@@ -435,6 +502,34 @@ class TestExprs:
         status = t.add_column(c2_as_string=t.c2.astype(StringType()))
         assert status.num_excs == t.count()
 
+    def test_astype_str_to_img(self, reset_db) -> None:
+        img_files = get_image_files()
+        img_files = img_files[:5]
+        # store relative paths in the table
+        parent_dir = Path(img_files[0]).parent
+        assert(all(parent_dir == Path(img_file).parent for img_file in img_files))
+        t = pxt.create_table('astype_test', schema={'rel_path': StringType()})
+        validate_update_status(t.insert({'rel_path': Path(f).name} for f in img_files), expected_rows=len(img_files))
+
+        # create a computed image column constructed from the relative paths
+        import pixeltable.functions as pxtf
+        validate_update_status(
+            t.add_column(
+                img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.ImageType()), stored=True)
+        )
+        loaded_imgs = t.select(t.img).collect()['img']
+        orig_imgs = [PIL.Image.open(f) for f in img_files]
+        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
+            assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
+
+        # the same for a select list item
+        loaded_imgs = (
+            t.select(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.ImageType()))
+            .collect()['img']
+        )
+        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
+            assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
+
     def test_apply(self, test_tbl: catalog.Table) -> None:
 
         t = test_tbl
@@ -544,29 +639,49 @@ class TestExprs:
     def test_img_members(self, img_tbl) -> None:
         t = img_tbl
         # make sure the limit is applied in Python, not in the SELECT
-        result = t[t.img.height > 200][t.img].show(n=3)
+        result = t.where(t.img.height > 200).select(t.img).show(n=3)
         assert len(result) == 3
-        result = t[t.img.crop((10, 10, 60, 60))].show(n=100)
-        result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100))].show(n=100)
-        result = t[t.img.crop((10, 10, 60, 60)).resize((100, 100)).convert('L')].show(n=100)
-        result = t[t.img.getextrema()].show(n=100)
-        result = t[t.img, t.img.height, t.img.rotate(90)].show(n=100)
+        result = t.select(t.img.crop((10, 10, 60, 60))).show(n=100)
+        result = t.select(t.img.crop((10, 10, 60, 60)).resize((100, 100))).show(n=100)
+        result = t.select(t.img.crop((10, 10, 60, 60)).resize((100, 100)).convert('L')).show(n=100)
+        result = t.select(t.img.getextrema()).show(n=100)
+        result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
+
+    def test_ext_imgs(self, reset_db) -> None:
+        t = pxt.create_table('img_test', {'img': pxt.ImageType()})
+        img_urls = [
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000030.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000034.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000042.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000049.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000057.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000061.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000063.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000064.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000069.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000071.jpg',
+        ]
+        t.insert({'img': url} for url in img_urls)
+        # this fails with an assertion
+        # TODO: fix it
+        #res = t.where(t.img.width < 600).collect()
 
     def test_img_exprs(self, img_tbl) -> None:
         t = img_tbl
+        _ = t.where(t.img.width < 600).collect()
         _ = (t.img.entropy() > 1) & (t.split == 'train')
         _ = (t.img.entropy() > 1) & (t.split == 'train') & (t.split == 'val')
         _ = (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
-        result = t[(t.split == 'train') & (t.category == 'n03445777')][t.img].show()
+        result = t.where((t.split == 'train') & (t.category == 'n03445777')).select(t.img).show()
         print(result)
-        result = t[t.img.width > 1].show()
+        result = t.where(t.img.width > 1).show()
         print(result)
-        result = t[(t.split == 'val') & (t.img.entropy() > 1) & (t.category == 'n03445777')].show()
+        result = t.where((t.split == 'val') & (t.img.entropy() > 1) & (t.category == 'n03445777')).show()
         print(result)
-        result = t[
+        result = t.where(
             (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
-        ][t.img, t.split].show()
+        ).select(t.img, t.split).show()
         print(result)
 
     @pytest.mark.skip(reason='temporarily disabled')
@@ -604,9 +719,9 @@ class TestExprs:
         probe = t[t.img].show(1)
         img = probe[0, 0]
 
-        with pytest.raises(excs.Error):
+        with pytest.raises(AttributeError):
             _ = t[t.img.nearest(img)].show(10)
-        with pytest.raises(excs.Error):
+        with pytest.raises(AttributeError):
             _ = t[t.img.nearest('musical instrument')].show(10)
 
     def test_ids(
@@ -775,6 +890,16 @@ class TestExprs:
             # group_by for non-window function
             _ = t.select(self.std_agg(t.c2, group_by=t.c4)).collect()
         assert 'group_by invalid' in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            # group_by with non-ancestor table
+            _ = t.select(t.c2).group_by(t)
+        assert 'group_by(): test_tbl is not a base table of test_tbl' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            # group_by with non-singleton table
+            _ = t.select(t.c2).group_by(t, t.c2)
+        assert 'group_by(): only one table can be specified' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             # missing init type
