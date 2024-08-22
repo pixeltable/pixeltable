@@ -74,14 +74,24 @@ class TestVideo:
     def test_fps(self, reset_db) -> None:
         path = get_video_files()[0]
         videos = pxt.create_table('videos', {'video': VideoType()})
+        frames_all = pxt.create_view('frames_all', videos, iterator=FrameIterator.create(video=videos.video))
         frames_1_0 = pxt.create_view('frames_1_0', videos, iterator=FrameIterator.create(video=videos.video, fps=1))
-        frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2))
-        frames_0_33 = pxt.create_view(
-            'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 3)
-        )
+        frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1/2))
+        frames_0_33 = pxt.create_view('frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1/3))
+        num_frames_10 = pxt.create_view('num_frames_10', videos, iterator=FrameIterator.create(video=videos.video, num_frames=10))
+        num_frames_50 = pxt.create_view('num_frames_50', videos, iterator=FrameIterator.create(video=videos.video, num_frames=50))
+        num_frames_1000 = pxt.create_view('num_frames_1000', videos, iterator=FrameIterator.create(video=videos.video, num_frames=1000))
         videos.insert(video=path)
-        assert frames_0_5.count() == frames_1_0.count() // 2 or frames_0_5.count() == frames_1_0.count() // 2 + 1
-        assert frames_0_33.count() == frames_1_0.count() // 3 or frames_0_33.count() == frames_1_0.count() // 3 + 1
+        assert frames_all.count() == 449
+        assert frames_1_0.count() == 16
+        assert frames_0_5.count() == 8
+        assert frames_0_33.count() == 6
+        assert num_frames_10.count() == 10
+        assert num_frames_50.count() == 50
+        assert num_frames_1000.count() == 449
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_view('invalid_args', videos, iterator=FrameIterator.create(video=videos.video, fps=1/2, num_frames=10))
+        assert 'At most one of `fps` or `num_frames` may be specified' in str(exc_info.value)
 
     def test_computed_cols(self, reset_db) -> None:
         video_filepaths = get_video_files()
