@@ -649,7 +649,10 @@ class TableVersion:
 
         assert self.is_insertable()
         assert (rows is None) != (df is None)  # Exactly one must be specified
-        plan = Planner.create_insert_plan(self, rows, df, ignore_errors=not fail_on_exception)
+        if rows is not None:
+            plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
+        else:
+            plan = Planner.create_df_insert_plan(self, df, ignore_errors=not fail_on_exception)
         if conn is None:
             with Env.get().engine.begin() as conn:
                 return self._insert(plan, conn, time.time(), print_stats)

@@ -1,4 +1,4 @@
-from typing import Any, Iterator, List, Optional, Set, Tuple
+from typing import Any, List, Optional, Set, Tuple
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -204,12 +204,10 @@ class Planner:
         cls,
         tbl: catalog.TableVersion,
         rows: Optional[list[dict[str, Any]]],
-        df: Optional['pxt.DataFrame'],
         ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
-        assert (rows is None) != (df is None)  # Exactly one must be specified
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols if c.is_stored]
         assert len(stored_cols) > 0
@@ -221,17 +219,12 @@ class Planner:
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         input_col_info = [info for info in stored_col_info if not info.col.is_computed]
         if rows is not None:
-            plan = exec.DataNode(tbl, [rows], row_builder, tbl.next_rowid, total_rows=len(rows))
+            plan = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
             media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
             if len(media_input_cols) > 0:
                 # prefetch external files for all input column refs for validation
                 plan = exec.CachePrefetchNode(tbl.id, media_input_cols, input=plan)
                 plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
-        if df is not None:
-            # Create a DataNode that iterates over the batches in the given DataFrame. We can skip media
-            # validation, since any needed validation will have already occurred in the Table that underlies
-            # the DataFrame.
-            plan = exec.DataNode(tbl, cls.__df_insert_batches(df), row_builder, tbl.next_rowid, validate_media=False)
 
         computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
         if len(computed_exprs) > 0:
@@ -246,19 +239,31 @@ class Planner:
         return plan
 
     @classmethod
-    def __df_insert_batches(cls, df: 'pxt.DataFrame') -> Iterator[list[dict[str, Any]]]:
-        col_names = list(df.schema.keys())
-        # Note that df._exec_batches() will not actually be invoked until the first time next()
-        # is called on the iterator (which will happen after node execution begins)
-        for row_batch in df._exec_batches():
-            insert_batch = []
-            for row in row_batch:
-                insert_row = {
-                    col_names[i]: row[df._select_list_exprs[i].slot_idx]
-                    for i in range(len(col_names))
-                }
-                insert_batch.append(insert_row)
-            yield insert_batch
+    def create_df_insert_plan(
+        cls,
+        tbl: catalog.TableVersion,
+        df: 'pxt.DataFrame',
+        ignore_errors: bool
+    ) -> exec.ExecNode:
+        assert not tbl.is_view()
+        stored_cols = [c for c in tbl.cols if c.is_stored]
+        row_builder = exprs.RowBuilder([], stored_cols, [])
+        plan = df._create_query_plan()
+        input_col_idxs = dict(zip(df.schema.keys(), (expr.slot_idx for expr in df._select_list_exprs)))
+        plan = exec.MapperDataNode(tbl, row_builder, input_col_idxs, input=plan)
+        computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
+        if len(computed_exprs) > 0:
+            # add an ExprEvalNode when there are exprs to compute
+            plan = exec.ExprEvalNode(row_builder, computed_exprs, plan.output_exprs, input=plan)
+        stored_col_info = row_builder.output_slot_idxs()
+        stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
+        plan.set_stored_img_cols(stored_img_col_info)
+        plan.set_ctx(
+            exec.ExecContext(
+                row_builder, batch_size=0, show_pbar=True, num_computed_exprs=len(computed_exprs),
+                ignore_errors=ignore_errors))
+        plan.ctx.num_rows = 0  # Unknown
+        return plan
 
     @classmethod
     def create_update_plan(

@@ -15,8 +15,8 @@ import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-from pixeltable.exec import DataRowBatch
 import pixeltable.exprs as exprs
+from pixeltable import exec
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
@@ -275,10 +275,24 @@ class DataFrame:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
-        for row_batch in self._exec_batches(conn):
-            yield from row_batch
+        plan = self._create_query_plan()
 
-    def _exec_batches(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[DataRowBatch]:
+        def exec_plan(conn: sql.engine.Connection) -> Iterator[exec.DataRowBatch]:
+            plan.ctx.set_conn(conn)
+            plan.open()
+            try:
+                for row_batch in plan:
+                    yield from row_batch
+            finally:
+                plan.close()
+
+        if conn is None:
+            with Env.get().engine.begin() as conn:
+                yield from exec_plan(conn)
+        else:
+            yield from exec_plan(conn)
+
+    def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
         group_by_clause: List[exprs.Expr] = []
         if self.grouping_tbl is not None:
@@ -293,7 +307,7 @@ class DataFrame:
         for item in self._select_list_exprs:
             item.bind_rel_paths(None)
 
-        plan = Planner.create_query_plan(
+        return Planner.create_query_plan(
             self.tbl,
             self._select_list_exprs,
             where_clause=self.where_clause,
@@ -302,19 +316,6 @@ class DataFrame:
             limit=self.limit_val if self.limit_val is not None else 0,
         )  # limit_val == 0: no limit_val
 
-        def exec_plan(conn: sql.engine.Connection) -> Iterator[DataRowBatch]:
-            plan.ctx.set_conn(conn)
-            plan.open()
-            try:
-                yield from plan
-            finally:
-                plan.close()
-
-        if conn is None:
-            with Env.get().engine.begin() as conn:
-                yield from exec_plan(conn)
-        else:
-            yield from exec_plan(conn)
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
