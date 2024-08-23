@@ -568,33 +568,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pixeltable.Table.__getattr__" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;__getattr__
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Table.__getitem__" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;__getitem__
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Table.__setitem__" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;__setitem__
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#pixeltable.Table.add_column" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_column
@@ -957,6 +930,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/json/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    json
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/string/" class="md-nav__link">
         
   
@@ -1041,7 +1035,7 @@
             
   
   <span class="md-ellipsis">
-    Model and Inference Functions
+    Use Cases
   </span>
   
 
@@ -1050,6 +1044,69 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Use Cases
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/vision/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Computer Vision
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             Model and Inference Functions
           </label>
@@ -1243,33 +1300,6 @@
   <a href="#pixeltable.Table.path" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;path
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Table.__getattr__" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;__getattr__
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Table.__getitem__" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;__getitem__
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.Table.__setitem__" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;__setitem__
     </span>
   </a>
   
@@ -1792,102 +1822,6 @@ from which it was derived. Otherwise, returns <code>None</code>.</p>
 </div>
 
 
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="pixeltable.Table.__getattr__" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">__getattr__</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="fm">__getattr__</span><span class="p">(</span>
-    <span class="nf">name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span>
-    <span class="s2">&quot;pixeltable.exprs.ColumnRef&quot;</span><span class="p">,</span> <span class="s2">&quot;pixeltable.func.QueryTemplateFunction&quot;</span>
-<span class="p">]</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-      <p>Return a ColumnRef or QueryTemplateFunction for the given name.</p>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="pixeltable.Table.__getitem__" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">__getitem__</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="fm">__getitem__</span><span class="p">(</span>
-    <span class="nf">index</span><span class="p">:</span> <span class="n">object</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span>
-    <span class="s2">&quot;pixeltable.func.QueryTemplateFunction&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;pixeltable.exprs.ColumnRef&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;pixeltable.dataframe.DataFrame&quot;</span><span class="p">,</span>
-<span class="p">]</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-      <p>Return a ColumnRef or QueryTemplateFunction for the given name, or a DataFrame for the given slice.</p>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="pixeltable.Table.__setitem__" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">__setitem__</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="fm">__setitem__</span><span class="p">(</span>
-    <span class="nf">column_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n"><span title="typing.Callable">Callable</span></span><span class="p">,</span> <span class="n">dict</span><span class="p">]</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-      <p>Adds a column to the table
-Args:
-    column_name: the name of the new column
-    value: column type or value expression or column specification dictionary:
-        column type: a Pixeltable column type (if the table already contains rows, it must be nullable)
-        value expression: a Pixeltable expression that computes the column values
-        column specification: a dictionary with possible keys 'type', 'value', 'stored'
-Examples:
-    Add an int column with <code>None</code> values:</p>
-<pre><code>&gt;&gt;&gt; tbl['new_col'] = IntType(nullable=True)
-
-For a table with int column ``int_col``, add a column that is the factorial of ``int_col``. The names of
-the parameters of the Callable must correspond to existing column names (the column values are then passed
-as arguments to the Callable). In this case, the return type cannot be inferred and needs to be specified
-explicitly:
-
-&gt;&gt;&gt; tbl['factorial'] = {'value': lambda int_col: math.factorial(int_col), 'type': IntType()}
-
-For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
-90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
-(by default, computed image columns are not stored but recomputed on demand):
-
-&gt;&gt;&gt; tbl['rotated'] = tbl.frame.rotate(90)
-
-Do the same, but now the column is stored:
-
-&gt;&gt;&gt; tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
-</code></pre>
-
-    </div>
-
-</div>
 
 <div class="doc doc-object doc-function">
 

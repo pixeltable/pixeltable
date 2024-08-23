@@ -613,6 +613,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../functions/json/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    json
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../functions/string/" class="md-nav__link">
         
   
@@ -697,7 +718,7 @@
             
   
   <span class="md-ellipsis">
-    Model and Inference Functions
+    Use Cases
   </span>
   
 
@@ -706,6 +727,69 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Use Cases
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../functions/vision/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Computer Vision
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             Model and Inference Functions
           </label>
@@ -903,38 +987,26 @@
 
 
 </h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">FrameIterator</span><span class="p">(</span><span class="n">video</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">fps</span><span class="p">:</span> <span class="n">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">FrameIterator</span><span class="p">(</span>
+    <span class="n">video</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">fps</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">num_frames</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
 
 
-      <p>Iterator over frames of a video.</p>
-
-
-<p><span class="doc-section-title">Parameters:</span></p>
-    <ul>
-        <li class="doc-section-item field-body">
-          <b><code>video</code></b>
-              (<code>str</code>)
-          –
-          <div class="doc-md-description">
-            <p>URL or file of the video to use for frame extraction</p>
-          </div>
-        </li>
-        <li class="doc-section-item field-body">
-          <b><code>fps</code></b>
-              (<code>float</code>, default:
-                  <code>0.0</code>
-)
-          –
-          <div class="doc-md-description">
-            <p>number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-If set to 0.0, then the native framerate of the video will be used (all frames will be extracted).
-Default: 0.0</p>
-          </div>
-        </li>
-    </ul>
+      <p>Iterator over frames of a video. At most one of <code>fps</code> or <code>num_frames</code> may be specified. If <code>fps</code> is specified,
+then frames will be extracted at the specified rate (frames per second). If <code>num_frames</code> is specified, then the
+exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The first
+frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.</p>
+<pre><code>Args:
+    video: URL or path of the video to use for frame extraction.
+    fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
+        If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be
+        extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
+    num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
+        `num_frames` is greater than the number of frames in the video, all frames will be extracted.
+</code></pre>
 
 
 

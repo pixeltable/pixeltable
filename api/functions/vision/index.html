@@ -11,8 +11,10 @@
       
       
       
-        <link rel="prev" href="../together/">
+        <link rel="prev" href="../video/">
       
+      
+        <link rel="next" href="../fireworks/">
       
       
       <link rel="icon" href="../../../assets/images/favicon.png">
@@ -20,7 +22,7 @@
     
     
       
-        <title>whisper - Pixeltable API</title>
+        <title>Computer Vision - Pixeltable API</title>
       
     
     
@@ -66,7 +68,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#pixeltable.functions.whisper" class="md-skip">
+        <a href="#pixeltable.functions.vision" class="md-skip">
           Skip to content
         </a>
       
@@ -102,7 +104,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              whisper
+              Computer Vision
             
           </span>
         </div>
@@ -635,17 +637,19 @@
       
   
   
+    
   
   
+  
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
@@ -659,7 +663,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Use Cases
@@ -670,10 +674,28 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../vision/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Computer Vision
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -682,6 +704,66 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pixeltable.functions.vision" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;vision
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" vision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.vision.mean_ap" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;mean_ap
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.vision.draw_bounding_boxes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;draw_bounding_boxes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.vision.eval_detections" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;eval_detections
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -698,19 +780,17 @@
       
   
   
-    
   
   
-  
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
         
           
           <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
@@ -724,7 +804,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             Model and Inference Functions
@@ -819,28 +899,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    whisper
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../whisper/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -849,48 +911,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#pixeltable.functions.whisper" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;whisper
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label=" whisper">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.functions.whisper.transcribe" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;transcribe
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -928,19 +948,37 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#pixeltable.functions.whisper" class="md-nav__link">
+  <a href="#pixeltable.functions.vision" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;whisper
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;vision
     </span>
   </a>
   
-    <nav class="md-nav" aria-label=" whisper">
+    <nav class="md-nav" aria-label=" vision">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#pixeltable.functions.whisper.transcribe" class="md-nav__link">
+  <a href="#pixeltable.functions.vision.mean_ap" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;transcribe
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;mean_ap
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.vision.draw_bounding_boxes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;draw_bounding_boxes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.vision.eval_detections" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;eval_detections
     </span>
   </a>
   
@@ -972,24 +1010,58 @@
   
 
 
-  <h1>whisper</h1>
+  <h1>Computer Vision</h1>
 
 <div class="doc doc-object doc-module">
 
 
 
-<h2 id="pixeltable.functions.whisper" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">pixeltable.functions.whisper</span>
+<h2 id="pixeltable.functions.vision" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">pixeltable.functions.vision</span>
 
 
 </h2>
 
     <div class="doc doc-contents first">
 
-      <p>Pixeltable <a href="https://pixeltable.readme.io/docs/user-defined-functions-udfs">UDF</a>
-that wraps the OpenAI Whisper library.</p>
-<p>This UDF will cause Pixeltable to invoke the relevant model locally. In order to use it, you must
-first <code>pip install openai-whisper</code>.</p>
+      <p>Pixeltable <a href="https://pixeltable.readme.io/docs/user-defined-functions-udfs">UDFs</a> for Computer Vision.</p>
+<p>Example:</p>
+<pre><code class="language-python">import pixeltable as pxt
+from pixeltable.functions import vision as pxtv
+
+t = pxt.get_table(...)
+t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect()
+</code></pre>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="pixeltable.functions.vision.mean_ap" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <span class="doc doc-object-name doc-class-name">mean_ap</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">mean_ap</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+      <p>Calculates the mean average precision (mAP) over
+<a class="autorefs autorefs-internal" href="#pixeltable.functions.vision.eval_detections"><code>eval_detections()</code></a> results.</p>
+
 
 
 
@@ -1003,59 +1075,146 @@ first <code>pip install openai-whisper</code>.</p>
 
 
 
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
 <div class="doc doc-object doc-function">
 
 
-<h3 id="pixeltable.functions.whisper.transcribe" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">transcribe</span>
+<h3 id="pixeltable.functions.vision.draw_bounding_boxes" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">draw_bounding_boxes</span>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">transcribe</span><span class="p">(</span>
-    <span class="n">audio</span><span class="p">:</span> <span class="n">AudioT</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span>
-    <span class="n">compression_ratio_threshold</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">2.4</span><span class="p">,</span>
-    <span class="n">logprob_threshold</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span>
-    <span class="n">no_speech_threshold</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.6</span><span class="p">,</span>
-    <span class="n">condition_on_previous_text</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">initial_prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">word_timestamps</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">prepend_punctuations</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\&quot;</span><span class="s2">&#39;“¿([{-&quot;</span><span class="p">,</span>
-    <span class="n">append_punctuations</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\&quot;</span><span class="s2">&#39;.。,，!！?？:：”)]}、&quot;</span><span class="p">,</span>
-    <span class="n">decode_options</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">draw_bounding_boxes</span><span class="p">(</span>
+    <span class="n">img</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span>
+    <span class="n">boxes</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
+    <span class="n">labels</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">color</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">label_colors</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">box_colors</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fill</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">font</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">font_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Transcribe an audio file using Whisper.</p>
-<p>This UDF runs a transcription model <em>locally</em> using the Whisper library,
-equivalent to the Whisper <code>transcribe</code> function, as described in the
-<a href="https://github.com/openai/whisper">Whisper library documentation</a>.</p>
-<p><strong>Requirements:</strong></p>
-<ul>
-<li><code>pip install openai-whisper</code></li>
-</ul>
+      <p>Draws bounding boxes on the given image.</p>
+<p>Labels can be any type that supports <code>str()</code> and is hashable (e.g., strings, ints, etc.).</p>
+<p>Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's
+<a href="https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module"><code>ImageColor</code></a> module or as
+RGB hex codes (e.g., '#FF0000').</p>
+<p>If no colors are specified, this function randomly assigns each label a specific color based on a hash of the label.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>audio</code></b>
-              (<code>AudioT</code>)
+          <b><code>img</code></b>
+              (<code>ImageT</code>)
           –
           <div class="doc-md-description">
-            <p>The audio file to transcribe.</p>
+            <p>The image on which to draw the bounding boxes.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>model</code></b>
-              (<code>str</code>)
+          <b><code>boxes</code></b>
+              (<code>JsonT</code>)
           –
           <div class="doc-md-description">
-            <p>The name of the model to use for transcription.</p>
+            <p>List of bounding boxes, each represented as [xmin, ymin, xmax, ymax].</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>labels</code></b>
+              (<code>Optional[JsonT]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>List of labels for each bounding box.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>color</code></b>
+              (<code>Optional[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Single color to be used for all bounding boxes and labels.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>label_colors</code></b>
+              (<code>Optional[JsonT]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Dictionary mapping labels to colors.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>box_colors</code></b>
+              (<code>Optional[JsonT]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>List of colors, one per bounding box.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fill</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Whether to fill the bounding boxes with color.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>width</code></b>
+              (<code>int</code>, default:
+                  <code>1</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Width of the bounding box borders.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>font</code></b>
+              (<code>Optional[str]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Name of a system font or path to a TrueType font file, as required by
+<a href="https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.truetype"><code>PIL.ImageFont.truetype()</code></a>.
+If <code>None</code>, uses the default provided by
+<a href="https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.load_default"><code>PIL.ImageFont.load_default()</code></a>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>font_size</code></b>
+              (<code>Optional[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Size of the font used for labels in points. Only used in conjunction with non-<code>None</code> <code>font</code> argument.</p>
           </div>
         </li>
     </ul>
@@ -1064,20 +1223,38 @@ equivalent to the Whisper <code>transcribe</code> function, as described in the
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>ImageT</code>
           –
           <div class="doc-md-description">
-            <p>A dictionary containing the transcription and various other metadata.</p>
+            <p>The image with bounding boxes drawn on it.</p>
           </div>
         </li>
     </ul>
 
+    </div>
 
-<p><span class="doc-section-title">Examples:</span></p>
-    <p>Add a computed column that applies the model <code>base.en</code> to an existing Pixeltable column <code>tbl.audio</code>
-of the table <code>tbl</code>:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">transcribe</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">audio</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;base.en&#39;</span><span class="p">)</span>
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.vision.eval_detections" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">eval_detections</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">eval_detections</span><span class="p">(</span>
+    <span class="n">pred_bboxes</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
+    <span class="n">pred_labels</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
+    <span class="n">pred_scores</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
+    <span class="n">gt_bboxes</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
+    <span class="n">gt_labels</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
 </code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Evaluates the performance of a set of predicted bounding boxes against a set of ground truth bounding boxes.</p>
 
     </div>
 
