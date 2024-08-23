@@ -201,10 +201,7 @@ class Planner:
 
     @classmethod
     def create_insert_plan(
-        cls,
-        tbl: catalog.TableVersion,
-        rows: Optional[list[dict[str, Any]]],
-        ignore_errors: bool
+        cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
@@ -214,17 +211,16 @@ class Planner:
 
         row_builder = exprs.RowBuilder([], stored_cols, [])
 
-        # create DataNode for 'rows' or 'df'
+        # create InMemoryDataNode for 'rows'
         stored_col_info = row_builder.output_slot_idxs()
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         input_col_info = [info for info in stored_col_info if not info.col.is_computed]
-        if rows is not None:
-            plan = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
-            media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
-            if len(media_input_cols) > 0:
-                # prefetch external files for all input column refs for validation
-                plan = exec.CachePrefetchNode(tbl.id, media_input_cols, input=plan)
-                plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
+        plan = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
+        media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
+        if len(media_input_cols) > 0:
+            # prefetch external files for all input column refs for validation
+            plan = exec.CachePrefetchNode(tbl.id, media_input_cols, input=plan)
+            plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
 
         computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
         if len(computed_exprs) > 0:
