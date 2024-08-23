@@ -79,6 +79,9 @@ class ColumnRef(Expr):
         else:
             return self.col.name
 
+    def __repr__(self) -> str:
+        return f'ColumnRef({self.col!r})'
+
     def sql_expr(self) -> Optional[sql.ClauseElement]:
         return self.col.sa_col
 

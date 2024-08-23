@@ -246,23 +246,29 @@ class Planner:
         ignore_errors: bool
     ) -> exec.ExecNode:
         assert not tbl.is_view()
-        stored_cols = [c for c in tbl.cols if c.is_stored]
-        row_builder = exprs.RowBuilder([], stored_cols, [])
-        plan = df._create_query_plan()
-        input_col_idxs = dict(zip(df.schema.keys(), (expr.slot_idx for expr in df._select_list_exprs)))
-        plan = exec.MapperDataNode(tbl, row_builder, input_col_idxs, input=plan)
-        computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
+        plan = df._create_query_plan()  # ExecNode constructed by the DataFrame
+
+        # Augment the plan with columns of the target table
+        for col_name, expr in zip(df.schema.keys(), df._select_list_exprs):
+            assert col_name in tbl.cols_by_name
+            col = tbl.cols_by_name[col_name]
+            plan.row_builder.add_table_column(col, expr.slot_idx)
+
+        computed_exprs = [e for e in plan.row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
         if len(computed_exprs) > 0:
             # add an ExprEvalNode when there are exprs to compute
-            plan = exec.ExprEvalNode(row_builder, computed_exprs, plan.output_exprs, input=plan)
-        stored_col_info = row_builder.output_slot_idxs()
+            plan = exec.ExprEvalNode(plan.row_builder, computed_exprs, plan.output_exprs, input=plan)
+
+        stored_col_info = plan.row_builder.output_slot_idxs()
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         plan.set_stored_img_cols(stored_img_col_info)
+
         plan.set_ctx(
             exec.ExecContext(
-                row_builder, batch_size=0, show_pbar=True, num_computed_exprs=len(computed_exprs),
+                plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0,
                 ignore_errors=ignore_errors))
         plan.ctx.num_rows = 0  # Unknown
+
         return plan
 
     @classmethod
