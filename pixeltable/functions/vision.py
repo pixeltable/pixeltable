@@ -301,7 +301,7 @@ def draw_bounding_boxes(
         box_colors: List of colors, one per bounding box.
         fill: Whether to fill the bounding boxes with color.
         width: Width of the bounding box borders.
-        font: Path to a TrueType font file, as required by
+        font: Name of a system font or path to a TrueType font file, as required by
             [`PIL.ImageFont.truetype()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.truetype).
             If `None`, uses the default provided by
             [`PIL.ImageFont.load_default()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.load_default).

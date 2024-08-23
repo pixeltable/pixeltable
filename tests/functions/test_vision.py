@@ -97,5 +97,4 @@ class TestVision:
             _ = v.select(draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, box_colors=['red'])).collect()
         assert 'number of boxes and box colors must match' in str(exc_info.value).lower()
 
-        # font and font_size parameters: they can't be tested in a system-independent way, because the font is a
-        # system-dependent filename
+        # TODO: test font and font_size parameters in a system-independent way
