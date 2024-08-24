@@ -481,7 +481,7 @@ class DataFrame:
         return self._description().to_string(header=False, index=False)
 
     def _repr_html_(self) -> str:
-        return self._description_html()._repr_html_()
+        return self._description_html()._repr_html_()  # type: ignore[attr-defined]
 
     def select(self, *items: Any, **named_items: Any) -> DataFrame:
         if self.select_list is not None:
