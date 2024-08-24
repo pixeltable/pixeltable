@@ -35,6 +35,8 @@ nav:
     - string: api/functions/string.md
     - timestamp: api/functions/timestamp.md
     - video: api/functions/video.md
+  - Use Cases:
+    - Computer Vision: api/functions/vision.md
   - Model and Inference Functions:
     - fireworks: api/functions/fireworks.md
     - huggingface: api/functions/huggingface.md
@@ -59,6 +61,9 @@ plugins:
           options:
               docstring_section_style: list
               docstring_style: google
+              extensions:
+                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:
+              filters: ["!^_"]
               inherited_members: true
               line_length: 80
               docstring_options:
@@ -73,5 +78,3 @@ plugins:
               show_symbol_type_heading: true
               show_symbol_type_toc: true
               signature_crossrefs: true
-              extensions:
-                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:
