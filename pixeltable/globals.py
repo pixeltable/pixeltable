@@ -443,7 +443,7 @@ def list_functions() -> Styler:
             'Return Type': [str(f.signature.get_return_type()) for f in functions],
         }
     )
-    pd_df = pd_df.style.set_properties(**{'text-align': 'left'}).set_table_styles(  # type: ignore
+    pd_df = pd_df.style.set_properties(None, **{'text-align': 'left'}).set_table_styles(
         [dict(selector='th', props=[('text-align', 'center')])]
     )  # center-align headings
     return pd_df.hide(axis='index')

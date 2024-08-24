@@ -9,11 +9,11 @@ import urllib.parse
 import urllib.request
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Iterable, Optional, Tuple, Dict, Callable, List, Union, Sequence, Mapping
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
-import PIL.Image
 import av  # type: ignore
 import numpy as np
+import PIL.Image
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs
@@ -136,7 +136,7 @@ class ColumnType:
         Default implementation: simply invoke c'tor
         """
         assert 'nullable' in d
-        return cls(nullable=d['nullable'])  # type: ignore
+        return cls(nullable=d['nullable'])  # type: ignore[call-arg]
 
     @classmethod
     def make_type(cls, t: Type) -> ColumnType:

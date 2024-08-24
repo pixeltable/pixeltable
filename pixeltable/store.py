@@ -36,6 +36,8 @@ class StoreBase:
         self.tbl_version = tbl_version
         self.sa_md = sql.MetaData()
         self.sa_tbl: Optional[sql.Table] = None
+        # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
+        # since it's referenced by various methods of `StoreBase`
         self.base = None if tbl_version.base is None else tbl_version.base.store_tbl
         self.create_sa_tbl()
 

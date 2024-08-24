@@ -109,16 +109,20 @@ dirty = true
 [tool.poetry-dynamic-versioning.substitution]
 files = ["pixeltable/__version__.py"]
 
+[tool.isort]
+line_length = 120
+
 [tool.mypy]
-plugins = "pydantic.mypy"
 allow_redefinition = true
+disable_error_code = "no-any-unimported, no-any-return"
 disallow_any_unimported = true
 check_untyped_defs = true
-warn_return_any = true
-warn_unused_ignores = true
+follow_imports = "silent"
+plugins = "pydantic.mypy"
 show_error_codes = true
 strict_optional = false
-disable_error_code = "no-any-unimported, no-any-return"
+warn_return_any = true
+warn_unused_ignores = true
 
 [tool.pylint.main]
 max-line-length = 120
