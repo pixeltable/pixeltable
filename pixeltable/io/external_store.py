@@ -244,7 +244,7 @@ class Project(ExternalStore, abc.ABC):
             if ext_col in export_cols:
                 # Validate that the table column can be assigned to the external column
                 ext_col_type = export_cols[ext_col]
-                if not ext_col_type.is_supertype_of(t_col_type):
+                if not ext_col_type.is_supertype_of(t_col_type, ignore_nullable=True):
                     raise excs.Error(
                         f'Column `{t_col}` cannot be exported to external column `{ext_col}` (incompatible types; expecting `{ext_col_type}`)'
                     )
@@ -255,7 +255,7 @@ class Project(ExternalStore, abc.ABC):
                         f'Column `{t_col}` is a computed column, which cannot be populated from an external column'
                     )
                 ext_col_type = import_cols[ext_col]
-                if not t_col_type.is_supertype_of(ext_col_type):
+                if not t_col_type.is_supertype_of(ext_col_type, ignore_nullable=True):
                     raise excs.Error(
                         f'Column `{t_col}` cannot be imported from external column `{ext_col}` (incompatible types; expecting `{ext_col_type}`)'
                     )

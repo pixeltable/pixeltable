@@ -6,7 +6,7 @@ import pathlib
 import subprocess
 from typing import Any
 
-import pgserver
+import pixeltable_pgserver
 import toml
 
 import pixeltable as pxt
@@ -41,7 +41,7 @@ class Dumper:
         md_version = metadata.VERSION
         dump_file = self.output_dir / f'pixeltable-v{md_version:03d}-test.dump.gz'
         _logger.info(f'Creating database dump at: {dump_file}')
-        pg_package_dir = os.path.dirname(pgserver.__file__)
+        pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
         pg_dump_binary = f'{pg_package_dir}/pginstall/bin/pg_dump'
         _logger.info(f'Using pg_dump binary at: {pg_dump_binary}')
         with open(dump_file, 'wb') as dump:
@@ -177,8 +177,8 @@ class Dumper:
         assert t.base_table_image_rot.col in project.stored_proxies
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
-        def add_column(col_name: str, col_expr: Any) -> None:
-            t.add_column(**{f'{col_prefix}_{col_name}': col_expr})
+        def add_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
+            t.add_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
 
         # arithmetic_expr
         add_column('plus', t.c2 + 6)
@@ -217,7 +217,7 @@ class Dumper:
 
         # image_member_access
         add_column('image_mode', t.c8.mode)
-        add_column('image_rot', t.c8.rotate(180))
+        add_column('image_rot', t.c8.rotate(180), stored=False)
 
         # in_predicate
         add_column('isin_1', t.c1.isin(['test string 1', 'test string 2', 'test string 3']))
