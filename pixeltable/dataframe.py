@@ -756,14 +756,12 @@ class DataFrame:
         Env.get().require_package('torch')
         Env.get().require_package('torchvision')
 
-        from pixeltable.io.parquet import \
-            save_parquet  # pylint: disable=import-outside-toplevel
-        from pixeltable.utils.pytorch import \
-            PixeltablePytorchDataset  # pylint: disable=import-outside-toplevel
+        from pixeltable.io.parquet import save_parquet
+        from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
         cache_key = self._hash_result_set()
 
-        dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet')  # pylint: disable = protected-access
+        dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet')
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
