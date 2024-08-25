@@ -7,7 +7,7 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Optional, Dict, Any, List, Tuple, Set
+from typing import Optional, Dict, Any, List, Tuple, Set, Union
 
 import sqlalchemy as sql
 from tqdm import tqdm, TqdmWarning
@@ -15,10 +15,8 @@ from tqdm import tqdm, TqdmWarning
 import pixeltable.catalog as catalog
 import pixeltable.env as env
 from pixeltable import exprs
-import pixeltable.exceptions as excs
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
-from pixeltable.type_system import StringType
 from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.sql import log_stmt, log_explain
 
@@ -38,6 +36,9 @@ class StoreBase:
         self.tbl_version = tbl_version
         self.sa_md = sql.MetaData()
         self.sa_tbl: Optional[sql.Table] = None
+        # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
+        # since it's referenced by various methods of `StoreBase`
+        self.base = None if tbl_version.base is None else tbl_version.base.store_tbl
         self.create_sa_tbl()
 
     def pk_columns(self) -> List[sql.Column]:
@@ -49,7 +50,6 @@ class StoreBase:
     @abc.abstractmethod
     def _create_rowid_columns(self) -> List[sql.Column]:
         """Create and return rowid columns"""
-        pass
 
     @abc.abstractmethod
     def _create_system_columns(self) -> List[sql.Column]:
@@ -60,7 +60,6 @@ class StoreBase:
             sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION))
         self._pk_columns = [*rowid_cols, self.v_min_col]
         return [*rowid_cols, self.v_min_col, self.v_max_col]
-
 
     def create_sa_tbl(self) -> None:
         """Create self.sa_tbl from self.tbl_version."""
@@ -96,14 +95,12 @@ class StoreBase:
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
 
     @abc.abstractmethod
-    def _rowid_join_predicate(self) -> sql.ClauseElement:
+    def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         """Return predicate for rowid joins to all bases"""
-        pass
 
     @abc.abstractmethod
     def _storage_name(self) -> str:
         """Return the name of the data store table"""
-        pass
 
     def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column, v_min: int) -> str:
         """Move tmp media file with given url to Env.media_dir and return new url, or given url if not a tmp_dir file"""
@@ -158,10 +155,12 @@ class StoreBase:
 
     def count(self, conn: Optional[sql.engine.Connection] = None) -> int:
         """Return the number of rows visible in self.tbl_version"""
-        stmt = sql.select(sql.func.count('*'))\
-            .select_from(self.sa_tbl)\
-            .where(self.v_min_col <= self.tbl_version.version)\
+        stmt = (
+            sql.select(sql.func.count('*'))  # type: ignore
+            .select_from(self.sa_tbl)
+            .where(self.v_min_col <= self.tbl_version.version)
             .where(self.v_max_col > self.tbl_version.version)
+        )
         if conn is None:
             with env.Env.get().engine.connect() as conn:
                 result = conn.execute(stmt).scalar_one()
@@ -191,12 +190,12 @@ class StoreBase:
         added_storage_cols = [col.store_name()]
         if col.records_errors:
             # we also need to create the errormsg and errortype storage cols
-            stmt = (f'ALTER TABLE {self._storage_name()} '
-                    f'ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL')
-            conn.execute(sql.text(stmt))
-            stmt = (f'ALTER TABLE {self._storage_name()} '
-                    f'ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL')
-            conn.execute(sql.text(stmt))
+            stmt = sql.text(f'ALTER TABLE {self._storage_name()} '
+                            f'ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL')
+            conn.execute(stmt)
+            stmt = sql.text(f'ALTER TABLE {self._storage_name()} '
+                            f'ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL')
+            conn.execute(stmt)
             added_storage_cols.extend([col.errormsg_store_name(), col.errortype_store_name()])
         self.create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
@@ -340,7 +339,7 @@ class StoreBase:
         finally:
             exec_plan.close()
 
-    def _versions_clause(self, versions: List[Optional[int]], match_on_vmin: bool) -> sql.ClauseElement:
+    def _versions_clause(self, versions: list[Optional[int]], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""
         v = versions[0]
         if v is None:
@@ -355,7 +354,7 @@ class StoreBase:
 
     def delete_rows(
             self, current_version: int, base_versions: List[Optional[int]], match_on_vmin: bool,
-            where_clause: Optional[sql.ClauseElement], conn: sql.engine.Connection) -> int:
+            where_clause: Optional[sql.ColumnElement[bool]], conn: sql.engine.Connection) -> int:
         """Mark rows as deleted that are live and were created prior to current_version.
         Also: populate the undo columns
         Args:
@@ -375,17 +374,19 @@ class StoreBase:
         rowid_join_clause = self._rowid_join_predicate()
         base_versions_clause = sql.true() if len(base_versions) == 0 \
             else self.base._versions_clause(base_versions, match_on_vmin)
-        set_clause = {self.v_max_col: current_version}
+        set_clause: dict[sql.Column, Union[int, sql.Column]] = {self.v_max_col: current_version}
         for index_info in self.tbl_version.idxs_by_name.values():
             # copy value column to undo column
             set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
             # set value column to NULL
             set_clause[index_info.val_col.sa_col] = None
-        stmt = sql.update(self.sa_tbl) \
-            .values(set_clause) \
-            .where(where_clause) \
-            .where(rowid_join_clause) \
+        stmt = (
+            sql.update(self.sa_tbl)
+            .values(set_clause)
+            .where(where_clause)
+            .where(rowid_join_clause)
             .where(base_versions_clause)
+        )
         log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
         return status.rowcount
@@ -403,14 +404,13 @@ class StoreTable(StoreBase):
     def _storage_name(self) -> str:
         return f'tbl_{self.tbl_version.id.hex}'
 
-    def _rowid_join_predicate(self) -> sql.ClauseElement:
+    def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.true()
 
 
 class StoreView(StoreBase):
     def __init__(self, catalog_view: catalog.TableVersion):
         assert catalog_view.is_view()
-        self.base = catalog_view.base.store_tbl
         super().__init__(catalog_view)
 
     def _create_rowid_columns(self) -> List[sql.Column]:
@@ -421,7 +421,7 @@ class StoreView(StoreBase):
     def _storage_name(self) -> str:
         return f'view_{self.tbl_version.id.hex}'
 
-    def _rowid_join_predicate(self) -> sql.ClauseElement:
+    def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(
             self.base._rowid_join_predicate(),
             *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), self.base.rowid_columns())])
@@ -448,7 +448,7 @@ class StoreComponentView(StoreView):
         # we need to fix up the 'pos' column in TableVersion
         self.tbl_version.cols_by_name['pos'].sa_col = self.pos_col
 
-    def _rowid_join_predicate(self) -> sql.ClauseElement:
+    def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(
             self.base._rowid_join_predicate(),
             *[c1 == c2 for c1, c2 in zip(self.rowid_columns()[:-1], self.base.rowid_columns())])
