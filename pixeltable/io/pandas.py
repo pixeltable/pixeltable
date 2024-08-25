@@ -15,11 +15,12 @@ def import_pandas(
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = ''
-) -> pxt.catalog.InsertableTable:
-    """Creates a new `Table` from a Pandas `DataFrame`, with the specified name. The schema of the table
-    will be inferred from the `DataFrame`.
+) -> pxt.Table:
+    """Creates a new insertable [`Table`][pixeltable.Table] from a Pandas [`DataFrame`][pixeltable.DataFrame], with the
+    specified name. The schema of the table will be inferred from the
+    [`DataFrame`](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html)
 
-    The column names of the new `Table` will be identical to those in the `DataFrame`, as long as they are valid
+    The column names of the new table will be identical to those in the dataframe, as long as they are valid
     Pixeltable identifiers. If a column name is not a valid Pixeltable identifier, it will be normalized according to
     the following procedure:
     - first replace any non-alphanumeric characters with underscores;
@@ -54,11 +55,12 @@ def import_csv(
     num_retained_versions: int = 10,
     comment: str = '',
     **kwargs
-) -> pxt.catalog.InsertableTable:
+) -> pxt.Table:
     """
-    Creates a new `Table` from a csv file. This is a convenience method and is equivalent
+    Creates a new insertable [`Table`][pixeltable.Table] from a csv file. This is a convenience method and is equivalent
     to calling `import_pandas(table_path, pd.read_csv(filepath_or_buffer, **kwargs), schema=schema)`.
-    See the Pandas documentation for `read_csv` for more details.
+    See the Pandas documentation for [`read_csv`](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html)
+    for more details.
     """
     df = pd.read_csv(filepath_or_buffer, **kwargs)
     return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
@@ -70,11 +72,12 @@ def import_excel(
     num_retained_versions: int = 10,
     comment: str = '',
     **kwargs
-) -> pxt.catalog.InsertableTable:
+) -> pxt.Table:
     """
-    Creates a new `Table` from an excel (.xlsx) file. This is a convenience method and is equivalent
-    to calling `import_pandas(table_path, pd.read_excel(io, *args, **kwargs), schema=schema)`.
-    See the Pandas documentation for `read_excel` for more details.
+    Creates a new insertable [`Table`][pixeltable.Table] from an Excel (.xlsx) file. This is a convenience method and is
+    equivalent to calling `import_pandas(table_path, pd.read_excel(io, *args, **kwargs), schema=schema)`.
+    See the Pandas documentation for [`read_excel`](https://pandas.pydata.org/docs/reference/api/pandas.read_excel.html)
+    for more details.
     """
     df = pd.read_excel(io, *args, **kwargs)
     return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)

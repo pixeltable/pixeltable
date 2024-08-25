@@ -29,8 +29,8 @@ def create_table(
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
-) -> catalog.InsertableTable:
-    """Create a new `InsertableTable`.
+) -> catalog.Table:
+    """Create a new insertable [`Table`][pixeltable.Table].
 
     Args:
         path_str: Path to the table.
@@ -87,12 +87,13 @@ def create_view(
     num_retained_versions: int = 10,
     comment: str = '',
     ignore_errors: bool = False,
-) -> catalog.View:
-    """Create a new `View`.
+) -> catalog.Table:
+    """Create a new derived (not insertable) [`Table`][pixeltable.Table].
 
     Args:
         path_str: Path to the view.
-        base: Table (i.e., table or view or snapshot) or DataFrame to base the view on.
+        base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`DataFrame`][pixeltable.DataFrame] to
+            base the view on.
         schema: dictionary mapping column names to column types, value expressions, or to column specifications.
         filter: predicate to filter rows of the base table.
         is_snapshot: Whether the view is a snapshot.
@@ -170,13 +171,13 @@ def create_view(
 
 
 def get_table(path: str) -> catalog.Table:
-    """Get a handle to a table (including views and snapshots).
+    """Get a handle to a [`Table`][pixeltable.Table] (including views and snapshots).
 
     Args:
         path: Path to the table.
 
     Returns:
-        A `InsertableTable` or `View` object.
+        A [`Table`][pixeltable.Table] object.
 
     Raises:
         Error: If the path does not exist or does not designate a table.
@@ -230,10 +231,10 @@ def move(path: str, new_path: str) -> None:
 
 
 def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> None:
-    """Drop a table.
+    """Drop a table or view.
 
     Args:
-        path: Path to the table.
+        path: Path to the [`Table`][pixeltable.Table].
         force: If `True`, will also drop all views or sub-views of this table.
         ignore_errors: Whether to ignore errors if the table does not exist.
 
@@ -268,14 +269,14 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
-    """List the tables in a directory.
+    """List the [`Table`][pixeltable.Table]s in a directory.
 
     Args:
         dir_path: Path to the directory. Defaults to the root directory.
         recursive: Whether to list tables in subdirectories as well.
 
     Returns:
-        A list of table paths.
+        A list of [`Table`][pixeltable.Table] paths.
 
     Raises:
         Error: If the path does not exist or does not designate a directory.
