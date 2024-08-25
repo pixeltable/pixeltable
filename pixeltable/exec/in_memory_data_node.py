@@ -18,7 +18,7 @@ class InMemoryDataNode(ExecNode):
     - if an input row doesn't provide a value, sets the slot to the column default
     """
     def __init__(
-            self, tbl: catalog.TableVersionPath, rows: List[Dict[str, Any]],
+            self, tbl: catalog.TableVersion, rows: List[Dict[str, Any]],
             row_builder: exprs.RowBuilder, start_row_id: int,
     ):
         # we materialize all output slots

@@ -241,10 +241,10 @@ class Expr(abc.ABC):
         return str(self)
 
     @classmethod
-    def print_list(cls, expr_list: List[Expr]) -> str:
+    def print_list(cls, expr_list: list[Any]) -> str:
         if len(expr_list) == 1:
             return str(expr_list[0])
-        return f'({", ".join([str(e) for e in expr_list])})'
+        return f'({", ".join(str(e) for e in expr_list)})'
 
     T = TypeVar('T', bound='Expr')
 
@@ -255,13 +255,12 @@ class Expr(abc.ABC):
         """
         Iterate over all subexprs, including self.
         """
-        assert expr_class is None or filter is None  # at most one of them
-        if expr_class is not None:
-            filter = lambda e: isinstance(e, expr_class)
         is_match = filter is None or filter(self)
+        if expr_class is not None:
+            is_match = is_match and isinstance(self, expr_class)
         if not is_match or traverse_matches:
             for c in self.components:
-                yield from c.subexprs(filter=filter, traverse_matches=traverse_matches)
+                yield from c.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
         if is_match:
             yield self
 
@@ -337,10 +336,10 @@ class Expr(abc.ABC):
         return None
 
     @abc.abstractmethod
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ColumnElement]:
         """
         If this expr can be materialized directly in SQL:
-        - returns a ClauseElement
+        - returns a ColumnElement
         - eval() will not be called (exception: Literal)
         Otherwise
         - returns None

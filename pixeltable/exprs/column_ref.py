@@ -19,6 +19,9 @@ class ColumnRef(Expr):
     For that reason, a ColumnRef needs to be serialized with the qualifying table id (column ids are only
     unique in the context of a particular table).
     """
+
+    col: catalog.Column
+
     def __init__(self, col: catalog.Column):
         super().__init__(col.col_type)
         assert col.tbl is not None

@@ -258,6 +258,9 @@ class SqlLookupNode(SqlNode):
     """
     Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key values
     """
+
+    where_clause: sql.BinaryExpression[bool]
+
     def __init__(
             self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
             select_list: Iterable[exprs.Expr], sa_key_cols: list[sql.Column], key_vals: list[tuple],
