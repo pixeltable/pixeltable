@@ -44,6 +44,12 @@ nav:
     - together: api/functions/together.md
     - whisper: api/functions/whisper.md
 
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
 plugins:
   - search
   - autorefs
@@ -53,24 +59,22 @@ plugins:
         python:
           paths: [.]
           options:
+              docstring_section_style: list
+              docstring_style: google
+              extensions:
+                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:
               filters: ["!^_"]
-              annotations_path: brief
-              members_order: alphabetical
+              inherited_members: true
               line_length: 80
               docstring_options:
                 ignore_init_summary: true
               merge_init_into_class: true
-              docstring_style: google
-              docstring_section_style: list
-              show_docstring_description: true
-              show_source: false
-              show_root_heading: true
+              separate_signature: true
               show_bases: false
+              show_root_heading: true
               show_signature_annotations: true
               show_signature_crossrefs: true
+              show_source: false
               show_symbol_type_heading: true
               show_symbol_type_toc: true
-              separate_signature: true
               signature_crossrefs: true
-              extensions:
-                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:

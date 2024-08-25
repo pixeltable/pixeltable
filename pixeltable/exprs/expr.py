@@ -7,7 +7,7 @@ import inspect
 import json
 import sys
 import typing
-from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Type
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -17,8 +17,9 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
-from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
+from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator
 
 
 class ExprScope:
@@ -191,8 +192,8 @@ class Expr(abc.ABC):
         Recursively replace ColRefs to unstored computed columns with their value exprs.
         Also replaces references to stored computed columns in resolve_cols.
         """
-        from .expr_set import ExprSet
         from .column_ref import ColumnRef
+        from .expr_set import ExprSet
         if resolve_cols is None:
             resolve_cols = set()
         result = self
@@ -245,10 +246,12 @@ class Expr(abc.ABC):
             return str(expr_list[0])
         return f'({", ".join([str(e) for e in expr_list])})'
 
+    T = TypeVar('T', bound='Expr')
+
     def subexprs(
-            self, expr_class: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None,
+            self, expr_class: Optional[Type[T]] = None, filter: Optional[Callable[[Expr], bool]] = None,
             traverse_matches: bool = True
-    ) -> Generator[Expr, None, None]:
+    ) -> Iterator[T]:
         """
         Iterate over all subexprs, including self.
         """
@@ -262,6 +265,15 @@ class Expr(abc.ABC):
         if is_match:
             yield self
 
+    @classmethod
+    def list_subexprs(
+            cls, expr_list: list[Expr], expr_class: Optional[Type[T]] = None,
+            filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+    ) -> Iterator[T]:
+        """Produce subexprs for all exprs in list. Can contain duplicates."""
+        for e in expr_list:
+            yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
+
     def _contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls.
@@ -274,15 +286,6 @@ class Expr(abc.ABC):
             return True
         except StopIteration:
             return False
-
-    @classmethod
-    def list_subexprs(
-            cls, expr_list: List[Expr], expr_class: Optional[Type[Expr]] = None,
-            filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
-    ) -> Generator[Expr, None, None]:
-        """Produce subexprs for all exprs in list. Can contain duplicates."""
-        for e in expr_list:
-            yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
 
     def tbl_ids(self) -> Set[UUID]:
         """Returns table ids referenced by this expr."""
