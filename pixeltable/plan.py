@@ -294,7 +294,7 @@ class Planner:
             cls, tbl: catalog.TableVersionPath,
             batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
             cascade: bool
-    ) -> Tuple[exec.ExecNode, exec.RowUpdateNode, sql.ClauseElement, List[catalog.Column], List[catalog.Column]]:
+    ) -> Tuple[exec.ExecNode, exec.RowUpdateNode, sql.BinaryExpression[bool], List[catalog.Column], List[catalog.Column]]:
         """
         Returns:
         - root node of the plan to produce the updated rows
