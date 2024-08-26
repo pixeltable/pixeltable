@@ -169,25 +169,23 @@ class ColumnType:
         return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
 
     def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False) -> bool:
-        operand = self.copy(nullable=True) if ignore_nullable else self
-        return operand.supertype(other) == operand
+        if ignore_nullable:
+            supertype = self.supertype(other)
+            if supertype is None:
+                return False
+            return supertype.matches(self)
+        else:
+            return self.supertype(other) == self
 
     def matches(self, other: ColumnType) -> bool:
         """Two types match if they're equal, aside from nullability"""
-        if type(self) != type(other):
-            return False
-
-        for member_var in vars(self).keys():
-            if member_var == '_nullable':
-                continue
-            if getattr(self, member_var) != getattr(other, member_var):
-                return False
-        return True
+        # Default: just compare base types (this works for all types whose only parameter is nullable)
+        return self._type == other._type
 
     def supertype(self, other: ColumnType) -> Optional[ColumnType]:
         if self == other:
             return self
-        if self.copy(nullable=True) == other.copy(nullable=True):
+        if self.matches(other):
             return self.copy(nullable=(self.nullable or other.nullable))
 
         if self.is_invalid_type():
@@ -217,7 +215,7 @@ class ColumnType:
         if isinstance(val, datetime.datetime):
             return TimestampType(nullable=nullable)
         if isinstance(val, PIL.Image.Image):
-            return ImageType(width=val.width, height=val.height, mode=val.mode)
+            return ImageType(width=val.width, height=val.height, mode=val.mode, nullable=nullable)
         if isinstance(val, np.ndarray):
             col_type = ArrayType.from_literal(val, nullable=nullable)
             if col_type is not None:
@@ -497,6 +495,9 @@ class JsonType(ColumnType):
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(self.type_spec, nullable=nullable)
 
+    def matches(self, other: ColumnType) -> bool:
+        return other._type == self.Type.JSON and self.type_spec == other.type_spec
+
     def supertype(self, other: ColumnType) -> Optional[JsonType]:
         if not isinstance(other, JsonType):
             return None
@@ -564,7 +565,7 @@ class JsonType(ColumnType):
 
 
 class ArrayType(ColumnType):
-    def __init__(self, shape: Tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
+    def __init__(self, shape: tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         self.shape = shape
         assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
@@ -573,6 +574,9 @@ class ArrayType(ColumnType):
 
     def copy(self, nullable: bool) -> ColumnType:
         return ArrayType(self.shape, self.pxt_dtype, nullable=nullable)
+
+    def matches(self, other: ColumnType) -> bool:
+        return other._type == self.Type.ARRAY and self.shape == other.shape and self.dtype == other.dtype
 
     def supertype(self, other: ColumnType) -> Optional[ArrayType]:
         if not isinstance(other, ArrayType):
@@ -703,6 +707,14 @@ class ImageType(ColumnType):
             params_str = ''
         return f'{self._type.name.lower()}{params_str}'
 
+    def matches(self, other: ColumnType) -> bool:
+        return (
+            other._type == self.Type.IMAGE
+            and self.width == other.width
+            and self.height == other.height
+            and self.mode == other.mode
+        )
+
     def supertype(self, other: ColumnType) -> Optional[ImageType]:
         if not isinstance(other, ImageType):
             return None
@@ -825,6 +837,9 @@ class DocumentType(ColumnType):
 
     def copy(self, nullable: bool) -> ColumnType:
         return DocumentType(doc_formats=self.doc_formats, nullable=nullable)
+
+    def matches(self, other: ColumnType) -> bool:
+        return other._type == self.Type.DOCUMENT and self._doc_formats == other._doc_formats
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         # stored as a file path

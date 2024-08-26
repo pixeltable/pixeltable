@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any, Literal, Optional, Union
 
 import pixeltable as pxt
@@ -176,7 +175,6 @@ def import_rows(
     schema: dict[str, pxt.ColumnType] = {}
     cols_with_nones: set[str] = set()
 
-    t = datetime.now()
     for n, row in enumerate(rows):
         for col_name, value in row.items():
             if col_name in schema_overrides:
@@ -201,9 +199,6 @@ def import_rows(
                     schema[col_name] = supertype
             else:
                 cols_with_nones.add(col_name)
-    dur = datetime.now() - t
-    print(f'TIMING: {dur}')
-    assert False
 
     extraneous_keys = schema_overrides.keys() - schema.keys()
     if len(extraneous_keys) > 0:
