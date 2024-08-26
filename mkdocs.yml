@@ -31,15 +31,24 @@ nav:
     - Table: api/table.md
   - Built-in Functions and Operators:
     - image: api/functions/image.md
+    - json: api/functions/json.md
     - string: api/functions/string.md
     - timestamp: api/functions/timestamp.md
     - video: api/functions/video.md
+  - Use Cases:
+    - Computer Vision: api/functions/vision.md
   - Model and Inference Functions:
     - fireworks: api/functions/fireworks.md
     - huggingface: api/functions/huggingface.md
     - openai: api/functions/openai.md
     - together: api/functions/together.md
     - whisper: api/functions/whisper.md
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
 
 plugins:
   - search
@@ -50,23 +59,22 @@ plugins:
         python:
           paths: [.]
           options:
-              annotations_path: brief
-              members_order: alphabetical
+              docstring_section_style: list
+              docstring_style: google
+              extensions:
+                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:
+              filters: ["!^_"]
+              inherited_members: true
               line_length: 80
               docstring_options:
                 ignore_init_summary: true
               merge_init_into_class: true
-              docstring_style: google
-              docstring_section_style: list
-              show_docstring_description: true
-              show_source: false
-              show_root_heading: true
+              separate_signature: true
               show_bases: false
+              show_root_heading: true
               show_signature_annotations: true
               show_signature_crossrefs: true
+              show_source: false
               show_symbol_type_heading: true
               show_symbol_type_toc: true
-              separate_signature: true
               signature_crossrefs: true
-              extensions:
-                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:

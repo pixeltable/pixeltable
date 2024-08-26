@@ -84,6 +84,11 @@ class TestTypes:
             (ImageType(height=100, width=200, mode='RGB'), ImageType(height=300, width=200, mode='RGB'), ImageType(height=None, width=200, mode='RGB')),
             (ImageType(height=100, width=200, mode='RGB'), ImageType(height=300, width=400, mode='RGBA'), ImageType()),
             (ImageType(height=100, width=200, mode='RGB'), ImageType(), ImageType()),
+            (JsonType(), JsonType(), JsonType()),
+            (JsonType(type_spec={'a': IntType()}), JsonType(), JsonType()),
+            (JsonType(type_spec={'a': IntType()}), JsonType(type_spec={'b': StringType()}), JsonType(type_spec={'a': IntType(), 'b': StringType()})),
+            (JsonType(type_spec={'a': IntType()}), JsonType(type_spec={'a': StringType()}), JsonType()),
+            (JsonType(), IntType(), None),
         ]
         for t1, t2, expected in test_cases:
             for n1 in [True, False]:
