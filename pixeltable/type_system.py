@@ -73,7 +73,7 @@ class ColumnType:
 
     scalar_types = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP}
     numeric_types = {Type.INT, Type.FLOAT}
-    common_supertypes: Dict[Tuple[Type, Type], Type] = {
+    common_supertypes: dict[tuple[Type, Type], Type] = {
         (Type.BOOL, Type.INT): Type.INT,
         (Type.BOOL, Type.FLOAT): Type.FLOAT,
         (Type.INT, Type.FLOAT): Type.FLOAT,
@@ -96,7 +96,10 @@ class ColumnType:
 
     def copy(self, nullable: bool) -> ColumnType:
         # Default implementation calls unary initializer
-        return self.__class__(nullable=nullable)
+        if nullable == self.nullable:
+            return self
+        else:
+            return self.__class__(nullable=nullable)
 
     @classmethod
     def serialize_list(cls, type_list: List[ColumnType]) -> str:
@@ -173,6 +176,7 @@ class ColumnType:
         """Two types match if they're equal, aside from nullability"""
         if type(self) != type(other):
             return False
+
         for member_var in vars(self).keys():
             if member_var == '_nullable':
                 continue
@@ -181,6 +185,8 @@ class ColumnType:
         return True
 
     def supertype(self, other: ColumnType) -> Optional[ColumnType]:
+        if self == other:
+            return self
         if self.copy(nullable=True) == other.copy(nullable=True):
             return self.copy(nullable=(self.nullable or other.nullable))
 
@@ -198,29 +204,29 @@ class ColumnType:
         return None
 
     @classmethod
-    def infer_literal_type(cls, val: Any) -> Optional[ColumnType]:
+    def infer_literal_type(cls, val: Any, nullable: bool = False) -> Optional[ColumnType]:
         if isinstance(val, str):
-            return StringType()
+            return StringType(nullable=nullable)
         if isinstance(val, bool):
             # We have to check bool before int, because isinstance(b, int) is True if b is a Python bool
-            return BoolType()
+            return BoolType(nullable=nullable)
         if isinstance(val, int):
-            return IntType()
+            return IntType(nullable=nullable)
         if isinstance(val, float):
-            return FloatType()
+            return FloatType(nullable=nullable)
         if isinstance(val, datetime.datetime):
-            return TimestampType()
+            return TimestampType(nullable=nullable)
         if isinstance(val, PIL.Image.Image):
             return ImageType(width=val.width, height=val.height, mode=val.mode)
         if isinstance(val, np.ndarray):
-            col_type = ArrayType.from_literal(val)
+            col_type = ArrayType.from_literal(val, nullable=nullable)
             if col_type is not None:
                 return col_type
             # this could still be json-serializable
         if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray):
             try:
                 JsonType().validate_literal(val)
-                return JsonType()
+                return JsonType(nullable=nullable)
             except TypeError:
                 return None
         return None
@@ -596,7 +602,7 @@ class ArrayType(ColumnType):
         return cls(shape, dtype, nullable=d['nullable'])
 
     @classmethod
-    def from_literal(cls, val: np.ndarray) -> Optional[ArrayType]:
+    def from_literal(cls, val: np.ndarray, nullable: bool = False) -> Optional[ArrayType]:
         # determine our dtype
         assert isinstance(val, np.ndarray)
         if np.issubdtype(val.dtype, np.integer):
@@ -609,7 +615,7 @@ class ArrayType(ColumnType):
             dtype = StringType()
         else:
             return None
-        return cls(val.shape, dtype=dtype)
+        return cls(val.shape, dtype=dtype, nullable=nullable)
 
     def is_valid_literal(self, val: np.ndarray) -> bool:
         if not isinstance(val, np.ndarray):
