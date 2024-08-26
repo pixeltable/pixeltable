@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Iterable, Optional, List, Any, Dict, Tuple
 
 import numpy as np
 import sqlalchemy as sql
@@ -24,7 +24,7 @@ class InlineArray(Expr):
 
     elements: List[Tuple[Optional[int], Any]]
 
-    def __init__(self, elements: Tuple, force_json: bool = False):
+    def __init__(self, elements: Iterable, force_json: bool = False):
         # we need to call this in order to populate self.components
         super().__init__(ts.ArrayType((len(elements),), ts.IntType()))
 

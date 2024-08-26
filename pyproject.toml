@@ -52,7 +52,7 @@ pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 coverage = "^7.4"
 toml = "^0.10.2"
 # type checking
-mypy = "^1.10.0"
+mypy = "^1.10.1"
 pandas-stubs = ">=2.0"
 pytype = [{version = ">=2024.4", platform = "linux"}, {version = ">=2024.4", platform = "darwin"}]
 pyarrow-stubs = "^10.0.1.7"
@@ -110,15 +110,20 @@ dirty = true
 [tool.poetry-dynamic-versioning.substitution]
 files = ["pixeltable/__version__.py"]
 
+[tool.isort]
+line_length = 120
+
 [tool.mypy]
-plugins = "sqlalchemy.ext.mypy.plugin"
 allow_redefinition = true
+disable_error_code = "no-any-unimported, no-any-return"
 disallow_any_unimported = true
 check_untyped_defs = true
-warn_return_any = true
-warn_unused_ignores = true
+follow_imports = "silent"
+plugins = "pydantic.mypy"
 show_error_codes = true
 strict_optional = false
+warn_return_any = true
+warn_unused_ignores = true
 
 [tool.pylint.main]
 max-line-length = 120

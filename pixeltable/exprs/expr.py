@@ -7,7 +7,7 @@ import inspect
 import json
 import sys
 import typing
-from typing import Union, Optional, List, Callable, Any, Dict, Tuple, Set, Generator, Type
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -17,8 +17,9 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
-from .globals import ComparisonOperator, LogicalOperator, LiteralPythonTypes, ArithmeticOperator
+from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator
 
 
 class ExprScope:
@@ -191,8 +192,8 @@ class Expr(abc.ABC):
         Recursively replace ColRefs to unstored computed columns with their value exprs.
         Also replaces references to stored computed columns in resolve_cols.
         """
-        from .expr_set import ExprSet
         from .column_ref import ColumnRef
+        from .expr_set import ExprSet
         if resolve_cols is None:
             resolve_cols = set()
         result = self
@@ -245,10 +246,12 @@ class Expr(abc.ABC):
             return str(expr_list[0])
         return f'({", ".join([str(e) for e in expr_list])})'
 
+    T = TypeVar('T', bound='Expr')
+
     def subexprs(
-            self, expr_class: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None,
+            self, expr_class: Optional[Type[T]] = None, filter: Optional[Callable[[Expr], bool]] = None,
             traverse_matches: bool = True
-    ) -> Generator[Expr, None, None]:
+    ) -> Iterator[T]:
         """
         Iterate over all subexprs, including self.
         """
@@ -262,6 +265,15 @@ class Expr(abc.ABC):
         if is_match:
             yield self
 
+    @classmethod
+    def list_subexprs(
+            cls, expr_list: list[Expr], expr_class: Optional[Type[T]] = None,
+            filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+    ) -> Iterator[T]:
+        """Produce subexprs for all exprs in list. Can contain duplicates."""
+        for e in expr_list:
+            yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
+
     def _contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls.
@@ -274,15 +286,6 @@ class Expr(abc.ABC):
             return True
         except StopIteration:
             return False
-
-    @classmethod
-    def list_subexprs(
-            cls, expr_list: List[Expr], expr_class: Optional[Type[Expr]] = None,
-            filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
-    ) -> Generator[Expr, None, None]:
-        """Produce subexprs for all exprs in list. Can contain duplicates."""
-        for e in expr_list:
-            yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
 
     def tbl_ids(self) -> Set[UUID]:
         """Returns table ids referenced by this expr."""
@@ -503,6 +506,9 @@ class Expr(abc.ABC):
             return Comparison(op, self, Literal(other))  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
+    def __neg__(self) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
+
     def __add__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
@@ -518,6 +524,27 @@ class Expr(abc.ABC):
     def __mod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MOD, other)
 
+    def __floordiv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
+    def __radd__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
+
+    def __rsub__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
+
+    def __rmul__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
+
+    def __rtruediv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.DIV, other)
+
+    def __rmod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.MOD, other)
+
+    def __rfloordiv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
         """
         other: Union[Expr, LiteralPythonTypes]
@@ -529,6 +556,19 @@ class Expr(abc.ABC):
             return ArithmeticExpr(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return ArithmeticExpr(op, self, Literal(other))  # type: ignore[arg-type]
+        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+
+    def _rmake_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+        """
+        Right-handed version of _make_arithmetic_expr. other must be a literal; if it were an Expr,
+        the operation would have already been evaluated in its left-handed form.
+        """
+        # TODO: check for compatibility
+        from .arithmetic_expr import ArithmeticExpr
+        from .literal import Literal
+        assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
+        if isinstance(other, typing.get_args(LiteralPythonTypes)):
+            return ArithmeticExpr(op, Literal(other), self)  # type: ignore[arg-type]
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def __and__(self, other: object) -> Expr:
