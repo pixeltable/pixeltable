@@ -7,7 +7,6 @@ import json
 import typing
 import urllib.parse
 import urllib.request
-from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
@@ -95,11 +94,9 @@ class ColumnType:
     def serialize(self) -> str:
         return json.dumps(self.as_dict())
 
-    def copy(self, nullable: Optional[bool] = None) -> ColumnType:
-        result = deepcopy(self)
-        if nullable is not None:
-            result._nullable = nullable
-        return result
+    def copy(self, nullable: bool) -> ColumnType:
+        # Default implementation calls unary initializer
+        return self.__class__(nullable=nullable)
 
     @classmethod
     def serialize_list(cls, type_list: List[ColumnType]) -> str:
@@ -491,6 +488,9 @@ class JsonType(ColumnType):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_spec = type_spec
 
+    def copy(self, nullable: bool) -> ColumnType:
+        return JsonType(self.type_spec, nullable=nullable)
+
     def supertype(self, other: ColumnType) -> Optional[JsonType]:
         if not isinstance(other, JsonType):
             return None
@@ -502,10 +502,11 @@ class JsonType(ColumnType):
             return JsonType(nullable=(self.nullable or other.nullable))
 
         # we both have type specs; the supertype's type spec is the union of the two
-        type_spec = deepcopy(self.type_spec)
+        type_spec: dict[str, ColumnType] = {}
+        type_spec.update(self.type_spec)
         for other_field_name, other_field_type in other.type_spec.items():
             if other_field_name not in type_spec:
-                type_spec[other_field_name] = other_field_type.copy()
+                type_spec[other_field_name] = other_field_type
             else:
                 # both type specs have this field
                 field_type = type_spec[other_field_name].supertype(other_field_type)
@@ -561,7 +562,11 @@ class ArrayType(ColumnType):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         self.shape = shape
         assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
+        self.pxt_dtype = dtype
         self.dtype = dtype._type
+
+    def copy(self, nullable: bool) -> ColumnType:
+        return ArrayType(self.shape, self.pxt_dtype, nullable=nullable)
 
     def supertype(self, other: ColumnType) -> Optional[ArrayType]:
         if not isinstance(other, ArrayType):
@@ -670,6 +675,9 @@ class ImageType(ColumnType):
             self.width = width
             self.height = height
         self.mode = mode
+
+    def copy(self, nullable: bool) -> ColumnType:
+        return ImageType(self.width, self.height, mode=self.mode, nullable=nullable)
 
     def __str__(self) -> str:
         if self.width is not None or self.height is not None or self.mode is not None:
@@ -799,6 +807,7 @@ class DocumentType(ColumnType):
 
     def __init__(self, nullable: bool = False, doc_formats: Optional[str] = None):
         super().__init__(self.Type.DOCUMENT, nullable=nullable)
+        self.doc_formats = doc_formats
         if doc_formats is not None:
             type_strs = doc_formats.split(',')
             for type_str in type_strs:
@@ -807,6 +816,9 @@ class DocumentType(ColumnType):
             self._doc_formats = [self.DocumentFormat[type_str.upper()] for type_str in type_strs]
         else:
             self._doc_formats = [t for t in self.DocumentFormat]
+
+    def copy(self, nullable: bool) -> ColumnType:
+        return DocumentType(doc_formats=self.doc_formats, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         # stored as a file path
