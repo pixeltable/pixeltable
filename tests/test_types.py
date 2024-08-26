@@ -88,6 +88,7 @@ class TestTypes:
             (JsonType(type_spec={'a': IntType()}), JsonType(), JsonType()),
             (JsonType(type_spec={'a': IntType()}), JsonType(type_spec={'b': StringType()}), JsonType(type_spec={'a': IntType(), 'b': StringType()})),
             (JsonType(type_spec={'a': IntType()}), JsonType(type_spec={'a': StringType()}), JsonType()),
+            (JsonType(), IntType(), None),
         ]
         for t1, t2, expected in test_cases:
             for n1 in [True, False]:

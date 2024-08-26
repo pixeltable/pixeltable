@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import copy
 import hashlib
 import json
@@ -7,7 +8,7 @@ import logging
 import mimetypes
 import traceback
 from pathlib import Path
-from typing import List, Optional, Any, Dict, Iterator, Tuple, Set, Callable
+from typing import TYPE_CHECKING, Any, Callable, Dict, Hashable, Iterator, List, Optional, Set, Tuple
 
 import pandas as pd
 import pandas.io.formats.style
@@ -24,6 +25,9 @@ from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.http_server import get_file_uri
+
+if TYPE_CHECKING:
+    import torch
 
 __all__ = ['DataFrame']
 
@@ -56,7 +60,7 @@ class DataFrameResultSet:
         return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
-        formatters: dict[str, Callable] = {}
+        formatters: dict[Hashable, Callable[[object], str]] = {}
         for col_name, col_type in self.schema.items():
             formatter = self.__formatter.get_pandas_formatter(col_type)
             if formatter is not None:
@@ -202,22 +206,20 @@ class DataFrame:
     def _normalize_select_list(
         cls,
         tbl: catalog.TableVersionPath,
-        select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]],
-    ) -> Tuple[List[exprs.Expr], List[str]]:
+        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
+    ) -> tuple[list[exprs.Expr], list[str]]:
         """
         Expand select list information with all columns and their names
         Returns:
             a pair composed of the list of expressions and the list of corresponding names
         """
         if select_list is None:
-            expanded_list = [(exprs.ColumnRef(col), None) for col in tbl.columns()]
-        else:
-            expanded_list = select_list
+            select_list = [(exprs.ColumnRef(col), None) for col in tbl.columns()]
 
-        out_exprs: List[exprs.Expr] = []
-        out_names: List[str] = []  # keep track of order
+        out_exprs: list[exprs.Expr] = []
+        out_names: list[str] = []  # keep track of order
         seen_out_names: set[str] = set()  # use to check for duplicates in loop, avoid square complexity
-        for i, (expr, name) in enumerate(expanded_list):
+        for i, (expr, name) in enumerate(select_list):
             if name is None:
                 # use default, add suffix if needed so default adds no duplicates
                 default_name = expr.default_column_name()
@@ -457,7 +459,7 @@ class DataFrame:
         # white-space: pre-wrap: print \n as newline
         # th: center-align headings
         return (
-            pd_df.style.set_properties(**{'white-space': 'pre-wrap', 'text-align': 'left'})
+            pd_df.style.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
             .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
             .hide(axis='index')
             .hide(axis='columns')
@@ -469,19 +471,17 @@ class DataFrame:
         The description has two columns, heading and info, which list the contents of each 'component'
                 (select list, where clause, ...) vertically.
         """
-        try:
-            __IPYTHON__
+        if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import display
-
             display(self._description_html())
-        except NameError:
+        else:
             print(self.__repr__())
 
     def __repr__(self) -> str:
         return self._description().to_string(header=False, index=False)
 
     def _repr_html_(self) -> str:
-        return self._description_html()._repr_html_()
+        return self._description_html()._repr_html_()  # type: ignore[attr-defined]
 
     def select(self, *items: Any, **named_items: Any) -> DataFrame:
         if self.select_list is not None:
@@ -756,12 +756,12 @@ class DataFrame:
         Env.get().require_package('torch')
         Env.get().require_package('torchvision')
 
-        from pixeltable.io.parquet import save_parquet  # pylint: disable=import-outside-toplevel
-        from pixeltable.utils.pytorch import PixeltablePytorchDataset  # pylint: disable=import-outside-toplevel
+        from pixeltable.io.parquet import save_parquet
+        from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
         cache_key = self._hash_result_set()
 
-        dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet')  # pylint: disable = protected-access
+        dest_path = (Env.get().dataset_cache_dir / f'df_{cache_key}').with_suffix('.parquet')
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:

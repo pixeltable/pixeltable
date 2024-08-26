@@ -1,9 +1,11 @@
 import dataclasses
 import logging
 from typing import Any, Optional, Union
+from uuid import UUID
 
 import pandas as pd
 import sqlalchemy as sql
+from pandas.io.formats.style import Styler
 from sqlalchemy.util.preloaded import orm
 
 import pixeltable.exceptions as excs
@@ -39,7 +41,7 @@ def create_table(
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
             table.
         num_retained_versions: Number of versions of the table to retain.
-        comment: An optional comment; its meaning is entirely user-defined.
+        comment: An optional comment; its meaning is user-defined.
 
     Returns:
         The newly created table.
@@ -105,7 +107,7 @@ def create_view(
     num_retained_versions: int = 10,
     comment: str = '',
     ignore_errors: bool = False,
-) -> catalog.View:
+) -> Optional[catalog.View]:
     """Create a new `View`.
 
     Args:
@@ -117,13 +119,14 @@ def create_view(
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.
+        comment: Optional comment for the view.
         ignore_errors: if True, fail silently if the path already exists or is invalid.
 
     Returns:
-        The newly created view.
+        The newly created view. If the path already exists or is invalid and `ignore_errors=True`, returns `None`.
 
     Raises:
-        Error: if the path already exists or is invalid.
+        Error: if the path already exists or is invalid and `ignore_errors=False`.
 
     Examples:
         Create a view with an additional int and a string column and a filter:
@@ -158,7 +161,7 @@ def create_view(
         Catalog.get().paths.check_is_valid(path, expected=None)
     except Exception as e:
         if ignore_errors:
-            return
+            return None
         else:
             raise e
     dir = Catalog.get().paths[path.parent]
@@ -215,6 +218,7 @@ def get_table(path: str) -> catalog.Table:
     p = catalog.Path(path)
     Catalog.get().paths.check_is_valid(p, expected=catalog.Table)
     obj = Catalog.get().paths[p]
+    assert isinstance(obj, catalog.Table)
     return obj
 
 
@@ -315,7 +319,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in Catalog.get().paths.get_children(path, child_type=catalog.Table, recursive=recursive)]
 
 
-def create_dir(path_str: str, ignore_errors: bool = False) -> catalog.Dir:
+def create_dir(path_str: str, ignore_errors: bool = False) -> Optional[catalog.Dir]:
     """Create a directory.
 
     Args:
@@ -343,6 +347,7 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> catalog.Dir:
             session.add(dir_record)
             session.flush()
             assert dir_record.id is not None
+            assert isinstance(dir_record.id, UUID)
             dir = catalog.Dir(dir_record.id, parent._id, path.name)
             Catalog.get().paths[path] = dir
             session.commit()
@@ -351,7 +356,7 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> catalog.Dir:
             return dir
     except excs.Error as e:
         if ignore_errors:
-            return
+            return None
         else:
             raise e
 
@@ -433,7 +438,7 @@ def list_dirs(path_str: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in Catalog.get().paths.get_children(path, child_type=catalog.Dir, recursive=recursive)]
 
 
-def list_functions() -> pd.DataFrame:
+def list_functions() -> Styler:
     """Returns information about all registered functions.
 
     Returns:
@@ -454,7 +459,7 @@ def list_functions() -> pd.DataFrame:
             'Return Type': [str(f.signature.get_return_type()) for f in functions],
         }
     )
-    pd_df = pd_df.style.set_properties(**{'text-align': 'left'}).set_table_styles(
+    pd_df = pd_df.style.set_properties(None, **{'text-align': 'left'}).set_table_styles(
         [dict(selector='th', props=[('text-align', 'center')])]
     )  # center-align headings
     return pd_df.hide(axis='index')

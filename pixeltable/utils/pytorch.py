@@ -52,7 +52,7 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
                 return arr
 
             assert self.image_format == "pt"
-            import torchvision  # pylint: disable = import-outside-toplevel
+            import torchvision
 
             # use arr instead of im in ToTensor() to guarantee array input
             # to torch.from_numpy is writable. Using im is a suspected cause of
