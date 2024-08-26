@@ -147,6 +147,10 @@ class TestTable:
         assert t2.column_types() == df2.schema
         assert t2.collect() == df2.collect()
 
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('test3', ['I am a string.'])
+        assert '`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame' in str(exc_info.value)
+
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('empty_table', {})

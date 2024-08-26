@@ -36,8 +36,8 @@ def create_table(
 
     Args:
         path_str: Path to the table.
-        schema_or_df: Either a dictionary that maps column names to column types, or a `DataFrame`
-            whose contents and schema will be used to pre-populate the table.
+        schema_or_df: Either a dictionary that maps column names to column types, or a
+            [`DataFrame`][pixeltable.DataFrame] whose contents and schema will be used to pre-populate the table.
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
             table.
         num_retained_versions: Number of versions of the table to retain.
@@ -65,10 +65,11 @@ def create_table(
     df: Optional[DataFrame] = None
     if isinstance(schema_or_df, dict):
         schema = schema_or_df
-    else:
-        assert isinstance(schema_or_df, DataFrame)
+    elif isinstance(schema_or_df, DataFrame):
         df = schema_or_df
         schema = df.schema
+    else:
+        raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
 
     if len(schema) == 0:
         raise excs.Error(f'Table schema is empty: `{path_str}`')
