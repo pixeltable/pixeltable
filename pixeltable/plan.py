@@ -250,11 +250,6 @@ class Planner:
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
 
-        computed_exprs = [e for e in plan.row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
-        if len(computed_exprs) > 0:
-            # add an ExprEvalNode when there are exprs to compute
-            plan = exec.ExprEvalNode(plan.row_builder, computed_exprs, plan.output_exprs, input=plan)
-
         stored_col_info = plan.row_builder.output_slot_idxs()
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         plan.set_stored_img_cols(stored_img_col_info)
