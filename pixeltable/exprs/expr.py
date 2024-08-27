@@ -246,11 +246,15 @@ class Expr(abc.ABC):
             return str(expr_list[0])
         return f'({", ".join(str(e) for e in expr_list)})'
 
+    # `subexprs` has two forms: one that takes an explicit subclass of `Expr` as an argument and returns only
+    # instances of that subclass; and another that returns all subexpressions that match the given filter.
+    # In order for type checking to behave correctly on both forms, we provide two overloaded signatures.
+
     T = TypeVar('T', bound='Expr')
 
     @overload
     def subexprs(
-        self, /, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        self, *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[Expr]: ...
 
     @overload
@@ -277,7 +281,7 @@ class Expr(abc.ABC):
 
     @overload
     def list_subexprs(
-        expr_list: list[Expr], /, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        expr_list: list[Expr], *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[Expr]: ...
 
     @overload

@@ -21,6 +21,13 @@ class ColumnRef(Expr):
     """
 
     col: catalog.Column
+    is_unstored_iter_col: bool
+    iter_arg_ctx: Optional[RowBuilder.EvalCtx]
+    base_rowid_len: int
+    base_rowid: list[Optional[Any]]
+    iterator: Optional[iters.ComponentIterator]
+    pos_idx: Optional[int]
+    id: int
 
     def __init__(self, col: catalog.Column):
         super().__init__(col.col_type)
@@ -28,13 +35,13 @@ class ColumnRef(Expr):
         self.col = col
         self.is_unstored_iter_col = \
             col.tbl.is_component_view() and col.tbl.is_iterator_column(col) and not col.is_stored
-        self.iter_arg_ctx: Optional[RowBuilder.EvalCtx] = None
+        self.iter_arg_ctx = None
         # number of rowid columns in the base table
         self.base_rowid_len = col.tbl.base.num_rowid_columns() if self.is_unstored_iter_col else 0
         self.base_rowid = [None] * self.base_rowid_len
-        self.iterator: Optional[iters.ComponentIterator] = None
+        self.iterator = None
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
-        self.pos_idx: Optional[int] = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
+        self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
         self.id = self._create_id()
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx) -> None:

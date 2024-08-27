@@ -291,10 +291,10 @@ class Planner:
 
     @classmethod
     def create_batch_update_plan(
-            cls, tbl: catalog.TableVersionPath,
-            batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
-            cascade: bool
-    ) -> Tuple[exec.ExecNode, exec.RowUpdateNode, sql.BinaryExpression[bool], List[catalog.Column], List[catalog.Column]]:
+        cls, tbl: catalog.TableVersionPath,
+        batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
+        cascade: bool
+    ) -> tuple[exec.ExecNode, exec.RowUpdateNode, sql.ColumnElement[bool], list[catalog.Column], list[catalog.Column]]:
         """
         Returns:
         - root node of the plan to produce the updated rows

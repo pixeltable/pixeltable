@@ -1,9 +1,10 @@
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any, Optional
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
 from pixeltable.utils.media_store import MediaStore
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -18,8 +19,8 @@ class InMemoryDataNode(ExecNode):
     - if an input row doesn't provide a value, sets the slot to the column default
     """
     def __init__(
-            self, tbl: catalog.TableVersion, rows: List[Dict[str, Any]],
-            row_builder: exprs.RowBuilder, start_row_id: int,
+        self, tbl: catalog.TableVersion, rows: list[dict[str, Any]],
+        row_builder: exprs.RowBuilder, start_row_id: int,
     ):
         # we materialize all output slots
         output_exprs = [e for e in row_builder.get_output_exprs() if isinstance(e, exprs.ColumnRef)]
