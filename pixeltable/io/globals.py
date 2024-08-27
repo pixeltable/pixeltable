@@ -148,7 +148,7 @@ def import_rows(
     comment: str = ''
     ) -> Table:
     """
-    Creates a new insertable [`Table`][pixeltable.Table] from a list of dictionaries. The dictionaries must be of the
+    Creates a new base table from a list of dictionaries. The dictionaries must be of the
     form `{column_name: value, ...}`. Pixeltable will attempt to infer the schema of the table from the
     supplied data, using the most specific type that can represent all the values in a column.
 
@@ -169,7 +169,7 @@ def import_rows(
         comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
 
     Returns:
-        The newly created [`Table`][pixeltable.Table].
+        The newly created [`Table`][pixeltable.Table] object.
     """
     if schema_overrides is None:
         schema_overrides = {}
@@ -230,7 +230,7 @@ def import_json(
     **kwargs: Any
 ) -> Table:
     """
-    Creates a new insertable [`Table`][pixeltable.Table] from a JSON file. This is a convenience method and is
+    Creates a new base table from a JSON file. This is a convenience method and is
     equivalent to calling `import_data(table_path, json.loads(file_contents, **kwargs), ...)`, where `file_contents`
     is the contents of the specified `filepath_or_url`.
 
@@ -245,7 +245,7 @@ def import_json(
         kwargs: Additional keyword arguments to pass to `json.loads`.
 
     Returns:
-        The newly created [`Table`][pixeltable.Table].
+        The newly created [`Table`][pixeltable.Table] object.
     """
     import json
     import urllib.parse

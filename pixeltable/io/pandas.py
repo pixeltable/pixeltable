@@ -16,11 +16,11 @@ def import_pandas(
     num_retained_versions: int = 10,
     comment: str = ''
 ) -> pxt.Table:
-    """Creates a new insertable [`Table`][pixeltable.Table] from a Pandas [`DataFrame`][pixeltable.DataFrame], with the
-    specified name. The schema of the table will be inferred from the
-    [`DataFrame`](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html)
+    """Creates a new base table from a Pandas
+    [`DataFrame`](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html), with the
+    specified name. The schema of the table will be inferred from the DataFrame.
 
-    The column names of the new table will be identical to those in the dataframe, as long as they are valid
+    The column names of the new table will be identical to those in the DataFrame, as long as they are valid
     Pixeltable identifiers. If a column name is not a valid Pixeltable identifier, it will be normalized according to
     the following procedure:
     - first replace any non-alphanumeric characters with underscores;
@@ -34,6 +34,9 @@ def import_pandas(
             name `name` will be given type `type`, instead of being inferred from the `DataFrame`. The keys in
             `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid
             Pixeltable identifiers).
+
+    Returns:
+        The newly created [`Table`][pixeltable.Table] object.
     """
     if schema_overrides is None:
         schema_overrides = {}
@@ -57,10 +60,13 @@ def import_csv(
     **kwargs
 ) -> pxt.Table:
     """
-    Creates a new insertable [`Table`][pixeltable.Table] from a csv file. This is a convenience method and is equivalent
+    Creates a new base table from a csv file. This is a convenience method and is equivalent
     to calling `import_pandas(table_path, pd.read_csv(filepath_or_buffer, **kwargs), schema=schema)`.
     See the Pandas documentation for [`read_csv`](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html)
     for more details.
+
+    Returns:
+        The newly created [`Table`][pixeltable.Table] object.
     """
     df = pd.read_csv(filepath_or_buffer, **kwargs)
     return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
@@ -74,10 +80,13 @@ def import_excel(
     **kwargs
 ) -> pxt.Table:
     """
-    Creates a new insertable [`Table`][pixeltable.Table] from an Excel (.xlsx) file. This is a convenience method and is
+    Creates a new base table from an Excel (.xlsx) file. This is a convenience method and is
     equivalent to calling `import_pandas(table_path, pd.read_excel(io, *args, **kwargs), schema=schema)`.
     See the Pandas documentation for [`read_excel`](https://pandas.pydata.org/docs/reference/api/pandas.read_excel.html)
     for more details.
+
+    Returns:
+        The newly created [`Table`][pixeltable.Table] object.
     """
     df = pd.read_excel(io, *args, **kwargs)
     return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)

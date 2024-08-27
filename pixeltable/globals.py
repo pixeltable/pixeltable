@@ -32,7 +32,7 @@ def create_table(
     num_retained_versions: int = 10,
     comment: str = '',
 ) -> catalog.Table:
-    """Create a new insertable [`Table`][pixeltable.Table].
+    """Create a new base table.
 
     Args:
         path_str: Path to the table.
@@ -42,7 +42,7 @@ def create_table(
         comment: Optional comment for the table.
 
     Returns:
-        The newly created table.
+        The newly created [`Table`][pixeltable.Table].
 
     Raises:
         Error: if the path already exists or is invalid.
@@ -92,7 +92,7 @@ def create_view(
     comment: str = '',
     ignore_errors: bool = False,
 ) -> Optional[catalog.Table]:
-    """Create a new derived (not insertable) [`Table`][pixeltable.Table].
+    """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
 
     Args:
         path_str: Path to the view.
@@ -108,7 +108,8 @@ def create_view(
         ignore_errors: if True, fail silently if the path already exists or is invalid.
 
     Returns:
-        The newly created view. If the path already exists or is invalid and `ignore_errors=True`, returns `None`.
+        The [`Table`][pixeltable.Table] object representing the newly created view. If the path already exists or is
+        invalid and `ignore_errors=True`, returns `None`.
 
     Raises:
         Error: if the path already exists or is invalid and `ignore_errors=False`.
@@ -176,7 +177,7 @@ def create_view(
 
 
 def get_table(path: str) -> catalog.Table:
-    """Get a handle to a [`Table`][pixeltable.Table] (including views and snapshots).
+    """Get a handle to an existing table or view or snapshot.
 
     Args:
         path: Path to the table.
@@ -185,7 +186,7 @@ def get_table(path: str) -> catalog.Table:
         A [`Table`][pixeltable.Table] object.
 
     Raises:
-        Error: If the path does not exist or does not designate a table.
+        Error: If the path does not exist or does not designate a table object.
 
     Examples:
         Get handle for a table in the top-level directory:
@@ -237,7 +238,7 @@ def move(path: str, new_path: str) -> None:
 
 
 def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> None:
-    """Drop a table or view.
+    """Drop a table or view or snapshot.
 
     Args:
         path: Path to the [`Table`][pixeltable.Table].
@@ -245,7 +246,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
         ignore_errors: Whether to ignore errors if the table does not exist.
 
     Raises:
-        Error: If the path does not exist or does not designate a table and ignore_errors is False.
+        Error: If the path does not exist or does not designate a table object and ignore_errors is False.
 
     Examples:
         >>> cl.drop_table('my_table')

@@ -27,7 +27,7 @@ from .table_version_path import TableVersionPath
 _logger = logging.getLogger('pixeltable')
 
 class Table(SchemaObject):
-    """Base class for tables and views."""
+    """Base class for table objects (base tables, views, snapshots)."""
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
