@@ -530,7 +530,6 @@ class Planner:
         def refs_unstored_iter_col(e: exprs.Expr) -> bool:
             if not isinstance(e, exprs.ColumnRef):
                 return False
-            e.col
             tbl = e.col.tbl
             return tbl.is_component_view() and tbl.is_iterator_column(e.col) and not e.col.is_stored
         unstored_iter_col_refs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, expr_class=exprs.ColumnRef, filter=refs_unstored_iter_col))
