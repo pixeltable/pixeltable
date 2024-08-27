@@ -68,10 +68,10 @@ class Analyzer:
         # all exprs that are evaluated in Python; not executable
         self.all_exprs = self.select_list.copy()
         self.all_exprs.extend(self.group_by_clause)
-        self.all_exprs.extend([e for e, _ in self.order_by_clause])
+        self.all_exprs.extend(e for e, _ in self.order_by_clause)
         if self.filter is not None:
             self.all_exprs.append(self.filter)
-        self.sql_exprs: list[exprs.Expr] = list(exprs.Expr.list_subexprs(
+        self.sql_exprs = list(exprs.Expr.list_subexprs(
             self.all_exprs, filter=lambda e: e.sql_expr() is not None, traverse_matches=False))
 
         # sql_exprs: exprs that can be expressed via SQL and are retrieved directly from the store

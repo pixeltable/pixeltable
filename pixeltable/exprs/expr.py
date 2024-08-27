@@ -7,7 +7,7 @@ import inspect
 import json
 import sys
 import typing
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union, overload
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -248,9 +248,20 @@ class Expr(abc.ABC):
 
     T = TypeVar('T', bound='Expr')
 
+    @overload
     def subexprs(
-            self, expr_class: Optional[Type[T]] = None, filter: Optional[Callable[[Expr], bool]] = None,
-            traverse_matches: bool = True
+        self, /, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+    ) -> Iterator[Expr]: ...
+
+    @overload
+    def subexprs(
+        self, expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True
+    ) -> Iterator[T]: ...
+
+    def subexprs(
+        self, expr_class: Optional[type[T]] = None, filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True
     ) -> Iterator[T]:
         """
         Iterate over all subexprs, including self.
@@ -264,10 +275,21 @@ class Expr(abc.ABC):
         if is_match:
             yield self
 
+    @overload
+    def list_subexprs(
+        expr_list: list[Expr], /, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+    ) -> Iterator[Expr]: ...
+
+    @overload
+    def list_subexprs(
+        expr_list: list[Expr], expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True
+    ) -> Iterator[T]: ...
+
     @classmethod
     def list_subexprs(
-            cls, expr_list: list[Expr], expr_class: Optional[Type[T]] = None,
-            filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        cls, expr_list: list[Expr], expr_class: Optional[type[T]] = None,
+        filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[T]:
         """Produce subexprs for all exprs in list. Can contain duplicates."""
         for e in expr_list:
