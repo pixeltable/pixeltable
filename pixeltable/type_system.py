@@ -552,11 +552,20 @@ class JsonType(ColumnType):
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, dict) and not isinstance(val, list):
+            # TODO In the future we should accept scalars too, which would enable us to remove this top-level check
             raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
-        try:
-            _ = json.dumps(val)
-        except TypeError as e:
-            raise TypeError(f'Expected JSON-serializable object, got {val}')
+        if not self.__is_valid_literal(val):
+            raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
+
+    @classmethod
+    def __is_valid_literal(cls, val: Any) -> None:
+        if val is None or isinstance(val, (str, int, float, bool)):
+            return True
+        if isinstance(val, (list, tuple)):
+            return all(cls.__is_valid_literal(v) for v in val)
+        if isinstance(val, dict):
+            return all(isinstance(k, str) and cls.__is_valid_literal(v) for k, v in val.items())
+        return False
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, tuple):
