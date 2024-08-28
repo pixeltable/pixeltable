@@ -1,5 +1,4 @@
 from typing import Any, Literal, Optional, Union
-import urllib.request
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -187,7 +186,7 @@ def import_rows(
             elif value is not None:
                 # If `key` is not in `schema_overrides`, then we infer its type from the data.
                 # The column type will always be nullable by default.
-                col_type = pxt.ColumnType.infer_literal_type(value).copy(nullable=True)
+                col_type = pxt.ColumnType.infer_literal_type(value, nullable=True)
                 if col_name not in schema:
                     schema[col_name] = col_type
                 else:
