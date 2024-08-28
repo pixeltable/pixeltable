@@ -438,16 +438,17 @@ class Table(SchemaObject):
             stored = True
 
             if isinstance(spec, ts.ColumnType):
-                # TODO: create copy
                 col_type = spec
+            elif isinstance(spec, type):
+                col_type = ts.ColumnType.from_python_type(spec)
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
             elif isinstance(spec, Callable):
-                raise excs.Error((
+                raise excs.Error(
                     f'Column {name} computed with a Callable: specify using a dictionary with '
                     f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": IntType()}})'
-                ))
+                )
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 col_type = spec.get('type')

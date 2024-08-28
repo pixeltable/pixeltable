@@ -10,7 +10,8 @@ from sqlalchemy.util.preloaded import orm
 
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-from pixeltable import catalog, func, DataFrame
+import pixeltable.type_system as ts
+from pixeltable import DataFrame, catalog, func
 from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
