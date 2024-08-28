@@ -7,7 +7,7 @@ import inspect
 import json
 import sys
 import typing
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union, overload
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -241,34 +241,59 @@ class Expr(abc.ABC):
         return str(self)
 
     @classmethod
-    def print_list(cls, expr_list: List[Expr]) -> str:
+    def print_list(cls, expr_list: list[Any]) -> str:
         if len(expr_list) == 1:
             return str(expr_list[0])
-        return f'({", ".join([str(e) for e in expr_list])})'
+        return f'({", ".join(str(e) for e in expr_list)})'
+
+    # `subexprs` has two forms: one that takes an explicit subclass of `Expr` as an argument and returns only
+    # instances of that subclass; and another that returns all subexpressions that match the given filter.
+    # In order for type checking to behave correctly on both forms, we provide two overloaded signatures.
 
     T = TypeVar('T', bound='Expr')
 
+    @overload
     def subexprs(
-            self, expr_class: Optional[Type[T]] = None, filter: Optional[Callable[[Expr], bool]] = None,
-            traverse_matches: bool = True
+        self, *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+    ) -> Iterator[Expr]: ...
+
+    @overload
+    def subexprs(
+        self, expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True
+    ) -> Iterator[T]: ...
+
+    def subexprs(
+        self, expr_class: Optional[type[T]] = None, filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True
     ) -> Iterator[T]:
         """
         Iterate over all subexprs, including self.
         """
-        assert expr_class is None or filter is None  # at most one of them
-        if expr_class is not None:
-            filter = lambda e: isinstance(e, expr_class)
         is_match = filter is None or filter(self)
+        if expr_class is not None:
+            is_match = is_match and isinstance(self, expr_class)
         if not is_match or traverse_matches:
             for c in self.components:
-                yield from c.subexprs(filter=filter, traverse_matches=traverse_matches)
+                yield from c.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
         if is_match:
             yield self
 
+    @overload
+    def list_subexprs(
+        expr_list: list[Expr], *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+    ) -> Iterator[Expr]: ...
+
+    @overload
+    def list_subexprs(
+        expr_list: list[Expr], expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True
+    ) -> Iterator[T]: ...
+
     @classmethod
     def list_subexprs(
-            cls, expr_list: list[Expr], expr_class: Optional[Type[T]] = None,
-            filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        cls, expr_list: list[Expr], expr_class: Optional[type[T]] = None,
+        filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[T]:
         """Produce subexprs for all exprs in list. Can contain duplicates."""
         for e in expr_list:
@@ -337,10 +362,10 @@ class Expr(abc.ABC):
         return None
 
     @abc.abstractmethod
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self) -> Optional[sql.ColumnElement]:
         """
         If this expr can be materialized directly in SQL:
-        - returns a ClauseElement
+        - returns a ColumnElement
         - eval() will not be called (exception: Literal)
         Otherwise
         - returns None

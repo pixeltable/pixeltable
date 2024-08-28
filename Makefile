@@ -12,6 +12,7 @@ help:
 	@echo "  install       Install the development environment"
 	@echo "  test          Run pytest"
 	@echo "  nbtest        Run notebook tests"
+	@echo "  typecheck     Run mypy"
 	@echo "  lint          Run linting tools against changed files"
 	@echo "  format        Format changed files with ruff (updates .py files in place)"
 	@echo "  notebooks     Execute notebooks (updates .ipynb files in place)"
@@ -20,8 +21,9 @@ help:
 	@echo "  clean         Remove generated files and temp files"
 	@echo "  *.ipynb       Run the notebook/notebooks (updates output cells in place)"
 
-.PHONY: check-conda
-check-conda:
+.PHONY: setup-install
+setup-install:
+	@mkdir -p .make-install
 ifdef CONDA_DEFAULT_ENV
 ifeq ($(CONDA_DEFAULT_ENV),base)
 	$(error Pixeltable must be installed from a conda environment (not `base`))
@@ -32,14 +34,19 @@ endif
 
 YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info[1] <= 10))")
 
-# Use the placeholder `.make-install` to track whether the installation is up-to-date
-.make-install: poetry.lock
+.make-install/poetry:
 	@echo "Installing poetry ..."
 	@python -m pip install --upgrade pip
 	@python -m pip install poetry==1.8.2
 	@poetry self add "poetry-dynamic-versioning[plugin]"
+	@touch .make-install/poetry
+
+.make-install/deps: poetry.lock
 	@echo "Installing dependencies from poetry ..."
 	@poetry install --with dev
+	@touch .make-install/deps
+
+.make-install/others:
 ifeq ($(YOLOX_OK), True)
 	# YOLOX only works on python <= 3.10 and cannot be installed via poetry
 	@echo "Installing YOLOX ..."
@@ -49,10 +56,10 @@ else
 endif
 	@echo "Installing Jupyter kernel ..."
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
-	@touch .make-install
+	@touch .make-install/others
 
 .PHONY: install
-install: check-conda .make-install
+install: setup-install .make-install/poetry .make-install/deps .make-install/others
 
 .PHONY: test
 test: install
@@ -68,6 +75,10 @@ nbtest: install
 	@export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
 	@echo "Running pytest on notebooks ..."
 	@ulimit -n 4000; pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) docs/release/**/*.ipynb
+
+.PHONY: typecheck
+typecheck: install
+	@mypy pixeltable/*.py
 
 .PHONY: lint
 lint: install
@@ -88,6 +99,6 @@ release-docs: install
 .PHONY: clean
 clean:
 	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
-	@rm -f .make-install || true
+	@rm -rf .make-install || true
 	@rm -rf site || true
 	@rm -rf target || true
