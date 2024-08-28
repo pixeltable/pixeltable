@@ -5,6 +5,7 @@ import datetime
 import enum
 import json
 import typing
+from typing_extensions import _AnnotatedAlias
 import urllib.parse
 import urllib.request
 from copy import deepcopy
@@ -250,10 +251,7 @@ class ColumnType:
 
     @classmethod
     def from_python_type(cls, t: type) -> Optional[ColumnType]:
-        if t is ImageT:
-            # Unconstrained image
-            return ImageType()
-        elif typing.get_origin(t) is typing.Union:
+        if typing.get_origin(t) is typing.Union:
             union_args = typing.get_args(t)
             if union_args[1] is type(None):
                 # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
@@ -264,42 +262,30 @@ class ColumnType:
                     return underlying
         elif typing.get_origin(t) is typing.Annotated:
             annotated_args = typing.get_args(t)
-            base = annotated_args[0]
+            origin = annotated_args[0]
             parameters = annotated_args[1]
-            if base is str:
-                if parameters == 'pxt.VideoT':
-                    return VideoType()
-                elif parameters == 'pxt.AudioT':
-                    return AudioType()
-                elif parameters == 'pxt.DocumentT':
-                    return DocumentType()
-            elif issubclass(base, np.ndarray):
-                dtype, shape = parameters
-                pxt_dtype = cls.from_python_type(dtype)
-                if pxt_dtype is not None:
-                    return ArrayType(dtype=pxt_dtype, shape=shape)
-            elif issubclass(base, PIL.Image.Image):
-                return ImageType(size=parameters)
+            if isinstance(parameters, ColumnType):
+                return parameters
         else:
             # Discard type parameters to ensure that parameterized types such as `list[T]`
             # are correctly mapped to Pixeltable types.
-            base = typing.get_origin(t)
-            if base is None:
-                # No type parameters; the base type is just `t` itself
-                base = t
-            if base is str:
+            origin = typing.get_origin(t)
+            if origin is None:
+                # No type parameters; the origin type is just `t` itself
+                origin = t
+            if origin is str:
                 return StringType()
-            if base is int:
+            if origin is int:
                 return IntType()
-            if base is float:
+            if origin is float:
                 return FloatType()
-            if base is bool:
+            if origin is bool:
                 return BoolType()
-            if base is datetime.datetime:
+            if origin is datetime.datetime:
                 return TimestampType()
-            if issubclass(base, Sequence) or issubclass(base, Mapping):
+            if issubclass(origin, Sequence) or issubclass(origin, Mapping):
                 return JsonType()
-            if issubclass(base, PIL.Image.Image):
+            if issubclass(origin, PIL.Image.Image):
                 return ImageType()
         return None
 
@@ -847,31 +833,63 @@ class DocumentType(ColumnType):
             raise excs.Error(f'Not a recognized document format: {val}') from None
 
 
-class SpecialType:
-
-    def __init__(self, fn: Callable):
-        self._getitem = fn
-        self._name = fn.__name__
-        self.__doc__ = fn.__doc__
-
-    def __repr__(self) -> str:
-        return self._name
-
-    def __getitem__(self, parameters):
-        return self._getitem(self, parameters)
+NotNull = object()
 
 
-@SpecialType
-def ArrayT(_, parameters: tuple[type, tuple[Optional[int], ...]]) -> type:
-    dtype, dim = parameters
-    return typing.Annotated[np.ndarray, (dtype, dim)]
+StringT = str
+IntT = int
+FloatT = float
+BoolT = bool
+TimestampT = datetime.datetime
+JsonT = typing.Annotated[Union[list, dict, str, int, float, bool], JsonType()]
+VideoT = typing.Annotated[str, VideoType()]
+AudioT = typing.Annotated[str, AudioType()]
+DocumentT = typing.Annotated[str, DocumentType()]
 
 
-@SpecialType
-def ImageT(_, dim: tuple[int, int]) -> type:
-    return typing.Annotated[PIL.Image.Image, dim]
+class ImageT(PIL.Image.Image):
+    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+        params = tuple(item)
+        size: Optional[tuple] = None
+        mode: Optional[str] = None
+        for param in params:
+            if isinstance(param, tuple):
+                if len(param) != 2 or not isinstance(param[0], (int, type(None))) or not isinstance(param[1], (int, type(None))):
+                    raise TypeError(f'Invalid ImageT type parameter: {param}')
+                if size is not None:
+                    raise TypeError(f'Duplicate ImageT type parameter: {param}')
+                size = param
+            elif isinstance(param, str):
+                if mode not in PIL.Image.MODES:
+                    raise TypeError(f'Invalid ImageT type parameter: {param}')
+                if mode is not None:
+                    raise TypeError(f'Duplicate ImageT type parameter: {param}')
+                mode = param
+            else:
+                raise TypeError(f'Invalid ImageT type parameter: {param}')
+        return typing.Annotated[PIL.Image.Image, ImageType(size=size, mode=mode)]
 
 
-VideoT = typing.Annotated[str, 'pxt.VideoT']
-AudioT = typing.Annotated[str, 'pxt.AudioT']
-DocumentT = typing.Annotated[str, 'pxt.DocumentT']
+class ArrayT(np.ndarray):
+    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+        params = tuple(item)
+        shape: Optional[tuple] = None
+        dtype: Optional[ColumnType] = None
+        for param in params:
+            if isinstance(param, tuple):
+                if not all(n is None or (isinstance(n, int) and n >= 1) for n in param):
+                    raise TypeError(f'Invalid ArrayT type parameter: {param}')
+                if shape is not None:
+                    raise TypeError(f'Duplicate ArrayT type parameter: {param}')
+                shape = param
+            elif isinstance(param, type):
+                if dtype is not None:
+                    raise TypeError(f'Duplicate ArrayT type parameter: {param}')
+                dtype = ColumnType.from_python_type(param)
+            else:
+                raise TypeError(f'Invalid ArrayT type parameter: {param}')
+        return typing.Annotated[np.ndarray, ArrayType(shape=shape, dtype=dtype)]
+
+
+def test_fn() -> ImageT[(3, 4)]:
+    return None
