@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass
-from typing import Optional, List, Any, Dict, Tuple, Set
+from typing import Optional, List, Any, Dict, Sequence, Tuple, Set
 
 import sqlalchemy as sql
 
@@ -57,7 +57,7 @@ class RowBuilder:
         target_exprs: List[Expr]  # exprs corresponding to target_slot_idxs
 
     def __init__(
-            self, output_exprs: List[Expr], columns: List[catalog.Column], input_exprs: List[Expr]
+            self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Sequence[Expr]
     ):
         """
         Args:
@@ -227,10 +227,10 @@ class RowBuilder:
         # merge dependencies and convert to list
         return sorted(set().union(*[dependencies[i] for i in target_slot_idxs]))
 
-    def substitute_exprs(self, expr_list: List[Expr], remove_duplicates: bool = True) -> None:
+    def substitute_exprs(self, expr_list: list, remove_duplicates: bool = True) -> None:
         """Substitutes exprs with their executable counterparts from unique_exprs and optionally removes duplicates"""
         i = 0
-        unique_ids: Set[i] = set()  # slot idxs within expr_list
+        unique_ids: set[int] = set()  # slot idxs within expr_list
         while i < len(expr_list):
             unique_expr = self.unique_exprs[expr_list[i]]
             if unique_expr.slot_idx in unique_ids and remove_duplicates:
