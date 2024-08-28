@@ -68,7 +68,7 @@ class TestVision:
             v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, color='red')).collect()
 
         # explicit label colors
-        label_colors = {2: 'red', 3: 'green', 7: 'blue'}
+        label_colors = {'2': 'red', '3': 'green', '7': 'blue'}
         _ = v.select(draw_bounding_boxes(
             v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, label_colors=label_colors)).collect()
 
