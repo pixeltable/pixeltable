@@ -169,7 +169,7 @@ def import_rows(
         comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
 
     Returns:
-        The newly created [`Table`][pixeltable.Table] object.
+        A handle to the newly created [`Table`][pixeltable.Table].
     """
     if schema_overrides is None:
         schema_overrides = {}
@@ -245,7 +245,7 @@ def import_json(
         kwargs: Additional keyword arguments to pass to `json.loads`.
 
     Returns:
-        The newly created [`Table`][pixeltable.Table] object.
+        A handle to the newly created [`Table`][pixeltable.Table].
     """
     import json
     import urllib.parse

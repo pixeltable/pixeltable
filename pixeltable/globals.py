@@ -42,7 +42,7 @@ def create_table(
         comment: Optional comment for the table.
 
     Returns:
-        The newly created [`Table`][pixeltable.Table].
+        A handle to the newly created [`Table`][pixeltable.Table].
 
     Raises:
         Error: if the path already exists or is invalid.
@@ -108,8 +108,8 @@ def create_view(
         ignore_errors: if True, fail silently if the path already exists or is invalid.
 
     Returns:
-        The [`Table`][pixeltable.Table] object representing the newly created view. If the path already exists or is
-        invalid and `ignore_errors=True`, returns `None`.
+        A handle to the [`Table`][pixeltable.Table] representing the newly created view. If the path already
+        exists or is invalid and `ignore_errors=True`, returns `None`.
 
     Raises:
         Error: if the path already exists or is invalid and `ignore_errors=False`.
@@ -183,7 +183,7 @@ def get_table(path: str) -> catalog.Table:
         path: Path to the table.
 
     Returns:
-        A [`Table`][pixeltable.Table] object.
+        A handle to the [`Table`][pixeltable.Table].
 
     Raises:
         Error: If the path does not exist or does not designate a table object.

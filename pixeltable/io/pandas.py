@@ -36,7 +36,7 @@ def import_pandas(
             Pixeltable identifiers).
 
     Returns:
-        The newly created [`Table`][pixeltable.Table] object.
+        A handle to the newly created [`Table`][pixeltable.Table].
     """
     if schema_overrides is None:
         schema_overrides = {}
@@ -66,7 +66,7 @@ def import_csv(
     for more details.
 
     Returns:
-        The newly created [`Table`][pixeltable.Table] object.
+        A handle to the newly created [`Table`][pixeltable.Table].
     """
     df = pd.read_csv(filepath_or_buffer, **kwargs)
     return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
@@ -86,7 +86,7 @@ def import_excel(
     for more details.
 
     Returns:
-        The newly created [`Table`][pixeltable.Table] object.
+        A handle to the newly created [`Table`][pixeltable.Table].
     """
     df = pd.read_excel(io, *args, **kwargs)
     return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
