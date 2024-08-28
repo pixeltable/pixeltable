@@ -54,10 +54,10 @@ def _retry(fn: Callable) -> Callable:
 # Audio Endpoints
 
 
-@pxt.udf(return_type=ts.AudioType())
+@pxt.udf
 def speech(
     input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
-) -> str:
+) -> ts.AudioT:
     """
     Generates audio from the input text.
 
@@ -94,17 +94,9 @@ def speech(
     return output_filename
 
 
-@pxt.udf(
-    param_types=[
-        ts.AudioType(),
-        ts.StringType(),
-        ts.StringType(nullable=True),
-        ts.StringType(nullable=True),
-        ts.FloatType(nullable=True),
-    ]
-)
+@pxt.udf
 def transcriptions(
-    audio: str,
+    audio: ts.AudioT,
     *,
     model: str,
     language: Optional[str] = None,
@@ -143,8 +135,8 @@ def transcriptions(
     return transcription.dict()
 
 
-@pxt.udf(param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True), ts.FloatType(nullable=True)])
-def translations(audio: str, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
+@pxt.udf
+def translations(audio: ts.AudioT, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
     """
     Translates audio into English.
 
@@ -307,10 +299,10 @@ _embedding_dimensions_cache: dict[str, int] = {
 }
 
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
+@pxt.udf(batch_size=32)
 def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
-) -> Batch[np.ndarray]:
+) -> Batch[ts.ArrayT[(None,), float]]:
     """
     Creates an embedding vector representing the input text.
 

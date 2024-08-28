@@ -173,8 +173,8 @@ _embedding_dimensions_cache = {
 }
 
 
-@pxt.udf(batch_size=32, return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()))
-def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
+@pxt.udf(batch_size=32)
+def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.ArrayT[(None,), float]]:
     """
     Query an embedding model for a given string of text.
 

@@ -17,8 +17,8 @@ import PIL.Image
 
 import pixeltable.func as func
 import pixeltable.type_system as ts
-from pixeltable.utils.code import local_public_names
 from pixeltable.exprs import Expr
+from pixeltable.utils.code import local_public_names
 
 
 @func.udf(is_method=True)
@@ -92,8 +92,8 @@ def _(self: Expr, mode: str) -> ts.ColumnType:
 
 
 # Image.crop()
-@func.udf(substitute_fn=PIL.Image.Image.crop, param_types=[ts.ImageType(), ts.ArrayType((4,), dtype=ts.IntType())], is_method=True)
-def crop(self: PIL.Image.Image, box: tuple[int, int, int, int]) -> PIL.Image.Image:
+@func.udf(substitute_fn=PIL.Image.Image.crop, is_method=True)
+def crop(self: PIL.Image.Image, box: ts.ArrayT[(4,), int]) -> PIL.Image.Image:
     """
     Return a rectangular region from the image. The box is a 4-tuple defining the left, upper, right, and lower pixel
     coordinates.
@@ -136,8 +136,8 @@ def _(self: Expr) -> ts.ColumnType:
 
 
 # Image.resize()
-@func.udf(param_types=[ts.ImageType(), ts.ArrayType((2,), dtype=ts.IntType())], is_method=True)
-def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
+@func.udf(is_method=True)
+def resize(self: PIL.Image.Image, size: ts.ArrayT[(2,), int]) -> PIL.Image.Image:
     """
     Return a resized copy of the image. The size parameter is a tuple containing the width and height of the new image.
 
@@ -282,8 +282,8 @@ def getpalette(self: PIL.Image.Image, mode: Optional[str] = None) -> tuple[int]:
     pass
 
 
-@func.udf(param_types=[ts.ImageType(), ts.ArrayType((2,), dtype=ts.IntType())], is_method=True)
-def getpixel(self: PIL.Image.Image, xy: tuple[int, int]) -> tuple[int]:
+@func.udf(is_method=True)
+def getpixel(self: PIL.Image.Image, xy: ts.ArrayT[(2,), int]) -> tuple[int]:
     """
     Return the pixel value at the given position. The position `xy` is a tuple containing the x and y coordinates.
 

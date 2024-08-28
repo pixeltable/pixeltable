@@ -13,27 +13,9 @@ import pixeltable as pxt
 if TYPE_CHECKING:
     from whisper import Whisper
 
-
-@pxt.udf(
-    param_types=[
-        pxt.AudioType(),
-        pxt.StringType(),
-        pxt.JsonType(nullable=True),
-        pxt.FloatType(nullable=True),
-        pxt.FloatType(nullable=True),
-        pxt.FloatType(nullable=True),
-        pxt.BoolType(),
-        pxt.StringType(nullable=True),
-        pxt.BoolType(),
-        pxt.StringType(),
-        pxt.StringType(),
-        pxt.StringType(),
-        pxt.FloatType(nullable=True),
-        pxt.JsonType(nullable=True),
-    ]
-)
+@pxt.udf
 def transcribe(
-    audio: str,
+    audio: pxt.AudioT,
     *,
     model: str,
     temperature: Optional[list[float]] = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],

@@ -16,10 +16,11 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-import PIL.Image
 import av
 import numpy as np
+import PIL.Image
 
+import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.func as func
 import pixeltable.type_system as ts
@@ -88,18 +89,10 @@ class make_video(func.Aggregator):
         return str(self.out_file)
 
 
-_extract_audio_param_types = [
-    ts.VideoType(nullable=False),
-    ts.IntType(nullable=False),
-    ts.StringType(nullable=False),
-    ts.StringType(nullable=True),
-]
-
-
-@func.udf(return_type=ts.AudioType(nullable=True), param_types=_extract_audio_param_types, is_method=True)
+@func.udf(is_method=True)
 def extract_audio(
-    video_path: str, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
-) -> Optional[str]:
+    video_path: ts.VideoT, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
+) -> Optional[pxt.AudioT]:
     """
     Extract an audio stream from a video file, save it as a media file and return its path.
 
@@ -128,8 +121,8 @@ def extract_audio(
         return output_filename
 
 
-@func.udf(return_type=ts.JsonType(nullable=False), param_types=[ts.VideoType(nullable=False)], is_method=True)
-def get_metadata(video: str) -> dict:
+@func.udf(is_method=True)
+def get_metadata(video: ts.VideoT) -> dict:
     """
     Gets various metadata associated with a video file and returns it as a dictionary.
     """
