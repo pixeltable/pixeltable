@@ -169,6 +169,9 @@ class ColumnType:
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
 
+    def __hash__(self) -> int:
+        return hash((self._type, self.nullable))
+
     def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False) -> bool:
         if ignore_nullable:
             supertype = self.supertype(other)
@@ -594,6 +597,9 @@ class ArrayType(ColumnType):
     def matches(self, other: ColumnType) -> bool:
         return other._type == self.Type.ARRAY and self.shape == other.shape and self.dtype == other.dtype
 
+    def __hash__(self) -> int:
+        return hash((self._type, self.nullable, self.shape, self.dtype))
+
     def supertype(self, other: ColumnType) -> Optional[ArrayType]:
         if not isinstance(other, ArrayType):
             return None
@@ -731,6 +737,9 @@ class ImageType(ColumnType):
             and self.mode == other.mode
         )
 
+    def __hash__(self) -> int:
+        return hash((self._type, self.nullable, self.size, self.mode))
+
     def supertype(self, other: ColumnType) -> Optional[ImageType]:
         if not isinstance(other, ImageType):
             return None
@@ -856,6 +865,9 @@ class DocumentType(ColumnType):
 
     def matches(self, other: ColumnType) -> bool:
         return other._type == self.Type.DOCUMENT and self._doc_formats == other._doc_formats
+
+    def __hash__(self) -> int:
+        return hash((self._type, self.nullable, self._doc_formats))
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         # stored as a file path
