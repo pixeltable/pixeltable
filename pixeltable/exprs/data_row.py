@@ -192,7 +192,7 @@ class DataRow:
                 # we want to save this to a file
                 self.file_paths[index] = filepath
                 self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
-                self.vals[index].save(filepath, format='JPEG')
+                self.vals[index].save(filepath, format='png')
             else:
                 # we discard the content of this cell
                 self.has_val[index] = False
