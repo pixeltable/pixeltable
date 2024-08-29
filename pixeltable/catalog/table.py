@@ -27,7 +27,7 @@ from .table_version_path import TableVersionPath
 _logger = logging.getLogger('pixeltable')
 
 class Table(SchemaObject):
-    """Base class for all tabular SchemaObjects."""
+    """Base class for table objects (base tables, views, snapshots)."""
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -74,7 +74,7 @@ class Table(SchemaObject):
     def __getitem__(
             self, index: object
     ) -> Union[
-        'pixeltable.func.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame'
+        'pixeltable.func.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.DataFrame'
     ]:
         """Return a ColumnRef or QueryTemplateFunction for the given name, or a DataFrame for the given slice.
         """
@@ -106,33 +106,30 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path)
 
-    def select(self, *items: Any, **named_items: Any) -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
+    def select(self, *items: Any, **named_items: Any) -> 'pixeltable.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).select(*items, **named_items)
 
-    def where(self, pred: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
+    def where(self, pred: 'exprs.Expr') -> 'pixeltable.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).where(pred)
 
-    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
+    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pixeltable.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).order_by(*items, asc=asc)
 
-    def group_by(self, *items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table."""
+    def group_by(self, *items: 'exprs.Expr') -> 'pixeltable.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).group_by(*items)
 
-    def limit(self, n: int) -> 'pixeltable.dataframe.DataFrame':
+    def limit(self, n: int) -> 'pixeltable.DataFrame':
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).limit(n)
 

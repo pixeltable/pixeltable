@@ -1,4 +1,4 @@
-from typing import Any, List, Optional, Set, Tuple
+from typing import Any, Iterable, List, Optional, Sequence, Set, Tuple
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -40,7 +40,7 @@ class Analyzer:
     """Class to perform semantic analysis of a query and to store the analysis state"""
 
     def __init__(
-            self, tbl: catalog.TableVersionPath, select_list: List[exprs.Expr],
+            self, tbl: catalog.TableVersionPath, select_list: Sequence[exprs.Expr],
             where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[List[exprs.Expr]] = None,
             order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None):
         if group_by_clause is None:
@@ -69,7 +69,7 @@ class Analyzer:
         # all exprs that are evaluated in Python; not executable
         self.all_exprs = self.select_list.copy()
         self.all_exprs.extend(self.group_by_clause)
-        self.all_exprs.extend([e for e, _ in self.order_by_clause])
+        self.all_exprs.extend(e for e, _ in self.order_by_clause)
         if self.filter is not None:
             self.all_exprs.append(self.filter)
         self.sql_exprs = list(exprs.Expr.list_subexprs(
@@ -85,7 +85,7 @@ class Analyzer:
 
     def _analyze_agg(self) -> None:
         """Check semantic correctness of aggregation and fill in agg-specific fields of Analyzer"""
-        self.agg_fn_calls = [e for e in self.all_exprs if _is_agg_fn_call(e)]
+        self.agg_fn_calls = [e for e in self.all_exprs if isinstance(e, exprs.FunctionCall) and _is_agg_fn_call(e)]
         if len(self.agg_fn_calls) == 0:
             # nothing to do
             return
@@ -99,7 +99,7 @@ class Analyzer:
 
         # check that filter doesn't contain aggregates
         if self.filter is not None:
-            agg_fn_calls = [e for e in self.filter.subexprs(filter=lambda e: _is_agg_fn_call(e))]
+            agg_fn_calls = [e for e in self.filter.subexprs(expr_class=exprs.FunctionCall, filter=lambda e: _is_agg_fn_call(e))]
             if len(agg_fn_calls) > 0:
                 raise excs.Error(f'Filter cannot contain aggregate functions: {self.filter}')
 
@@ -112,7 +112,7 @@ class Analyzer:
                 raise excs.Error(f'Grouping expression contains aggregate function: {e}')
 
         # check that agg fn calls don't have contradicting ordering requirements
-        order_by: List[exprs.Exprs] = []
+        order_by: list[exprs.Expr] = []
         order_by_origin: Optional[exprs.Expr] = None  # the expr that determines the ordering
         for agg_fn_call in self.agg_fn_calls:
             fn_call_order_by = agg_fn_call.get_agg_order_by()
@@ -186,7 +186,7 @@ class Planner:
     def create_count_stmt(
             cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Expr] = None
     ) -> sql.Select:
-        stmt = sql.select(sql.func.count('*'))
+        stmt = sql.select(sql.func.count())
         refd_tbl_ids: Set[UUID] = set()
         if where_clause is not None:
             analyzer = cls.analyze(tbl, where_clause)
@@ -215,7 +215,8 @@ class Planner:
         stored_col_info = row_builder.output_slot_idxs()
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         input_col_info = [info for info in stored_col_info if not info.col.is_computed]
-        plan = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
+        plan: exec.ExecNode = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
+
         media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
         if len(media_input_cols) > 0:
             # prefetch external files for all input column refs for validation
@@ -286,7 +287,7 @@ class Planner:
         target = tbl.tbl_version  # the one we need to update
         updated_cols = list(update_targets.keys())
         if len(recompute_targets) > 0:
-            recomputed_cols = recompute_targets.copy()
+            recomputed_cols = set(recompute_targets)
         else:
             recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
             # regardless of cascade, we need to update all indices on any updated column
@@ -298,13 +299,13 @@ class Planner:
         copied_cols = [
             col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
-        select_list = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(update_targets.values())
 
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
         # recomputed cols reference the new values of the updated cols
-        spec = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
+        spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
         exprs.Expr.list_substitute(recomputed_exprs, spec)
         select_list.extend(recomputed_exprs)
 
@@ -312,16 +313,17 @@ class Planner:
         plan = cls.create_query_plan(tbl, select_list, where_clause=where_clause, with_pk=True, ignore_errors=True)
         all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
-        [plan.row_builder.add_table_column(col, select_list[i].slot_idx) for i, col in enumerate(all_base_cols)]
+        for i, col in enumerate(all_base_cols):
+            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
     def create_batch_update_plan(
-            cls, tbl: catalog.TableVersionPath,
-            batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
-            cascade: bool
-    ) -> Tuple[exec.ExecNode, exec.RowUpdateNode, sql.ClauseElement, List[catalog.Column], List[catalog.Column]]:
+        cls, tbl: catalog.TableVersionPath,
+        batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
+        cascade: bool
+    ) -> tuple[exec.ExecNode, exec.RowUpdateNode, sql.ColumnElement[bool], list[catalog.Column], list[catalog.Column]]:
         """
         Returns:
         - root node of the plan to produce the updated rows
@@ -355,7 +357,7 @@ class Planner:
             col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
         select_list = [exprs.ColumnRef(col) for col in copied_cols]
-        select_list.extend([exprs.ColumnRef(col) for col in updated_cols])
+        select_list.extend(exprs.ColumnRef(col) for col in updated_cols)
 
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
@@ -369,10 +371,11 @@ class Planner:
         analyzer = Analyzer(tbl, select_list)
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], analyzer.sql_exprs)
         analyzer.finalize(row_builder)
-        plan = exec.SqlLookupNode(tbl, row_builder, analyzer.sql_exprs, sa_key_cols, key_vals)
-        delete_where_clause = plan.where_clause
+        sql_lookup_node = exec.SqlLookupNode(tbl, row_builder, analyzer.sql_exprs, sa_key_cols, key_vals)
+        delete_where_clause = sql_lookup_node.where_clause
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
-        plan = row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, plan)
+        row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, sql_lookup_node)
+        plan: exec.ExecNode = row_update_node
         if not cls._is_contained_in(analyzer.select_list, analyzer.sql_exprs):
             # we need an ExprEvalNode to evaluate the remaining output exprs
             plan = exec.ExprEvalNode(row_builder, analyzer.select_list, analyzer.sql_exprs, input=plan)
@@ -416,7 +419,7 @@ class Planner:
         # retrieve all stored cols and all target exprs
         recomputed_cols = set(recompute_targets.copy())
         copied_cols = [col for col in target.cols if col.is_stored and not col in recomputed_cols]
-        select_list = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_cols) for c in recomputed_cols]
@@ -426,10 +429,8 @@ class Planner:
         plan = cls.create_query_plan(
             view, select_list, where_clause=target.predicate, with_pk=True, ignore_errors=True,
             exact_version_only=view.get_bases())
-        [
+        for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-            for i, col in enumerate(copied_cols + list(recomputed_cols))  # same order as select_list
-        ]
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
         stored_img_col_info = \
             [info for info in plan.row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
@@ -560,7 +561,7 @@ class Planner:
                 return False
             tbl = e.col.tbl
             return tbl.is_component_view() and tbl.is_iterator_column(e.col) and not e.col.is_stored
-        unstored_iter_col_refs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=refs_unstored_iter_col))
+        unstored_iter_col_refs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, expr_class=exprs.ColumnRef, filter=refs_unstored_iter_col))
         if len(unstored_iter_col_refs) > 0 and len(order_by_items) == 0:
             # we don't already have a user-requested ordering and we access unstored iterator columns:
             # order by the primary key of the component view, which minimizes the number of iterator instantiations
@@ -582,9 +583,9 @@ class Planner:
         return order_by_items
 
     @classmethod
-    def _is_contained_in(cls, l1: List[exprs.Expr], l2: List[exprs.Expr]) -> bool:
+    def _is_contained_in(cls, l1: Iterable[exprs.Expr], l2: Iterable[exprs.Expr]) -> bool:
         """Returns True if l1 is contained in l2"""
-        s1, s2 = set([e.id for e in l1]), set([e.id for e in l2])
+        s1, s2 = set(e.id for e in l1), set(e.id for e in l2)
         return s1 <= s2
 
     @classmethod

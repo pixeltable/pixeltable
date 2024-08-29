@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import List, Optional, Any
+from typing import Iterable, List, Optional, Any
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -15,12 +15,12 @@ _logger = logging.getLogger('pixeltable')
 class AggregationNode(ExecNode):
     def __init__(
             self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder, group_by: List[exprs.Expr],
-            agg_fn_calls: List[exprs.FunctionCall], input_exprs: List[exprs.Expr], input: ExecNode
+            agg_fn_calls: List[exprs.FunctionCall], input_exprs: Iterable[exprs.Expr], input: ExecNode
     ):
         super().__init__(row_builder, group_by + agg_fn_calls, input_exprs, input)
         self.input = input
         self.group_by = group_by
-        self.input_exprs = input_exprs
+        self.input_exprs = list(input_exprs)
         self.agg_fn_calls = agg_fn_calls
         self.agg_fn_eval_ctx = row_builder.create_eval_ctx(agg_fn_calls, exclude=input_exprs)
         self.output_batch = DataRowBatch(tbl, row_builder, 0)
