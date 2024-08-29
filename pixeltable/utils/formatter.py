@@ -143,12 +143,17 @@ class Formatter:
             width = 480  # Multiple columns: display medium images
         else:
             width = 640  # A single image: larger display
+        if img.mode == 'RGBA':
+            # Can't encode as JPEG, so convert to RGB with white background (to match the notebook)
+            newimg = Image.new('RGB', img.size, (255, 255, 255))
+            newimg.paste(img, mask=img.split()[3])
+            img = newimg
         with io.BytesIO() as buffer:
-            img.save(buffer, 'png')
+            img.save(buffer, 'JPEG')
             img_base64 = base64.b64encode(buffer.getvalue()).decode()
             return f"""
             <div class="pxt_image" style="width:{width}px;">
-                <img src="data:image/png;base64,{img_base64}" width="{width}" />
+                <img src="data:image/jpeg;base64,{img_base64}" width="{width}" />
             </div>
             """
 

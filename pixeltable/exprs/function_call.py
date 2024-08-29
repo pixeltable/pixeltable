@@ -246,11 +246,11 @@ class FunctionCall(Expr):
             return f'{fn_name}({self._print_args()})'
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
-        arg_strs = [
-            str(arg) if idx is None else str(self.components[idx]) for idx, arg in self.args[start_idx:]
-        ]
         def print_arg(arg: Any) -> str:
-            return f"'{arg}'" if isinstance(arg, str) else str(arg)
+            return repr(arg) if isinstance(arg, str) else str(arg)
+        arg_strs = [
+            print_arg(arg) if idx is None else str(self.components[idx]) for idx, arg in self.args[start_idx:]
+        ]
         arg_strs.extend([
             f'{param_name}={print_arg(arg) if idx is None else str(self.components[idx])}'
             for param_name, (idx, arg) in self.kwargs.items()
