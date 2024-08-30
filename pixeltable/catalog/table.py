@@ -31,8 +31,6 @@ _logger = logging.getLogger('pixeltable')
 class Table(SchemaObject):
     """Base class for table objects (base tables, views, snapshots)."""
 
-    __PREDEF_SYMBOLS: Optional[set[str]] = None
-
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
         self._is_dropped = False
@@ -65,14 +63,6 @@ class Table(SchemaObject):
     def _check_is_dropped(self) -> None:
         if self._is_dropped:
             raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
-
-    # Returns `True` if the given name is a predefined attribute of the `Table` class, such as `where` or `group_by`
-    # (as opposed to an instance attribute such as a column name or query name).
-    @classmethod
-    def _is_system_attr(cls, name: str) -> bool:
-        if cls.__PREDEF_SYMBOLS is None:
-            cls.__PREDEF_SYMBOLS = set(dir(catalog.InsertableTable))
-        return name in cls.__PREDEF_SYMBOLS
 
     def __getattr__(
             self, name: str
@@ -363,8 +353,6 @@ class Table(SchemaObject):
         col_name, spec = next(iter(kwargs.items()))
         if not is_valid_identifier(col_name):
             raise excs.Error(f'Invalid column name: {col_name!r}')
-        if self._is_system_attr(col_name):
-            raise excs.Error(f'{col_name!r} is a keyword in Pixeltable; please use a different column name')
         if isinstance(spec, (ts.ColumnType, exprs.Expr)) and type is not None:
             raise excs.Error(f'add_column(): keyword argument "type" is redundant')
 
@@ -464,7 +452,7 @@ class Table(SchemaObject):
     ) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         if is_system_column_name(col.name):
-            raise excs.Error(f'Column name {col.name!r} is reserved')
+            raise excs.Error(f'{col.name!r} is a reserved name in Pixeltable; please choose a different column name.')
         if not is_valid_identifier(col.name):
             raise excs.Error(f"Invalid column name: {col.name!r}")
         if col.name in existing_column_names:

@@ -18,7 +18,7 @@ from pixeltable.type_system import IntType, InvalidType
 
 from .catalog import Catalog
 from .column import Column
-from .globals import POS_COLUMN_NAME, UpdateStatus
+from .globals import _POS_COLUMN_NAME, UpdateStatus
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -50,7 +50,7 @@ class View(Table):
         return 'view'
 
     @classmethod
-    def create(
+    def _create(
             cls, dir_id: UUID, name: str, base: TableVersionPath, schema: Dict[str, Any],
             predicate: 'pxt.exprs.Expr', is_snapshot: bool, num_retained_versions: int, comment: str,
             iterator_cls: Optional[Type[ComponentIterator]], iterator_args: Optional[Dict]
@@ -101,7 +101,7 @@ class View(Table):
             # a component view exposes the pos column of its rowid;
             # we create that column here, so it gets assigned a column id;
             # stored=False: it is not stored separately (it's already stored as part of the rowid)
-            iterator_cols = [Column(POS_COLUMN_NAME, IntType(), stored=False)]
+            iterator_cols = [Column(_POS_COLUMN_NAME, IntType(), stored=False)]
             output_dict, unstored_cols = iterator_cls.output_schema(**bound_args)
             iterator_cols.extend([
                 Column(col_name, col_type, stored=col_name not in unstored_cols)

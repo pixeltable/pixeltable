@@ -124,6 +124,18 @@ class TestTable:
         with pytest.raises(excs.Error):
             pxt.drop_table('.test2')
 
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('bad_col_name', {'pos': IntType()})
+        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('test', {'add_column': IntType()})
+        assert "'add_column' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('test', {'insert': IntType()})
+        assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
     def test_names(self, reset_db) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
@@ -1094,10 +1106,6 @@ class TestTable:
         t.add_column(id=pxt.StringType(nullable=True))
         assert len(t.columns()) == num_orig_cols + 3
 
-        with pytest.raises(excs.Error) as excs_info:
-            _ = t.add_column(add_column=pxt.IntType())
-        assert "'add_column' is a keyword in pixeltable" in str(excs_info.value).lower()
-
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.IntType(nullable=False))
         assert 'cannot add non-nullable' in str(exc_info.value).lower()
@@ -1108,7 +1116,15 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(pos=pxt.StringType(nullable=True))
-        assert 'is reserved' in str(exc_info.value).lower()
+        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as excs_info:
+            _ = t.add_column(add_column=pxt.IntType())
+        assert "'add_column' is a reserved name in pixeltable" in str(excs_info.value).lower()
+
+        with pytest.raises(excs.Error) as excs_info:
+            _ = t.add_column(insert=pxt.IntType())
+        assert "'insert' is a reserved name in pixeltable" in str(excs_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.IntType(nullable=False), type=pxt.StringType())
@@ -1161,7 +1177,11 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t['pos'] = pxt.StringType()
-        assert 'is reserved' in str(exc_info.value).lower()
+        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t['add_column'] = pxt.StringType()
+        assert "'add_column' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t[2] = pxt.StringType()

@@ -33,7 +33,7 @@ class InsertableTable(Table):
 
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
-    def create(
+    def _create(
             cls, dir_id: UUID, name: str, schema: Dict[str, ts.ColumnType], primary_key: List[str],
             num_retained_versions: int, comment: str
     ) -> InsertableTable:

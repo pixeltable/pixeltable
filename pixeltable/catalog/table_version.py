@@ -24,7 +24,7 @@ from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 from .column import Column
-from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier, _ROWID_COLUMN_NAME
+from .globals import UpdateStatus, _POS_COLUMN_NAME, is_valid_identifier, _ROWID_COLUMN_NAME
 from ..func.globals import resolve_symbol
 
 _logger = logging.getLogger('pixeltable')
@@ -1032,7 +1032,7 @@ class TableVersion:
 
     def is_system_column(self, col: Column) -> bool:
         """Return True if column was created by Pixeltable"""
-        if col.name == POS_COLUMN_NAME and self.is_component_view():
+        if col.name == _POS_COLUMN_NAME and self.is_component_view():
             return True
         return False
 
