@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import itertools
 import json
 import logging
 from pathlib import Path
@@ -29,6 +30,8 @@ _logger = logging.getLogger('pixeltable')
 
 class Table(SchemaObject):
     """Base class for table objects (base tables, views, snapshots)."""
+
+    __PREDEF_SYMBOLS: Optional[set[str]] = None
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -61,16 +64,15 @@ class Table(SchemaObject):
 
     def _check_is_dropped(self) -> None:
         if self._is_dropped:
-            raise excs.Error(f'{self.display_name()} {self._name} has been dropped')
+            raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
 
-    def _is_system_attr(self, name: str) -> bool:
-        try:
-            return not isinstance(
-                getattr(self, name),
-                (pixeltable.func.QueryTemplateFunction, pixeltable.exprs.ColumnRef, pixeltable.DataFrame)
-            )
-        except AttributeError:
-            return False
+    # Returns `True` if the given name is a predefined attribute of the `Table` class, such as `where` or `group_by`
+    # (as opposed to an instance attribute such as a column name or query name).
+    @classmethod
+    def _is_system_attr(cls, name: str) -> bool:
+        if cls.__PREDEF_SYMBOLS is None:
+            cls.__PREDEF_SYMBOLS = set(dir(catalog.InsertableTable))
+        return name in cls.__PREDEF_SYMBOLS
 
     def __getattr__(
             self, name: str
@@ -100,10 +102,10 @@ class Table(SchemaObject):
             recursive: If `False`, returns only the immediate successor views of this `Table`. If `True`, returns
                 all sub-views (including views of views, etc.)
         """
-        return [t.path for t in self._get_views(recursive=recursive)]
+        return [t._path for t in self._get_views(recursive=recursive)]
 
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
-        dependents = catalog.Catalog.get().tbl_dependents[self._get_id()]
+        dependents = catalog.Catalog.get().tbl_dependents[self._id]
         if recursive:
             return dependents + [t for view in dependents for t in view._get_views(recursive=True)]
         else:
@@ -244,7 +246,7 @@ class Table(SchemaObject):
             comment = ''
         else:
             comment = f'{self.comment}\n'
-        return f'{self.display_name()} \'{self._name}\'\n{comment}{description_str}'
+        return f'{self._display_name()} \'{self._name}\'\n{comment}{description_str}'
 
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()
@@ -521,7 +523,7 @@ class Table(SchemaObject):
         ]
         if len(dependent_stores) > 0:
             dependent_store_names = [
-                store.name if view._get_id() == self._get_id() else f'{store.name} (in view `{view._name}`)'
+                store.name if view._id == self._id else f'{store.name} (in view `{view._name}`)'
                 for view, store in dependent_stores
             ]
             raise excs.Error(

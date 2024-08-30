@@ -264,7 +264,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
     tbl = cat.paths[path_obj]
     assert isinstance(tbl, catalog.Table)
     if len(cat.tbl_dependents[tbl._id]) > 0:
-        dependent_paths = [dep.path for dep in cat.tbl_dependents[tbl._id]]
+        dependent_paths = [dep._path for dep in cat.tbl_dependents[tbl._id]]
         if force:
             for dependent_path in dependent_paths:
                 drop_table(dependent_path, force=True)

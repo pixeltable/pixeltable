@@ -129,9 +129,14 @@ class TestTable:
         pxt.create_dir('dir.subdir')
         for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
             tbl = pxt.create_table(tbl_path, {'col': pxt.StringType()})
-            assert tbl.path == tbl_path
+            assert tbl._path == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
-            assert tbl.parent.path == '.'.join(tbl_path.split('.')[:-1])
+            assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
+            assert tbl.get_metadata() == {
+                'name': tbl._name,
+                'path': tbl._path,
+                'parent': tbl._parent._path,
+            }
 
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
@@ -186,7 +191,7 @@ class TestTable:
             'img_literal': ImageType(nullable=False),
         }
         tbl = pxt.create_table('test', schema)
-        assert MediaStore.count(tbl._get_id()) == 0
+        assert MediaStore.count(tbl._id) == 0
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -197,7 +202,7 @@ class TestTable:
                 r['img_literal'] = f.read()
 
         tbl.insert(sample_rows)
-        assert MediaStore.count(tbl._get_id()) == n_sample_rows
+        assert MediaStore.count(tbl._id) == n_sample_rows
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -208,21 +213,21 @@ class TestTable:
 
         # Test adding stored image transformation
         tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
-        assert MediaStore.count(tbl._get_id()) == 2 * n_sample_rows
+        assert MediaStore.count(tbl._id) == 2 * n_sample_rows
 
         # Test MediaStore.stats()
-        stats = list(filter(lambda x: x[0] == tbl._get_id(), MediaStore.stats()))
+        stats = list(filter(lambda x: x[0] == tbl._id, MediaStore.stats()))
         assert len(stats) == 2  # Two columns
         assert stats[0][2] == n_sample_rows  # Each column has n_sample_rows associated images
         assert stats[1][2] == n_sample_rows
 
         # Test that version-specific images are cleared when table is reverted
         tbl.revert()
-        assert MediaStore.count(tbl._get_id()) == n_sample_rows
+        assert MediaStore.count(tbl._id) == n_sample_rows
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table('test')
-        assert MediaStore.count(tbl._get_id()) == 0
+        assert MediaStore.count(tbl._id) == 0
 
     def test_schema_spec(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
@@ -379,7 +384,7 @@ class TestTable:
         # TODO: change reset_catalog() to drop tables
         FileCache.get().clear()
         cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == 0, f'{str(cache_stats)} tbl_id={tbl._get_id()}'
+        assert cache_stats.num_requests == 0, f'{str(cache_stats)} tbl_id={tbl._id}'
         # add computed column to make sure that external files are cached locally during insert
         tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
         urls = [
@@ -393,10 +398,10 @@ class TestTable:
         tbl.insert({'img': url} for url in urls)
         # check that we populated the cache
         cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl._get_id()}'
+        assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl._id}'
         assert cache_stats.num_hits == 0
         assert FileCache.get().num_files() == len(urls)
-        assert FileCache.get().num_files(tbl._get_id()) == len(urls)
+        assert FileCache.get().num_files(tbl._id) == len(urls)
         assert FileCache.get().avg_file_size() > 0
 
         # query: we read from the cache
@@ -469,10 +474,10 @@ class TestTable:
         status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        assert MediaStore.count(view._get_id()) == view.count() * 2
+        assert MediaStore.count(view._id) == view.count() * 2
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
-        assert MediaStore.count(view._get_id()) == view.count() * 2
+        assert MediaStore.count(view._id) == view.count() * 2
 
         # TODO: test inserting Nulls
         # status = tbl.insert(payload=1, video=None)
@@ -481,7 +486,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        assert MediaStore.count(view._get_id()) == 0
+        assert MediaStore.count(view._id) == 0
 
         with pytest.raises(excs.Error):
             # can't drop frame col
@@ -497,7 +502,7 @@ class TestTable:
         assert 'has dependents: test_view' in str(exc_info.value)
         pxt.drop_table('test_view')
         pxt.drop_table('test_tbl')
-        assert MediaStore.count(view._get_id()) == 0
+        assert MediaStore.count(view._id) == 0
 
     def test_insert_nulls(self, reset_db) -> None:
         schema = {
@@ -992,7 +997,7 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        assert MediaStore.count(t._get_id()) == t.count() * stores_img_col
+        assert MediaStore.count(t._id) == t.count() * stores_img_col
 
         # test loading from store
         reload_catalog()
@@ -1004,13 +1009,13 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
-        assert MediaStore.count(t2._get_id()) == t2.count() * stores_img_col
+        assert MediaStore.count(t2._id) == t2.count() * stores_img_col
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
 
         # revert also removes computed images
         t2.revert()
-        assert MediaStore.count(t2._get_id()) == t2.count() * stores_img_col
+        assert MediaStore.count(t2._id) == t2.count() * stores_img_col
 
     @pxt.udf(return_type=ImageType(), param_types=[ImageType()])
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
@@ -1084,15 +1089,14 @@ class TestTable:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.add_column(add1=pxt.IntType(nullable=True))
-        assert len(t.columns()) == num_orig_cols + 1
+        # Make sure that `name` and `id` are allowed, i.e., not reserved as system names
+        t.add_column(name=pxt.StringType(nullable=True))
+        t.add_column(id=pxt.StringType(nullable=True))
+        assert len(t.columns()) == num_orig_cols + 3
 
         with pytest.raises(excs.Error) as excs_info:
             _ = t.add_column(add_column=pxt.IntType())
         assert "'add_column' is a keyword in pixeltable" in str(excs_info.value).lower()
-
-        # Make sure that `name` and `id` are allowed, i.e., not reserved as system names
-        t.add_column(name=pxt.StringType())
-        t.add_column(id=pxt.StringType())
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.IntType(nullable=False))
@@ -1134,9 +1138,11 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols + 1
+        assert len(t.columns()) == num_orig_cols + 3
 
         # revert() works
+        t.revert()
+        t.revert()
         t.revert()
         assert len(t.columns()) == num_orig_cols
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import Optional, Type, Dict, Set, Any, Iterable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, Set, Type
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -14,7 +14,8 @@ import pixeltable.metadata.schema as md_schema
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
 from pixeltable.iterators import ComponentIterator
-from pixeltable.type_system import InvalidType, IntType
+from pixeltable.type_system import IntType, InvalidType
+
 from .catalog import Catalog
 from .column import Column
 from .globals import POS_COLUMN_NAME, UpdateStatus
@@ -45,7 +46,7 @@ class View(Table):
         self._snapshot_only = snapshot_only
 
     @classmethod
-    def display_name(cls) -> str:
+    def _display_name(cls) -> str:
         return 'view'
 
     @classmethod
@@ -211,7 +212,7 @@ class View(Table):
             self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
             fail_on_exception: bool = True, **kwargs: Any
     ) -> UpdateStatus:
-        raise excs.Error(f'{self.display_name()} {self._name!r}: cannot insert into view')
+        raise excs.Error(f'{self._display_name()} {self._name!r}: cannot insert into view')
 
     def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
-        raise excs.Error(f'{self.display_name()} {self._name!r}: cannot delete from view')
+        raise excs.Error(f'{self._display_name()} {self._name!r}: cannot delete from view')

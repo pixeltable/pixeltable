@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Any, Dict, overload, Iterable
+from typing import Any, Dict, Iterable, List, Optional, overload
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -10,6 +10,7 @@ import pixeltable
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+
 from .catalog import Catalog
 from .globals import UpdateStatus
 from .table import Table
@@ -27,7 +28,7 @@ class InsertableTable(Table):
         super().__init__(tbl_version.id, dir_id, tbl_version.name, tbl_version_path)
 
     @classmethod
-    def display_name(cls) -> str:
+    def _display_name(cls) -> str:
         return 'table'
 
     # MODULE-LOCAL, NOT PUBLIC
