@@ -21,11 +21,6 @@ class SchemaObject:
         return self._id
 
     @property
-    def name(self) -> str:
-        """Returns the name of this schema object."""
-        return self._name
-
-    @property
     def parent(self) -> Optional['catalog.Dir']:
         """Returns the parent directory of this schema object."""
         from pixeltable import catalog
@@ -42,9 +37,9 @@ class SchemaObject:
         if parent is None or parent.parent is None:
             # Either this is the root directory, with empty path, or its parent is the
             # root directory. Either way, we return just the name.
-            return self.name
+            return self._name
         else:
-            return f'{parent.path}.{self.name}'
+            return f'{parent.path}.{self._name}'
 
     @classmethod
     @abstractmethod

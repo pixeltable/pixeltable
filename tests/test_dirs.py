@@ -11,7 +11,7 @@ class TestDirs:
         for name in dirs:
             dir = pxt.create_dir(name)
             assert dir.path == name
-            assert dir.name == name.split('.')[-1]
+            assert dir._name == name.split('.')[-1]
             assert dir.parent.path == '.'.join(name.split('.')[:-1])
 
         # invalid names
