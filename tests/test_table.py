@@ -1159,15 +1159,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t['add2'] = {'value': t.c2 + 1, 'type': pxt.StringType()}
-        assert '"type" is redundant' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t['add2'] = {'value': pxt.IntType()}
-        assert 'value needs to be either' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t['add2'] = {'value': t.c2 + 1, 'stored': False}
-        assert 'stored=false only applies' in str(exc_info.value).lower()
+        assert 'column spec must be a columntype or an expr' in str(exc_info.value).lower()
 
         # duplicate name
         with pytest.raises(excs.Error) as exc_info:

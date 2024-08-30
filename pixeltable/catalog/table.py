@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import abc
 import json
 import logging
 from pathlib import Path
-from typing import Union, Any, Optional, Callable, Set, Tuple, Iterable, overload, Type, Literal
+from typing import Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, overload
 from uuid import UUID
-import abc
 
 import pandas as pd
 import sqlalchemy as sql
@@ -18,8 +18,9 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
+
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, is_valid_identifier, is_system_column_name, UpdateStatus
+from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -61,6 +62,15 @@ class Table(SchemaObject):
     def _check_is_dropped(self) -> None:
         if self._is_dropped:
             raise excs.Error(f'{self.display_name()} {self.name} has been dropped')
+
+    def _is_system_attr(self, name: str) -> bool:
+        try:
+            return not isinstance(
+                getattr(self, name),
+                (pixeltable.func.QueryTemplateFunction, pixeltable.exprs.ColumnRef, pixeltable.DataFrame)
+            )
+        except AttributeError:
+            return False
 
     def __getattr__(
             self, name: str
@@ -263,7 +273,7 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).to_coco_dataset()
 
-    def __setitem__(self, column_name: str, value: Union[ts.ColumnType, exprs.Expr, Callable, dict]) -> None:
+    def __setitem__(self, col_name: str, spec: Union[ts.ColumnType, exprs.Expr]) -> None:
         """Adds a column to the table
         Args:
             column_name: the name of the new column
@@ -293,19 +303,16 @@ class Table(SchemaObject):
 
             >>> tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
         """
-        if not isinstance(column_name, str):
-            raise excs.Error(f'Column name must be a string, got {type(column_name)}')
-        if not is_valid_identifier(column_name):
-            raise excs.Error(f'Invalid column name: {column_name!r}')
-
-        new_col = self._create_columns({column_name: value})[0]
-        self._verify_column(new_col, self.column_names(), self.query_names())
-        return self._tbl_version.add_column(new_col)
+        if not isinstance(col_name, str):
+            raise excs.Error(f'Column name must be a string, got {type(col_name)}')
+        if not isinstance(spec, (ts.ColumnType, exprs.Expr)):
+            raise excs.Error(f'Column spec must be a ColumnType or an Expr, got {type(spec)}')
+        self.add_column(**{col_name: spec})
 
     def add_column(
             self, *,
             type: Optional[ts.ColumnType] = None, stored: Optional[bool] = None, print_stats: bool = False,
-            **kwargs: Any
+            **kwargs: Union[ts.ColumnType, exprs.Expr, Callable]
     ) -> UpdateStatus:
         """Adds a column to the table.
 
@@ -361,19 +368,22 @@ class Table(SchemaObject):
         self._check_is_dropped()
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
-            raise excs.Error((
-                f'add_column() requires exactly one keyword argument of the form "column-name=type|value-expression", '
+            raise excs.Error(
+                f'add_column() requires exactly one keyword argument of the form "column-name=type|value-expression"; '
                 f'got {len(kwargs)} instead ({", ".join(list(kwargs.keys()))})'
-            ))
+            )
         col_name, spec = next(iter(kwargs.items()))
+        if not is_valid_identifier(col_name):
+            raise excs.Error(f'Invalid column name: {col_name!r}')
+        if self._is_system_attr(col_name):
+            raise excs.Error(f'{col_name!r} is a keyword in Pixeltable; please use a different column name')
+        if isinstance(spec, (ts.ColumnType, exprs.Expr)) and type is not None:
+            raise excs.Error(f'add_column(): keyword argument "type" is redundant')
+
         col_schema: dict[str, Any] = {}
         if isinstance(spec, ts.ColumnType):
-            if type is not None:
-                raise excs.Error(f'add_column(): keyword argument "type" is redundant')
             col_schema['type'] = spec
         else:
-            if isinstance(spec, exprs.Expr) and type is not None:
-                raise excs.Error(f'add_column(): keyword argument "type" is redundant')
             col_schema['value'] = spec
         if type is not None:
             col_schema['type'] = type
@@ -589,6 +599,7 @@ class Table(SchemaObject):
         if idx_name is not None and idx_name in self._tbl_version.idxs_by_name:
             raise excs.Error(f'Duplicate index name: {idx_name}')
         from pixeltable.index import EmbeddingIndex
+
         # create the EmbeddingIndex instance to verify args
         idx = EmbeddingIndex(col, metric=metric, string_embed=string_embed, image_embed=image_embed)
         status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
