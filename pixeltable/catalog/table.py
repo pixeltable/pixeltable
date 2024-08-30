@@ -274,34 +274,16 @@ class Table(SchemaObject):
         return DataFrame(self._tbl_version_path).to_coco_dataset()
 
     def __setitem__(self, col_name: str, spec: Union[ts.ColumnType, exprs.Expr]) -> None:
-        """Adds a column to the table
-        Args:
-            column_name: the name of the new column
-            value: column type or value expression or column specification dictionary:
-                column type: a Pixeltable column type (if the table already contains rows, it must be nullable)
-                value expression: a Pixeltable expression that computes the column values
-                column specification: a dictionary with possible keys 'type', 'value', 'stored'
-        Examples:
-            Add an int column with ``None`` values:
+        """
+        Adds a column to the table. This is an alternate syntax for `add_column()`; the meaning of
 
-            >>> tbl['new_col'] = IntType(nullable=True)
+        >>> tbl['new_col'] = IntType()
 
-            For a table with int column ``int_col``, add a column that is the factorial of ``int_col``. The names of
-            the parameters of the Callable must correspond to existing column names (the column values are then passed
-            as arguments to the Callable). In this case, the return type cannot be inferred and needs to be specified
-            explicitly:
+        is exactly equivalent to
 
-            >>> tbl['factorial'] = {'value': lambda int_col: math.factorial(int_col), 'type': IntType()}
+        >>> tbl.add_column(new_col=IntType())
 
-            For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
-            90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
-            (by default, computed image columns are not stored but recomputed on demand):
-
-            >>> tbl['rotated'] = tbl.frame.rotate(90)
-
-            Do the same, but now the column is stored:
-
-            >>> tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
+        For details, see the documentation for [`add_column()`][pixeltable.catalog.Table.add_column].
         """
         if not isinstance(col_name, str):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
@@ -310,11 +292,15 @@ class Table(SchemaObject):
         self.add_column(**{col_name: spec})
 
     def add_column(
-            self, *,
-            type: Optional[ts.ColumnType] = None, stored: Optional[bool] = None, print_stats: bool = False,
+            self,
+            *,
+            type: Optional[ts.ColumnType] = None,
+            stored: Optional[bool] = None,
+            print_stats: bool = False,
             **kwargs: Union[ts.ColumnType, exprs.Expr, Callable]
     ) -> UpdateStatus:
-        """Adds a column to the table.
+        """
+        Adds a column to the table.
 
         Args:
             kwargs: Exactly one keyword argument of the form ``column-name=type|value-expression``.

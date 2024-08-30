@@ -1086,6 +1086,14 @@ class TestTable:
         t.add_column(add1=pxt.IntType(nullable=True))
         assert len(t.columns()) == num_orig_cols + 1
 
+        with pytest.raises(excs.Error) as excs_info:
+            _ = t.add_column(add_column=pxt.IntType())
+        assert "'add_column' is a keyword in pixeltable" in str(excs_info.value).lower()
+
+        # Make sure that `name` and `id` are allowed, i.e., not reserved as system names
+        t.add_column(name=pxt.StringType())
+        t.add_column(id=pxt.StringType())
+
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.IntType(nullable=False))
         assert 'cannot add non-nullable' in str(exc_info.value).lower()
