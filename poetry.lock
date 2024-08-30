@@ -5061,35 +5061,35 @@ xmp = ["defusedxml"]
 
 [[package]]
 name = "pixeltable-pgserver"
-version = "0.2.4"
+version = "0.2.6"
 description = "Embedded Postgres Server for Pixeltable"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "pixeltable_pgserver-0.2.4-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:4b63312f394f82f98bee5658e09371d5015af2b013bcf4ff837d1d3892299fec"},
-    {file = "pixeltable_pgserver-0.2.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:c00a280375396c27ef1410ec97e2894764e3502575dda1ee22178575cd466cbb"},
-    {file = "pixeltable_pgserver-0.2.4-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f870b4dfeedf2817d3036d40a0c9626a3986cfeb5f4bec76bd47aa9a60b3cbb0"},
-    {file = "pixeltable_pgserver-0.2.4-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:828cf7f58c31947a06b43e08e60b01e72b3801e122013293cd401440ad9d3ef3"},
-    {file = "pixeltable_pgserver-0.2.4-cp310-cp310-win_amd64.whl", hash = "sha256:d06be8834e4f7b995a229abf41fc428b0870e7af50351fe372204fb6052d10f1"},
-    {file = "pixeltable_pgserver-0.2.4-cp310-cp310-win_arm64.whl", hash = "sha256:782d824a5a34bfcb47e3462682a5632f12f8aba1998b013e5ed914003de1cbf1"},
-    {file = "pixeltable_pgserver-0.2.4-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:19ab3fbce02ca3de7d2c8f85619baf45b06ba81089500a46fd59396d5c5fd8a9"},
-    {file = "pixeltable_pgserver-0.2.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:72b3efa2075720e04b91a56ced6d7577c80f64d874cd6965fdf10f79b09020a5"},
-    {file = "pixeltable_pgserver-0.2.4-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:45380a3dbc1d739453a78ad23305a1055474cb71b059abde55c29a968cc02209"},
-    {file = "pixeltable_pgserver-0.2.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:40a11ea270b551e8b7ec6c31caec9b00fba7a9debf76b8b4082328cc5261afdb"},
-    {file = "pixeltable_pgserver-0.2.4-cp311-cp311-win_amd64.whl", hash = "sha256:3213ecf86db0a6a2807c4ce56cf96c249b077efd1edafb312fe650ea24eab597"},
-    {file = "pixeltable_pgserver-0.2.4-cp311-cp311-win_arm64.whl", hash = "sha256:7a6a0a2cb132c525e654d3a4768193774e8661f90d8b32027d692d84ec84add6"},
-    {file = "pixeltable_pgserver-0.2.4-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:bf31189173c722b2b4b29e5c702cfa4f3a55e65a803e7be057010fe75a54a43d"},
-    {file = "pixeltable_pgserver-0.2.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:68e9b5f4dc90fce71f9592f72fff75cd5ea7ee1dc88c2a8d0a52314afb541366"},
-    {file = "pixeltable_pgserver-0.2.4-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b146e344adf4fb5c4f037f7d756cbb3c848b2f7b71bcfbd2e1f84c8b30398e86"},
-    {file = "pixeltable_pgserver-0.2.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:78f12601fca2a7c95a0876f225eb403da273406b4018518e4295f5d33e594f2d"},
-    {file = "pixeltable_pgserver-0.2.4-cp312-cp312-win_amd64.whl", hash = "sha256:73bcd419153ba4f0fbb49a9cae3c6def0d92ebd5f49598616aae9948eda1d636"},
-    {file = "pixeltable_pgserver-0.2.4-cp312-cp312-win_arm64.whl", hash = "sha256:bb8e64d05c3e72d92e957b15deaf78de7452d00ffb435feb1e6b8096bc6a1147"},
-    {file = "pixeltable_pgserver-0.2.4-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:954b0a5f03de1b12af73b6b4d3706d4162ac59cc7eb2caffae2090e123c43e41"},
-    {file = "pixeltable_pgserver-0.2.4-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:f9a5e55bba2189e312f3f21ef97cdbd6321e405d40c01948f457a0ebc171ed8a"},
-    {file = "pixeltable_pgserver-0.2.4-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:def2dbb183c2925734d491a09fee0990eb48d947a3b96bb514fc71260cbe9c59"},
-    {file = "pixeltable_pgserver-0.2.4-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0064529b6dac3d1d0c579f7c2b753453172b8cacd81484e30455e19a37b8656a"},
-    {file = "pixeltable_pgserver-0.2.4-cp39-cp39-win_amd64.whl", hash = "sha256:81fd33ebcdc3e602cb7af7eeef9be637c2e006478dc0152460dd7cfcaf9c7ab8"},
-    {file = "pixeltable_pgserver-0.2.4-cp39-cp39-win_arm64.whl", hash = "sha256:0b7df60973aaf5773df6c4344dc063cdeb34acfc79a617ae946e063db6e746ec"},
+    {file = "pixeltable_pgserver-0.2.6-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:221e9f783c115a7349987002a98d2ab68fd32a4ff846f089f16f31881e14d91e"},
+    {file = "pixeltable_pgserver-0.2.6-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:347bc752764f7f8b9dcdfe26a824c870c7b6dc6cbffd81cf6ebb8b685faba849"},
+    {file = "pixeltable_pgserver-0.2.6-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1b718594d39e2109dabbc498daadcb70dbc9491a4e7a1747c55f375c58df83a8"},
+    {file = "pixeltable_pgserver-0.2.6-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:47ea4084e884a713bd241da0e48e35efeffad4c24e071962cce804363372ac4c"},
+    {file = "pixeltable_pgserver-0.2.6-cp310-cp310-win_amd64.whl", hash = "sha256:641e9dd459625ece28f05b0eddb06bd82c5f88bc9756fb966bb1b2d2b15def21"},
+    {file = "pixeltable_pgserver-0.2.6-cp310-cp310-win_arm64.whl", hash = "sha256:61aa13aaaf0c55cb6c797728e19b4d0edaa25875ba305cab0b0fb11cc40b2629"},
+    {file = "pixeltable_pgserver-0.2.6-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:521bb1f46001ea01bc857e7ff3032db38f3879884e1c008b1587be118acf059f"},
+    {file = "pixeltable_pgserver-0.2.6-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:cf7c9115614970469fa99b4ff60185c55045cd09daf7c1a0f6ae5219cd71b35c"},
+    {file = "pixeltable_pgserver-0.2.6-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:6cc66db8b07e5f5f2538dd2b385473221bc186adeb6031758c0065ed6ba402cd"},
+    {file = "pixeltable_pgserver-0.2.6-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ecc369d438eb36af1e5b351a55038ad0677eab4bcddf28c89c0f3b06106feefd"},
+    {file = "pixeltable_pgserver-0.2.6-cp311-cp311-win_amd64.whl", hash = "sha256:aa9aab7e9944bca3f2aaf0331e862409534e55a8680bcff67353f129d4078440"},
+    {file = "pixeltable_pgserver-0.2.6-cp311-cp311-win_arm64.whl", hash = "sha256:1a43fb9c5768d9d43e87bbda21154a4a3da634f4dc67390e338dc57f99cb21c8"},
+    {file = "pixeltable_pgserver-0.2.6-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:fb7e2343d9f8b3fb66b2cc91c8b302aac05a1822d5461df69cef27da34437281"},
+    {file = "pixeltable_pgserver-0.2.6-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:2197183cd4a27ec273413afbc861223fc963e6d6af18258cc6f40ac903efd045"},
+    {file = "pixeltable_pgserver-0.2.6-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c210bb22e3e0c9f4498382651dfba14a4dd674865611298b8ce15ca4b2ee2d50"},
+    {file = "pixeltable_pgserver-0.2.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d8198823d06e2fffcb5fb5567eaac88fd7c86acd6e3586c5879109f29edc3cb2"},
+    {file = "pixeltable_pgserver-0.2.6-cp312-cp312-win_amd64.whl", hash = "sha256:686fd1f3ce96143a7e2b03b3af000a895f6949efe7d83da9485062a31163b383"},
+    {file = "pixeltable_pgserver-0.2.6-cp312-cp312-win_arm64.whl", hash = "sha256:dd191c518d150e1cd1621a585e3875c1f4707ed6dbeedc08546e97457b698e6a"},
+    {file = "pixeltable_pgserver-0.2.6-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:8cab58e5bf69d855702b0a201f024aff1141b3a59783112da3b34288c1a5a303"},
+    {file = "pixeltable_pgserver-0.2.6-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:87f6f0b36593316e438df7e1892ca252c79e9aa5a5511ae667fa00ae2692423e"},
+    {file = "pixeltable_pgserver-0.2.6-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3282f92cd419c8029cba2df91f7b476e7761f54709d714668470290249ff4e1d"},
+    {file = "pixeltable_pgserver-0.2.6-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:38f7ba388e2d398e4d1ad97e6f7b97ada39725172c3eef1d417535a83c3ac138"},
+    {file = "pixeltable_pgserver-0.2.6-cp39-cp39-win_amd64.whl", hash = "sha256:097fd5797cb40eada4feab59d677992918b8d1d7d2b6bbb86376736b2d5dc42e"},
+    {file = "pixeltable_pgserver-0.2.6-cp39-cp39-win_arm64.whl", hash = "sha256:49991b640cf18b78eb21768b260872318e7ff5e0c4ec55f9f31e55a98945203a"},
 ]
 
 [package.dependencies]
@@ -8933,4 +8933,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "115d90ce6dd9f9286150f0e76493e211237e535c57501947a774a58280eca92a"
+content-hash = "7b1cbedbc4171d1acf10b267e7559ff8f58f7740fc29946595aa04206f2a06ae"
