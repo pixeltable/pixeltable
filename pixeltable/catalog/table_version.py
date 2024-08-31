@@ -643,7 +643,8 @@ class TableVersion:
             print_stats: bool = False,
             fail_on_exception: bool = True
     ) -> UpdateStatus:
-        """Insert rows into this table.
+        """
+        Insert rows into this table, either from an explicit list of dicts or from a `DataFrame`.
         """
         from pixeltable.plan import Planner
 
