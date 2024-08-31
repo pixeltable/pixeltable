@@ -523,6 +523,9 @@ class JsonType(ColumnType):
                 type_spec[other_field_name] = field_type
         return JsonType(type_spec, nullable=(self.nullable or other.nullable))
 
+    def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False) -> bool:
+        return super().is_supertype_of(other, ignore_nullable)
+
     def _as_dict(self) -> Dict:
         result = super()._as_dict()
         if self.type_spec is not None:
