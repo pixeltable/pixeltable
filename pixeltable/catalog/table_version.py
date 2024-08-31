@@ -1093,16 +1093,13 @@ class TableVersion:
         result = {info.val_col for col in cols for info in col.get_idx_info().values()}
         return result
 
-    def get_dependent_columns(self, cols: list[Column]) -> set[Column]:
+    def get_dependent_columns(self, cols: Iterable[Column]) -> set[Column]:
         """
         Return the set of columns that transitively depend on any of the given ones.
         """
-        if len(cols) == 0:
-            return set()
-        result: set[Column] = set()
-        for col in cols:
-            result.update(col.dependent_cols)
-        result.update(self.get_dependent_columns(result))
+        result = {dependent_col for col in cols for dependent_col in col.dependent_cols}
+        if len(result) > 0:
+            result.update(self.get_dependent_columns(result))
         return result
 
     def num_rowid_columns(self) -> int:

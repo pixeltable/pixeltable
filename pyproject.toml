@@ -39,8 +39,7 @@ tenacity = "^8.2"
 mistune = "^3.0.2"
 pymupdf = "^1.24.1"
 ftfy = "^6.2.0"
-tzdata = ">=2022.1"  # Required for time zone support on Windows
-pixeltable-pgserver = "==0.2.5"
+pixeltable-pgserver = "==0.2.6"
 
 [tool.poetry.group.dev]
 optional = true
@@ -52,13 +51,18 @@ pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
 coverage = "^7.4"
 toml = "^0.10.2"
 # type checking
-mypy = "^1.10.1"
+mypy = "^1.11.2"
+boto3-stubs = "==1.35.5"
 pandas-stubs = ">=2.0"
 pytype = [{version = ">=2024.4", platform = "linux"}, {version = ">=2024.4", platform = "darwin"}]
 pyarrow-stubs = "^10.0.1.7"
+types-beautifulsoup4 = ">=4.2"
+types-jmespath = ">=1.0"
 types-pillow = ">=10.0"
 types-pyyaml = "^6.0.1"
+types-requests = ">=2.31.0"
 types-sqlalchemy-utils = "^1.1"
+types-toml = ">=0.10"
 types-tqdm = "^4.64"
 # linting
 pylint = "^3.1.0"
@@ -81,7 +85,7 @@ pyarrow = ">=13.0.0"
 openai = "^1.10.0"
 together = "^1.1"
 fireworks-ai = "^0.13.0"
-boto3 = "^1.17"
+boto3 = "==1.35.5"  # Locking a specific version of boto3 dramatically improves `poetry lock` runtimes
 spacy = ">=3.7"
 pydantic = ">=2.7.4"  # Required minimum version to work with spacy + python 3.12
 en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}

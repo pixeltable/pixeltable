@@ -3,7 +3,7 @@ import sys
 import time
 import warnings
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from tqdm import tqdm, TqdmWarning
 
@@ -23,12 +23,12 @@ class ExprEvalNode(ExecNode):
         """List of exprs that form an evaluation context and contain calls to at most one external function"""
         exprs: List[exprs.Expr]
         batched_fn: Optional[CallableFunction]
-        segment_ctxs: List[exprs.RowBuilder.EvalCtx]
+        segment_ctxs: List['exprs.RowBuilder.EvalCtx']
         target_slot_idxs: List[int]
         batch_size: int = 8
 
     def __init__(
-            self, row_builder: exprs.RowBuilder, output_exprs: List[exprs.Expr], input_exprs: List[exprs.Expr],
+            self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr], input_exprs: Iterable[exprs.Expr],
             input: ExecNode
     ):
         super().__init__(row_builder, output_exprs, input_exprs, input)

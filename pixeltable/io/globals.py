@@ -1,5 +1,4 @@
 from typing import Any, Literal, Optional, Union
-import urllib.request
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -19,7 +18,7 @@ def create_label_studio_project(
         **kwargs: Any
 ) -> SyncStatus:
     """
-    Create a new Label Studio project and link it to the specified `Table`.
+    Create a new Label Studio project and link it to the specified [`Table`][pixeltable.Table].
 
     - A tutorial notebook with fully worked examples can be found here:
       [Using Label Studio for Annotations with Pixeltable](https://pixeltable.readme.io/docs/label-studio)
@@ -34,7 +33,7 @@ def create_label_studio_project(
     then the linked project will have a column named `image`. In addition, the linked project
     will always have a JSON-typed column `annotations` representing the output.
 
-    By default, Pixeltable will link each of these columns to a column of the specified `Table`
+    By default, Pixeltable will link each of these columns to a column of the specified [`Table`][pixeltable.Table]
     with the same name. If any of the data fields are missing, an exception will be raised. If
     the `annotations` column is missing, it will be created. The default names can be overridden
     by specifying an optional `col_mapping`, with Pixeltable column names as keys and Label
@@ -52,7 +51,7 @@ def create_label_studio_project(
     - `pip install boto3` (if using S3 import storage)
 
     Args:
-        t: The Table to link to.
+        t: The table to link to.
         label_config: The Label Studio project configuration, in XML format.
         name: An optional name for the new project in Pixeltable. If specified, must be a valid
             Pixeltable identifier and must not be the name of any other external data store
@@ -73,7 +72,7 @@ def create_label_studio_project(
             The default is `post`.
         col_mapping: An optional mapping of local column names to Label Studio fields.
         sync_immediately: If `True`, immediately perform an initial synchronization by
-            exporting all rows of the `Table` as Label Studio tasks.
+            exporting all rows of the table as Label Studio tasks.
         s3_configuration: If specified, S3 import storage will be configured for the new project. This can only
             be used with `media_import_method='url'`, and if `media_import_method='url'` and any of the media data is
             referenced by `s3://` URLs, then it must be specified in order for such media to display correctly
@@ -148,15 +147,15 @@ def import_rows(
     comment: str = ''
     ) -> Table:
     """
-    Creates a new `Table` from a list of dictionaries. The dictionaries must be of the form
-    `{column_name: value, ...}`. Pixeltable will attempt to infer the schema of the table from the
+    Creates a new base table from a list of dictionaries. The dictionaries must be of the
+    form `{column_name: value, ...}`. Pixeltable will attempt to infer the schema of the table from the
     supplied data, using the most specific type that can represent all the values in a column.
 
     If `schema_overrides` is specified, then for each entry `(column_name, type)` in `schema_overrides`,
     Pixeltable will force the specified column to the specified type (and will not attempt any type inference
     for that column).
 
-    All column types of the new `Table` will be nullable unless explicitly specified as non-nullable in
+    All column types of the new table will be nullable unless explicitly specified as non-nullable in
     `schema_overrides`.
 
     Args:
@@ -169,7 +168,7 @@ def import_rows(
         comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
 
     Returns:
-        The newly created `Table`.
+        A handle to the newly created [`Table`][pixeltable.Table].
     """
     if schema_overrides is None:
         schema_overrides = {}
@@ -187,7 +186,7 @@ def import_rows(
             elif value is not None:
                 # If `key` is not in `schema_overrides`, then we infer its type from the data.
                 # The column type will always be nullable by default.
-                col_type = pxt.ColumnType.infer_literal_type(value).copy(nullable=True)
+                col_type = pxt.ColumnType.infer_literal_type(value, nullable=True)
                 if col_name not in schema:
                     schema[col_name] = col_type
                 else:
@@ -230,8 +229,8 @@ def import_json(
     **kwargs: Any
 ) -> Table:
     """
-    Creates a new `Table` from a JSON file. This is a convenience method and is equivalent
-    to calling `import_data(table_path, json.loads(file_contents, **kwargs), ...)`, where `file_contents`
+    Creates a new base table from a JSON file. This is a convenience method and is
+    equivalent to calling `import_data(table_path, json.loads(file_contents, **kwargs), ...)`, where `file_contents`
     is the contents of the specified `filepath_or_url`.
 
     Args:
@@ -245,7 +244,7 @@ def import_json(
         kwargs: Additional keyword arguments to pass to `json.loads`.
 
     Returns:
-        The newly created `Table`.
+        A handle to the newly created [`Table`][pixeltable.Table].
     """
     import json
     import urllib.parse
