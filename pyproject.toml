@@ -39,7 +39,7 @@ tenacity = "^8.2"
 mistune = "^3.0.2"
 pymupdf = "^1.24.1"
 ftfy = "^6.2.0"
-pixeltable-pgserver = "==0.2.4"
+pixeltable-pgserver = "==0.2.6"
 
 [tool.poetry.group.dev]
 optional = true
