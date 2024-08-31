@@ -23,6 +23,7 @@ jobs:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
         poetry-version: ["1.8.2"]
         poetry-options: ["--with dev"]
+        test-category: ["py"]
         include:
           # Adds one additional matrix configuration that runs the unit tests
           # against a minimal installation of pixeltable (without --with dev).
@@ -30,6 +31,18 @@ jobs:
             python-version: "3.9"
             poetry-version: "1.8.2"
             poetry-options: ""
+            test-category: "py"
+          # Adds a matrix configuration that runs the notebook tests. We run these
+          # separately so they can be done in parallel with the regular unit tests.exclude:
+          # Moreover, we run these only on a single configuration (they're intented to
+          # guard against inconsistencies between the notebooks and the Pixeltable API,
+          # not to test features).
+          - os: ubuntu-22.04
+            python-version: "3.9"
+            poetry-version: "1.8.2"
+            poetry-options: "--with dev"
+            test-category: "ipynb"
+
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -105,23 +118,15 @@ jobs:
         if: ${{ matrix.poetry-options == '' }}
         run: pip install pytest coverage
       - name: Run the unit tests
-        run: coverage run -m --source=pixeltable pytest -v -m ''
-      - name: Run documentation notebooks
-        if: false
-        continue-on-error: true  # For now, continue even if the notebooks fail
-        env:
-          GITHUB_REF: ${{ github.ref }}
+        if: ${{ matrix.test-category == 'py' }}
         run: |
-          set -x  # print commands for debugging
-          if [[ "$GITHUB_REF" == "refs/pull/"* ]]; then
-              # This is a PR. Only run notebooks without getpass
-              NOTEBOOKS=$(grep -L "getpass"  docs/release/**/*ipynb)
-          else
-              NOTEBOOKS=$(ls docs/release/**/*ipynb)
-          fi
-          pytest --overwrite --nbmake --nbmake-timeout=3600 $NOTEBOOKS
-      - name: Generate code coverage report
-        run: coverage report -m
+          coverage run -m --source=pixeltable pytest -v -m '' ${{ matrix.pytest-options }}
+          coverage report -m
+      - name: Run the notebook tests
+        if: ${{ matrix.test-category == 'ipynb' }}
+        run: |
+          ./scripts/prepare-nb-tests.sh
+          pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
