@@ -16,7 +16,7 @@ for env in {OPENAI_API_KEY,TOGETHER_API_KEY,FIREWORKS_API_KEY,LABEL_STUDIO_API_K
     if [ -z "${!env}" ]; then
         # The given API key is not available. Delete all notebooks that require it.
         for notebook in $(grep -l "$env" $TEST_PATH/*.ipynb); do
-            echo "Skipping $notebook because $env is not available."
+            echo "Skipping $notebook because $env is not defined."
             rm "$notebook"
         done
     fi
