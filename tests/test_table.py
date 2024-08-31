@@ -146,13 +146,13 @@ class TestTable:
             assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
             assert tbl.get_metadata() == {
                 'base': tbl._base,
-                'comment': tbl.comment,
+                'comment': tbl._comment,
                 'name': tbl._name,
-                'num_retained_versions': tbl.num_retained_versions,
+                'num_retained_versions': tbl._num_retained_versions,
                 'parent': tbl._parent._path,
                 'path': tbl._path,
                 'schema': tbl.column_types(),
-                'version': tbl.version(),
+                'version': tbl._version,
             }
 
     def test_empty_table(self, reset_db) -> None:
@@ -181,23 +181,24 @@ class TestTable:
         pxt.drop_table('test_tbl', force=True)  # Drops everything else
         assert len(pxt.list_tables()) == 0
 
+    @pytest.mark.skip(reason='Skip until we figure out the right API for altering table attributes')
     def test_table_attrs(self, reset_db) -> None:
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20
         comment = 'This is a table.'
         tbl = pxt.create_table('test_table_attrs', schema, num_retained_versions=num_retained_versions, comment=comment)
-        assert tbl.num_retained_versions == num_retained_versions
-        assert tbl.comment == comment
+        assert tbl._num_retained_versions == num_retained_versions
+        assert tbl._comment == comment
         new_num_retained_versions = 30
         new_comment = 'This is an updated table.'
-        tbl.num_retained_versions = new_num_retained_versions
-        assert tbl.num_retained_versions == new_num_retained_versions
-        tbl.comment = new_comment
-        assert tbl.comment == new_comment
+        tbl._num_retained_versions = new_num_retained_versions
+        assert tbl._num_retained_versions == new_num_retained_versions
+        tbl._comment = new_comment
+        assert tbl._comment == new_comment
         tbl.revert()
-        assert tbl.comment == comment
+        assert tbl._comment == comment
         tbl.revert()
-        assert tbl.num_retained_versions == num_retained_versions
+        assert tbl._num_retained_versions == num_retained_versions
 
     def test_image_table(self, reset_db) -> None:
         n_sample_rows = 20
@@ -1079,21 +1080,21 @@ class TestTable:
 
     def test_revert(self, reset_db) -> None:
         t1 = make_tbl('test1', ['c1', 'c2'])
-        assert t1.version() == 0
+        assert t1._version == 0
         rows1 = create_table_data(t1)
         t1.insert(rows1)
         assert t1.count() == len(rows1)
-        assert t1.version() == 1
+        assert t1._version == 1
         rows2 = create_table_data(t1)
         t1.insert(rows2)
         assert t1.count() == len(rows1) + len(rows2)
-        assert t1.version() == 2
+        assert t1._version == 2
         t1.revert()
         assert t1.count() == len(rows1)
-        assert t1.version() == 1
+        assert t1._version == 1
         t1.insert(rows2)
         assert t1.count() == len(rows1) + len(rows2)
-        assert t1.version() == 2
+        assert t1._version == 2
 
         # can't revert past version 0
         t1.revert()
@@ -1310,8 +1311,6 @@ class TestTable:
         fn = lambda c2: np.full((3, 4), c2)
         t.add_column(computed1=fn, type=ArrayType((3, 4), dtype=IntType()))
         t.describe()
-        t.comment = 'This is a comment.'
-        t.describe()
 
         # TODO: how to you check the output of these?
         _ = repr(t)
@@ -1319,9 +1318,10 @@ class TestTable:
 
     def test_common_col_names(self, reset_db) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""
-        schema = {'id': IntType(nullable=False), 'name': StringType(nullable=False)}
+        names = ['id', 'name', 'version', 'comment']
+        schema = {name: IntType() for name in names}
         tbl = pxt.create_table('test', schema)
-        status = tbl.insert({'id': id, 'name': str(id)} for id in range(10))
+        status = tbl.insert({name: id for name in names} for id in range(10))
         assert status.num_rows == 10
         assert status.num_excs == 0
         assert tbl.count() == 10

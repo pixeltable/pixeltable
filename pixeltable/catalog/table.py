@@ -52,12 +52,13 @@ class Table(SchemaObject):
         md = super().get_metadata()
         md['base'] = self._base._path if self._base is not None else None
         md['schema'] = self.column_types()
-        md['version'] = self.version()
-        md['comment'] = self.comment
-        md['num_retained_versions'] = self.num_retained_versions
+        md['version'] = self._version
+        md['comment'] = self._comment
+        md['num_retained_versions'] = self._num_retained_versions
         return md
 
-    def version(self) -> int:
+    @property
+    def _version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
         return self._tbl_version.version
 
@@ -195,20 +196,12 @@ class Table(SchemaObject):
         return catalog.Catalog.get().tbls[base_id]
 
     @property
-    def comment(self) -> str:
+    def _comment(self) -> str:
         return self._tbl_version.comment
 
-    @comment.setter
-    def comment(self, new_comment: Optional[str]):
-        self._tbl_version.set_comment(new_comment)
-
     @property
-    def num_retained_versions(self):
+    def _num_retained_versions(self):
         return self._tbl_version.num_retained_versions
-
-    @num_retained_versions.setter
-    def num_retained_versions(self, new_num_retained_versions: int):
-        self._tbl_version.set_num_retained_versions(new_num_retained_versions)
 
     def _description(self) -> pd.DataFrame:
         cols = self._tbl_version_path.columns()
@@ -241,10 +234,10 @@ class Table(SchemaObject):
     # TODO: Display comments in _repr_html()
     def __repr__(self) -> str:
         description_str = self._description().to_string(index=False)
-        if self.comment is None:
+        if self._comment is None:
             comment = ''
         else:
-            comment = f'{self.comment}\n'
+            comment = f'{self._comment}\n'
         return f'{self._display_name()} \'{self._name}\'\n{comment}{description_str}'
 
     def _repr_html_(self) -> str:
