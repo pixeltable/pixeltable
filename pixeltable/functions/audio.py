@@ -19,7 +19,7 @@ from pixeltable.utils.code import local_public_names
 @func.udf(return_type=ts.JsonType(nullable=False), param_types=[ts.AudioType(nullable=False)], is_method=True)
 def get_metadata(video: str) -> dict:
     """
-    Gets various metadata associated with a video file and returns it as a dictionary.
+    Gets various metadata associated with an audio file and returns it as a dictionary.
     """
     import pixeltable.functions as pxtf
     return pxtf.video._get_metadata(video)
