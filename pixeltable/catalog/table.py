@@ -48,6 +48,15 @@ class Table(SchemaObject):
                 f"WHERE {schema.Table.id.name} = :id"))
             conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
+    def get_metadata(self) -> dict[str, Any]:
+        md = super().get_metadata()
+        md['base'] = self._base._path if self._base is not None else None
+        md['schema'] = self.column_types()
+        md['version'] = self.version()
+        md['comment'] = self.comment
+        md['num_retained_versions'] = self.num_retained_versions
+        return md
+
     def version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
         return self._tbl_version.version
@@ -175,7 +184,7 @@ class Table(SchemaObject):
         return list(self._queries.keys())
 
     @property
-    def base(self) -> Optional['Table']:
+    def _base(self) -> Optional['Table']:
         """
         The base table of this `Table`. If this table is a view, returns the `Table`
         from which it was derived. Otherwise, returns `None`.

@@ -145,9 +145,14 @@ class TestTable:
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
             assert tbl.get_metadata() == {
+                'base': tbl._base,
+                'comment': tbl.comment,
                 'name': tbl._name,
-                'path': tbl._path,
+                'num_retained_versions': tbl.num_retained_versions,
                 'parent': tbl._parent._path,
+                'path': tbl._path,
+                'schema': tbl.column_types(),
+                'version': tbl.version(),
             }
 
     def test_empty_table(self, reset_db) -> None:

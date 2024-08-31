@@ -403,8 +403,8 @@ class LabelStudioProject(Project):
             # TODO(aaron-siegel): Simplify this once propagation is properly implemented in batch_update
             ancestor = t
             while local_annotations_col not in ancestor._tbl_version.cols:
-                assert ancestor.base is not None
-                ancestor = ancestor.base
+                assert ancestor._base is not None
+                ancestor = ancestor._base
             update_status = ancestor.batch_update(updates)
             print(f'Updated annotation(s) from {len(updates)} task(s) in {self}.')
             return SyncStatus(pxt_rows_updated=update_status.num_rows, num_excs=update_status.num_excs)
