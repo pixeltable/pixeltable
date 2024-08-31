@@ -10,8 +10,9 @@ from sqlalchemy.util.preloaded import orm
 
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-from pixeltable import catalog, func, DataFrame
+from pixeltable import DataFrame, catalog, func
 from pixeltable.catalog import Catalog
+from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
@@ -68,6 +69,8 @@ def create_table(
     elif isinstance(schema_or_df, DataFrame):
         df = schema_or_df
         schema = df.schema
+    elif isinstance(schema_or_df, DataFrameResultSet):
+        raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame. (Is there an extraneous call to `collect()`?)')
     else:
         raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
 

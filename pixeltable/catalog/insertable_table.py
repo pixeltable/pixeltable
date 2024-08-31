@@ -51,7 +51,10 @@ class InsertableTable(Table):
         with orm.Session(Env.get().engine, future=True) as session:
             _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, comment)
             tbl = cls(dir_id, tbl_version)
-            session.commit()  # TODO I'm not sure why this commit is necessary
+            # TODO We need to commit before doing the insertion, in order to avoid a primary key (version) collision
+            #   when the table metadata gets updated. Once we have a notion of user-defined transactions in
+            #   Pixeltable, we can wrap the create/insert in a transaction to avoid this.
+            session.commit()
             if df is not None:
                 # A DataFrame was provided, so insert its contents into the table
                 # (using the same DB session as the table creation)

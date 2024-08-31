@@ -245,7 +245,7 @@ class Planner:
         assert not tbl.is_view()
         plan = df._create_query_plan()  # ExecNode constructed by the DataFrame
 
-        # Augment the plan with columns of the target table
+        # Modify the plan RowBuilder to register the output columns
         for col_name, expr in zip(df.schema.keys(), df._select_list_exprs):
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
