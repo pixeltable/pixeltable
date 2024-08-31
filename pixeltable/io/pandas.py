@@ -189,7 +189,10 @@ def __np_dtype_to_pxt_type(np_dtype: np.dtype, data_col: pd.Series, nullable: bo
             return pxt.FloatType(nullable=nullable)
 
         inferred_type = pxt.ColumnType.infer_common_literal_type(data_col)
-        if inferred_type is not None:
+        if inferred_type is None:
+            # Fallback on StringType if everything else fails
+            return pxt.StringType(nullable=nullable)
+        else:
             return inferred_type.copy(nullable=nullable)
 
     raise excs.Error(f'Could not infer Pixeltable type of column: {data_col.name} (dtype: {np_dtype})')
