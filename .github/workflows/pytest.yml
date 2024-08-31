@@ -13,35 +13,41 @@ env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
   OPENCV_VIDEOIO_DEBUG: 1
+  POETRY_VERSION: 1.8.2
 
 jobs:
   pytest:
     strategy:
       fail-fast: false
       matrix:
+        # Test the earliest and latest supported Python versions on every supported platform.
         os: [ubuntu-22.04, macos-12, windows-2022]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
-        poetry-version: ["1.8.2"]
-        poetry-options: ["--with dev"]
+        python-version: ["3.9", "3.12"]
         test-category: ["py"]
+        poetry-options: ["--with dev"]
+        # Add some additional matrix configurations that are run only on linux, to test
+        # additional scenarios/compatibilities that are unlikely to be platform-sensitive.
         include:
-          # Adds one additional matrix configuration that runs the unit tests
-          # against a minimal installation of pixeltable (without --with dev).
+          # Python 3.10
           - os: ubuntu-22.04
-            python-version: "3.9"
-            poetry-version: "1.8.2"
-            poetry-options: ""
+            python-version: "3.10"
             test-category: "py"
-          # Adds a matrix configuration that runs the notebook tests. We run these
-          # separately so they can be done in parallel with the regular unit tests.exclude:
-          # Moreover, we run these only on a single configuration (they're intented to
-          # guard against inconsistencies between the notebooks and the Pixeltable API,
-          # not to test features).
+            poetry-options: "--with dev"
+          # Python 3.11
+          - os: ubuntu-22.04
+            python-version: "3.11"
+            test-category: "py"
+            poetry-options: "--with dev"
+          # Minimal installation of pixeltable (without --with dev)
           - os: ubuntu-22.04
             python-version: "3.9"
-            poetry-version: "1.8.2"
-            poetry-options: "--with dev"
+            test-category: "py"
+            poetry-options: ""
+          # Notebook tests
+          - os: ubuntu-22.04
+            python-version: "3.9"
             test-category: "ipynb"
+            poetry-options: "--with dev"
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -77,7 +83,7 @@ jobs:
         # prior to installing project dependencies.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install poetry==${{ matrix.poetry-version }}
+          python -m pip install poetry==$POETRY_VERSION
           python -m pip install setuptools==69.1.1
       - name: Define a venv cache
         uses: actions/cache@v4
@@ -88,8 +94,8 @@ jobs:
           # - poetry.lock and related .toml files and Makefile (so that if the
           #   dependencies or poetry config change, the cache will be invalidated)
           path: ${{ env.CONDA }}/envs
-          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-version }}-${{
-            matrix.poetry-options }}-${{ hashFiles('poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
+          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-options }}-${{
+            hashFiles('.github/workflows/pytest.yml', 'poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
         # Retry 3 times to be (hopefully) resilient against transient connection errors.
         shell: bash -l {0}  # Don't use -e flag
@@ -120,7 +126,7 @@ jobs:
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         run: |
-          coverage run -m --source=pixeltable pytest -v -m '' ${{ matrix.pytest-options }}
+          coverage run -m --source=pixeltable pytest -v -m ''
           coverage report -m
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
