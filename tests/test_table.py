@@ -141,19 +141,23 @@ class TestTable:
         pxt.create_dir('dir.subdir')
         for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
             tbl = pxt.create_table(tbl_path, {'col': pxt.StringType()})
+            view = pxt.create_view(f'{tbl_path}_view', tbl)
+            snap = pxt.create_view(f'{tbl_path}_snap', tbl, is_snapshot=True)
             assert tbl._path == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
-            assert tbl.get_metadata() == {
-                'base': tbl._base,
-                'comment': tbl._comment,
-                'name': tbl._name,
-                'num_retained_versions': tbl._num_retained_versions,
-                'parent': tbl._parent._path,
-                'path': tbl._path,
-                'schema': tbl._schema,
-                'version': tbl._version,
-            }
+            for t, kind in ((tbl, 'base_table'), (view, 'view'), (snap, 'snapshot')):
+                assert t.get_metadata() == {
+                    'base': None if t._base is None else t._base._path,
+                    'comment': t._comment,
+                    'kind': kind,
+                    'name': t._name,
+                    'num_retained_versions': t._num_retained_versions,
+                    'parent': t._parent._path,
+                    'path': t._path,
+                    'schema': t._schema,
+                    'version': t._version,
+                }
 
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:

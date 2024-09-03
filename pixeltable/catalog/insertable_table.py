@@ -60,6 +60,11 @@ class InsertableTable(Table):
             print(f'Created table `{name}`.')
             return tbl
 
+    def get_metadata(self) -> dict[str, Any]:
+        md = super().get_metadata()
+        md['kind'] = 'base_table'
+        return md
+
     @overload
     def insert(
             self, rows: Iterable[Dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True

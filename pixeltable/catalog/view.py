@@ -208,6 +208,11 @@ class View(Table):
         cat.tbl_dependents[self._base_id].remove(self)
         del cat.tbl_dependents[self._id]
 
+    def get_metadata(self) -> dict[str, Any]:
+        md = super().get_metadata()
+        md['kind'] = 'snapshot' if self._tbl_version_path.is_snapshot() else 'view'
+        return md
+
     def insert(
             self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
             fail_on_exception: bool = True, **kwargs: Any
