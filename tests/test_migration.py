@@ -15,6 +15,7 @@ from pixeltable.exprs import FunctionCall
 from pixeltable.func import CallableFunction
 from pixeltable.metadata import VERSION, SystemInfo
 from pixeltable.metadata.notes import VERSION_NOTES
+
 from .conftest import clean_db
 from .utils import reload_catalog, skip_test_if_not_installed
 
@@ -48,7 +49,9 @@ class TestMigration:
                 _logger.info(f'Migrating from version: {old_version} -> {VERSION}')
                 versions_found.append(old_version)
 
-            _logger.info(f'DB URL: {env.db_url}')
+            # For this test we need the raw DB URL, without a driver qualifier
+            db_url = env._db_server.get_uri(env._db_name)
+            _logger.info(f'DB URL: {db_url}')
             clean_db(restore_tables=False)
             with open(dump_file, 'rb') as dump:
                 gunzip_process = subprocess.Popen(
@@ -57,7 +60,7 @@ class TestMigration:
                     stdout=subprocess.PIPE
                 )
                 subprocess.run(
-                    [pg_restore_binary, '-d', env.db_url, '-U', 'postgres'],
+                    [pg_restore_binary, '-d', db_url, '-U', 'postgres'],
                     stdin=gunzip_process.stdout,
                     check=True
                 )

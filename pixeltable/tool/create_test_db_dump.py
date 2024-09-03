@@ -44,19 +44,23 @@ class Dumper:
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
         pg_dump_binary = f'{pg_package_dir}/pginstall/bin/pg_dump'
         _logger.info(f'Using pg_dump binary at: {pg_dump_binary}')
+        # We need the raw DB URL, without a driver qualifier
+        db_url = Env.get()._db_server.get_uri(Env.get()._db_name)
         with open(dump_file, 'wb') as dump:
             pg_dump_process = subprocess.Popen(
-                [pg_dump_binary, Env.get().db_url, '-U', 'postgres', '-Fc'],
+                (pg_dump_binary, db_url, '-U', 'postgres', '-Fc'),
                 stdout=subprocess.PIPE
             )
             subprocess.run(
-                ["gzip", "-9"],
+                ('gzip', '-9'),
                 stdin=pg_dump_process.stdout,
                 stdout=dump,
                 check=True
             )
+            if pg_dump_process.poll() != 0:
+                raise RuntimeError(f'pg_dump failed with return code {pg_dump_process.returncode}')
         info_file = self.output_dir / f'pixeltable-v{md_version:03d}-test-info.toml'
-        git_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
+        git_sha = subprocess.check_output(('git', 'rev-parse', 'HEAD')).decode('ascii').strip()
         user = os.environ.get('USER', os.environ.get('USERNAME'))
         info_dict = {'pixeltable-dump': {
             'metadata-version': md_version,
