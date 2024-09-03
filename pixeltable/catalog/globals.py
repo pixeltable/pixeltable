@@ -1,4 +1,5 @@
 import dataclasses
+import itertools
 import logging
 from typing import Optional
 
@@ -43,8 +44,9 @@ def is_valid_path(path: str, empty_is_valid : bool) -> bool:
     return True
 
 def is_system_column_name(name: str) -> bool:
-    from pixeltable.catalog import InsertableTable
+    from pixeltable.catalog import InsertableTable, View
+
     global _PREDEF_SYMBOLS
     if _PREDEF_SYMBOLS is None:
-        _PREDEF_SYMBOLS = set(dir(InsertableTable))
+        _PREDEF_SYMBOLS = set(itertools.chain(dir(InsertableTable), dir(View)))
     return name == _POS_COLUMN_NAME or name in _PREDEF_SYMBOLS

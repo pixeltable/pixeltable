@@ -217,7 +217,7 @@ class Project(ExternalStore, abc.ABC):
         resolved_col_mapping: dict[Column, str] = {}
 
         # Validate names
-        t_cols = table.column_names()
+        t_cols = table._column_names
         for t_col, ext_col in col_mapping.items():
             if t_col not in t_cols:
                 if is_user_specified_col_mapping:
@@ -238,7 +238,7 @@ class Project(ExternalStore, abc.ABC):
             col = table[t_col].col
             resolved_col_mapping[col] = ext_col
         # Validate column specs
-        t_col_types = table.column_types()
+        t_col_types = table._schema
         for t_col, ext_col in col_mapping.items():
             t_col_type = t_col_types[t_col]
             if ext_col in export_cols:

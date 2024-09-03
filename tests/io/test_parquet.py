@@ -20,10 +20,10 @@ class TestParquet:
         num_elts = tab.count()
         arrow_tab: pa.Table = pa.parquet.read_table(str(parquet_dir))
         assert num_elts == arrow_tab.num_rows
-        assert set(tab.column_names()) == set(arrow_tab.column_names)
+        assert set(tab._column_names) == set(arrow_tab.column_names)
 
         result_set = tab.order_by(tab.c_id).collect()
-        column_types = tab.column_types()
+        column_types = tab._schema
 
         for tup, arrow_tup in zip(result_set, iter_tuples(arrow_tab)):
             assert tup['c_id'] == arrow_tup['c_id']

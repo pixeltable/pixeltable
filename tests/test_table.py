@@ -151,7 +151,7 @@ class TestTable:
                 'num_retained_versions': tbl._num_retained_versions,
                 'parent': tbl._parent._path,
                 'path': tbl._path,
-                'schema': tbl.column_types(),
+                'schema': tbl._schema,
                 'version': tbl._version,
             }
 

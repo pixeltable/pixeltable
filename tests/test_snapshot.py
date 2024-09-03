@@ -16,7 +16,7 @@ class TestSnapshot:
     ) -> None:
         tbl_path, snap_path = tbl._path, snap._path
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
-        tbl_select_list = [tbl[col_name] for col_name in tbl.column_names()]
+        tbl_select_list = [tbl[col_name] for col_name in tbl._column_names]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
         orig_resultset_df = tbl.select(*tbl_select_list)
         if filter is not None:
@@ -30,7 +30,7 @@ class TestSnapshot:
             snap = pxt.get_table(snap_path)
 
         # view select list: base cols followed by view cols
-        snap_select_list = [snap[col_name] for col_name in snap.column_names()[len(extra_items):]]
+        snap_select_list = [snap[col_name] for col_name in snap._column_names[len(extra_items):]]
         snap_select_list.extend([snap[col_name] for col_name in extra_items.keys()])
         snap_query = snap.select(*snap_select_list).order_by(snap.c2)
         r1 = list(orig_resultset)

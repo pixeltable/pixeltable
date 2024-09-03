@@ -51,7 +51,7 @@ class Table(SchemaObject):
     def get_metadata(self) -> dict[str, Any]:
         md = super().get_metadata()
         md['base'] = self._base._path if self._base is not None else None
-        md['schema'] = self.column_types()
+        md['schema'] = self._schema
         md['version'] = self._version
         md['comment'] = self._comment
         md['num_retained_versions'] = self._num_retained_versions
@@ -172,15 +172,18 @@ class Table(SchemaObject):
         """Return the number of rows in this table."""
         return self._df().count()
 
-    def column_names(self) -> list[str]:
+    @property
+    def _column_names(self) -> list[str]:
         """Return the names of the columns in this table."""
         return [c.name for c in self._tbl_version_path.columns()]
 
-    def column_types(self) -> dict[str, ts.ColumnType]:
-        """Return the names of the columns in this table."""
+    @property
+    def _schema(self) -> dict[str, ts.ColumnType]:
+        """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
-    def query_names(self) -> list[str]:
+    @property
+    def _query_names(self) -> list[str]:
         """Return the names of the registered queries for this table."""
         return list(self._queries.keys())
 
@@ -369,7 +372,7 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
-        self._verify_column(new_col, self.column_names(), self.query_names())
+        self._verify_column(new_col, self._column_names, self._query_names)
         return self._tbl_version.add_column(new_col, print_stats=print_stats)
 
     @classmethod
@@ -834,7 +837,7 @@ class Table(SchemaObject):
             else:
                 function_path = None
             query_name = py_fn.__name__
-            if query_name in self.column_names():
+            if query_name in self._column_names:
                 raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
             if query_name in self._queries:
                 raise excs.Error(f'Duplicate query name: {query_name!r}')
@@ -946,7 +949,7 @@ class Table(SchemaObject):
         return sync_status
 
     def __dir__(self) -> list[str]:
-        return list(super().__dir__()) + self.column_names() + self.query_names()
+        return list(super().__dir__()) + self._column_names + self._query_names
 
     def _ipython_key_completions_(self) -> list[str]:
-        return self.column_names() + self.query_names()
+        return self._column_names + self._query_names
