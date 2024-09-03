@@ -136,7 +136,7 @@ class TestTable:
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('empty_table', {})
-        assert 'Table schema is ejmpty' in str(exc_info.value)
+        assert 'Table schema is empty' in str(exc_info.value)
 
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')

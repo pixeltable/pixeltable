@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/release/pixeltable-banner.png" alt="Pixeltable" width="45%" />
+<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-banner.png" alt="Pixeltable" width="45%" />
 
 # Unifying Data, Models, and Orchestration for AI Products
 
