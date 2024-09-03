@@ -480,5 +480,5 @@ def clip_text_embed(txt: str) -> np.ndarray:
 
 
 SAMPLE_IMAGE_URL = (
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/images/000000000009.jpg'
 )

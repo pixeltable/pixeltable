@@ -128,6 +128,11 @@ class TestPandas:
         # Ensure valid mapping of 'NaT' -> None
         assert t5.collect()[43]['OrderDate'] is None
 
+        t6 = import_excel('questions', 'docs/source/data/rag-demo/Q-A-Rag.xlsx')
+        assert t6.count() == 8
+        # Ensure that StringType is used when the column contains mixed types
+        assert t6.column_types()['correct_answer'] == pxt.StringType(nullable=True)
+
     def test_pandas_errors(self, reset_db) -> None:
         from pixeltable.io import import_csv
 

@@ -133,7 +133,11 @@ def get_metadata(video: str) -> dict:
     """
     Gets various metadata associated with a video file and returns it as a dictionary.
     """
-    with av.open(video) as container:
+    return _get_metadata(video)
+
+
+def _get_metadata(path: str) -> dict:
+    with av.open(path) as container:
         assert isinstance(container, av.container.InputContainer)
         streams_info = [__get_stream_metadata(stream) for stream in container.streams]
         result = {
