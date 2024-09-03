@@ -4,7 +4,7 @@ import av
 
 import pixeltable as pxt
 import pixeltable.env as env
-from .utils import get_video_files, get_audio_files
+from .utils import get_video_files, get_audio_files, validate_update_status
 from pixeltable.type_system import VideoType, AudioType
 from pixeltable.utils.media_store import MediaStore
 
@@ -58,3 +58,32 @@ class TestAudio:
             paths = video_t.select(output=video_t.video.extract_audio(format=format)).collect()['output']
             for path in [p for p in paths if p is not None]:
                 self.check_audio_params(path, format=format)
+
+    def test_get_metadata(self, reset_db) -> None:
+        audio_filepaths = get_audio_files()
+        base_t = pxt.create_table('audio_tbl', {'audio': AudioType()})
+        base_t['metadata'] = base_t.audio.get_metadata()
+        validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
+        result = base_t.where(base_t.metadata.size == 2568827).select(base_t.metadata).collect()['metadata'][0]
+        assert result == {
+            'size': 2568827,
+            'streams': [
+                {
+                    'type': 'audio',
+                    'frames': 0,
+                    'duration': 2646000,
+                    'metadata': {},
+                    'time_base': 2.2675736961451248e-05,
+                    'codec_context': {
+                        'name': 'flac',
+                        'profile': None,
+                        'channels': 1,
+                        'codec_tag': '\\x00\\x00\\x00\\x00'
+                    },
+                    'duration_seconds': 60.0
+                }
+            ],
+            'bit_rate': 342510,
+            'metadata': {'encoder': 'Lavf61.1.100'},
+            'bit_exact': False
+        }

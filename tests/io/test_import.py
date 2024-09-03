@@ -49,7 +49,7 @@ class TestImport:
 
     def test_import_json(self, reset_db) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/master/tests/data/json/jeopardy.json'
+        jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json('example', str(example))

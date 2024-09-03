@@ -370,7 +370,7 @@ class TestExprs:
     def test_inline_array(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         result = t.select([[t.c2, 1], [t.c2, 2]]).show()
-        t = result.column_types()[0]
+        t = next(iter(result.schema.values()))
         assert t.is_array_type()
         assert isinstance(t, ArrayType)
         assert t.shape == (2, 2)
@@ -508,7 +508,7 @@ class TestExprs:
         # store relative paths in the table
         parent_dir = Path(img_files[0]).parent
         assert(all(parent_dir == Path(img_file).parent for img_file in img_files))
-        t = pxt.create_table('astype_test', schema={'rel_path': StringType()})
+        t = pxt.create_table('astype_test', {'rel_path': StringType()})
         validate_update_status(t.insert({'rel_path': Path(f).name} for f in img_files), expected_rows=len(img_files))
 
         # create a computed image column constructed from the relative paths
@@ -651,16 +651,16 @@ class TestExprs:
     def test_ext_imgs(self, reset_db) -> None:
         t = pxt.create_table('img_test', {'img': pxt.ImageType()})
         img_urls = [
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000030.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000034.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000042.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000049.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000057.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000061.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000063.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000064.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000069.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/master/docs/source/data/images/000000000071.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000030.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000034.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000042.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000049.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000057.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000061.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000063.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000064.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000069.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000071.jpg',
         ]
         t.insert({'img': url} for url in img_urls)
         # this fails with an assertion
@@ -803,7 +803,7 @@ class TestExprs:
             'c3': FloatType(nullable=False),
             'c4': BoolType(nullable=False),
         }
-        new_t = pxt.create_table('insert_test', schema=schema)
+        new_t = pxt.create_table('insert_test', schema)
         new_t.add_column(c2_sum=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
