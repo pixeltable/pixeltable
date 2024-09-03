@@ -314,14 +314,14 @@ class TestFunction:
             'query_text': pxt.StringType(nullable=False),
             'i': pxt.IntType(nullable=False),
         }
-        queries = pxt.create_table('queries', schema=schema)
+        queries = pxt.create_table('queries', schema)
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?', 'i': 1},
             {'query_text': 'what happened to the term machine learning?', 'i': 2},
         ]
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
 
-        chunks = pxt.create_table('test_doc_chunks', schema={'text': pxt.StringType()})
+        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.StringType()})
         chunks.insert([
             {'text': 'the stock of artificial intelligence companies is up 1000%'},
             {
@@ -364,7 +364,7 @@ class TestFunction:
             'a': pxt.IntType(nullable=False),
             'b': pxt.IntType(nullable=False),
         }
-        t = pxt.create_table('test', schema=schema)
+        t = pxt.create_table('test', schema)
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 

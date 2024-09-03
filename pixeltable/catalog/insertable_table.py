@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Any, Dict, overload, Iterable
+from typing import Any, Dict, Iterable, List, Optional, overload
 from uuid import UUID
 
 import sqlalchemy.orm as orm
 
-import pixeltable
+import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+
 from .catalog import Catalog
 from .globals import UpdateStatus
 from .table import Table
@@ -33,7 +34,7 @@ class InsertableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def create(
-            cls, dir_id: UUID, name: str, schema: Dict[str, ts.ColumnType], primary_key: List[str],
+            cls, dir_id: UUID, name: str, schema: dict[str, ts.ColumnType], df: Optional[pxt.DataFrame], primary_key: List[str],
             num_retained_versions: int, comment: str
     ) -> InsertableTable:
         columns = cls._create_columns(schema)
@@ -50,6 +51,14 @@ class InsertableTable(Table):
         with orm.Session(Env.get().engine, future=True) as session:
             _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, comment)
             tbl = cls(dir_id, tbl_version)
+            # TODO We need to commit before doing the insertion, in order to avoid a primary key (version) collision
+            #   when the table metadata gets updated. Once we have a notion of user-defined transactions in
+            #   Pixeltable, we can wrap the create/insert in a transaction to avoid this.
+            session.commit()
+            if df is not None:
+                # A DataFrame was provided, so insert its contents into the table
+                # (using the same DB session as the table creation)
+                tbl_version.insert(None, df, conn=session.connection(), fail_on_exception=True)
             session.commit()
             cat = Catalog.get()
             cat.tbl_dependents[tbl._id] = []
@@ -86,7 +95,7 @@ class InsertableTable(Table):
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
         self._validate_input_rows(rows)
-        result = self._tbl_version.insert(rows, print_stats=print_stats, fail_on_exception=fail_on_exception)
+        result = self._tbl_version.insert(rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
         if result.num_excs == 0:
             cols_with_excs_str = ''
@@ -129,7 +138,7 @@ class InsertableTable(Table):
                     msg = str(e)
                     raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
 
-    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['pxt.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
