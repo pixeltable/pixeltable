@@ -196,6 +196,9 @@ class Column:
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'
 
+    def __repr__(self) -> str:
+        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.name!r})'
+
     def __hash__(self) -> int:
         # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column
         #     abstraction (perhaps separating out the version-dependent properties into a different abstraction).

@@ -96,6 +96,9 @@ class DataRow:
             self.file_paths[slot_idx] = None
             self.file_urls[slot_idx] = None
 
+    def __len__(self) -> int:
+        return len(self.vals)
+
     def __getitem__(self, index: object) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""
         if not self.has_val[index]:

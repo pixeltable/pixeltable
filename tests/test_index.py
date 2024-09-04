@@ -53,14 +53,14 @@ class TestIndex:
 
     def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
-        queries = pxt.create_table('queries', schema={'query_text': pxt.StringType()})
+        queries = pxt.create_table('queries', {'query_text': pxt.StringType()})
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
             {'query_text': 'what happened to the term machine learning?'}
         ]
         validate_update_status(queries.insert(query_rows))
 
-        chunks = pxt.create_table('test_doc_chunks', schema={'text': pxt.StringType()})
+        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.StringType()})
         chunks.insert([
             {'text': 'the stock of artificial intelligence companies is up 1000%'},
             {'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'},
@@ -152,7 +152,7 @@ class TestIndex:
             'split': pxt.StringType(nullable=False),
         }
         tbl_name = 'index_test'
-        img_t = pxt.create_table(tbl_name, schema=schema)
+        img_t = pxt.create_table(tbl_name, schema)
         img_t.insert(rows[:30])
 
         img_t.add_embedding_index('img', image_embed=clip_img_embed, string_embed=clip_text_embed)
@@ -324,7 +324,7 @@ class TestIndex:
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
 
     def run_btree_test(self, data: list, data_type: pxt.ColumnType) -> pxt.Table:
-        t = pxt.create_table('btree_test', schema={'data': data_type})
+        t = pxt.create_table('btree_test', {'data': data_type})
         num_rows = len(data)
         rows = [{'data': value} for value in data]
         validate_update_status(t.insert(rows), expected_rows=num_rows)
@@ -377,7 +377,7 @@ class TestIndex:
         assert 'String literal too long' in str(exc_info.value)
 
         # test that Comparison uses BtreeIndex.MAX_STRING_LEN
-        t = pxt.create_table('test_max_str_len', schema={'data': pxt.StringType()})
+        t = pxt.create_table('test_max_str_len', {'data': pxt.StringType()})
         rows = [{'data': s}, {'data': s + 'a'}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         assert t.where(t.data >= s).count() == 2

@@ -348,10 +348,10 @@ def get_sentences(n: int = 100) -> List[str]:
 
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
-    assert len(r1.column_names()) == len(r2.column_names())  # we don't care about the actual column names
+    assert len(r1.schema) == len(r2.schema)  # we don't care about the actual column names
     r1_pd = r1.to_pandas()
     r2_pd = r2.to_pandas()
-    for i in range(len(r1.column_names())):
+    for i in range(len(r1.schema)):
         # only compare column values
         s1 = r1_pd.iloc[:, i]
         s2 = r2_pd.iloc[:, i]
@@ -480,5 +480,5 @@ def clip_text_embed(txt: str) -> np.ndarray:
 
 
 SAMPLE_IMAGE_URL = (
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/images/000000000009.jpg'
 )
