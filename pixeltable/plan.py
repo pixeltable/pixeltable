@@ -1,8 +1,9 @@
-from typing import Iterable, Sequence, Tuple, Optional, List, Set, Any, Dict
+from typing import Any, Iterable, List, Optional, Sequence, Set, Tuple
 from uuid import UUID
 
 import sqlalchemy as sql
 
+import pixeltable as pxt
 import pixeltable.exec as exec
 import pixeltable.func as func
 from pixeltable import catalog
@@ -200,7 +201,7 @@ class Planner:
 
     @classmethod
     def create_insert_plan(
-            cls, tbl: catalog.TableVersion, rows: List[Dict[str, Any]], ignore_errors: bool
+        cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
@@ -219,7 +220,7 @@ class Planner:
         media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
         if len(media_input_cols) > 0:
             # prefetch external files for all input column refs for validation
-            plan = exec.CachePrefetchNode(tbl.id, media_input_cols, plan)
+            plan = exec.CachePrefetchNode(tbl.id, media_input_cols, input=plan)
             plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
 
         computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
@@ -232,6 +233,34 @@ class Planner:
             exec.ExecContext(
                 row_builder, batch_size=0, show_pbar=True, num_computed_exprs=len(computed_exprs),
                 ignore_errors=ignore_errors))
+        return plan
+
+    @classmethod
+    def create_df_insert_plan(
+        cls,
+        tbl: catalog.TableVersion,
+        df: 'pxt.DataFrame',
+        ignore_errors: bool
+    ) -> exec.ExecNode:
+        assert not tbl.is_view()
+        plan = df._create_query_plan()  # ExecNode constructed by the DataFrame
+
+        # Modify the plan RowBuilder to register the output columns
+        for col_name, expr in zip(df.schema.keys(), df._select_list_exprs):
+            assert col_name in tbl.cols_by_name
+            col = tbl.cols_by_name[col_name]
+            plan.row_builder.add_table_column(col, expr.slot_idx)
+
+        stored_col_info = plan.row_builder.output_slot_idxs()
+        stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
+        plan.set_stored_img_cols(stored_img_col_info)
+
+        plan.set_ctx(
+            exec.ExecContext(
+                plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0,
+                ignore_errors=ignore_errors))
+        plan.ctx.num_rows = 0  # Unknown
+
         return plan
 
     @classmethod

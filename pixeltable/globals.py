@@ -10,8 +10,9 @@ from sqlalchemy.util.preloaded import orm
 
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-from pixeltable import catalog, func, DataFrame
+from pixeltable import DataFrame, catalog, func
 from pixeltable.catalog import Catalog
+from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
@@ -26,7 +27,7 @@ def init() -> None:
 
 def create_table(
     path_str: str,
-    schema: dict[str, Any],
+    schema_or_df: Union[dict[str, Any], DataFrame],
     *,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
@@ -36,10 +37,12 @@ def create_table(
 
     Args:
         path_str: Path to the table.
-        primary_key: A column or columns that will be the primary key of the table.
-        schema: A dictionary mapping column names to column types, value expressions, or to column specifications.
+        schema_or_df: Either a dictionary that maps column names to column types, or a
+            [`DataFrame`][pixeltable.DataFrame] whose contents and schema will be used to pre-populate the table.
+        primary_key: An optional column name or list of column names to use as the primary key(s) of the
+            table.
         num_retained_versions: Number of versions of the table to retain.
-        comment: Optional comment for the table.
+        comment: An optional comment; its meaning is user-defined.
 
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
@@ -50,11 +53,26 @@ def create_table(
     Examples:
         Create a table with an int and a string column:
 
-        >>> table = cl.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
+        >>> table = pxt.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
+
+        Create a table from a select statement over an existing table `tbl`:
+
+        >>> table = pxt.create_table('my_table', tbl.where(tbl.col1 < 10).select(tbl.col2))
     """
     path = catalog.Path(path_str)
     Catalog.get().paths.check_is_valid(path, expected=None)
     dir = Catalog.get().paths[path.parent]
+
+    df: Optional[DataFrame] = None
+    if isinstance(schema_or_df, dict):
+        schema = schema_or_df
+    elif isinstance(schema_or_df, DataFrame):
+        df = schema_or_df
+        schema = df.schema
+    elif isinstance(schema_or_df, DataFrameResultSet):
+        raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame. (Is there an extraneous call to `collect()`?)')
+    else:
+        raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
 
     if len(schema) == 0:
         raise excs.Error(f'Table schema is empty: `{path_str}`')
@@ -71,11 +89,13 @@ def create_table(
         dir._id,
         path.name,
         schema,
+        df,
         primary_key=primary_key,
         num_retained_versions=num_retained_versions,
         comment=comment,
     )
     Catalog.get().paths[path] = tbl
+
     _logger.info(f'Created table `{path_str}`.')
     return tbl
 

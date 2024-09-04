@@ -15,11 +15,9 @@ help:
 	@echo "  typecheck     Run mypy"
 	@echo "  lint          Run linting tools against changed files"
 	@echo "  format        Format changed files with ruff (updates .py files in place)"
-	@echo "  notebooks     Execute notebooks (updates .ipynb files in place)"
 	@echo "  release       Create a pypi release and post to github"
 	@echo "  release-docs  Build and deploy API documentation"
 	@echo "  clean         Remove generated files and temp files"
-	@echo "  *.ipynb       Run the notebook/notebooks (updates output cells in place)"
 
 .PHONY: setup-install
 setup-install:
@@ -74,7 +72,8 @@ NB_CELL_TIMEOUT := 3600
 nbtest: install
 	@export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
 	@echo "Running pytest on notebooks ..."
-	@ulimit -n 4000; pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) docs/release/**/*.ipynb
+	@scripts/prepare-nb-tests.sh
+	@ulimit -n 4000; pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
 
 .PHONY: typecheck
 typecheck: install

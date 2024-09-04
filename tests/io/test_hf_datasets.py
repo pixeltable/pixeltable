@@ -79,7 +79,7 @@ class TestHfDatasets:
         import datasets
 
         assert df.count() == hf_dataset.num_rows
-        assert set(df.get_column_names()) == (set(hf_dataset.features.keys()) | {split_column_name})
+        assert set(df.schema.keys()) == (set(hf_dataset.features.keys()) | {split_column_name})
 
         # immutable so we can use it as in a set
         DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))

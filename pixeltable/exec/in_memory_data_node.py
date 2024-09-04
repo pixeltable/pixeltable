@@ -76,4 +76,3 @@ class InMemoryDataNode(ExecNode):
         self.has_returned_data = True
         _logger.debug(f'InMemoryDataNode: created row batch with {len(self.output_rows)} output_rows')
         return self.output_rows
-
