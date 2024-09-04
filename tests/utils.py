@@ -168,7 +168,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
     c2_data = [i for i in range(num_rows)]
     c3_data = [float(i) for i in range(num_rows)]
     c4_data = [bool(i % 2) for i in range(num_rows)]
-    c5_data = [datetime.datetime.now()] * num_rows
+    c5_data = [datetime.datetime(2024, 7, 1) + datetime.timedelta(hours=i) for i in range(num_rows)]
     c6_data = []
     for i in range(num_rows):
         d = {

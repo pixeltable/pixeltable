@@ -4,10 +4,10 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict, List
 
-import PIL.Image
 import numpy as np
+import PIL.Image
 import pytest
 import sqlalchemy as sql
 
@@ -16,14 +16,14 @@ import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable import exprs
-from pixeltable.exprs import Expr, ColumnRef
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
+from pixeltable.exprs import ColumnRef, Expr
 from pixeltable.functions import cast
-from pixeltable.functions.globals import sum, count
+from pixeltable.functions.globals import count, sum
 from pixeltable.iterators import FrameIterator
-from pixeltable.type_system import StringType, BoolType, IntType, ArrayType, ColumnType, FloatType, \
-    VideoType
-from .utils import get_image_files, skip_test_if_not_installed, validate_update_status, reload_catalog
+from pixeltable.type_system import ArrayType, BoolType, ColumnType, FloatType, IntType, StringType, VideoType
+
+from .utils import get_image_files, reload_catalog, skip_test_if_not_installed, validate_update_status
 
 
 class TestExprs:
@@ -360,6 +360,44 @@ class TestExprs:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=IntType())).collect()
         assert '+ requires numeric type, but c6 has type dict' in str(exc_info.value)
 
+    def test_comparison(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        # Test that comparison operations give the right answers. As with arithmetic operations, we do this two ways:
+        # (i) with primitive operators only, to ensure that the comparison operations are done in SQL when possible;
+        # (ii) with a Python function call interposed, to ensure that the comparison operations are always done in Python.
+        comparison_pairs = (
+            (t.c1, "test string 10"),       # string-to-string
+            (t.c2, 50),                     # int-to-int
+            (t.c3, 50.1),                   # float-to-float
+            (t.c5, datetime(2024, 7, 2)),   # datetime-to-datetime
+            (t.c5, '2024-07-02'),           # datetime-to-string
+            (t.c5, '2024-07-02 03:14:15'),  # datetime-to-string
+        )
+        for expr1, expr2 in comparison_pairs:
+            forced_expr1 = expr1.apply(lambda x: x, col_type=expr1.col_type)
+            for a_expr, b_expr in ((expr1, expr2), (expr2, expr1), (forced_expr1, expr2), (expr2, forced_expr1)):
+                # For comparing datetime column vs. string literal, we also need the corresponding datetime literal,
+                # so that we can later repeat the comparisons directly in Python in order to verify test output.
+                a_query_expr = datetime.fromisoformat(a_expr) if isinstance(a_expr, str) and b_expr.col_type.is_timestamp_type() else a_expr
+                b_query_expr = datetime.fromisoformat(b_expr) if isinstance(b_expr, str) and a_expr.col_type.is_timestamp_type() else b_expr
+                results = t.select(
+                    a=a_query_expr,
+                    b=b_query_expr,
+                    eq=a_expr == b_expr,
+                    ne=a_expr != b_expr,
+                    lt=a_expr < b_expr,
+                    le=a_expr <= b_expr,
+                    gt=a_expr > b_expr,
+                    ge=a_expr >= b_expr,
+                ).collect()
+                a_results = results['a']
+                b_results = results['b']
+                assert results['eq'] == [a == b for a, b in zip(a_results, b_results)], f'{a_expr} == {b_expr}'
+                assert results['ne'] == [a != b for a, b in zip(a_results, b_results)], f'{a_expr} != {b_expr}'
+                assert results['lt'] == [a < b for a, b in zip(a_results, b_results)], f'{a_expr} < {b_expr}'
+                assert results['le'] == [a <= b for a, b in zip(a_results, b_results)], f'{a_expr} <= {b_expr}'
+                assert results['gt'] == [a > b for a, b in zip(a_results, b_results)], f'{a_expr} > {b_expr}'
+                assert results['ge'] == [a >= b for a, b in zip(a_results, b_results)], f'{a_expr} >= {b_expr}'
 
     def test_inline_dict(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -812,6 +850,7 @@ class TestExprs:
     def test_make_list(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         import pixeltable.functions as pxtf
+
         # create a json column with an InlineDict; the type will have a type spec
         t.add_column(json_col={'a': t.c1, 'b': t.c2})
         res = t.select(out=pxtf.json.make_list(t.json_col)).collect()

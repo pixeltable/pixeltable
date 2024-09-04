@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional, List, Any, Dict
 
 import sqlalchemy as sql
@@ -32,6 +33,13 @@ class Comparison(Expr):
         else:
             self.is_search_arg_comparison = False
             self.components = [op1, op2]
+
+        # Implicit typecast of string literal to timestamp (convenience notation for
+        # comparisons like '2021-01-01' < t.timestamp_col)
+        if isinstance(op1, Literal) and op1.col_type.is_string_type() and op2.col_type.is_timestamp_type():
+            self.components[0] = Literal(datetime.fromisoformat(op1.val))
+        elif isinstance(op2, Literal) and op2.col_type.is_string_type() and op1.col_type.is_timestamp_type():
+            self.components[1] = Literal(datetime.fromisoformat(op2.val))
 
         import pixeltable.index as index
         if self.is_search_arg_comparison and self._op2.col_type.is_string_type() \
@@ -78,6 +86,7 @@ class Comparison(Expr):
         right = self._op2.sql_expr()
         if left is None or right is None:
             return None
+
         if self.operator == ComparisonOperator.LT:
             return left < right
         if self.operator == ComparisonOperator.LE:
@@ -92,18 +101,21 @@ class Comparison(Expr):
             return left >= right
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        left = data_row[self._op1.slot_idx]
+        right = data_row[self._op2.slot_idx]
+
         if self.operator == ComparisonOperator.LT:
-            data_row[self.slot_idx] = data_row[self._op1.slot_idx] < data_row[self._op2.slot_idx]
+            data_row[self.slot_idx] = left < right
         elif self.operator == ComparisonOperator.LE:
-            data_row[self.slot_idx] = data_row[self._op1.slot_idx] <= data_row[self._op2.slot_idx]
+            data_row[self.slot_idx] = left <= right
         elif self.operator == ComparisonOperator.EQ:
-            data_row[self.slot_idx] = data_row[self._op1.slot_idx] == data_row[self._op2.slot_idx]
+            data_row[self.slot_idx] = left == right
         elif self.operator == ComparisonOperator.NE:
-            data_row[self.slot_idx] = data_row[self._op1.slot_idx] != data_row[self._op2.slot_idx]
+            data_row[self.slot_idx] = left != right
         elif self.operator == ComparisonOperator.GT:
-            data_row[self.slot_idx] = data_row[self._op1.slot_idx] > data_row[self._op2.slot_idx]
+            data_row[self.slot_idx] = left > right
         elif self.operator == ComparisonOperator.GE:
-            data_row[self.slot_idx] = data_row[self._op1.slot_idx] >= data_row[self._op2.slot_idx]
+            data_row[self.slot_idx] = left >= right
 
     def _as_dict(self) -> Dict:
         return {'operator': self.operator.value, **super()._as_dict()}
