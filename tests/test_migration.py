@@ -49,7 +49,8 @@ class TestMigration:
                 _logger.info(f'Migrating from version: {old_version} -> {VERSION}')
                 versions_found.append(old_version)
 
-            # For this test we need the raw DB URL, without a driver qualifier
+            # For this test we need the raw DB URL, without a driver qualifier. (The driver qualifier is needed by
+            # SQLAlchemy, but command-line Postgres won't know how to interpret it.)
             db_url = env._db_server.get_uri(env._db_name)
             _logger.info(f'DB URL: {db_url}')
             clean_db(restore_tables=False)

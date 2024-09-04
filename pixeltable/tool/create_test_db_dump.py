@@ -44,7 +44,8 @@ class Dumper:
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
         pg_dump_binary = f'{pg_package_dir}/pginstall/bin/pg_dump'
         _logger.info(f'Using pg_dump binary at: {pg_dump_binary}')
-        # We need the raw DB URL, without a driver qualifier
+        # We need the raw DB URL, without a driver qualifier.  (The driver qualifier is needed by
+        # SQLAlchemy, but command-line Postgres won't know how to interpret it.)
         db_url = Env.get()._db_server.get_uri(Env.get()._db_name)
         with open(dump_file, 'wb') as dump:
             pg_dump_process = subprocess.Popen(
