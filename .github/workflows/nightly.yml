@@ -22,9 +22,9 @@ jobs:
         python-version: ["3.9", "3.12"]
         package-configs:
           - ""
-          - "torch transformers sentence-transformers"
+          - "torch torchvision transformers sentence-transformers pyarrow"
           - "openai together fireworks"
-          - "datasets boto3 openpyxl pyarrow tiktoken fitz spacy https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
+          - "datasets boto3 openpyxl tiktoken pymupdf spacy https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
           - "label_studio_sdk"
         include:
           - os: macos-12

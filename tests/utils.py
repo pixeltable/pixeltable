@@ -6,10 +6,10 @@ import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import PIL.Image
 import more_itertools
 import numpy as np
 import pandas as pd
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -20,18 +20,8 @@ from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
 from pixeltable.io import SyncStatus
-from pixeltable.type_system import (
-    ArrayType,
-    BoolType,
-    ColumnType,
-    FloatType,
-    ImageType,
-    IntType,
-    JsonType,
-    StringType,
-    TimestampType,
-    VideoType,
-)
+from pixeltable.type_system import (ArrayType, BoolType, ColumnType, FloatType, ImageType, IntType, JsonType,
+                                    StringType, TimestampType, VideoType)
 
 
 def make_default_type(t: ColumnType.Type) -> ColumnType:
@@ -394,6 +384,7 @@ def validate_sync_status(
 
 def make_test_arrow_table(output_path: Path) -> None:
     import pyarrow as pa
+    from pyarrow import parquet
 
     value_dict = {
         'c_id': [1, 2, 3, 4, 5],
@@ -449,7 +440,7 @@ def make_test_arrow_table(output_path: Path) -> None:
     )
 
     test_table = pa.Table.from_pydict(value_dict, schema=schema)
-    pa.parquet.write_table(test_table, str(output_path / 'test.parquet'))
+    parquet.write_table(test_table, str(output_path / 'test.parquet'))
 
 
 def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:

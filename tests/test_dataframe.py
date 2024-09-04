@@ -328,6 +328,7 @@ class TestDataFrame:
         """ tests all types are handled correctly in this conversion
         """
         skip_test_if_not_installed('torch')
+        skip_test_if_not_installed('pyarrow')
         import torch
 
         t = all_datatypes_tbl
@@ -358,6 +359,8 @@ class TestDataFrame:
         """ tests the image_format parameter is honored
         """
         skip_test_if_not_installed('torch')
+        skip_test_if_not_installed('torchvision')
+        skip_test_if_not_installed('pyarrow')
         import torch
         import torchvision.transforms as T
 
@@ -474,6 +477,7 @@ class TestDataFrame:
             3. changing the select list invalidates the cached version
         """
         skip_test_if_not_installed('torch')
+        skip_test_if_not_installed('pyarrow')
         t = all_datatypes_tbl
 
         t.drop_column('c_video') # null value video column triggers internal assertions in DataRow

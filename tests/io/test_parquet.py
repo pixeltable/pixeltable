@@ -1,13 +1,15 @@
 import pathlib
 
 import pixeltable as pxt
-from ..utils import skip_test_if_not_installed, make_test_arrow_table
+
+from ..utils import make_test_arrow_table, skip_test_if_not_installed
 
 
 class TestParquet:
     def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
+        from pyarrow import parquet
         from pixeltable.utils.arrow import iter_tuples
 
         parquet_dir = tmp_path / 'test_data'
@@ -18,7 +20,7 @@ class TestParquet:
         assert 'test_parquet' in pxt.list_tables()
         assert tab is not None
         num_elts = tab.count()
-        arrow_tab: pa.Table = pa.parquet.read_table(str(parquet_dir))
+        arrow_tab: pa.Table = parquet.read_table(str(parquet_dir))
         assert num_elts == arrow_tab.num_rows
         assert set(tab.column_names()) == set(arrow_tab.column_names)
 
