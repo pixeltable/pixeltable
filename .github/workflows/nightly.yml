@@ -1,4 +1,4 @@
-name: Run pytest
+name: Nightly CI
 
 on:
   schedule:
