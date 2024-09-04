@@ -425,6 +425,7 @@ class Env:
             else:
                 self._installed_packages[package] = None
 
+        check('toml')
         check('datasets')
         check('torch')
         check('torchvision')
