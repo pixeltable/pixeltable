@@ -12,7 +12,7 @@ from uuid import UUID
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-import pixeltable
+import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.func as func
@@ -24,7 +24,7 @@ from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 from .column import Column
-from .globals import UpdateStatus, POS_COLUMN_NAME, is_valid_identifier, _ROWID_COLUMN_NAME
+from .globals import UpdateStatus, _POS_COLUMN_NAME, is_valid_identifier, _ROWID_COLUMN_NAME
 from ..func.globals import resolve_symbol
 
 _logger = logging.getLogger('pixeltable')
@@ -56,7 +56,7 @@ class TableVersion:
 
     def __init__(
             self, id: UUID, tbl_md: schema.TableMd, version: int, schema_version_md: schema.TableSchemaVersionMd,
-            base: Optional[TableVersion] = None, base_path: Optional['pixeltable.catalog.TableVersionPath'] = None,
+            base: Optional[TableVersion] = None, base_path: Optional['pxt.catalog.TableVersionPath'] = None,
             is_snapshot: Optional[bool] = None
     ):
         # only one of base and base_path can be non-None
@@ -124,7 +124,7 @@ class TableVersion:
         self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
-        self.external_stores: dict[str, pixeltable.io.ExternalStore] = {}
+        self.external_stores: dict[str, pxt.io.ExternalStore] = {}
 
         self._init_schema(tbl_md, schema_version_md)
 
@@ -145,7 +145,7 @@ class TableVersion:
     @classmethod
     def create(
             cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int,
-            comment: str, base_path: Optional['pixeltable.catalog.TableVersionPath'] = None,
+            comment: str, base_path: Optional['pxt.catalog.TableVersionPath'] = None,
             view_md: Optional[schema.ViewMd] = None
     ) -> Tuple[UUID, Optional[TableVersion]]:
         # assign ids
@@ -636,14 +636,28 @@ class TableVersion:
         _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
     def insert(
-            self, rows: List[Dict[str, Any]], print_stats: bool = False, fail_on_exception : bool = True
+            self,
+            rows: Optional[list[dict[str, Any]]],
+            df: Optional[pxt.DataFrame],
+            conn: Optional[sql.engine.Connection] = None,
+            print_stats: bool = False,
+            fail_on_exception: bool = True
     ) -> UpdateStatus:
-        """Insert rows into this table.
         """
-        assert self.is_insertable()
+        Insert rows into this table, either from an explicit list of dicts or from a `DataFrame`.
+        """
         from pixeltable.plan import Planner
-        plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
-        with Env.get().engine.begin() as conn:
+
+        assert self.is_insertable()
+        assert (rows is None) != (df is None)  # Exactly one must be specified
+        if rows is not None:
+            plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
+        else:
+            plan = Planner.create_df_insert_plan(self, df, ignore_errors=not fail_on_exception)
+        if conn is None:
+            with Env.get().engine.begin() as conn:
+                return self._insert(plan, conn, time.time(), print_stats)
+        else:
             return self._insert(plan, conn, time.time(), print_stats)
 
     def _insert(
@@ -739,7 +753,7 @@ class TableVersion:
                 if error_if_not_exists:
                     raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
                 if insert_if_not_exists:
-                    insert_status = self.insert(unmatched_rows, print_stats=False, fail_on_exception=False)
+                    insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
                     result += insert_status
             return result
 
@@ -994,11 +1008,11 @@ class TableVersion:
     def _init_external_stores(self, tbl_md: schema.TableMd) -> None:
         for store_md in tbl_md.external_stores:
             store_cls = resolve_symbol(store_md['class'])
-            assert isinstance(store_cls, type) and issubclass(store_cls, pixeltable.io.ExternalStore)
+            assert isinstance(store_cls, type) and issubclass(store_cls, pxt.io.ExternalStore)
             store = store_cls.from_dict(store_md['md'])
             self.external_stores[store.name] = store
 
-    def link_external_store(self, store: pixeltable.io.ExternalStore) -> None:
+    def link_external_store(self, store: pxt.io.ExternalStore) -> None:
         with Env.get().engine.begin() as conn:
             store.link(self, conn)  # May result in additional metadata changes
             self.external_stores[store.name] = store
@@ -1012,7 +1026,7 @@ class TableVersion:
             del self.external_stores[store_name]
             self._update_md(time.time(), conn, update_tbl_version=False)
 
-        if delete_external_data and isinstance(store, pixeltable.io.external_store.Project):
+        if delete_external_data and isinstance(store, pxt.io.external_store.Project):
             store.delete()
 
     def is_view(self) -> bool:
@@ -1032,7 +1046,7 @@ class TableVersion:
 
     def is_system_column(self, col: Column) -> bool:
         """Return True if column was created by Pixeltable"""
-        if col.name == POS_COLUMN_NAME and self.is_component_view():
+        if col.name == _POS_COLUMN_NAME and self.is_component_view():
             return True
         return False
 
@@ -1056,7 +1070,7 @@ class TableVersion:
         return names
 
     @classmethod
-    def _create_value_expr(cls, col: Column, path: 'pixeltable.catalog.TableVersionPath') -> None:
+    def _create_value_expr(cls, col: Column, path: 'pxt.catalog.TableVersionPath') -> None:
         """
         Create col.value_expr, given col.compute_func.
         Interprets compute_func's parameters to be references to columns and construct ColumnRefs as args.
@@ -1120,7 +1134,7 @@ class TableVersion:
         return column_md
 
     @classmethod
-    def _create_stores_md(cls, stores: Iterable['pixeltable.io.ExternalStore']) -> list[dict[str, Any]]:
+    def _create_stores_md(cls, stores: Iterable['pxt.io.ExternalStore']) -> list[dict[str, Any]]:
         return [
             {
                 'class': f'{type(store).__module__}.{type(store).__qualname__}',

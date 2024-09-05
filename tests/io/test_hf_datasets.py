@@ -60,7 +60,7 @@ class TestHfDatasets:
                 self._assert_hf_dataset_equal(hf_dataset, tab.select(), split_column_name)
             elif isinstance(hf_dataset, datasets.DatasetDict):
                 assert tab.count() == sum(hf_dataset.num_rows.values())
-                assert split_column_name in tab.column_names()
+                assert split_column_name in tab._schema.keys()
 
                 for dataset_name in hf_dataset:
                     df = tab.where(tab.my_split_col == dataset_name)
@@ -79,7 +79,7 @@ class TestHfDatasets:
         import datasets
 
         assert df.count() == hf_dataset.num_rows
-        assert set(df.get_column_names()) == (set(hf_dataset.features.keys()) | {split_column_name})
+        assert set(df.schema.keys()) == (set(hf_dataset.features.keys()) | {split_column_name})
 
         # immutable so we can use it as in a set
         DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))

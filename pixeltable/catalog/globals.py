@@ -1,13 +1,17 @@
-from typing import List
 import dataclasses
+import itertools
 import logging
-
+from typing import Optional
 
 _logger = logging.getLogger('pixeltable')
 
 # name of the position column in a component view
-POS_COLUMN_NAME = 'pos'
+_POS_COLUMN_NAME = 'pos'
 _ROWID_COLUMN_NAME = '_rowid'
+
+# Set of symbols that are predefined in the `InsertableTable` class (and are therefore not allowed as column names).
+# This will be populated lazily to avoid circular imports.
+_PREDEF_SYMBOLS: Optional[set[str]] = None
 
 
 @dataclasses.dataclass
@@ -16,8 +20,8 @@ class UpdateStatus:
     # TODO: disambiguate what this means: # of slots computed or # of columns computed?
     num_computed_values: int = 0
     num_excs: int = 0
-    updated_cols: List[str] = dataclasses.field(default_factory=list)
-    cols_with_excs: List[str] = dataclasses.field(default_factory=list)
+    updated_cols: list[str] = dataclasses.field(default_factory=list)
+    cols_with_excs: list[str] = dataclasses.field(default_factory=list)
 
     def __iadd__(self, other: 'UpdateStatus') -> 'UpdateStatus':
         self.num_rows += other.num_rows
@@ -40,4 +44,9 @@ def is_valid_path(path: str, empty_is_valid : bool) -> bool:
     return True
 
 def is_system_column_name(name: str) -> bool:
-    return name == POS_COLUMN_NAME
+    from pixeltable.catalog import InsertableTable, View
+
+    global _PREDEF_SYMBOLS
+    if _PREDEF_SYMBOLS is None:
+        _PREDEF_SYMBOLS = set(itertools.chain(dir(InsertableTable), dir(View)))
+    return name == _POS_COLUMN_NAME or name in _PREDEF_SYMBOLS

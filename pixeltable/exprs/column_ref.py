@@ -84,7 +84,13 @@ class ColumnRef(Expr):
         return self.col == other.col
 
     def __str__(self) -> str:
-        return self.col.name
+        if self.col.name is None:
+            return f'<unnamed column {self.col.id}>'
+        else:
+            return self.col.name
+
+    def __repr__(self) -> str:
+        return f'ColumnRef({self.col!r})'
 
     def sql_expr(self) -> Optional[sql.ClauseElement]:
         return self.col.sa_col

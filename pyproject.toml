@@ -26,7 +26,7 @@ tqdm = ">=4.64"
 jmespath = "^1.0.1"
 more-itertools = "^10.2"
 cloudpickle = "^2.2.1"
-psycopg2-binary = "^2.9.5"
+psycopg = {extras = ["binary"], version = "==3.1.18"}
 psutil = "^5.9.5"
 sqlalchemy = {extras = ["mypy"], version = "^2.0.23"}
 pgvector = "^0.2.1"
@@ -39,7 +39,7 @@ tenacity = "^8.2"
 mistune = "^3.0.2"
 pymupdf = "^1.24.1"
 ftfy = "^6.2.0"
-pixeltable-pgserver = "==0.2.4"
+pixeltable-pgserver = "==0.2.7"
 
 [tool.poetry.group.dev]
 optional = true

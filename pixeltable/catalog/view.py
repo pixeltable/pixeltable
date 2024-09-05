@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import Optional, Type, Dict, Set, Any, Iterable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, Set, Type
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -14,10 +14,11 @@ import pixeltable.metadata.schema as md_schema
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
 from pixeltable.iterators import ComponentIterator
-from pixeltable.type_system import InvalidType, IntType
+from pixeltable.type_system import IntType, InvalidType
+
 from .catalog import Catalog
 from .column import Column
-from .globals import POS_COLUMN_NAME, UpdateStatus
+from .globals import _POS_COLUMN_NAME, UpdateStatus
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -45,11 +46,11 @@ class View(Table):
         self._snapshot_only = snapshot_only
 
     @classmethod
-    def display_name(cls) -> str:
+    def _display_name(cls) -> str:
         return 'view'
 
     @classmethod
-    def create(
+    def _create(
             cls, dir_id: UUID, name: str, base: TableVersionPath, schema: Dict[str, Any],
             predicate: 'pxt.exprs.Expr', is_snapshot: bool, num_retained_versions: int, comment: str,
             iterator_cls: Optional[Type[ComponentIterator]], iterator_args: Optional[Dict]
@@ -100,7 +101,7 @@ class View(Table):
             # a component view exposes the pos column of its rowid;
             # we create that column here, so it gets assigned a column id;
             # stored=False: it is not stored separately (it's already stored as part of the rowid)
-            iterator_cols = [Column(POS_COLUMN_NAME, IntType(), stored=False)]
+            iterator_cols = [Column(_POS_COLUMN_NAME, IntType(), stored=False)]
             output_dict, unstored_cols = iterator_cls.output_schema(**bound_args)
             iterator_cols.extend([
                 Column(col_name, col_type, stored=col_name not in unstored_cols)
@@ -207,11 +208,17 @@ class View(Table):
         cat.tbl_dependents[self._base_id].remove(self)
         del cat.tbl_dependents[self._id]
 
+    def get_metadata(self) -> dict[str, Any]:
+        md = super().get_metadata()
+        md['is_view'] = True
+        md['is_snapshot'] = self._tbl_version_path.is_snapshot()
+        return md
+
     def insert(
             self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
             fail_on_exception: bool = True, **kwargs: Any
     ) -> UpdateStatus:
-        raise excs.Error(f'{self.display_name()} {self._name!r}: cannot insert into view')
+        raise excs.Error(f'{self._display_name()} {self._name!r}: cannot insert into view')
 
     def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
-        raise excs.Error(f'{self.display_name()} {self._name!r}: cannot delete from view')
+        raise excs.Error(f'{self._display_name()} {self._name!r}: cannot delete from view')
