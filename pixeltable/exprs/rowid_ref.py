@@ -56,7 +56,7 @@ class RowidRef(Expr):
         # check if this is the pos column of a component view
         tbl = self.tbl if self.tbl is not None else catalog.Catalog.get().tbl_versions[(self.tbl_id, None)]
         if tbl.is_component_view() and self.rowid_component_idx == tbl.store_tbl.pos_col_idx:
-            return catalog.globals.POS_COLUMN_NAME
+            return catalog.globals._POS_COLUMN_NAME
         return ''
 
     def set_tbl(self, tbl: catalog.TableVersionPath) -> None:

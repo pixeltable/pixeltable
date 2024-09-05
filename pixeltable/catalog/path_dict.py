@@ -114,20 +114,20 @@ class PathDict:
             schema_obj = self._resolve_path(path)
             if not isinstance(schema_obj, expected):
                 raise excs.Error(
-                    f'{str(path)} needs to be a {expected.display_name()} but is a {type(schema_obj).display_name()}')
+                    f'{str(path)} needs to be a {expected._display_name()} but is a {type(schema_obj)._display_name()}')
         if expected is None:
             parent_obj = self._resolve_path(path.parent)
             if not isinstance(parent_obj, Dir):
                 raise excs.Error(
-                    f'{str(path.parent)} is a {type(parent_obj).display_name()}, not a {Dir.display_name()}')
+                    f'{str(path.parent)} is a {type(parent_obj)._display_name()}, not a {Dir._display_name()}')
             if path.name in self.dir_contents[parent_obj._id]:
                 obj = self.dir_contents[parent_obj._id][path.name]
-                raise excs.Error(f"{type(obj).display_name()} '{str(path)}' already exists")
+                raise excs.Error(f"{type(obj)._display_name()} '{str(path)}' already exists")
 
     def get_children(self, parent: Path, child_type: Optional[Type[SchemaObject]], recursive: bool) -> List[Path]:
         dir = self._resolve_path(parent)
         if not isinstance(dir, Dir):
-            raise excs.Error(f'{str(parent)} is a {type(dir).display_name()}, not a directory')
+            raise excs.Error(f'{str(parent)} is a {type(dir)._display_name()}, not a directory')
         matches = [
             obj for obj in self.dir_contents[dir._id].values() if child_type is None or isinstance(obj, child_type)
         ]

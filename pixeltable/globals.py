@@ -85,7 +85,7 @@ def create_table(
         if not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
             raise excs.Error('primary_key must be a single column name or a list of column names')
 
-    tbl = catalog.InsertableTable.create(
+    tbl = catalog.InsertableTable._create(
         dir._id,
         path.name,
         schema,
@@ -179,7 +179,7 @@ def create_view(
     else:
         iterator_class, iterator_args = iterator
 
-    view = catalog.View.create(
+    view = catalog.View._create(
         dir._id,
         path.name,
         base=tbl_version_path,
@@ -284,7 +284,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
     tbl = cat.paths[path_obj]
     assert isinstance(tbl, catalog.Table)
     if len(cat.tbl_dependents[tbl._id]) > 0:
-        dependent_paths = [dep.path for dep in cat.tbl_dependents[tbl._id]]
+        dependent_paths = [dep._path for dep in cat.tbl_dependents[tbl._id]]
         if force:
             for dependent_path in dependent_paths:
                 drop_table(dependent_path, force=True)

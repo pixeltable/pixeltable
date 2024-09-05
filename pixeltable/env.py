@@ -268,7 +268,7 @@ class Env:
 
         # in pixeltable_pgserver.get_server(): cleanup_mode=None will leave db on for debugging purposes
         self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
-        self._db_url = self._db_server.get_uri(database=self._db_name)
+        self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
 
         if reinit_db:
             if self._store_db_exists():
@@ -297,7 +297,7 @@ class Env:
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
         # don't try to connect to self.db_name, it may not exist
-        db_url = self._db_server.get_uri(database='postgres')
+        db_url = self._db_server.get_uri(database='postgres', driver='psycopg')
         engine = sql.create_engine(db_url, future=True)
         try:
             with engine.begin() as conn:
@@ -312,7 +312,7 @@ class Env:
     def _create_store_db(self) -> None:
         assert self._db_name is not None
         # create the db
-        pg_db_url = self._db_server.get_uri(database='postgres')
+        pg_db_url = self._db_server.get_uri(database='postgres', driver='psycopg')
         engine = sql.create_engine(pg_db_url, future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
@@ -327,7 +327,7 @@ class Env:
             engine.dispose()
 
         # enable pgvector
-        store_db_url = self._db_server.get_uri(database=self._db_name)
+        store_db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
         engine = sql.create_engine(store_db_url, future=True, isolation_level='AUTOCOMMIT')
         try:
             with engine.begin() as conn:
@@ -337,7 +337,7 @@ class Env:
 
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
-        db_url = self._db_server.get_uri(database='postgres')
+        db_url = self._db_server.get_uri(database='postgres', driver='psycopg')
         engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
