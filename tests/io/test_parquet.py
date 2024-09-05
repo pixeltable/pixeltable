@@ -9,8 +9,7 @@ class TestParquet:
     def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
-        import pyarrow.parquet
-
+        from pyarrow import parquet
         from pixeltable.utils.arrow import iter_tuples
 
         parquet_dir = tmp_path / 'test_data'
@@ -21,12 +20,12 @@ class TestParquet:
         assert 'test_parquet' in pxt.list_tables()
         assert tab is not None
         num_elts = tab.count()
-        arrow_tab: pa.Table = pyarrow.parquet.read_table(str(parquet_dir))
+        arrow_tab: pa.Table = parquet.read_table(str(parquet_dir))
         assert num_elts == arrow_tab.num_rows
-        assert set(tab.column_names()) == set(arrow_tab.column_names)
+        assert set(tab._schema.keys()) == set(arrow_tab.column_names)
 
         result_set = tab.order_by(tab.c_id).collect()
-        column_types = tab.column_types()
+        column_types = tab._schema
 
         for tup, arrow_tup in zip(result_set, iter_tuples(arrow_tab)):
             assert tup['c_id'] == arrow_tup['c_id']

@@ -19,12 +19,14 @@ from pixeltable.utils.transactional_directory import transactional_directory
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
     import pyarrow as pa
+    from pyarrow import parquet
 
 _logger = logging.getLogger(__name__)
 
 
 def _write_batch(value_batch: Dict[str, deque], schema: pa.Schema, output_path: Path) -> None:
     import pyarrow as pa
+    from pyarrow import parquet
 
     pydict = {}
     for field in schema:
@@ -35,7 +37,7 @@ def _write_batch(value_batch: Dict[str, deque], schema: pa.Schema, output_path: 
             pydict[field.name] = value_batch[field.name]
 
     tab = pa.Table.from_pydict(pydict, schema=schema)
-    pa.parquet.write_table(tab, output_path)
+    parquet.write_table(tab, output_path)
 
 
 def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int = 100_000_000) -> None:
@@ -128,11 +130,11 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
 
 def parquet_schema_to_pixeltable_schema(parquet_path: str) -> Dict[str, Optional[ts.ColumnType]]:
     """Generate a default pixeltable schema for the given parquet file. Returns None for unknown types."""
-    import pyarrow as pa
+    from pyarrow import parquet
     from pixeltable.utils.arrow import to_pixeltable_schema
 
     input_path = Path(parquet_path).expanduser()
-    parquet_dataset = pa.parquet.ParquetDataset(input_path)
+    parquet_dataset = parquet.ParquetDataset(input_path)
     return to_pixeltable_schema(parquet_dataset.schema)
 
 
@@ -157,11 +159,11 @@ def import_parquet(
         The newly created table. The table will have loaded the data from the Parquet file(s).
     """
     import pixeltable as pxt
-    import pyarrow as pa
+    from pyarrow import parquet
     from pixeltable.utils.arrow import iter_tuples
 
     input_path = Path(parquet_path).expanduser()
-    parquet_dataset = pa.parquet.ParquetDataset(input_path)
+    parquet_dataset = parquet.ParquetDataset(input_path)
 
     schema = parquet_schema_to_pixeltable_schema(parquet_path)
     if schema_override is None:

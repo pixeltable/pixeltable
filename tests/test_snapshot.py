@@ -14,9 +14,9 @@ class TestSnapshot:
             self, tbl: pxt.Table, snap: pxt.Table, extra_items: Dict[str, Any], filter: Any,
             reload_md: bool
     ) -> None:
-        tbl_path, snap_path = tbl.path, snap.path
+        tbl_path, snap_path = tbl._path, snap._path
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
-        tbl_select_list = [tbl[col_name] for col_name in tbl.column_names()]
+        tbl_select_list = [tbl[col_name] for col_name in tbl._schema.keys()]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
         orig_resultset_df = tbl.select(*tbl_select_list)
         if filter is not None:
@@ -30,7 +30,8 @@ class TestSnapshot:
             snap = pxt.get_table(snap_path)
 
         # view select list: base cols followed by view cols
-        snap_select_list = [snap[col_name] for col_name in snap.column_names()[len(extra_items):]]
+        column_names = list(snap._schema.keys())
+        snap_select_list = [snap[col_name] for col_name in column_names[len(extra_items):]]
         snap_select_list.extend([snap[col_name] for col_name in extra_items.keys()])
         snap_query = snap.select(*snap_select_list).order_by(snap.c2)
         r1 = list(orig_resultset)
@@ -187,7 +188,7 @@ class TestSnapshot:
     def test_multiple_snapshot_paths(self, reset_db) -> None:
         t = create_test_tbl()
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
-        orig_c3 = t.select(t.c3).collect().to_pandas()['c3']
+        orig_c3 = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']
         v = pxt.create_view('v', base=t, schema={'v1': t.c3 + 1})
         s1 = pxt.create_view('s1', v, is_snapshot=True)
         t.drop_column('c4')
@@ -202,7 +203,7 @@ class TestSnapshot:
 
         def validate(t: pxt.Table, v: pxt.Table, s1: pxt.Table, s2: pxt.Table, s3: pxt.Table, s4: pxt.Table) -> None:
             # c4 is only visible in s1
-            assert np.all(s1.select(s1.c4).collect().to_pandas()['c4'] == c4)
+            assert np.all(s1.select(s1.c4).order_by(s1.c2).collect().to_pandas()['c4'] == c4)
             with pytest.raises(AttributeError):
                 _ = t.select(t.c4).collect()
             with pytest.raises(AttributeError):

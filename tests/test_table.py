@@ -124,27 +124,55 @@ class TestTable:
         with pytest.raises(excs.Error):
             pxt.drop_table('.test2')
 
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('bad_col_name', {'pos': IntType()})
+        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('test', {'add_column': IntType()})
+        assert "'add_column' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('test', {'insert': IntType()})
+        assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
     def test_names(self, reset_db) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
         for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
             tbl = pxt.create_table(tbl_path, {'col': pxt.StringType()})
-            assert tbl.path == tbl_path
-            assert tbl.name == tbl_path.split('.')[-1]
-            assert tbl.parent.path == '.'.join(tbl_path.split('.')[:-1])
+            view = pxt.create_view(f'{tbl_path}_view', tbl)
+            snap = pxt.create_view(f'{tbl_path}_snap', tbl, is_snapshot=True)
+            assert tbl._path == tbl_path
+            assert tbl._name == tbl_path.split('.')[-1]
+            assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
+            for t in (tbl, view, snap):
+                assert t.get_metadata() == {
+                    'base': None if t._base is None else t._base._path,
+                    'comment': t._comment,
+                    'is_view': isinstance(t, catalog.View),
+                    'is_snapshot': t._tbl_version.is_snapshot,
+                    'name': t._name,
+                    'num_retained_versions': t._num_retained_versions,
+                    'parent': t._parent._path,
+                    'path': t._path,
+                    'schema': t._schema,
+                    'schema_version': t._tbl_version.schema_version,
+                    'version': t._version,
+                }
 
     def test_create_from_df(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
         df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', df1)
-        assert t1.column_types() == df1.schema
+        assert t1._schema == df1.schema
         assert t1.collect() == df1.collect()
 
         from pixeltable.functions import sum
         t.add_column(c2mod=t.c2 % 5)
         df2 = t.group_by(t.c2mod).select(t.c2mod, sum(t.c2))
         t2 = pxt.create_table('test2', df2)
-        assert t2.column_types() == df2.schema
+        assert t2._schema == df2.schema
         assert t2.collect() == df2.collect()
 
         with pytest.raises(excs.Error) as exc_info:
@@ -177,23 +205,24 @@ class TestTable:
         pxt.drop_table('test_tbl', force=True)  # Drops everything else
         assert len(pxt.list_tables()) == 0
 
+    @pytest.mark.skip(reason='Skip until we figure out the right API for altering table attributes')
     def test_table_attrs(self, reset_db) -> None:
         schema = {'c': StringType(nullable=False)}
         num_retained_versions = 20
         comment = 'This is a table.'
         tbl = pxt.create_table('test_table_attrs', schema, num_retained_versions=num_retained_versions, comment=comment)
-        assert tbl.num_retained_versions == num_retained_versions
-        assert tbl.comment == comment
+        assert tbl._num_retained_versions == num_retained_versions
+        assert tbl._comment == comment
         new_num_retained_versions = 30
         new_comment = 'This is an updated table.'
-        tbl.num_retained_versions = new_num_retained_versions
-        assert tbl.num_retained_versions == new_num_retained_versions
-        tbl.comment = new_comment
-        assert tbl.comment == new_comment
+        tbl._num_retained_versions = new_num_retained_versions
+        assert tbl._num_retained_versions == new_num_retained_versions
+        tbl._comment = new_comment
+        assert tbl._comment == new_comment
         tbl.revert()
-        assert tbl.comment == comment
+        assert tbl._comment == comment
         tbl.revert()
-        assert tbl.num_retained_versions == num_retained_versions
+        assert tbl._num_retained_versions == num_retained_versions
 
     def test_image_table(self, reset_db) -> None:
         n_sample_rows = 20
@@ -204,7 +233,7 @@ class TestTable:
             'img_literal': ImageType(nullable=False),
         }
         tbl = pxt.create_table('test', schema)
-        assert MediaStore.count(tbl._get_id()) == 0
+        assert MediaStore.count(tbl._id) == 0
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -215,7 +244,7 @@ class TestTable:
                 r['img_literal'] = f.read()
 
         tbl.insert(sample_rows)
-        assert MediaStore.count(tbl._get_id()) == n_sample_rows
+        assert MediaStore.count(tbl._id) == n_sample_rows
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -226,21 +255,21 @@ class TestTable:
 
         # Test adding stored image transformation
         tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
-        assert MediaStore.count(tbl._get_id()) == 2 * n_sample_rows
+        assert MediaStore.count(tbl._id) == 2 * n_sample_rows
 
         # Test MediaStore.stats()
-        stats = list(filter(lambda x: x[0] == tbl._get_id(), MediaStore.stats()))
+        stats = list(filter(lambda x: x[0] == tbl._id, MediaStore.stats()))
         assert len(stats) == 2  # Two columns
         assert stats[0][2] == n_sample_rows  # Each column has n_sample_rows associated images
         assert stats[1][2] == n_sample_rows
 
         # Test that version-specific images are cleared when table is reverted
         tbl.revert()
-        assert MediaStore.count(tbl._get_id()) == n_sample_rows
+        assert MediaStore.count(tbl._id) == n_sample_rows
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table('test')
-        assert MediaStore.count(tbl._get_id()) == 0
+        assert MediaStore.count(tbl._id) == 0
 
     def test_schema_spec(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
@@ -397,7 +426,7 @@ class TestTable:
         # TODO: change reset_catalog() to drop tables
         FileCache.get().clear()
         cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == 0, f'{str(cache_stats)} tbl_id={tbl._get_id()}'
+        assert cache_stats.num_requests == 0, f'{str(cache_stats)} tbl_id={tbl._id}'
         # add computed column to make sure that external files are cached locally during insert
         tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
         urls = [
@@ -411,10 +440,10 @@ class TestTable:
         tbl.insert({'img': url} for url in urls)
         # check that we populated the cache
         cache_stats = FileCache.get().stats()
-        assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl._get_id()}'
+        assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl._id}'
         assert cache_stats.num_hits == 0
         assert FileCache.get().num_files() == len(urls)
-        assert FileCache.get().num_files(tbl._get_id()) == len(urls)
+        assert FileCache.get().num_files(tbl._id) == len(urls)
         assert FileCache.get().avg_file_size() > 0
 
         # query: we read from the cache
@@ -487,10 +516,10 @@ class TestTable:
         status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        assert MediaStore.count(view._get_id()) == view.count() * 2
+        assert MediaStore.count(view._id) == view.count() * 2
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
-        assert MediaStore.count(view._get_id()) == view.count() * 2
+        assert MediaStore.count(view._id) == view.count() * 2
 
         # TODO: test inserting Nulls
         # status = tbl.insert(payload=1, video=None)
@@ -499,7 +528,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        assert MediaStore.count(view._get_id()) == 0
+        assert MediaStore.count(view._id) == 0
 
         with pytest.raises(excs.Error):
             # can't drop frame col
@@ -515,7 +544,7 @@ class TestTable:
         assert 'has dependents: test_view' in str(exc_info.value)
         pxt.drop_table('test_view')
         pxt.drop_table('test_tbl')
-        assert MediaStore.count(view._get_id()) == 0
+        assert MediaStore.count(view._id) == 0
 
     def test_insert_nulls(self, reset_db) -> None:
         schema = {
@@ -737,19 +766,19 @@ class TestTable:
         for col_name, literal in test_cases:
             status = t.update({col_name: literal}, where=t.c3 < 10.0, cascade=False)
             assert status.num_rows == 10
-            assert status.updated_cols == [f'{t.name}.{col_name}']
+            assert status.updated_cols == [f'{t._name}.{col_name}']
             assert t.count() == count
             t.revert()
 
         # exchange two columns
         t.add_column(float_col=FloatType(nullable=True))
         t.update({'float_col': 1.0})
-        float_col_vals = t.select(t.float_col).collect().to_pandas()['float_col']
-        c3_vals = t.select(t.c3).collect().to_pandas()['c3']
+        float_col_vals = t.order_by(t.c2).select(t.float_col).collect().to_pandas()['float_col']
+        c3_vals = t.order_by(t.c2).select(t.c3).collect().to_pandas()['c3']
         assert np.all(float_col_vals == pd.Series([1.0] * t.count()))
         t.update({'c3': t.float_col, 'float_col': t.c3})
-        assert np.all(t.select(t.c3).collect().to_pandas()['c3'] == float_col_vals)
-        assert np.all(t.select(t.float_col).collect().to_pandas()['float_col'] == c3_vals)
+        assert np.all(t.order_by(t.c2).select(t.c3).collect().to_pandas()['c3'] == float_col_vals)
+        assert np.all(t.order_by(t.c2).select(t.float_col).collect().to_pandas()['float_col'] == c3_vals)
         t.revert()
 
         # update column that is used in computed cols
@@ -776,7 +805,7 @@ class TestTable:
 
         # revert, then verify that we're back to where we started
         reload_catalog()
-        t = pxt.get_table(t.name)
+        t = pxt.get_table(t._name)
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
@@ -864,7 +893,7 @@ class TestTable:
 
         # revert, then verify that we're back where we started
         reload_catalog()
-        t = pxt.get_table(t.name)
+        t = pxt.get_table(t._name)
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
         assert cnt == 10
@@ -1010,11 +1039,11 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        assert MediaStore.count(t._get_id()) == t.count() * stores_img_col
+        assert MediaStore.count(t._id) == t.count() * stores_img_col
 
         # test loading from store
         reload_catalog()
-        t2 = pxt.get_table(t.name)
+        t2 = pxt.get_table(t._name)
         assert len(t.columns()) == len(t2.columns())
         for i in range(len(t.columns())):
             if t.columns()[i].value_expr is not None:
@@ -1022,13 +1051,13 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
-        assert MediaStore.count(t2._get_id()) == t2.count() * stores_img_col
+        assert MediaStore.count(t2._id) == t2.count() * stores_img_col
         res = t2.show(0)
         tbl_df = t2.show(0).to_pandas()
 
         # revert also removes computed images
         t2.revert()
-        assert MediaStore.count(t2._get_id()) == t2.count() * stores_img_col
+        assert MediaStore.count(t2._id) == t2.count() * stores_img_col
 
     @pxt.udf(return_type=ImageType(), param_types=[ImageType()])
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
@@ -1075,21 +1104,21 @@ class TestTable:
 
     def test_revert(self, reset_db) -> None:
         t1 = make_tbl('test1', ['c1', 'c2'])
-        assert t1.version() == 0
+        assert t1._version == 0
         rows1 = create_table_data(t1)
         t1.insert(rows1)
         assert t1.count() == len(rows1)
-        assert t1.version() == 1
+        assert t1._version == 1
         rows2 = create_table_data(t1)
         t1.insert(rows2)
         assert t1.count() == len(rows1) + len(rows2)
-        assert t1.version() == 2
+        assert t1._version == 2
         t1.revert()
         assert t1.count() == len(rows1)
-        assert t1.version() == 1
+        assert t1._version == 1
         t1.insert(rows2)
         assert t1.count() == len(rows1) + len(rows2)
-        assert t1.version() == 2
+        assert t1._version == 2
 
         # can't revert past version 0
         t1.revert()
@@ -1102,7 +1131,10 @@ class TestTable:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.add_column(add1=pxt.IntType(nullable=True))
-        assert len(t.columns()) == num_orig_cols + 1
+        # Make sure that `name` and `id` are allowed, i.e., not reserved as system names
+        t.add_column(name=pxt.StringType(nullable=True))
+        t.add_column(id=pxt.StringType(nullable=True))
+        assert len(t.columns()) == num_orig_cols + 3
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.IntType(nullable=False))
@@ -1114,7 +1146,15 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(pos=pxt.StringType(nullable=True))
-        assert 'is reserved' in str(exc_info.value).lower()
+        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as excs_info:
+            _ = t.add_column(add_column=pxt.IntType())
+        assert "'add_column' is a reserved name in pixeltable" in str(excs_info.value).lower()
+
+        with pytest.raises(excs.Error) as excs_info:
+            _ = t.add_column(insert=pxt.IntType())
+        assert "'insert' is a reserved name in pixeltable" in str(excs_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.IntType(nullable=False), type=pxt.StringType())
@@ -1143,16 +1183,18 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.name)
-        assert len(t.columns()) == num_orig_cols + 1
+        t = pxt.get_table(t._name)
+        assert len(t.columns()) == num_orig_cols + 3
 
         # revert() works
+        t.revert()
+        t.revert()
         t.revert()
         assert len(t.columns()) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.name)
+        t = pxt.get_table(t._name)
         assert len(t.columns()) == num_orig_cols
 
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
@@ -1165,7 +1207,11 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t['pos'] = pxt.StringType()
-        assert 'is reserved' in str(exc_info.value).lower()
+        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t['add_column'] = pxt.StringType()
+        assert "'add_column' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t[2] = pxt.StringType()
@@ -1177,15 +1223,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t['add2'] = {'value': t.c2 + 1, 'type': pxt.StringType()}
-        assert '"type" is redundant' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t['add2'] = {'value': pxt.IntType()}
-        assert 'value needs to be either' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t['add2'] = {'value': t.c2 + 1, 'stored': False}
-        assert 'stored=false only applies' in str(exc_info.value).lower()
+        assert 'column spec must be a columntype or an expr' in str(exc_info.value).lower()
 
         # duplicate name
         with pytest.raises(excs.Error) as exc_info:
@@ -1194,7 +1232,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.name)
+        t = pxt.get_table(t._name)
         assert len(t.columns()) == num_orig_cols + 2
 
         # revert() works
@@ -1204,7 +1242,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.name)
+        t = pxt.get_table(t._name)
         assert len(t.columns()) == num_orig_cols
 
     def test_drop_column(self, test_tbl: catalog.Table) -> None:
@@ -1218,7 +1256,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.name)
+        t = pxt.get_table(t._name)
         assert len(t.columns()) == num_orig_cols - 1
 
         # revert() works
@@ -1227,7 +1265,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.name)
+        t = pxt.get_table(t._name)
         assert len(t.columns()) == num_orig_cols
 
     def test_rename_column(self, test_tbl: catalog.Table) -> None:
@@ -1256,7 +1294,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t.name)
+        t = pxt.get_table(t._name)
         check_rename(t, 'c1_renamed', 'c1')
 
         # revert() works
@@ -1267,7 +1305,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t.name)
+        t = pxt.get_table(t._name)
         check_rename(t, 'c1', 'c1_renamed')
 
     def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
@@ -1297,8 +1335,6 @@ class TestTable:
         fn = lambda c2: np.full((3, 4), c2)
         t.add_column(computed1=fn, type=ArrayType((3, 4), dtype=IntType()))
         t.describe()
-        t.comment = 'This is a comment.'
-        t.describe()
 
         # TODO: how to you check the output of these?
         _ = repr(t)
@@ -1306,11 +1342,12 @@ class TestTable:
 
     def test_common_col_names(self, reset_db) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""
-        schema = {'id': IntType(nullable=False), 'name': StringType(nullable=False)}
+        names = ['id', 'name', 'version', 'comment']
+        schema = {name: IntType() for name in names}
         tbl = pxt.create_table('test', schema)
-        status = tbl.insert({'id': id, 'name': str(id)} for id in range(10))
+        status = tbl.insert({name: id for name in names} for id in range(10))
         assert status.num_rows == 10
         assert status.num_excs == 0
         assert tbl.count() == 10
         # we can create references to those column via __getattr__
-        _ = tbl.select(tbl.id, tbl.name).collect()
+        _ = tbl.select(tbl.id, tbl._name).collect()
