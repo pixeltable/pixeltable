@@ -32,6 +32,8 @@ class StoreBase:
     - v_max: version at which the row was deleted (or MAX_VERSION if it's still live)
     """
 
+    __INSERT_BATCH_SIZE = 1000
+
     def __init__(self, tbl_version: catalog.TableVersion):
         self.tbl_version = tbl_version
         self.sa_md = sql.MetaData()
@@ -298,7 +300,6 @@ class StoreBase:
         """
         assert v_min is not None
         exec_plan.ctx.set_conn(conn)
-        batch_size = 16  # TODO: is this a good batch size?
         # TODO: total?
         num_excs = 0
         num_rows = 0
@@ -310,10 +311,10 @@ class StoreBase:
             exec_plan.open()
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
-                for batch_start_idx in range(0, len(row_batch), batch_size):
+                for batch_start_idx in range(0, len(row_batch), self.__INSERT_BATCH_SIZE):
                     # compute batch of rows and convert them into table rows
                     table_rows: List[Dict[str, Any]] = []
-                    for row_idx in range(batch_start_idx, min(batch_start_idx + batch_size, len(row_batch))):
+                    for row_idx in range(batch_start_idx, min(batch_start_idx + self.__INSERT_BATCH_SIZE, len(row_batch))):
                         row = row_batch[row_idx]
                         table_row, num_row_exc = \
                             self._create_table_row(row, row_builder, media_cols, cols_with_excs, v_min=v_min)

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import abc
+import itertools
 import json
 import logging
 from pathlib import Path
-from typing import Union, Any, Optional, Callable, Set, Tuple, Iterable, overload, Type, Literal
+from typing import Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, overload
 from uuid import UUID
-import abc
 
 import pandas as pd
 import sqlalchemy as sql
@@ -18,8 +19,9 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
+
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, is_valid_identifier, is_system_column_name, UpdateStatus
+from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -27,7 +29,7 @@ from .table_version_path import TableVersionPath
 _logger = logging.getLogger('pixeltable')
 
 class Table(SchemaObject):
-    """Base class for all tabular SchemaObjects."""
+    """Base class for table objects (base tables, views, snapshots)."""
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -46,7 +48,18 @@ class Table(SchemaObject):
                 f"WHERE {schema.Table.id.name} = :id"))
             conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
-    def version(self) -> int:
+    def get_metadata(self) -> dict[str, Any]:
+        md = super().get_metadata()
+        md['base'] = self._base._path if self._base is not None else None
+        md['schema'] = self._schema
+        md['version'] = self._version
+        md['schema_version'] = self._tbl_version.schema_version
+        md['comment'] = self._comment
+        md['num_retained_versions'] = self._num_retained_versions
+        return md
+
+    @property
+    def _version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
         return self._tbl_version.version
 
@@ -60,7 +73,7 @@ class Table(SchemaObject):
 
     def _check_is_dropped(self) -> None:
         if self._is_dropped:
-            raise excs.Error(f'{self.display_name()} {self.name} has been dropped')
+            raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
 
     def __getattr__(
             self, name: str
@@ -74,7 +87,7 @@ class Table(SchemaObject):
     def __getitem__(
             self, index: object
     ) -> Union[
-        'pixeltable.func.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame'
+        'pixeltable.func.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.DataFrame'
     ]:
         """Return a ColumnRef or QueryTemplateFunction for the given name, or a DataFrame for the given slice.
         """
@@ -90,10 +103,10 @@ class Table(SchemaObject):
             recursive: If `False`, returns only the immediate successor views of this `Table`. If `True`, returns
                 all sub-views (including views of views, etc.)
         """
-        return [t.path for t in self._get_views(recursive=recursive)]
+        return [t._path for t in self._get_views(recursive=recursive)]
 
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
-        dependents = catalog.Catalog.get().tbl_dependents[self._get_id()]
+        dependents = catalog.Catalog.get().tbl_dependents[self._id]
         if recursive:
             return dependents + [t for view in dependents for t in view._get_views(recursive=True)]
         else:
@@ -106,33 +119,30 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path)
 
-    def select(self, *items: Any, **named_items: Any) -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
+    def select(self, *items: Any, **named_items: Any) -> 'pixeltable.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).select(*items, **named_items)
 
-    def where(self, pred: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
+    def where(self, pred: 'exprs.Expr') -> 'pixeltable.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).where(pred)
 
-    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
+    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pixeltable.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         # local import: avoid circular imports
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).order_by(*items, asc=asc)
 
-    def group_by(self, *items: 'exprs.Expr') -> 'pixeltable.dataframe.DataFrame':
-        """Return a DataFrame for this table."""
+    def group_by(self, *items: 'exprs.Expr') -> 'pixeltable.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).group_by(*items)
 
-    def limit(self, n: int) -> 'pixeltable.dataframe.DataFrame':
+    def limit(self, n: int) -> 'pixeltable.DataFrame':
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).limit(n)
 
@@ -163,20 +173,18 @@ class Table(SchemaObject):
         """Return the number of rows in this table."""
         return self._df().count()
 
-    def column_names(self) -> list[str]:
-        """Return the names of the columns in this table."""
-        return [c.name for c in self._tbl_version_path.columns()]
-
-    def column_types(self) -> dict[str, ts.ColumnType]:
-        """Return the names of the columns in this table."""
+    @property
+    def _schema(self) -> dict[str, ts.ColumnType]:
+        """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
-    def query_names(self) -> list[str]:
+    @property
+    def _query_names(self) -> list[str]:
         """Return the names of the registered queries for this table."""
         return list(self._queries.keys())
 
     @property
-    def base(self) -> Optional['Table']:
+    def _base(self) -> Optional['Table']:
         """
         The base table of this `Table`. If this table is a view, returns the `Table`
         from which it was derived. Otherwise, returns `None`.
@@ -187,20 +195,12 @@ class Table(SchemaObject):
         return catalog.Catalog.get().tbls[base_id]
 
     @property
-    def comment(self) -> str:
+    def _comment(self) -> str:
         return self._tbl_version.comment
 
-    @comment.setter
-    def comment(self, new_comment: Optional[str]):
-        self._tbl_version.set_comment(new_comment)
-
     @property
-    def num_retained_versions(self):
+    def _num_retained_versions(self):
         return self._tbl_version.num_retained_versions
-
-    @num_retained_versions.setter
-    def num_retained_versions(self, new_num_retained_versions: int):
-        self._tbl_version.set_num_retained_versions(new_num_retained_versions)
 
     def _description(self) -> pd.DataFrame:
         cols = self._tbl_version_path.columns()
@@ -233,11 +233,11 @@ class Table(SchemaObject):
     # TODO: Display comments in _repr_html()
     def __repr__(self) -> str:
         description_str = self._description().to_string(index=False)
-        if self.comment is None:
+        if self._comment is None:
             comment = ''
         else:
-            comment = f'{self.comment}\n'
-        return f'{self.display_name()} \'{self._name}\'\n{comment}{description_str}'
+            comment = f'{self._comment}\n'
+        return f'{self._display_name()} \'{self._name}\'\n{comment}{description_str}'
 
     def _repr_html_(self) -> str:
         return self._description_html()._repr_html_()
@@ -266,51 +266,34 @@ class Table(SchemaObject):
         from pixeltable.dataframe import DataFrame
         return DataFrame(self._tbl_version_path).to_coco_dataset()
 
-    def __setitem__(self, column_name: str, value: Union[ts.ColumnType, exprs.Expr, Callable, dict]) -> None:
-        """Adds a column to the table
-        Args:
-            column_name: the name of the new column
-            value: column type or value expression or column specification dictionary:
-                column type: a Pixeltable column type (if the table already contains rows, it must be nullable)
-                value expression: a Pixeltable expression that computes the column values
-                column specification: a dictionary with possible keys 'type', 'value', 'stored'
-        Examples:
-            Add an int column with ``None`` values:
-
-            >>> tbl['new_col'] = IntType(nullable=True)
-
-            For a table with int column ``int_col``, add a column that is the factorial of ``int_col``. The names of
-            the parameters of the Callable must correspond to existing column names (the column values are then passed
-            as arguments to the Callable). In this case, the return type cannot be inferred and needs to be specified
-            explicitly:
-
-            >>> tbl['factorial'] = {'value': lambda int_col: math.factorial(int_col), 'type': IntType()}
-
-            For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
-            90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
-            (by default, computed image columns are not stored but recomputed on demand):
-
-            >>> tbl['rotated'] = tbl.frame.rotate(90)
-
-            Do the same, but now the column is stored:
-
-            >>> tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
+    def __setitem__(self, col_name: str, spec: Union[ts.ColumnType, exprs.Expr]) -> None:
         """
-        if not isinstance(column_name, str):
-            raise excs.Error(f'Column name must be a string, got {type(column_name)}')
-        if not is_valid_identifier(column_name):
-            raise excs.Error(f'Invalid column name: {column_name!r}')
+        Adds a column to the table. This is an alternate syntax for `add_column()`; the meaning of
 
-        new_col = self._create_columns({column_name: value})[0]
-        self._verify_column(new_col, self.column_names(), self.query_names())
-        return self._tbl_version.add_column(new_col)
+        >>> tbl['new_col'] = IntType()
+
+        is exactly equivalent to
+
+        >>> tbl.add_column(new_col=IntType())
+
+        For details, see the documentation for [`add_column()`][pixeltable.catalog.Table.add_column].
+        """
+        if not isinstance(col_name, str):
+            raise excs.Error(f'Column name must be a string, got {type(col_name)}')
+        if not isinstance(spec, (ts.ColumnType, exprs.Expr)):
+            raise excs.Error(f'Column spec must be a ColumnType or an Expr, got {type(spec)}')
+        self.add_column(**{col_name: spec})
 
     def add_column(
-            self, *,
-            type: Optional[ts.ColumnType] = None, stored: Optional[bool] = None, print_stats: bool = False,
-            **kwargs: Any
+            self,
+            *,
+            type: Optional[ts.ColumnType] = None,
+            stored: Optional[bool] = None,
+            print_stats: bool = False,
+            **kwargs: Union[ts.ColumnType, exprs.Expr, Callable]
     ) -> UpdateStatus:
-        """Adds a column to the table.
+        """
+        Adds a column to the table.
 
         Args:
             kwargs: Exactly one keyword argument of the form ``column-name=type|value-expression``.
@@ -364,19 +347,20 @@ class Table(SchemaObject):
         self._check_is_dropped()
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
-            raise excs.Error((
-                f'add_column() requires exactly one keyword argument of the form "column-name=type|value-expression", '
+            raise excs.Error(
+                f'add_column() requires exactly one keyword argument of the form "column-name=type|value-expression"; '
                 f'got {len(kwargs)} instead ({", ".join(list(kwargs.keys()))})'
-            ))
+            )
         col_name, spec = next(iter(kwargs.items()))
+        if not is_valid_identifier(col_name):
+            raise excs.Error(f'Invalid column name: {col_name!r}')
+        if isinstance(spec, (ts.ColumnType, exprs.Expr)) and type is not None:
+            raise excs.Error(f'add_column(): keyword argument "type" is redundant')
+
         col_schema: dict[str, Any] = {}
         if isinstance(spec, ts.ColumnType):
-            if type is not None:
-                raise excs.Error(f'add_column(): keyword argument "type" is redundant')
             col_schema['type'] = spec
         else:
-            if isinstance(spec, exprs.Expr) and type is not None:
-                raise excs.Error(f'add_column(): keyword argument "type" is redundant')
             col_schema['value'] = spec
         if type is not None:
             col_schema['type'] = type
@@ -384,7 +368,7 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
-        self._verify_column(new_col, self.column_names(), self.query_names())
+        self._verify_column(new_col, set(self._schema.keys()), self._query_names)
         return self._tbl_version.add_column(new_col, print_stats=print_stats)
 
     @classmethod
@@ -470,7 +454,7 @@ class Table(SchemaObject):
     ) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         if is_system_column_name(col.name):
-            raise excs.Error(f'Column name {col.name!r} is reserved')
+            raise excs.Error(f'{col.name!r} is a reserved name in Pixeltable; please choose a different column name.')
         if not is_valid_identifier(col.name):
             raise excs.Error(f"Invalid column name: {col.name!r}")
         if col.name in existing_column_names:
@@ -529,7 +513,7 @@ class Table(SchemaObject):
         ]
         if len(dependent_stores) > 0:
             dependent_store_names = [
-                store.name if view._get_id() == self._get_id() else f'{store.name} (in view `{view.name}`)'
+                store.name if view._id == self._id else f'{store.name} (in view `{view._name}`)'
                 for view, store in dependent_stores
             ]
             raise excs.Error(
@@ -593,6 +577,7 @@ class Table(SchemaObject):
         if idx_name is not None and idx_name in self._tbl_version.idxs_by_name:
             raise excs.Error(f'Duplicate index name: {idx_name}')
         from pixeltable.index import EmbeddingIndex
+
         # create the EmbeddingIndex instance to verify args
         idx = EmbeddingIndex(col, metric=metric, string_embed=string_embed, image_embed=image_embed)
         status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
@@ -849,7 +834,7 @@ class Table(SchemaObject):
             else:
                 function_path = None
             query_name = py_fn.__name__
-            if query_name in self.column_names():
+            if query_name in self._schema.keys():
                 raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
             if query_name in self._queries:
                 raise excs.Error(f'Duplicate query name: {query_name!r}')
@@ -878,13 +863,13 @@ class Table(SchemaObject):
         Links the specified `ExternalStore` to this table.
         """
         if self._tbl_version.is_snapshot:
-            raise excs.Error(f'Table `{self.name}` is a snapshot, so it cannot be linked to an external store.')
+            raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
         self._check_is_dropped()
         if store.name in self.external_stores:
-            raise excs.Error(f'Table `{self.name}` already has an external store with that name: {store.name}')
-        _logger.info(f'Linking external store `{store.name}` to table `{self.name}`')
+            raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
+        _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
         self._tbl_version.link_external_store(store)
-        print(f'Linked external store `{store.name}` to table `{self.name}`.')
+        print(f'Linked external store `{store.name}` to table `{self._name}`.')
 
     def unlink_external_stores(
             self,
@@ -916,11 +901,11 @@ class Table(SchemaObject):
         if not ignore_errors:
             for store in stores:
                 if store not in all_stores:
-                    raise excs.Error(f'Table `{self.name}` has no external store with that name: {store}')
+                    raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
 
         for store in stores:
             self._tbl_version.unlink_external_store(store, delete_external_data=delete_external_data)
-            print(f'Unlinked external store from table `{self.name}`: {store}')
+            print(f'Unlinked external store from table `{self._name}`: {store}')
 
     def sync(
             self,
@@ -948,7 +933,7 @@ class Table(SchemaObject):
 
         for store in stores:
             if store not in all_stores:
-                raise excs.Error(f'Table `{self.name}` has no external store with that name: {store}')
+                raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
 
         from pixeltable.io import SyncStatus
 
@@ -961,7 +946,7 @@ class Table(SchemaObject):
         return sync_status
 
     def __dir__(self) -> list[str]:
-        return list(super().__dir__()) + self.column_names() + self.query_names()
+        return list(super().__dir__()) + list(self._schema.keys()) + self._query_names
 
     def _ipython_key_completions_(self) -> list[str]:
-        return self.column_names() + self.query_names()
+        return list(self._schema.keys()) + self._query_names

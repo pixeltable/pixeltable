@@ -19,12 +19,14 @@ from pixeltable.utils.transactional_directory import transactional_directory
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
     import pyarrow as pa
+    from pyarrow import parquet
 
 _logger = logging.getLogger(__name__)
 
 
 def _write_batch(value_batch: Dict[str, deque], schema: pa.Schema, output_path: Path) -> None:
     import pyarrow as pa
+    from pyarrow import parquet
 
     pydict = {}
     for field in schema:
@@ -35,7 +37,7 @@ def _write_batch(value_batch: Dict[str, deque], schema: pa.Schema, output_path: 
             pydict[field.name] = value_batch[field.name]
 
     tab = pa.Table.from_pydict(pydict, schema=schema)
-    pa.parquet.write_table(tab, output_path)
+    parquet.write_table(tab, output_path)
 
 
 def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int = 100_000_000) -> None:
@@ -55,10 +57,8 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
     """
     from pixeltable.utils.arrow import to_arrow_schema
 
-    column_names = df.get_column_names()
-    column_types = df.get_column_types()
-    type_dict = {k: v.as_dict() for k, v in zip(column_names, column_types)}
-    arrow_schema = to_arrow_schema(dict(zip(column_names, column_types)))
+    type_dict = {k: v.as_dict() for k, v in df.schema.items()}
+    arrow_schema = to_arrow_schema(df.schema)
 
     # store the changes atomically
     with transactional_directory(dest_path) as temp_path:
@@ -67,11 +67,11 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
         json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
         batch_num = 0
-        current_value_batch: Dict[str, deque] = {k: deque() for k in column_names}
+        current_value_batch: Dict[str, deque] = {k: deque() for k in df.schema.keys()}
         current_byte_estimate = 0
 
         for data_row in df._exec():
-            for col_name, col_type, e in zip(column_names, column_types, df._select_list_exprs):
+            for (col_name, col_type), e in zip(df.schema.items(), df._select_list_exprs):
                 val = data_row[e.slot_idx]
                 if val is None:
                     current_value_batch[col_name].append(val)
@@ -122,7 +122,7 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
                 assert batch_num < 100_000, 'wrote too many parquet files, unclear ordering'
                 _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
                 batch_num += 1
-                current_value_batch = {k: deque() for k in column_names}
+                current_value_batch = {k: deque() for k in df.schema.keys()}
                 current_byte_estimate = 0
 
         _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
@@ -130,11 +130,11 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
 
 def parquet_schema_to_pixeltable_schema(parquet_path: str) -> Dict[str, Optional[ts.ColumnType]]:
     """Generate a default pixeltable schema for the given parquet file. Returns None for unknown types."""
-    import pyarrow as pa
+    from pyarrow import parquet
     from pixeltable.utils.arrow import to_pixeltable_schema
 
     input_path = Path(parquet_path).expanduser()
-    parquet_dataset = pa.parquet.ParquetDataset(input_path)
+    parquet_dataset = parquet.ParquetDataset(input_path)
     return to_pixeltable_schema(parquet_dataset.schema)
 
 
@@ -159,11 +159,11 @@ def import_parquet(
         The newly created table. The table will have loaded the data from the Parquet file(s).
     """
     import pixeltable as pxt
-    import pyarrow as pa
+    from pyarrow import parquet
     from pixeltable.utils.arrow import iter_tuples
 
     input_path = Path(parquet_path).expanduser()
-    parquet_dataset = pa.parquet.ParquetDataset(input_path)
+    parquet_dataset = parquet.ParquetDataset(input_path)
 
     schema = parquet_schema_to_pixeltable_schema(parquet_path)
     if schema_override is None:

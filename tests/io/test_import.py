@@ -15,7 +15,7 @@ class TestImport:
             data = json.loads(fp.read())
         t1 = pxt.io.import_rows('example1', data)
         assert t1.count() == 4
-        assert t1.column_types() == {
+        assert t1._schema == {
             'name': pxt.StringType(nullable=True),
             'human': pxt.BoolType(nullable=True),
             'parents': pxt.JsonType(nullable=True),
@@ -26,7 +26,7 @@ class TestImport:
 
         t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': pxt.FloatType(nullable=True)})
         assert t2.count() == 4
-        assert t2.column_types() == {
+        assert t2._schema == {
             'name': pxt.StringType(nullable=True),
             'human': pxt.BoolType(nullable=True),
             'parents': pxt.JsonType(nullable=True),
@@ -49,12 +49,12 @@ class TestImport:
 
     def test_import_json(self, reset_db) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/master/tests/data/json/jeopardy.json'
+        jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json('example', str(example))
         assert t1.count() == 4
-        assert t1.column_types() == {
+        assert t1._schema == {
             'name': pxt.StringType(nullable=True),
             'human': pxt.BoolType(nullable=True),
             'parents': pxt.JsonType(nullable=True),

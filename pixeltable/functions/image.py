@@ -144,7 +144,7 @@ def resize(self: PIL.Image.Image, size: ts.ArrayT[(2,), int]) -> PIL.Image.Image
     Equivalent to
     [`PIL.Image.Image.resize()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize)
     """
-    return self.resize(size)
+    return self.resize(tuple(size))
 
 
 @resize.conditional_return_type

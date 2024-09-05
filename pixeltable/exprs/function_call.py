@@ -204,7 +204,14 @@ class FunctionCall(Expr):
                 # Check that the argument is consistent with the expected parameter type, with the allowance that
                 # non-nullable parameters can still accept nullable arguments (since function calls with Nones
                 # assigned to non-nullable parameters will always return None)
-                if not param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True):
+                if not (
+                    param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True)
+                    # TODO: this is a hack to allow JSON columns to be passed to functions that accept scalar
+                    # types. It's necessary to avoid littering notebooks with `apply(str)` calls or equivalent.
+                    # (Previously, this wasn't necessary because `is_supertype_of()` was improperly implemented.)
+                    # We need to think through the right way to handle this scenario.
+                    or (arg.col_type.is_json_type() and param.col_type.is_scalar_type())
+                ):
                     raise excs.Error(
                         f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
                         f'{param.col_type}')

@@ -10,9 +10,9 @@ from sqlalchemy.util.preloaded import orm
 
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-import pixeltable.type_system as ts
 from pixeltable import DataFrame, catalog, func
 from pixeltable.catalog import Catalog
+from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
@@ -27,23 +27,25 @@ def init() -> None:
 
 def create_table(
     path_str: str,
-    schema: dict[str, Any],
+    schema_or_df: Union[dict[str, Any], DataFrame],
     *,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
-) -> catalog.InsertableTable:
-    """Create a new `InsertableTable`.
+) -> catalog.Table:
+    """Create a new base table.
 
     Args:
         path_str: Path to the table.
-        primary_key: A column or columns that will be the primary key of the table.
-        schema: A dictionary mapping column names to column types, value expressions, or to column specifications.
+        schema_or_df: Either a dictionary that maps column names to column types, or a
+            [`DataFrame`][pixeltable.DataFrame] whose contents and schema will be used to pre-populate the table.
+        primary_key: An optional column name or list of column names to use as the primary key(s) of the
+            table.
         num_retained_versions: Number of versions of the table to retain.
-        comment: Optional comment for the table.
+        comment: An optional comment; its meaning is user-defined.
 
     Returns:
-        The newly created table.
+        A handle to the newly created [`Table`][pixeltable.Table].
 
     Raises:
         Error: if the path already exists or is invalid.
@@ -51,11 +53,26 @@ def create_table(
     Examples:
         Create a table with an int and a string column:
 
-        >>> table = cl.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
+        >>> table = pxt.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
+
+        Create a table from a select statement over an existing table `tbl`:
+
+        >>> table = pxt.create_table('my_table', tbl.where(tbl.col1 < 10).select(tbl.col2))
     """
     path = catalog.Path(path_str)
     Catalog.get().paths.check_is_valid(path, expected=None)
     dir = Catalog.get().paths[path.parent]
+
+    df: Optional[DataFrame] = None
+    if isinstance(schema_or_df, dict):
+        schema = schema_or_df
+    elif isinstance(schema_or_df, DataFrame):
+        df = schema_or_df
+        schema = df.schema
+    elif isinstance(schema_or_df, DataFrameResultSet):
+        raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame. (Is there an extraneous call to `collect()`?)')
+    else:
+        raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
 
     if len(schema) == 0:
         raise excs.Error(f'Table schema is empty: `{path_str}`')
@@ -68,15 +85,17 @@ def create_table(
         if not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
             raise excs.Error('primary_key must be a single column name or a list of column names')
 
-    tbl = catalog.InsertableTable.create(
+    tbl = catalog.InsertableTable._create(
         dir._id,
         path.name,
         schema,
+        df,
         primary_key=primary_key,
         num_retained_versions=num_retained_versions,
         comment=comment,
     )
     Catalog.get().paths[path] = tbl
+
     _logger.info(f'Created table `{path_str}`.')
     return tbl
 
@@ -92,12 +111,13 @@ def create_view(
     num_retained_versions: int = 10,
     comment: str = '',
     ignore_errors: bool = False,
-) -> Optional[catalog.View]:
-    """Create a new `View`.
+) -> Optional[catalog.Table]:
+    """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
 
     Args:
         path_str: Path to the view.
-        base: Table (i.e., table or view or snapshot) or DataFrame to base the view on.
+        base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`DataFrame`][pixeltable.DataFrame] to
+            base the view on.
         schema: dictionary mapping column names to column types, value expressions, or to column specifications.
         filter: predicate to filter rows of the base table.
         is_snapshot: Whether the view is a snapshot.
@@ -108,7 +128,8 @@ def create_view(
         ignore_errors: if True, fail silently if the path already exists or is invalid.
 
     Returns:
-        The newly created view. If the path already exists or is invalid and `ignore_errors=True`, returns `None`.
+        A handle to the [`Table`][pixeltable.Table] representing the newly created view. If the path already
+        exists or is invalid and `ignore_errors=True`, returns `None`.
 
     Raises:
         Error: if the path already exists or is invalid and `ignore_errors=False`.
@@ -158,7 +179,7 @@ def create_view(
     else:
         iterator_class, iterator_args = iterator
 
-    view = catalog.View.create(
+    view = catalog.View._create(
         dir._id,
         path.name,
         base=tbl_version_path,
@@ -176,16 +197,16 @@ def create_view(
 
 
 def get_table(path: str) -> catalog.Table:
-    """Get a handle to a table (including views and snapshots).
+    """Get a handle to an existing table or view or snapshot.
 
     Args:
         path: Path to the table.
 
     Returns:
-        A `InsertableTable` or `View` object.
+        A handle to the [`Table`][pixeltable.Table].
 
     Raises:
-        Error: If the path does not exist or does not designate a table.
+        Error: If the path does not exist or does not designate a table object.
 
     Examples:
         Get handle for a table in the top-level directory:
@@ -237,15 +258,15 @@ def move(path: str, new_path: str) -> None:
 
 
 def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> None:
-    """Drop a table.
+    """Drop a table or view or snapshot.
 
     Args:
-        path: Path to the table.
+        path: Path to the [`Table`][pixeltable.Table].
         force: If `True`, will also drop all views or sub-views of this table.
         ignore_errors: Whether to ignore errors if the table does not exist.
 
     Raises:
-        Error: If the path does not exist or does not designate a table and ignore_errors is False.
+        Error: If the path does not exist or does not designate a table object and ignore_errors is False.
 
     Examples:
         >>> cl.drop_table('my_table')
@@ -263,7 +284,7 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
     tbl = cat.paths[path_obj]
     assert isinstance(tbl, catalog.Table)
     if len(cat.tbl_dependents[tbl._id]) > 0:
-        dependent_paths = [dep.path for dep in cat.tbl_dependents[tbl._id]]
+        dependent_paths = [dep._path for dep in cat.tbl_dependents[tbl._id]]
         if force:
             for dependent_path in dependent_paths:
                 drop_table(dependent_path, force=True)
@@ -275,14 +296,14 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
-    """List the tables in a directory.
+    """List the [`Table`][pixeltable.Table]s in a directory.
 
     Args:
         dir_path: Path to the directory. Defaults to the root directory.
         recursive: Whether to list tables in subdirectories as well.
 
     Returns:
-        A list of table paths.
+        A list of [`Table`][pixeltable.Table] paths.
 
     Raises:
         Error: If the path does not exist or does not designate a directory.

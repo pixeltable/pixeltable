@@ -6,10 +6,10 @@ import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import PIL.Image
 import more_itertools
 import numpy as np
 import pandas as pd
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -20,18 +20,8 @@ from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
 from pixeltable.io import SyncStatus
-from pixeltable.type_system import (
-    ArrayType,
-    BoolType,
-    ColumnType,
-    FloatType,
-    ImageType,
-    IntType,
-    JsonType,
-    StringType,
-    TimestampType,
-    VideoType,
-)
+from pixeltable.type_system import (ArrayType, BoolType, ColumnType, FloatType, ImageType, IntType, JsonType,
+                                    StringType, TimestampType, VideoType)
 
 
 def make_default_type(t: ColumnType.Type) -> ColumnType:
@@ -106,7 +96,7 @@ def create_table_data(
     if len(col_names) == 0:
         col_names = [c.name for c in t.columns() if not c.is_computed]
 
-    col_types = t.column_types()
+    col_types = t._schema
     for col_name in col_names:
         col_type = col_types[col_name]
         col_data: Any = None
@@ -168,7 +158,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
     c2_data = [i for i in range(num_rows)]
     c3_data = [float(i) for i in range(num_rows)]
     c4_data = [bool(i % 2) for i in range(num_rows)]
-    c5_data = [datetime.datetime.now()] * num_rows
+    c5_data = [datetime.datetime(2024, 7, 1) + datetime.timedelta(hours=i) for i in range(num_rows)]
     c6_data = []
     for i in range(num_rows):
         d = {
@@ -176,7 +166,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
             'f2': i,
             'f3': float(i),
             'f4': bool(i % 2),
-            'f5': [1, 2, 3],
+            'f5': list(range(5 + i // 10)),
             #'f5': [1.0, 2.0, 3.0, 4.0],
             'f6': {
                 'f7': 'test string 2',
@@ -348,10 +338,10 @@ def get_sentences(n: int = 100) -> List[str]:
 
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
-    assert len(r1.column_names()) == len(r2.column_names())  # we don't care about the actual column names
+    assert len(r1.schema) == len(r2.schema)  # we don't care about the actual column names
     r1_pd = r1.to_pandas()
     r2_pd = r2.to_pandas()
-    for i in range(len(r1.column_names())):
+    for i in range(len(r1.schema)):
         # only compare column values
         s1 = r1_pd.iloc[:, i]
         s2 = r2_pd.iloc[:, i]
@@ -394,6 +384,7 @@ def validate_sync_status(
 
 def make_test_arrow_table(output_path: Path) -> None:
     import pyarrow as pa
+    from pyarrow import parquet
 
     value_dict = {
         'c_id': [1, 2, 3, 4, 5],
@@ -449,7 +440,7 @@ def make_test_arrow_table(output_path: Path) -> None:
     )
 
     test_table = pa.Table.from_pydict(value_dict, schema=schema)
-    pa.parquet.write_table(test_table, str(output_path / 'test.parquet'))
+    parquet.write_table(test_table, str(output_path / 'test.parquet'))
 
 
 def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:
@@ -480,5 +471,5 @@ def clip_text_embed(txt: str) -> np.ndarray:
 
 
 SAMPLE_IMAGE_URL = (
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/master/docs/source/data/images/000000000009.jpg'
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/images/000000000009.jpg'
 )
