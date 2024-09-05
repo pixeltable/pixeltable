@@ -53,6 +53,7 @@ class Table(SchemaObject):
         md['base'] = self._base._path if self._base is not None else None
         md['schema'] = self._schema
         md['version'] = self._version
+        md['schema_version'] = self._tbl_version.schema_version
         md['comment'] = self._comment
         md['num_retained_versions'] = self._num_retained_versions
         return md

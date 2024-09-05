@@ -210,7 +210,8 @@ class View(Table):
 
     def get_metadata(self) -> dict[str, Any]:
         md = super().get_metadata()
-        md['kind'] = 'snapshot' if self._tbl_version_path.is_snapshot() else 'view'
+        md['is_view'] = True
+        md['is_snapshot'] = self._tbl_version_path.is_snapshot()
         return md
 
     def insert(

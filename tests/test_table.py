@@ -146,16 +146,18 @@ class TestTable:
             assert tbl._path == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
-            for t, kind in ((tbl, 'base_table'), (view, 'view'), (snap, 'snapshot')):
+            for t in (tbl, view, snap):
                 assert t.get_metadata() == {
                     'base': None if t._base is None else t._base._path,
                     'comment': t._comment,
-                    'kind': kind,
+                    'is_view': isinstance(t, catalog.View),
+                    'is_snapshot': t._tbl_version.is_snapshot,
                     'name': t._name,
                     'num_retained_versions': t._num_retained_versions,
                     'parent': t._parent._path,
                     'path': t._path,
                     'schema': t._schema,
+                    'schema_version': t._tbl_version.schema_version,
                     'version': t._version,
                 }
 
