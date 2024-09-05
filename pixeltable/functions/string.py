@@ -12,8 +12,9 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 ```
 """
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
+import pixeltable.exceptions as excs
 import pixeltable.func as func
 from pixeltable.utils.code import local_public_names
 
@@ -352,7 +353,7 @@ def normalize(self: str, form: str) -> str:
         form: Unicode normal form (`‘NFC’`, `‘NFKC’`, `‘NFD’`, `‘NFKD’`)
     """
     import unicodedata
-    return unicodedata.normalize(form, self)
+    return unicodedata.normalize(form, self)  # type: ignore[arg-type]
 
 @func.udf(is_method=True)
 def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
@@ -579,7 +580,7 @@ def upper(self: str) -> str:
     return self.upper()
 
 @func.udf(is_method=True)
-def wrap(self: str, width: int, **kwargs: Any) -> dict:
+def wrap(self: str, width: int, **kwargs: Any) -> list[str]:
     """
     Wraps the single paragraph in string so every line is at most `width` characters long.
     Returns a list of output lines, without final newlines.

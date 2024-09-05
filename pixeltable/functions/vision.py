@@ -13,18 +13,15 @@ t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect
 
 import colorsys
 import hashlib
-import random
 from collections import defaultdict
-from typing import Optional, Union, Any
+from typing import Any, Optional, Union
 
-import PIL.Image
-import PIL.Image
 import numpy as np
+import PIL.Image
 
 import pixeltable.func as func
 import pixeltable.type_system as ts
 from pixeltable.utils.code import local_public_names
-
 
 # TODO: figure out a better submodule structure
 
@@ -180,7 +177,7 @@ def eval_detections(
     pred_scores: list[float],
     gt_bboxes: list[list[int]],
     gt_labels: list[int],
-) -> dict:
+) -> list[dict]:
     """
     Evaluates the performance of a set of predicted bounding boxes against a set of ground truth bounding boxes.
     """
@@ -195,7 +192,7 @@ def eval_detections(
         pred_filter = pred_classes_arr == class_idx
         gt_filter = gt_classes_arr == class_idx
         class_pred_scores = pred_scores_arr[pred_filter]
-        tp, fp = __calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], [0.5])
+        tp, fp = __calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], 0.5)
         ordered_class_pred_scores = -np.sort(-class_pred_scores)
         result.append(
             {
@@ -330,12 +327,12 @@ def draw_bounding_boxes(
             label_colors = _create_label_colors(labels)
             box_colors = [label_colors[label] for label in labels]
 
-    from PIL import ImageDraw, ImageFont, ImageColor
+    from PIL import ImageColor, ImageDraw, ImageFont
+
     # set default font if not provided
-    if font is None:
-        txt_font = ImageFont.load_default()
-    else:
-        txt_font = ImageFont.truetype(font=font, size=font_size or 10)
+    txt_font: Union[ImageFont.ImageFont, ImageFont.FreeTypeFont] = (
+        ImageFont.load_default() if font is None else ImageFont.truetype(font=font, size=font_size or 10)
+    )
 
     img_to_draw = img.copy()
     draw = ImageDraw.Draw(img_to_draw, 'RGBA' if fill else 'RGB')
@@ -347,9 +344,9 @@ def draw_bounding_boxes(
         if fill:
             rgb_color = ImageColor.getrgb(color)
             fill_color = rgb_color + (100,)  # semi-transparent
-            draw.rectangle(bbox, outline=color, width=width, fill=fill_color)
+            draw.rectangle(bbox, outline=color, width=width, fill=fill_color)  # type: ignore[arg-type]
         else:
-            draw.rectangle(bbox, outline=color, width=width)
+            draw.rectangle(bbox, outline=color, width=width)  # type: ignore[arg-type]
 
         if label is not None:
             label_str = str(label)

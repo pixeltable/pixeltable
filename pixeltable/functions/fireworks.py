@@ -12,7 +12,7 @@ from pixeltable import env
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import fireworks.client
+    import fireworks.client  # type: ignore[import-untyped]
 
 
 @env.register_client('fireworks')
