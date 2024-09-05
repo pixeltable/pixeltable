@@ -217,7 +217,7 @@ class Project(ExternalStore, abc.ABC):
         resolved_col_mapping: dict[Column, str] = {}
 
         # Validate names
-        t_cols = table._column_names
+        t_cols = set(table._schema.keys())
         for t_col, ext_col in col_mapping.items():
             if t_col not in t_cols:
                 if is_user_specified_col_mapping:

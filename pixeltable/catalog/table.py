@@ -174,11 +174,6 @@ class Table(SchemaObject):
         return self._df().count()
 
     @property
-    def _column_names(self) -> list[str]:
-        """Return the names of the columns in this table."""
-        return [c.name for c in self._tbl_version_path.columns()]
-
-    @property
     def _schema(self) -> dict[str, ts.ColumnType]:
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
@@ -373,7 +368,7 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
-        self._verify_column(new_col, self._column_names, self._query_names)
+        self._verify_column(new_col, set(self._schema.keys()), self._query_names)
         return self._tbl_version.add_column(new_col, print_stats=print_stats)
 
     @classmethod
@@ -838,7 +833,7 @@ class Table(SchemaObject):
             else:
                 function_path = None
             query_name = py_fn.__name__
-            if query_name in self._column_names:
+            if query_name in self._schema.keys():
                 raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
             if query_name in self._queries:
                 raise excs.Error(f'Duplicate query name: {query_name!r}')
@@ -950,7 +945,7 @@ class Table(SchemaObject):
         return sync_status
 
     def __dir__(self) -> list[str]:
-        return list(super().__dir__()) + self._column_names + self._query_names
+        return list(super().__dir__()) + list(self._schema.keys()) + self._query_names
 
     def _ipython_key_completions_(self) -> list[str]:
-        return self._column_names + self._query_names
+        return list(self._schema.keys()) + self._query_names

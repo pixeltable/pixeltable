@@ -119,7 +119,7 @@ class InsertableTable(Table):
 
     def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
-        valid_col_names = set(self._column_names)
+        valid_col_names = set(self._schema.keys())
         reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())
         computed_col_names = set(self._tbl_version_path.tbl_version.get_computed_col_names())
         for row in rows:

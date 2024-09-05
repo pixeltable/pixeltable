@@ -529,9 +529,9 @@ class TestView:
             'v2': s.c6.f5,
         }
         v = pxt.create_view('test_view', s, schema=schema, filter=s.c2 < 10)
-        orig_view_cols = v._column_names
+        orig_view_cols = v._schema.keys()
         view_s = pxt.create_view('test_view_snap', v, is_snapshot=True)
-        assert set(view_s._column_names) == set(orig_view_cols)
+        assert set(view_s._schema.keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
             assert s1.where(s1.c2 < 10).count() == v.count()
@@ -548,14 +548,14 @@ class TestView:
         v.add_column(v3=v.v1 * 2.0)
         v.add_column(v4=v.v2[0])
         check(s, v, view_s)
-        assert set(view_s._column_names) == set(orig_view_cols)
+        assert set(view_s._schema.keys()) == set(orig_view_cols)
 
         # check md after reload
         reload_catalog()
         t = pxt.get_table('test_tbl')
         view_s = pxt.get_table('test_view_snap')
         check(s, v, view_s)
-        assert set(view_s._column_names) == set(orig_view_cols)
+        assert set(view_s._schema.keys()) == set(orig_view_cols)
 
         # insert data: no changes to snapshot
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())

@@ -20,7 +20,7 @@ class TestParquet:
         num_elts = tab.count()
         arrow_tab: pa.Table = pa.parquet.read_table(str(parquet_dir))
         assert num_elts == arrow_tab.num_rows
-        assert set(tab._column_names) == set(arrow_tab.column_names)
+        assert set(tab._schema.keys()) == set(arrow_tab.column_names)
 
         result_set = tab.order_by(tab.c_id).collect()
         column_types = tab._schema
