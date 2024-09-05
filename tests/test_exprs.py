@@ -376,6 +376,22 @@ class TestExprs:
         assert t.shape == (2, 2)
         assert t.dtype == ColumnType.Type.INT
 
+    def test_json_slice(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        t['orig'] = t.c6.f5
+        t['slice_all'] = t.c6.f5[:]
+        t['slice_to'] = t.c6.f5[:7]
+        t['slice_from'] = t.c6.f5[3:]
+        t['slice_range'] = t.c6.f5[3:7]
+        t['slice_range_step'] = t.c6.f5[3:7:2]
+        res = t.collect()
+        orig = res['orig']
+        assert all(res['slice_all'][i] == orig[i] for i in range(len(orig)))
+        assert all(res['slice_to'][i] == orig[i][:7] for i in range(len(orig)))
+        assert all(res['slice_from'][i] == orig[i][3:] for i in range(len(orig)))
+        assert all(res['slice_range'][i] == orig[i][3:7] for i in range(len(orig)))
+        assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
+
     def test_json_mapper(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # top-level is dict
@@ -445,7 +461,7 @@ class TestExprs:
 
         # json expr
         rows = list(t.where(t.c2.isin(t.c6.f5)).select(*user_cols).collect())
-        assert len(rows) == 3
+        assert len(rows) == 5
 
         with pytest.raises(excs.Error) as excinfo:
             # not a scalar

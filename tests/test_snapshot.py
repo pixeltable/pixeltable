@@ -187,7 +187,7 @@ class TestSnapshot:
     def test_multiple_snapshot_paths(self, reset_db) -> None:
         t = create_test_tbl()
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
-        orig_c3 = t.select(t.c3).collect().to_pandas()['c3']
+        orig_c3 = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']
         v = pxt.create_view('v', base=t, schema={'v1': t.c3 + 1})
         s1 = pxt.create_view('s1', v, is_snapshot=True)
         t.drop_column('c4')
@@ -202,7 +202,7 @@ class TestSnapshot:
 
         def validate(t: pxt.Table, v: pxt.Table, s1: pxt.Table, s2: pxt.Table, s3: pxt.Table, s4: pxt.Table) -> None:
             # c4 is only visible in s1
-            assert np.all(s1.select(s1.c4).collect().to_pandas()['c4'] == c4)
+            assert np.all(s1.select(s1.c4).order_by(s1.c2).collect().to_pandas()['c4'] == c4)
             with pytest.raises(AttributeError):
                 _ = t.select(t.c4).collect()
             with pytest.raises(AttributeError):
