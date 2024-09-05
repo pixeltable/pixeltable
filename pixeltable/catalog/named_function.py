@@ -22,7 +22,7 @@ class NamedFunction(SchemaObject):
         super().__init__(id, name, dir_id)
 
     @classmethod
-    def display_name(cls) -> str:
+    def _display_name(cls) -> str:
         return 'function'
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:

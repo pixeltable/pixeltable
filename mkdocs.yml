@@ -30,6 +30,7 @@ nav:
     - DataFrame: api/data-frame.md
     - Table: api/table.md
   - Built-in Functions and Operators:
+    - audio: api/functions/audio.md
     - image: api/functions/image.md
     - json: api/functions/json.md
     - string: api/functions/string.md

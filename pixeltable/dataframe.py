@@ -17,6 +17,7 @@ import sqlalchemy as sql
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
+from pixeltable import exec
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
@@ -42,27 +43,25 @@ def _create_source_tag(file_path: str) -> str:
 
 
 class DataFrameResultSet:
-    def __init__(self, rows: List[List[Any]], col_names: List[str], col_types: List[ColumnType]):
+    def __init__(self, rows: list[list[Any]], schema: dict[str, ColumnType]):
         self._rows = rows
-        self._col_names = col_names
-        self._col_types = col_types
+        self._col_names = list(schema.keys())
+        self.__schema = schema
         self.__formatter = Formatter(len(self._rows), len(self._col_names), Env.get().http_address)
+
+    @property
+    def schema(self) -> dict[str, ColumnType]:
+        return self.__schema
 
     def __len__(self) -> int:
         return len(self._rows)
-
-    def column_names(self) -> List[str]:
-        return self._col_names
-
-    def column_types(self) -> List[ColumnType]:
-        return self._col_types
 
     def __repr__(self) -> str:
         return self.to_pandas().__repr__()
 
     def _repr_html_(self) -> str:
         formatters: dict[Hashable, Callable[[object], str]] = {}
-        for col_name, col_type in zip(self._col_names, self._col_types):
+        for col_name, col_type in self.schema.items():
             formatter = self.__formatter.get_pandas_formatter(col_type)
             if formatter is not None:
                 formatters[col_name] = formatter
@@ -173,8 +172,9 @@ class DataFrame:
         DataFrame._select_list_check_rep(list(zip(select_list_exprs, column_names)))
         # check select list after expansion to catch early
         # the following two lists are always non empty, even if select list is None.
+        assert len(column_names) == len(select_list_exprs)
         self._select_list_exprs = select_list_exprs
-        self._column_names = column_names
+        self._schema = {column_names[i]: select_list_exprs[i].col_type for i in range(len(column_names))}
         self.select_list = select_list
 
         self.where_clause = copy.deepcopy(where_clause)
@@ -277,6 +277,24 @@ class DataFrame:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
+        plan = self._create_query_plan()
+
+        def exec_plan(conn: sql.engine.Connection) -> Iterator[exec.DataRowBatch]:
+            plan.ctx.set_conn(conn)
+            plan.open()
+            try:
+                for row_batch in plan:
+                    yield from row_batch
+            finally:
+                plan.close()
+
+        if conn is None:
+            with Env.get().engine.begin() as conn:
+                yield from exec_plan(conn)
+        else:
+            yield from exec_plan(conn)
+
+    def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
         group_by_clause: List[exprs.Expr] = []
         if self.grouping_tbl is not None:
@@ -291,7 +309,7 @@ class DataFrame:
         for item in self._select_list_exprs:
             item.bind_rel_paths(None)
 
-        plan = Planner.create_query_plan(
+        return Planner.create_query_plan(
             self.tbl,
             self._select_list_exprs,
             where_clause=self.where_clause,
@@ -300,21 +318,6 @@ class DataFrame:
             limit=self.limit_val if self.limit_val is not None else 0,
         )  # limit_val == 0: no limit_val
 
-        def exec_plan(conn: sql.engine.Connection) -> Iterator[exprs.DataRow]:
-            plan.ctx.set_conn(conn)
-            plan.open()
-            try:
-                for row_batch in plan:
-                    for data_row in row_batch:
-                        yield data_row
-            finally:
-                plan.close()
-
-        if conn is None:
-            with Env.get().engine.begin() as conn:
-                yield from exec_plan(conn)
-        else:
-            yield from exec_plan(conn)
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
@@ -336,11 +339,9 @@ class DataFrame:
         result._reverse()
         return result
 
-    def get_column_names(self) -> List[str]:
-        return self._column_names
-
-    def get_column_types(self) -> List[ColumnType]:
-        return [expr.col_type for expr in self._select_list_exprs]
+    @property
+    def schema(self) -> dict[str, ColumnType]:
+        return self._schema
 
     def bind(self, args: dict[str, Any]) -> DataFrame:
         """Bind arguments to parameters and return a new DataFrame."""
@@ -371,7 +372,7 @@ class DataFrame:
         if order_by_exprs is not None:
             exprs.Expr.list_substitute(order_by_exprs, var_exprs)
 
-        select_list = list(zip(select_list_exprs, self._column_names))
+        select_list = list(zip(select_list_exprs, self.schema.keys()))
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None
         if order_by_exprs is not None:
             order_by_clause = [
@@ -411,8 +412,7 @@ class DataFrame:
         except sql.exc.DBAPIError as e:
             raise excs.Error(f'Error during SQL execution:\n{e}')
 
-        col_types = self.get_column_types()
-        return DataFrameResultSet(result_rows, self._column_names, col_types)
+        return DataFrameResultSet(result_rows, self.schema)
 
     def count(self) -> int:
         from pixeltable.plan import Planner
@@ -431,7 +431,7 @@ class DataFrame:
             assert len(self.select_list) > 0
             heading_vals.append('Select')
             heading_vals.extend([''] * (len(self.select_list) - 1))
-            info_vals.extend(self.get_column_names())
+            info_vals.extend(self.schema.keys())
         if self.where_clause is not None:
             heading_vals.append('Where')
             info_vals.append(self.where_clause.display_str(inline=False))
@@ -562,7 +562,7 @@ class DataFrame:
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self.tbl.find_tbl_version(item._tbl_version_path.tbl_id())
                 if base is None or base.id == self.tbl.tbl_id():
-                    raise excs.Error(f'group_by(): {item.name} is not a base table of {self.tbl.tbl_name()}')
+                    raise excs.Error(f'group_by(): {item._name} is not a base table of {self.tbl.tbl_name()}')
                 grouping_tbl = item._tbl_version_path.tbl_version
                 break
             if not isinstance(item, exprs.Expr):

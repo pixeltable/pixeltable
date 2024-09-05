@@ -28,7 +28,7 @@ class TestPandas:
             'image_col': [PIL.Image.new('RGB', (100, 100)), PIL.Image.new('L', (100, 200))],
         })
         t = pxt.io.import_pandas('test_types', df)
-        assert(t.column_types() == {
+        assert(t._schema == {
             'int_col': pxt.IntType(nullable=True),
             'float_col': pxt.FloatType(nullable=True),
             'bool_col': pxt.BoolType(nullable=True),
@@ -48,7 +48,7 @@ class TestPandas:
 
         t1 = import_csv('online_foods', 'tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
-        assert t1.column_types() == {
+        assert t1._schema == {
             'Age': pxt.IntType(nullable=True),
             'Gender': pxt.StringType(nullable=True),
             'Marital_Status': pxt.StringType(nullable=True),
@@ -67,7 +67,7 @@ class TestPandas:
 
         t2 = import_csv('ibm', 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
         assert t2.count() == 4263
-        assert t2.column_types() == {
+        assert t2._schema == {
             'Date': pxt.StringType(nullable=False),  # Primary key is non-nullable
             'Open': pxt.FloatType(nullable=True),
             'High': pxt.FloatType(nullable=True),
@@ -79,7 +79,7 @@ class TestPandas:
 
         t3 = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', parse_dates=['ts', 'ts_n'])
         assert t3.count() == 4
-        assert t3.column_types() == {
+        assert t3._schema == {
             'c__int': pxt.IntType(nullable=True),
             'float': pxt.FloatType(nullable=True),
             'float_n': pxt.FloatType(nullable=True),
@@ -108,7 +108,7 @@ class TestPandas:
             'images', 'tests/data/datasets/images.csv', schema_overrides={'image': pxt.ImageType(nullable=True)}
         )
         assert t4.count() == 4
-        assert t4.column_types() == {'name': pxt.StringType(nullable=True), 'image': pxt.ImageType(nullable=True)}
+        assert t4._schema == {'name': pxt.StringType(nullable=True), 'image': pxt.ImageType(nullable=True)}
         result_set = t4.select(t4.image.width).collect()
         assert result_set['width'] == [1024, 962, 1024, None]
 
@@ -118,15 +118,20 @@ class TestPandas:
 
         t4 = import_excel('fin_sample', 'tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
-        assert t4.column_types()['Date'] == pxt.TimestampType(nullable=True)
+        assert t4._schema['Date'] == pxt.TimestampType(nullable=True)
         entry = t4.limit(1).collect()[0]
         assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0)
 
         t5 = import_excel('sale_data', 'tests/data/datasets/SaleData.xlsx')
         assert t5.count() == 45
-        assert t5.column_types()['OrderDate'] == pxt.TimestampType(nullable=True)
+        assert t5._schema['OrderDate'] == pxt.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
         assert t5.collect()[43]['OrderDate'] is None
+
+        t6 = import_excel('questions', 'docs/source/data/rag-demo/Q-A-Rag.xlsx')
+        assert t6.count() == 8
+        # Ensure that StringType is used when the column contains mixed types
+        assert t6._schema['correct_answer'] == pxt.StringType(nullable=True)
 
     def test_pandas_errors(self, reset_db) -> None:
         from pixeltable.io import import_csv
