@@ -99,8 +99,9 @@ class DataRow:
     def __len__(self) -> int:
         return len(self.vals)
 
-    def __getitem__(self, index: int) -> Any:
+    def __getitem__(self, index: object) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""
+        assert isinstance(index, int)
         if not self.has_val[index]:
             # for debugging purposes
             pass
@@ -115,7 +116,7 @@ class DataRow:
 
         return self.vals[index]
 
-    def get_stored_val(self, index: object, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
+    def get_stored_val(self, index: int, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
         """Return the value that gets stored in the db"""
         assert self.excs[index] is None
         if not self.has_val[index]:
@@ -146,6 +147,7 @@ class DataRow:
         """Assign in-memory cell value
         This allows overwriting
         """
+        assert isinstance(idx, int)
         assert self.excs[idx] is None
 
         if (idx in self.img_slot_idxs or idx in self.media_slot_idxs) and isinstance(val, str):
@@ -177,7 +179,7 @@ class DataRow:
             self.vals[idx] = val
         self.has_val[idx] = True
 
-    def set_file_path(self, idx: object, path: str) -> None:
+    def set_file_path(self, idx: int, path: str) -> None:
         """Augment an existing url with a local file path"""
         assert self.has_val[idx]
         assert idx in self.img_slot_idxs or idx in self.media_slot_idxs
@@ -185,7 +187,7 @@ class DataRow:
         if idx in self.media_slot_idxs:
             self.vals[idx] = path
 
-    def flush_img(self, index: object, filepath: Optional[str] = None) -> None:
+    def flush_img(self, index: int, filepath: Optional[str] = None) -> None:
         """Discard the in-memory value and save it to a local file, if filepath is not None"""
         if self.vals[index] is None:
             return

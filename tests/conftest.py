@@ -12,9 +12,10 @@ import pixeltable.functions as pxtf
 from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
-from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
+from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion, TableVersion
 from pixeltable.type_system import FloatType
-from .utils import create_test_tbl, create_all_datatypes_tbl, create_img_tbl, skip_test_if_not_installed, reload_catalog
+
+from .utils import create_all_datatypes_tbl, create_img_tbl, create_test_tbl, reload_catalog, skip_test_if_not_installed
 
 
 @pytest.fixture(scope='session')
@@ -34,7 +35,6 @@ def init_env(tmp_path_factory) -> None:
     shared_home.mkdir(parents=True, exist_ok=True)
     # this also runs create_all()
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
-    yield
     # leave db in place for debugging purposes
 
 @pytest.fixture(scope='function')
@@ -47,6 +47,7 @@ def reset_db(init_env) -> None:
 
 def clean_db(restore_tables: bool = True) -> None:
     from pixeltable.env import Env
+
     # UUID-named data tables will
     # not be cleaned. If in the future it is desirable to clean out data tables as well,
     # the commented lines may be used to drop ALL tables from the test db.
