@@ -773,12 +773,12 @@ class TestTable:
         # exchange two columns
         t.add_column(float_col=FloatType(nullable=True))
         t.update({'float_col': 1.0})
-        float_col_vals = t.select(t.float_col).collect().to_pandas()['float_col']
-        c3_vals = t.select(t.c3).collect().to_pandas()['c3']
+        float_col_vals = t.order_by(t.c2).select(t.float_col).collect().to_pandas()['float_col']
+        c3_vals = t.order_by(t.c2).select(t.c3).collect().to_pandas()['c3']
         assert np.all(float_col_vals == pd.Series([1.0] * t.count()))
         t.update({'c3': t.float_col, 'float_col': t.c3})
-        assert np.all(t.select(t.c3).collect().to_pandas()['c3'] == float_col_vals)
-        assert np.all(t.select(t.float_col).collect().to_pandas()['float_col'] == c3_vals)
+        assert np.all(t.order_by(t.c2).select(t.c3).collect().to_pandas()['c3'] == float_col_vals)
+        assert np.all(t.order_by(t.c2).select(t.float_col).collect().to_pandas()['float_col'] == c3_vals)
         t.revert()
 
         # update column that is used in computed cols

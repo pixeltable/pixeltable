@@ -1,22 +1,29 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple, Union
+
+from typing import Any, Optional, Union
 
 import jmespath
 import sqlalchemy as sql
 
-from .globals import print_slice
-from .expr import Expr
-from .json_mapper import JsonMapper
-from .data_row import DataRow
-from .row_builder import RowBuilder
 import pixeltable
-import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
+from .data_row import DataRow
+from .expr import Expr
+from .globals import print_slice
+from .json_mapper import JsonMapper
+from .row_builder import RowBuilder
 
 
 class JsonPath(Expr):
-    def __init__(self, anchor: Optional['pixeltable.exprs.ColumnRef'], path_elements: Optional[List[str]] = None, scope_idx: int = 0):
+    def __init__(
+        self,
+        anchor: Optional['pixeltable.exprs.ColumnRef'],
+        path_elements: Optional[list[Union[str, int, slice]]] = None,
+        scope_idx: int = 0
+    ) -> None:
         """
         anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
         scope_idx: for relative paths, index of referenced JsonMapper
@@ -27,7 +34,7 @@ class JsonPath(Expr):
         super().__init__(ts.JsonType())
         if anchor is not None:
             self.components = [anchor]
-        self.path_elements: List[Union[str, int]] = path_elements
+        self.path_elements: list[Union[str, int, slice]] = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         self.scope_idx = scope_idx
         # NOTE: the _create_id() result will change if set_anchor() gets called;
@@ -39,16 +46,26 @@ class JsonPath(Expr):
         return (f'{str(self._anchor) if self._anchor is not None else "R"}'
             f'{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}')
 
-    def _as_dict(self) -> Dict:
-        return {'path_elements': self.path_elements, 'scope_idx': self.scope_idx, **super()._as_dict()}
+    def _as_dict(self) -> dict:
+        path_elements = [
+            [el.start, el.stop, el.step] if isinstance(el, slice)
+            else el
+            for el in self.path_elements
+        ]
+        return {'path_elements': path_elements, 'scope_idx': self.scope_idx, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
         assert 'path_elements' in d
         assert 'scope_idx' in d
         assert len(components) <= 1
         anchor = components[0] if len(components) == 1 else None
-        return cls(anchor, d['path_elements'], d['scope_idx'])
+        path_elements = [
+            slice(el[0], el[1], el[2]) if isinstance(el, list)
+            else el
+            for el in d['path_elements']
+        ]
+        return cls(anchor, path_elements, d['scope_idx'])
 
     @property
     def _anchor(self) -> Optional[Expr]:
@@ -85,8 +102,7 @@ class JsonPath(Expr):
         if isinstance(index, str):
             if index != '*':
                 raise excs.Error(f'Invalid json list index: {index}')
-        else:
-            if not isinstance(index, slice) and not isinstance(index, int):
+        elif not isinstance(index, (int, slice)):
                 raise excs.Error(f'Invalid json list index: {index}')
         return JsonPath(self._anchor, self.path_elements + [index])
 
@@ -99,7 +115,7 @@ class JsonPath(Expr):
     def default_column_name(self) -> Optional[str]:
         anchor_name = self._anchor.default_column_name() if self._anchor is not None else ''
         ret_name = f'{anchor_name}.{self._json_path()}'
-        
+
         def cleanup_char(s : str) -> str:
             if s == '.':
                 return '_'
@@ -109,19 +125,19 @@ class JsonPath(Expr):
                 return s
             else:
                 return ''
-            
+
         clean_name = ''.join(map(cleanup_char, ret_name))
         clean_name = clean_name.lstrip('_') # remove leading underscore
         if clean_name == '':
             clean_name = None
-        
+
         assert clean_name is None or catalog.is_valid_identifier(clean_name)
         return clean_name
 
     def _equals(self, other: JsonPath) -> bool:
         return self.path_elements == other.path_elements
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('path_elements', self.path_elements)]
 
     def sql_expr(self) -> Optional[sql.ClauseElement]:
@@ -137,7 +153,7 @@ class JsonPath(Expr):
 
     def _json_path(self) -> str:
         assert len(self.path_elements) > 0
-        result: List[str] = []
+        result: list[str] = []
         for element in self.path_elements:
             if element == '*':
                 result.append('[*]')

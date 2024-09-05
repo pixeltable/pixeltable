@@ -166,7 +166,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
             'f2': i,
             'f3': float(i),
             'f4': bool(i % 2),
-            'f5': [1, 2, 3],
+            'f5': list(range(5 + i // 10)),
             #'f5': [1.0, 2.0, 3.0, 4.0],
             'f6': {
                 'f7': 'test string 2',

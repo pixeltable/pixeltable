@@ -1,14 +1,13 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
-import copy
+
+from typing import Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sql
 
+from .data_row import DataRow
 from .expr import Expr
 from .globals import print_slice
-from .data_row import DataRow
 from .row_builder import RowBuilder
-import pixeltable.catalog as catalog
 
 
 class ArraySlice(Expr):

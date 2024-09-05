@@ -192,9 +192,6 @@ class Dumper:
         add_column('div', t.c3 / 1.7)
         add_column('mod', t.c2 % 11)
 
-        # array_slice
-        add_column('array_slice_1', t.c6[5])
-
         # column_property_ref
         add_column('fileurl', t.c8.fileurl)
         add_column('localpath', t.c8.localpath)
@@ -242,6 +239,10 @@ class Dumper:
         # json_mapper and json_path
         add_column('json_mapper', t.c6[3])
         add_column('json_path', t.c6.f1)
+        add_column('json_path_nested', t.c6.f6.f7)
+        add_column('json_path_star', t.c6.f5['*'])
+        add_column('json_path_idx', t.c6.f5[3])
+        add_column('json_path_slice', t.c6.f5[1:3:2])
 
         # literal
         add_column('str_const', 'str')
