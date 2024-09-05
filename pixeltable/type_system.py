@@ -564,7 +564,7 @@ class JsonType(ColumnType):
         if isinstance(val, (list, tuple)):
             return all(cls.__is_valid_literal(v) for v in val)
         if isinstance(val, dict):
-            return all(isinstance(k, (str, int)) and cls.__is_valid_literal(v) for k, v in val.items())
+            return all(isinstance(k, str) and cls.__is_valid_literal(v) for k, v in val.items())
         return False
 
     def _create_literal(self, val: Any) -> Any:
