@@ -18,7 +18,7 @@ class Dir(SchemaObject):
         super().__init__(id, name, parent_id)
 
     @classmethod
-    def display_name(cls) -> str:
+    def _display_name(cls) -> str:
         return 'directory'
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:

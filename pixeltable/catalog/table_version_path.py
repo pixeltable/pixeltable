@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pixeltable
 from .column import Column
-from .globals import POS_COLUMN_NAME
+from .globals import _POS_COLUMN_NAME
 from .table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
@@ -83,7 +83,7 @@ class TableVersionPath:
     def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
         """Return a ColumnRef for the given column name."""
         from pixeltable.exprs import ColumnRef, RowidRef
-        if col_name == POS_COLUMN_NAME and self.is_component_view():
+        if col_name == _POS_COLUMN_NAME and self.is_component_view():
             return RowidRef(self.tbl_version, self.tbl_version.store_tbl.pos_col_idx)
         if col_name not in self.tbl_version.cols_by_name:
             if self.base is None:

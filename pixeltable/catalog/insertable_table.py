@@ -28,12 +28,12 @@ class InsertableTable(Table):
         super().__init__(tbl_version.id, dir_id, tbl_version.name, tbl_version_path)
 
     @classmethod
-    def display_name(cls) -> str:
+    def _display_name(cls) -> str:
         return 'table'
 
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
-    def create(
+    def _create(
             cls, dir_id: UUID, name: str, schema: dict[str, ts.ColumnType], df: Optional[pxt.DataFrame], primary_key: List[str],
             num_retained_versions: int, comment: str
     ) -> InsertableTable:
@@ -67,6 +67,12 @@ class InsertableTable(Table):
             _logger.info(f'Created table `{name}`, id={tbl_version.id}')
             print(f'Created table `{name}`.')
             return tbl
+
+    def get_metadata(self) -> dict[str, Any]:
+        md = super().get_metadata()
+        md['is_view'] = False
+        md['is_snapshot'] = False
+        return md
 
     @overload
     def insert(
@@ -113,7 +119,7 @@ class InsertableTable(Table):
 
     def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
-        valid_col_names = set(self.column_names())
+        valid_col_names = set(self._schema.keys())
         reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())
         computed_col_names = set(self._tbl_version_path.tbl_version.get_computed_col_names())
         for row in rows:
