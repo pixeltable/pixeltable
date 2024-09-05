@@ -370,19 +370,13 @@ class TestExprs:
             (t.c2, 50),                     # int-to-int
             (t.c3, 50.1),                   # float-to-float
             (t.c5, datetime(2024, 7, 2)),   # datetime-to-datetime
-            (t.c5, '2024-07-02'),           # datetime-to-string
-            (t.c5, '2024-07-02 03:14:15'),  # datetime-to-string
         )
         for expr1, expr2 in comparison_pairs:
             forced_expr1 = expr1.apply(lambda x: x, col_type=expr1.col_type)
             for a_expr, b_expr in ((expr1, expr2), (expr2, expr1), (forced_expr1, expr2), (expr2, forced_expr1)):
-                # For comparing datetime column vs. string literal, we also need the corresponding datetime literal,
-                # so that we can later repeat the comparisons directly in Python in order to verify test output.
-                a_query_expr = datetime.fromisoformat(a_expr) if isinstance(a_expr, str) and b_expr.col_type.is_timestamp_type() else a_expr
-                b_query_expr = datetime.fromisoformat(b_expr) if isinstance(b_expr, str) and a_expr.col_type.is_timestamp_type() else b_expr
                 results = t.select(
-                    a=a_query_expr,
-                    b=b_query_expr,
+                    a=a_expr,
+                    b=b_expr,
                     eq=a_expr == b_expr,
                     ne=a_expr != b_expr,
                     lt=a_expr < b_expr,

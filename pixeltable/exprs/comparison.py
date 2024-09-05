@@ -34,13 +34,6 @@ class Comparison(Expr):
             self.is_search_arg_comparison = False
             self.components = [op1, op2]
 
-        # Implicit typecast of string literal to timestamp (convenience notation for
-        # comparisons like '2021-01-01' < t.timestamp_col)
-        if isinstance(op1, Literal) and op1.col_type.is_string_type() and op2.col_type.is_timestamp_type():
-            self.components[0] = Literal(datetime.fromisoformat(op1.val))
-        elif isinstance(op2, Literal) and op2.col_type.is_string_type() and op1.col_type.is_timestamp_type():
-            self.components[1] = Literal(datetime.fromisoformat(op2.val))
-
         import pixeltable.index as index
         if self.is_search_arg_comparison and self._op2.col_type.is_string_type() \
                 and len(self._op2.val) >= index.BtreeIndex.MAX_STRING_LEN:
