@@ -67,11 +67,6 @@ class TestVision:
         _ = v.select(draw_bounding_boxes(
             v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, color='red')).collect()
 
-        # explicit label colors
-        label_colors = {'2': 'red', '3': 'green', '7': 'blue'}
-        _ = v.select(draw_bounding_boxes(
-            v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, label_colors=label_colors)).collect()
-
         # explicit box colors
         num_boxes = len(v.where(v.pos == 0).select(v.detections_a.bboxes).collect()[0, 0])
         box_colors = ['red'] * num_boxes
@@ -83,7 +78,7 @@ class TestVision:
             # multiple color specifications
             _ = v.select(draw_bounding_boxes(
                 v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels,
-                label_colors=label_colors, color='red')
+                box_colors=['red', 'green'], color='red')
             ).collect()
         assert 'only one of' in str(exc_info.value).lower()
 
