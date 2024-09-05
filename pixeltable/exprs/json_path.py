@@ -18,7 +18,12 @@ from .row_builder import RowBuilder
 
 
 class JsonPath(Expr):
-    def __init__(self, anchor: Optional['pixeltable.exprs.ColumnRef'], path_elements: Optional[list[str]] = None, scope_idx: int = 0):
+    def __init__(
+        self,
+        anchor: Optional['pixeltable.exprs.ColumnRef'],
+        path_elements: Optional[list[Union[str, int, slice]]] = None,
+        scope_idx: int = 0
+    ) -> None:
         """
         anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
         scope_idx: for relative paths, index of referenced JsonMapper
@@ -97,8 +102,7 @@ class JsonPath(Expr):
         if isinstance(index, str):
             if index != '*':
                 raise excs.Error(f'Invalid json list index: {index}')
-        else:
-            if not isinstance(index, slice) and not isinstance(index, int):
+        elif not isinstance(index, (int, slice)):
                 raise excs.Error(f'Invalid json list index: {index}')
         return JsonPath(self._anchor, self.path_elements + [index])
 
