@@ -99,7 +99,7 @@ class DataRow:
     def __len__(self) -> int:
         return len(self.vals)
 
-    def __getitem__(self, index: object) -> Any:
+    def __getitem__(self, index: int) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""
         if not self.has_val[index]:
             # for debugging purposes

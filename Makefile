@@ -77,7 +77,7 @@ nbtest: install
 
 .PHONY: typecheck
 typecheck: install
-	@mypy pixeltable/*.py pixeltable/catalog pixeltable/functions
+	@mypy pixeltable/*.py pixeltable/catalog pixeltable/ext pixeltable/functions
 
 .PHONY: lint
 lint: install

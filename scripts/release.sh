@@ -20,6 +20,8 @@ if [ "$(git remote get-url home)" != 'https://github.com/pixeltable/pixeltable' 
   exit 1
 fi
 
+git diff
+
 if [[ -n "$(git diff-index HEAD)" || -n "$(git diff-files)" || -n "$(git ls-files --exclude-standard --others)" ]]; then
   echo "The release script must be run from a clean git repo."
   exit 1
