@@ -53,7 +53,6 @@ class StoreBase:
     def _create_rowid_columns(self) -> List[sql.Column]:
         """Create and return rowid columns"""
 
-    @abc.abstractmethod
     def _create_system_columns(self) -> List[sql.Column]:
         """Create and return system columns"""
         rowid_cols = self._create_rowid_columns()

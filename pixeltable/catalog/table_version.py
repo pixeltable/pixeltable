@@ -6,7 +6,7 @@ import inspect
 import logging
 import time
 import uuid
-from typing import Optional, List, Dict, Any, Tuple, Type, Iterable
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Type
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -23,9 +23,10 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
-from .column import Column
-from .globals import UpdateStatus, _POS_COLUMN_NAME, is_valid_identifier, _ROWID_COLUMN_NAME
+
 from ..func.globals import resolve_symbol
+from .column import Column
+from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, UpdateStatus, is_valid_identifier
 
 _logger = logging.getLogger('pixeltable')
 
@@ -305,13 +306,13 @@ class TableVersion:
     def _init_sa_schema(self) -> None:
         # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
         # need to record errors
-        from pixeltable.store import StoreBase, StoreTable, StoreView, StoreComponentView
+        from pixeltable.store import StoreBase, StoreComponentView, StoreTable, StoreView
         if self.is_component_view():
             self.store_tbl: StoreBase = StoreComponentView(self)
         elif self.is_view():
-            self.store_tbl: StoreBase = StoreView(self)
+            self.store_tbl = StoreView(self)
         else:
-            self.store_tbl: StoreBase = StoreTable(self)
+            self.store_tbl = StoreTable(self)
 
     def _update_md(
             self, timestamp: float, conn: sql.engine.Connection, update_tbl_version: bool = True, preceding_schema_version: Optional[int] = None
@@ -782,7 +783,7 @@ class TableVersion:
             # make sure that the value is compatible with the column type
             try:
                 # check if this is a literal
-                value_expr = exprs.Literal(val, col_type=col.col_type)
+                value_expr: exprs.Expr = exprs.Literal(val, col_type=col.col_type)
             except TypeError:
                 if not allow_exprs:
                     raise excs.Error(
@@ -802,7 +803,7 @@ class TableVersion:
         return update_targets
 
     def propagate_update(
-            self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ClauseElement],
+            self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ColumnElement[bool]],
             recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
             timestamp: float, cascade: bool, show_progress: bool = True
     ) -> UpdateStatus:
@@ -822,7 +823,7 @@ class TableVersion:
             # propagate to views
             for view in self.mutable_views:
                 recomputed_cols = [col for col in recomputed_view_cols if col.tbl is view]
-                plan: Optional[exec.ExecNode] = None
+                plan = None
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner
                     plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
