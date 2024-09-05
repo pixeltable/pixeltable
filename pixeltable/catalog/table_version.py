@@ -6,7 +6,7 @@ import inspect
 import logging
 import time
 import uuid
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, Type, Union
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -28,6 +28,9 @@ from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, UpdateStatus, is_valid_identifier
 
+if TYPE_CHECKING:
+    from pixeltable import exec, store
+
 _logger = logging.getLogger('pixeltable')
 
 
@@ -45,6 +48,34 @@ class TableVersion:
         have TableVersions reference those
     - mutable TableVersions record their TableVersionPath, which is needed for expr evaluation in updates
     """
+
+    id: UUID
+    tbl_md: schema.TableMd
+    version: int
+    comment: str
+    num_retained_versions: int
+    schema_version: int
+    view_md: Optional[schema.ViewMd]
+    base: Optional['TableVersion']
+    is_snapshot: bool
+    effective_version: Optional[int]
+    path: Optional['pxt.catalog.TableVersionPath']
+    next_col_id: int
+    next_idx_id: int
+    next_rowid: int
+    predicate: Optional[exprs.Expr]
+    mutable_views: List['TableVersion']
+    iterator_cls: Optional[type[ComponentIterator]]
+    iterator_args: Optional[exprs.InlineDict]
+    num_iterator_cols: int
+    cols: list[Column]
+    cols_by_name: dict[str, Column]
+    cols_by_id: dict[int, Column]
+    idx_md: dict[int, schema.IndexMd]
+    idxs_by_name: dict[str, 'TableVersion.IndexInfo']
+    external_stores: dict[str, pxt.io.ExternalStore]
+    store_tbl: 'store.StoreBase'
+
     @dataclasses.dataclass
     class IndexInfo:
         id: int
@@ -96,20 +127,19 @@ class TableVersion:
         from pixeltable import exprs
         predicate_dict = None if not is_view or tbl_md.view_md.predicate is None else tbl_md.view_md.predicate
         self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None
-        self.mutable_views: List[TableVersion] = []  # targets for update propagation
+        self.mutable_views = []  # targets for update propagation
         if self.base is not None and not self.base.is_snapshot and not self.is_snapshot:
             self.base.mutable_views.append(self)
 
         # component view-specific initialization
-        self.iterator_cls: Optional[Type[ComponentIterator]] = None
-        self.iterator_args: Optional[exprs.InlineDict] = None
+        self.iterator_cls = None
+        self.iterator_args = None
         self.num_iterator_cols = 0
         if is_view and tbl_md.view_md.iterator_class_fqn is not None:
             module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
             module = importlib.import_module(module_name)
             self.iterator_cls = getattr(module, class_name)
-            self.iterator_args = exprs.Expr.from_dict(tbl_md.view_md.iterator_args)
-            assert isinstance(self.iterator_args, exprs.InlineDict)
+            self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
             output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_dict())
             self.num_iterator_cols = len(output_schema)
             assert tbl_md.view_md.iterator_args is not None
@@ -120,12 +150,12 @@ class TableVersion:
         cat.tbl_versions[(self.id, self.effective_version)] = self
 
         # init schema after we determined whether we're a component view, and before we create the store table
-        self.cols: list[Column] = []  # contains complete history of columns, incl dropped ones
-        self.cols_by_name: dict[str, Column] = {}  # contains only user-facing (named) columns visible in this version
-        self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
+        self.cols = []  # contains complete history of columns, incl dropped ones
+        self.cols_by_name = {}  # contains only user-facing (named) columns visible in this version
+        self.cols_by_id = {}  # contains only columns visible in this version, both system and user
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
-        self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
-        self.external_stores: dict[str, pxt.io.ExternalStore] = {}
+        self.idxs_by_name = {}  # contains only actively maintained indices
+        self.external_stores = {}
 
         self._init_schema(tbl_md, schema_version_md)
 
@@ -306,9 +336,9 @@ class TableVersion:
     def _init_sa_schema(self) -> None:
         # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
         # need to record errors
-        from pixeltable.store import StoreBase, StoreComponentView, StoreTable, StoreView
+        from pixeltable.store import StoreComponentView, StoreTable, StoreView
         if self.is_component_view():
-            self.store_tbl: StoreBase = StoreComponentView(self)
+            self.store_tbl = StoreComponentView(self)
         elif self.is_view():
             self.store_tbl = StoreView(self)
         else:
@@ -662,7 +692,7 @@ class TableVersion:
             return self._insert(plan, conn, time.time(), print_stats)
 
     def _insert(
-            self, exec_plan: exec.ExecNode, conn: sql.engine.Connection, timestamp: float, print_stats: bool = False,
+        self, exec_plan: 'exec.ExecNode', conn: sql.engine.Connection, timestamp: float, print_stats: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
@@ -803,7 +833,7 @@ class TableVersion:
         return update_targets
 
     def propagate_update(
-            self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ColumnElement[bool]],
+            self, plan: Optional['exec.ExecNode'], where_clause: Optional[sql.ColumnElement[bool]],
             recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
             timestamp: float, cascade: bool, show_progress: bool = True
     ) -> UpdateStatus:
@@ -927,7 +957,7 @@ class TableVersion:
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions
-        set_clause = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
+        set_clause: dict[sql.Column, Any] = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
         for index_info in self.idxs_by_name.values():
             # copy the index value back from the undo column and reset the undo column to NULL
             set_clause[index_info.val_col.sa_col] = index_info.undo_col.sa_col

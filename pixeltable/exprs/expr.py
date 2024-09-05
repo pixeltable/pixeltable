@@ -8,6 +8,7 @@ import json
 import sys
 import typing
 from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union, overload
+from typing_extensions import Self
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -215,12 +216,12 @@ class Expr(abc.ABC):
                 return False
         return True
 
-    def retarget(self, tbl: catalog.TableVersionPath) -> Expr:
+    def retarget(self, tbl: catalog.TableVersionPath) -> Self:
         """Retarget ColumnRefs in this expr to the specific TableVersions in tbl."""
         tbl_versions = {tbl_version.id: tbl_version for tbl_version in tbl.get_tbl_versions()}
         return self._retarget(tbl_versions)
 
-    def _retarget(self, tbl_versions: Dict[UUID, catalog.TableVersion]) -> Expr:
+    def _retarget(self, tbl_versions: Dict[UUID, catalog.TableVersion]) -> Self:
         from .column_ref import ColumnRef
         if isinstance(self, ColumnRef):
             target = tbl_versions[self.col.tbl.id]
@@ -420,7 +421,7 @@ class Expr(abc.ABC):
         return cls.from_dict(json.loads(dict_str))
 
     @classmethod
-    def from_dict(cls, d: Dict) -> Expr:
+    def from_dict(cls, d: dict) -> Self:
         """
         Turn dict that was produced by calling Expr.as_dict() into an instance of the correct Expr subclass.
         """
@@ -437,7 +438,7 @@ class Expr(abc.ABC):
         return [cls.from_dict(d) for d in dict_list]
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: Dict, components: list[Expr]) -> Self:
         assert False, 'not implemented'
 
     def isin(self, value_set: Any) -> 'pixeltable.exprs.InPredicate':

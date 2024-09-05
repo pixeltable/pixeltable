@@ -356,7 +356,7 @@ class Planner:
         copied_cols = [
             col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
-        select_list = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(exprs.ColumnRef(col) for col in updated_cols)
 
         recomputed_exprs = \

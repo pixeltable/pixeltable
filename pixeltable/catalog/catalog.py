@@ -134,7 +134,7 @@ class Catalog:
                         base_path=base_path if not is_snapshot else None)
                     view_path = TableVersionPath(tbl_version, base=base_path)
 
-                tbl = View(
+                tbl: Table = View(
                     tbl_record.id, tbl_record.dir_id, tbl_md.name, view_path, base_tbl_id,
                     snapshot_only=snapshot_only)
                 self.tbl_dependents[base_tbl_id].append(tbl)
