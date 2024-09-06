@@ -14,7 +14,7 @@ import uuid
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Dict, Any, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
 
 import pixeltable_pgserver
 import sqlalchemy as sql
@@ -82,7 +82,7 @@ class Env:
 
         # config
         self._config_file: Optional[Path] = None
-        self._config: Optional[Dict[str, Any]] = None
+        self._config: Optional[Config] = None
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -90,7 +90,8 @@ class Env:
         self._initialized = False
 
     @property
-    def config(self):
+    def config(self) -> Config:
+        assert self._config is not None
         return self._config
 
     @property
@@ -195,16 +196,19 @@ class Env:
         if os.path.isfile(self._config_file):
             with open(self._config_file, 'r') as stream:
                 try:
-                    self._config = yaml.safe_load(stream)
+                    config_dict = yaml.safe_load(stream)
                 except yaml.YAMLError as exc:
                     self._logger.error(f'Could not read config file: {self._config_file}')
-                    self._config = {}
+                    config_dict = {}
         else:
-            self._config = {}
+            config_dict = {}
+        self._config = Config(config_dict)
+
+        self._cache_size_mb = self._config.get_int_value('cache_size_mb', 8192)
 
         # Disable spurious warnings
         warnings.simplefilter('ignore', category=TqdmWarning)
-        if 'hide_warnings' in self._config and self._config['hide_warnings']:
+        if self._config.get_bool_value('hide_warnings', False):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
 
@@ -370,20 +374,17 @@ class Env:
         if cl.client_obj is not None:
             return cl.client_obj  # Already initialized
 
-        # Construct a client. For each client parameter, first check if the parameter is in the environment;
-        # if not, look in Pixeltable config from `config.yaml`.
+        # Construct a client, retrieving each parameter from config.
 
         init_kwargs: dict[str, str] = {}
         for param in cl.param_names:
-            environ = f'{name.upper()}_{param.upper()}'
-            if environ in os.environ:
-                init_kwargs[param] = os.environ[environ]
-            elif name.lower() in self._config and param in self._config[name.lower()]:
-                init_kwargs[param] = self._config[name.lower()][param.lower()]
-            if param not in init_kwargs or init_kwargs[param] == '':
+            arg = self._config.get_string_value(param, '', section=name)
+            if len(arg) > 0:
+                init_kwargs[param] = arg
+            else:
                 raise excs.Error(
                     f'`{name}` client not initialized: parameter `{param}` is not configured.\n'
-                    f'To fix this, specify the `{environ}` environment variable, or put `{param.lower()}` in '
+                    f'To fix this, specify the `{name.upper()}_{param.upper()}` environment variable, or put `{param.lower()}` in '
                     f'the `{name.lower()}` section of $PIXELTABLE_HOME/config.yaml.'
                 )
 
@@ -425,7 +426,6 @@ class Env:
             else:
                 self._installed_packages[package] = None
 
-        check('toml')
         check('datasets')
         check('torch')
         check('torchvision')
@@ -545,6 +545,38 @@ def register_client(name: str) -> Callable:
         _registered_clients[name] = ApiClient(init_fn=fn, param_names=param_names)
 
     return decorator
+
+
+class Config:
+    __config: dict[str, Any] = {}
+
+    T = TypeVar('T')
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.__config = config
+
+    def get_value(self, key: str, default: T, expected_type: type[T], section: str = 'pixeltable') -> T:
+        env_var = f'{section.upper()}_{key.upper()}'
+        if env_var in os.environ:
+            value = os.environ[env_var]
+        elif section in self.__config and key in self.__config[section]:
+            value = self.__config[section][key]
+        else:
+            return default
+
+        try:
+            return expected_type(value)  # type: ignore[call-arg]
+        except ValueError:
+            raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}')
+
+    def get_string_value(self, key: str, default: str, section: str = 'pixeltable') -> str:
+        return self.get_value(key, default, str, section)
+
+    def get_int_value(self, key: str, default: int, section: str = 'pixeltable') -> int:
+        return self.get_value(key, default, int, section)
+
+    def get_bool_value(self, key: str, default: bool, section: str = 'pixeltable') -> bool:
+        return self.get_value(key, default, bool, section)
 
 
 _registered_clients: dict[str, ApiClient] = {}
