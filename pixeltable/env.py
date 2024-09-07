@@ -192,22 +192,6 @@ class Env:
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
 
-        # Read in the config
-        self._config = Config.from_file(self._config_file)
-        self._cache_size_mb = self._config.get_int_value('cache_size_mb')
-        if self._cache_size_mb is None:
-            raise excs.Error(
-                'pixeltable/cache_size_mb is missing from configuration\n'
-                '(either add a `cache_size_mb` entry to the `pixeltable` section of config.toml, '
-                'or set the PIXELTABLE_CACHE_SIZE_MB environment variable)'
-            )
-
-        # Disable spurious warnings
-        warnings.simplefilter('ignore', category=TqdmWarning)
-        if self._config.get_bool_value('hide_warnings'):
-            # Disable more warnings
-            warnings.simplefilter('ignore', category=UserWarning)
-
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
 
@@ -230,6 +214,22 @@ class Env:
             self._log_dir.mkdir()
         if not self._tmp_dir.exists():
             self._tmp_dir.mkdir()
+
+        # Read in the config
+        self._config = Config.from_file(self._config_file)
+        self._cache_size_mb = self._config.get_int_value('cache_size_mb')
+        if self._cache_size_mb is None:
+            raise excs.Error(
+                'pixeltable/cache_size_mb is missing from configuration\n'
+                '(either add a `cache_size_mb` entry to the `pixeltable` section of config.toml, '
+                'or set the PIXELTABLE_CACHE_SIZE_MB environment variable)'
+            )
+
+        # Disable spurious warnings
+        warnings.simplefilter('ignore', category=TqdmWarning)
+        if self._config.get_bool_value('hide_warnings'):
+            # Disable more warnings
+            warnings.simplefilter('ignore', category=UserWarning)
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
@@ -374,7 +374,7 @@ class Env:
         init_kwargs: dict[str, str] = {}
         for param in cl.param_names:
             arg = self._config.get_string_value(param, section=name)
-            if arg is not None:
+            if arg is not None and len(arg) > 0:
                 init_kwargs[param] = arg
             else:
                 raise excs.Error(
