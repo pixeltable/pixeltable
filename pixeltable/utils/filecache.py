@@ -75,7 +75,7 @@ class FileCache:
     def __init__(self):
         self.cache: OrderedDict[str, CacheEntry] = OrderedDict()
         self.total_size = 0
-        self.capacity = Env.get()._cache_size_mb * (1 << 20)
+        self.capacity_bytes = Env.get()._cache_size_mb * (1 << 20)
         self.num_requests = 0
         self.num_hits = 0
         self.num_evictions = 0
@@ -110,9 +110,9 @@ class FileCache:
             entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
             _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
         for entry in entries_to_remove:
+            os.remove(entry.path)
             del self.cache[entry.key]
             self.total_size -= entry.size
-            os.remove(entry.path)
 
     def _url_hash(self, url: str) -> str:
         h = hashlib.sha256()
@@ -141,7 +141,7 @@ class FileCache:
         'path' will not be accessible after this call. Retains the extension of 'path'.
         """
         file_info = os.stat(str(path))
-        while len(self.cache) > 0 and self.total_size + file_info.st_size > self.capacity:
+        while len(self.cache) > 0 and self.total_size + file_info.st_size > self.capacity_bytes:
             _, lru_entry = self.cache.popitem(last=False)
             self.total_size -= lru_entry.size
             self.num_evictions += 1

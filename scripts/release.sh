@@ -26,9 +26,9 @@ if [[ -n "$(git diff-index HEAD)" || -n "$(git diff-files)" || -n "$(git ls-file
 fi
 
 if [ -z "$PYPI_API_KEY" ]; then
-  echo "PYPI_API_KEY not defined in environment; searching in ~/.pixeltable/config.yaml."
+  echo "PYPI_API_KEY not defined in environment; searching in ~/.pixeltable/config.toml."
   PYPI_API_KEY=$(
-    python -c "import yaml,sys; y = yaml.safe_load(sys.stdin); print(y['pypi']['api_key'])" < ~/.pixeltable/config.yaml
+    python -c "import toml,sys; y = toml.load(sys.stdin); print(y['pypi']['api_key'])" < ~/.pixeltable/config.toml
   )
 fi
 

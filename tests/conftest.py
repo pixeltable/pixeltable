@@ -25,7 +25,7 @@ def init_env(tmp_path_factory) -> None:
     shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
-    os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.yaml')
+    os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
     test_db = 'test'
     os.environ['PIXELTABLE_DB'] = test_db
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')

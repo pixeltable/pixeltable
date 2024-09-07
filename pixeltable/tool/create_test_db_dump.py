@@ -29,7 +29,7 @@ class Dumper:
         mock_home_dir = self.output_dir / '.pixeltable'
         mock_home_dir.mkdir(parents=True, exist_ok=True)
         os.environ['PIXELTABLE_HOME'] = str(mock_home_dir)
-        os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.yaml')
+        os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
         os.environ['PIXELTABLE_DB'] = db_name
         os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 

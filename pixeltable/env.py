@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
 
 import pixeltable_pgserver
 import sqlalchemy as sql
-import yaml
+import toml
 from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
@@ -185,7 +185,7 @@ class Env:
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
         self._home = home
-        self._config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(self._home / 'config.yaml')))
+        self._config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(self._home / 'config.toml')))
         self._media_dir = self._home / 'media'
         self._file_cache_dir = self._home / 'file_cache'
         self._dataset_cache_dir = self._home / 'dataset_cache'
@@ -193,22 +193,18 @@ class Env:
         self._tmp_dir = self._home / 'tmp'
 
         # Read in the config
-        if os.path.isfile(self._config_file):
-            with open(self._config_file, 'r') as stream:
-                try:
-                    config_dict = yaml.safe_load(stream)
-                except yaml.YAMLError as exc:
-                    self._logger.error(f'Could not read config file: {self._config_file}')
-                    config_dict = {}
-        else:
-            config_dict = {}
-        self._config = Config(config_dict)
-
-        self._cache_size_mb = self._config.get_int_value('cache_size_mb', 8192)
+        self._config = Config.from_file(self._config_file)
+        self._cache_size_mb = self._config.get_int_value('cache_size_mb')
+        if self._cache_size_mb is None:
+            raise excs.Error(
+                'pixeltable/cache_size_mb is missing from configuration\n'
+                '(either add a `cache_size_mb` entry to the `pixeltable` section of config.toml, '
+                'or set the PIXELTABLE_CACHE_SIZE_MB environment variable)'
+            )
 
         # Disable spurious warnings
         warnings.simplefilter('ignore', category=TqdmWarning)
-        if self._config.get_bool_value('hide_warnings', False):
+        if self._config.get_bool_value('hide_warnings'):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
 
@@ -312,7 +308,6 @@ class Env:
         finally:
             engine.dispose()
 
-
     def _create_store_db(self) -> None:
         assert self._db_name is not None
         # create the db
@@ -378,14 +373,14 @@ class Env:
 
         init_kwargs: dict[str, str] = {}
         for param in cl.param_names:
-            arg = self._config.get_string_value(param, '', section=name)
-            if len(arg) > 0:
+            arg = self._config.get_string_value(param, section=name)
+            if arg is not None:
                 init_kwargs[param] = arg
             else:
                 raise excs.Error(
                     f'`{name}` client not initialized: parameter `{param}` is not configured.\n'
                     f'To fix this, specify the `{name.upper()}_{param.upper()}` environment variable, or put `{param.lower()}` in '
-                    f'the `{name.lower()}` section of $PIXELTABLE_HOME/config.yaml.'
+                    f'the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
         cl.client_obj = cl.init_fn(**init_kwargs)
@@ -530,7 +525,7 @@ def register_client(name: str) -> Callable:
     Pixeltable will attempt to load the client parameters from config. For each
     config parameter:
     - If an environment variable named MY_CLIENT_API_KEY (for example) is set, use it;
-    - Otherwise, look for 'api_key' in the 'my_client' section of config.yaml.
+    - Otherwise, look for 'api_key' in the 'my_client' section of config.toml.
 
     If all config parameters are found, Pixeltable calls the initialization function;
     otherwise it throws an exception.
@@ -552,31 +547,61 @@ class Config:
 
     T = TypeVar('T')
 
+    @classmethod
+    def from_file(cls, path: Path) -> Config:
+        if os.path.isfile(path):
+            with open(path, 'r') as stream:
+                try:
+                    config_dict = toml.load(stream)
+                except toml.TomlDecodeError as exc:
+                    raise excs.Error(f'Could not read config file: {str(path)}') from exc
+        else:
+            config_dict = cls.__create_default_config(path)
+            with open(path, 'w') as stream:
+                try:
+                    toml.dump(config_dict, stream)
+                except toml.TomlEncodeError as exc:
+                    raise excs.Error(f'Could not write config file: {str(path)}') from exc
+            logging.getLogger('pixeltable').info(f'Created default config file at {str(path)}')
+        return cls(config_dict)
+
+    @classmethod
+    def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
+        st = os.statvfs(config_path.parent)
+        free_disk_space_bytes = st.f_bavail * st.f_frsize
+        cache_size_mb = free_disk_space_bytes // 5 // (1 << 20)
+        return {
+            'pixeltable': {
+                'cache_size_mb': cache_size_mb,
+                'hide_warnings': False,
+            }
+        }
+
     def __init__(self, config: dict[str, Any]) -> None:
         self.__config = config
 
-    def get_value(self, key: str, default: T, expected_type: type[T], section: str = 'pixeltable') -> T:
+    def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> Optional[T]:
         env_var = f'{section.upper()}_{key.upper()}'
         if env_var in os.environ:
             value = os.environ[env_var]
         elif section in self.__config and key in self.__config[section]:
             value = self.__config[section][key]
         else:
-            return default
+            return None
 
         try:
             return expected_type(value)  # type: ignore[call-arg]
         except ValueError:
             raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}')
 
-    def get_string_value(self, key: str, default: str, section: str = 'pixeltable') -> str:
-        return self.get_value(key, default, str, section)
+    def get_string_value(self, key: str, section: str = 'pixeltable') -> Optional[str]:
+        return self.get_value(key, str, section)
 
-    def get_int_value(self, key: str, default: int, section: str = 'pixeltable') -> int:
-        return self.get_value(key, default, int, section)
+    def get_int_value(self, key: str, section: str = 'pixeltable') -> Optional[int]:
+        return self.get_value(key, int, section)
 
-    def get_bool_value(self, key: str, default: bool, section: str = 'pixeltable') -> bool:
-        return self.get_value(key, default, bool, section)
+    def get_bool_value(self, key: str, section: str = 'pixeltable') -> Optional[bool]:
+        return self.get_value(key, bool, section)
 
 
 _registered_clients: dict[str, ApiClient] = {}
