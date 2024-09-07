@@ -141,12 +141,7 @@ class FileCache:
         'path' will not be accessible after this call. Retains the extension of 'path'.
         """
         file_info = os.stat(str(path))
-        while len(self.cache) > 0 and self.total_size + file_info.st_size > self.capacity_bytes:
-            _, lru_entry = self.cache.popitem(last=False)
-            self.total_size -= lru_entry.size
-            self.num_evictions += 1
-            os.remove(str(lru_entry.path))
-            _logger.debug(f'evicted entry for cell {lru_entry.cell_id} from file cache')
+        self.ensure_capacity(file_info.st_size)
 
         key = self._url_hash(url)
         assert key not in self.cache
@@ -158,6 +153,21 @@ class FileCache:
         new_path.touch(exist_ok=True)
         _logger.debug(f'added entry for cell {url} to file cache')
         return new_path
+
+    def ensure_capacity(self, size: int) -> None:
+        """
+        Evict entries from the cache until there is at least 'size' bytes of free space.
+        """
+        while len(self.cache) > 0 and self.total_size + size > self.capacity_bytes:
+            _, lru_entry = self.cache.popitem(last=False)
+            self.total_size -= lru_entry.size
+            self.num_evictions += 1
+            os.remove(str(lru_entry.path))
+            _logger.debug(f'evicted entry for cell {lru_entry.key} from file cache')
+
+    def set_capacity(self, capacity_bytes: int) -> None:
+        self.capacity_bytes = capacity_bytes
+        self.ensure_capacity(0)  # evict entries if necessary
 
     def stats(self) -> CacheStats:
         # collect column stats

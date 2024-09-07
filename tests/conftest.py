@@ -14,6 +14,7 @@ from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import TableSchemaVersion, TableVersion, Table, Function, Dir
 from pixeltable.type_system import FloatType
+from pixeltable.utils.filecache import FileCache
 from .utils import create_test_tbl, create_all_datatypes_tbl, create_img_tbl, skip_test_if_not_installed, reload_catalog
 
 
@@ -43,6 +44,7 @@ def reset_db(init_env) -> None:
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
     reload_catalog()
+    FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
 
 def clean_db(restore_tables: bool = True) -> None:
