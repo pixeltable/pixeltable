@@ -8,6 +8,7 @@ import importlib.util
 import inspect
 import logging
 import os
+import shutil
 import sys
 import threading
 import uuid
@@ -567,8 +568,7 @@ class Config:
 
     @classmethod
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
-        st = os.statvfs(config_path.parent)
-        free_disk_space_bytes = st.f_bavail * st.f_frsize
+        free_disk_space_bytes = shutil.disk_usage(config_path.parent).free
         cache_size_mb = free_disk_space_bytes // 5 // (1 << 20)
         return {
             'pixeltable': {
