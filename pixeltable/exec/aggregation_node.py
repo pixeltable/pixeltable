@@ -21,8 +21,9 @@ class AggregationNode(ExecNode):
         self.input = input
         self.group_by = group_by
         self.input_exprs = list(input_exprs)
-        self.agg_fn_calls = agg_fn_calls
         self.agg_fn_eval_ctx = row_builder.create_eval_ctx(agg_fn_calls, exclude=input_exprs)
+        # we need to make sure to refer to the same exprs that RowBuilder.eval() will use
+        self.agg_fn_calls = self.agg_fn_eval_ctx.target_exprs
         self.output_batch = DataRowBatch(tbl, row_builder, 0)
 
     def _reset_agg_state(self, row_num: int) -> None:

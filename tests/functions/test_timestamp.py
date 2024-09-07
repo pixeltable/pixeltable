@@ -15,7 +15,7 @@ class TestTimestamp:
         "2019-01-01T00:00:01"
     ]
 
-    def test_all(self, reset_db) -> None:
+    def test_methods(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
@@ -53,10 +53,28 @@ class TestTimestamp:
 
         for pxt_fn, dt_fn, args, kwargs in test_params:
             assert (t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
-                == [dt_fn(dt, *args, **kwargs) for dt in test_dts])
+                == [dt_fn(dt, *args, **kwargs) for dt in test_dts]), pxt_fn.name
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
             mref = t.dt.__getattr__(pxt_fn.name)
-            assert isinstance(mref, pxt.exprs.MethodRef)
-            assert mref.method_name == pxt_fn.name, pxt_fn
+            if pxt_fn.is_property:
+                assert isinstance(mref, pxt.exprs.FunctionCall)
+            else:
+                assert isinstance(mref, pxt.exprs.MethodRef)
+                assert mref.method_name == pxt_fn.name, pxt_fn.name
+
+    def test_make_ts(self, reset_db) -> None:
+        t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
+        test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
+        validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
+        from pixeltable.functions.timestamp import make_timestamp
+        res = t.select(
+            out=make_timestamp(
+                year=t.dt.year, month=t.dt.month, day=t.dt.day, hour=t.dt.hour,
+                # omit minute in order to force FunctionCall.sql_expr() to deal with kw args
+                second=t.dt.second)
+        ).collect()
+        assert (
+            res['out'] == [datetime(dt.year, dt.month, dt.day, dt.hour, minute=0, second=dt.second) for dt in test_dts]
+        )

@@ -5,6 +5,7 @@ from typing import Optional, List, Any, Dict, Tuple, Iterable
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
+from .sql_element_cache import SqlElementCache
 import pixeltable.type_system as ts
 from .data_row import DataRow
 from .expr import Expr
@@ -70,8 +71,8 @@ class InPredicate(Expr):
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         return super()._id_attrs() + [('value_list', self.value_list)]
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
-        lhs_sql_exprs = self.components[0].sql_expr()
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ClauseElement]:
+        lhs_sql_exprs = sql_elements[self.components[0]]
         if lhs_sql_exprs is None or self.value_list is None:
             return None
         return lhs_sql_exprs.in_(self.value_list)

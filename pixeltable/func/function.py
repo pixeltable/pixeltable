@@ -88,6 +88,20 @@ class Function(abc.ABC):
         """Execute the function with the given arguments and return the result."""
         pass
 
+    def _to_sql(self, *args: Any, **kwargs: Any) -> Optional['sqlalchemy.ColumnElement']:
+        """
+        Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
+        Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
+        parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
+        """
+        return None
+
+    def to_sql(
+            self, fn: Callable[..., Optional['sqlalchemy.ColumnElement']]
+    ) -> Callable[..., Optional['sqlalchemy.ColumnElement']]:
+        self._to_sql = fn
+        return fn
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False

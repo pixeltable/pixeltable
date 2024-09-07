@@ -6,11 +6,11 @@ import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-
 from .data_row import DataRow
 from .expr import Expr
 from .globals import ArithmeticOperator
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class ArithmeticExpr(Expr):
@@ -54,10 +54,10 @@ class ArithmeticExpr(Expr):
     def _op2(self) -> Expr:
         return self.components[1]
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         assert self.col_type.is_int_type() or self.col_type.is_float_type() or self.col_type.is_json_type()
-        left = self._op1.sql_expr()
-        right = self._op2.sql_expr()
+        left = sql_elements[self._op1]
+        right = sql_elements[self._op2]
         if left is None or right is None:
             return None
         if self.operator == ArithmeticOperator.ADD:

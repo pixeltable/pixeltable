@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import sys
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Optional, Any
 
 import sqlalchemy as sql
 
@@ -17,28 +17,34 @@ from .inline_array import InlineArray
 from .inline_dict import InlineDict
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
+from .sql_element_cache import SqlElementCache
 
 
 class FunctionCall(Expr):
 
     fn: func.Function
     is_method_call: bool
-    agg_init_args: Dict[str, Any]
-    args: List[Tuple[Optional[int], Optional[Any]]]
-    kwargs: Dict[str, Tuple[Optional[int], Optional[Any]]]
-    arg_types: List[ts.ColumnType]
-    kwarg_types: Dict[str, ts.ColumnType]
+    agg_init_args: dict[str, Any]
+
+    # tuple[Optional[int], Optional[Any]]:
+    # - for Exprs: (index into components, None)
+    # - otherwise: (None, val)
+    args: list[tuple[Optional[int], Optional[Any]]]
+    kwargs: dict[str, tuple[Optional[int], Optional[Any]]]
+
+    arg_types: list[ts.ColumnType]
+    kwarg_types: dict[str, ts.ColumnType]
     group_by_start_idx: int
     group_by_stop_idx: int
     fn_expr_idx: int
     order_by_start_idx: int
     constant_args: set[str]
     aggregator: Optional[Any]
-    current_partition_vals: Optional[List[Any]]
+    current_partition_vals: Optional[list[Any]]
 
     def __init__(
-            self, fn: func.Function, bound_args: Dict[str, Any], order_by_clause: Optional[List[Any]] = None,
-            group_by_clause: Optional[List[Any]] = None, is_method_call: bool = False):
+            self, fn: func.Function, bound_args: dict[str, Any], order_by_clause: Optional[list[Any]] = None,
+            group_by_clause: Optional[list[Any]] = None, is_method_call: bool = False):
         if order_by_clause is None:
             order_by_clause = []
         if group_by_clause is None:
@@ -58,10 +64,6 @@ class FunctionCall(Expr):
             bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names}
 
         # construct components, args, kwargs
-
-        # Tuple[int, Any]:
-        # - for Exprs: (index into components, None)
-        # - otherwise: (None, val)
         self.args = []
         self.kwargs = {}
 
@@ -131,7 +133,7 @@ class FunctionCall(Expr):
 
         self.id = self._create_id()
 
-    def _create_rowid_refs(self, tbl: catalog.Table) -> List[Expr]:
+    def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
         target = tbl._tbl_version_path.tbl_version
         return [RowidRef(target, i) for i in range(target.num_rowid_columns())]
 
@@ -141,7 +143,7 @@ class FunctionCall(Expr):
         return super().default_column_name()
 
     @classmethod
-    def normalize_args(cls, signature: func.Signature, bound_args: Dict[str, Any]) -> None:
+    def normalize_args(cls, signature: func.Signature, bound_args: dict[str, Any]) -> None:
         """Converts all args to Exprs and checks that they are compatible with signature.
 
         Updates bound_args in place, where necessary.
@@ -232,7 +234,7 @@ class FunctionCall(Expr):
             return False
         return True
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [
             ('fn', id(self.fn)),  # use the function pointer, not the fqn, which isn't set for lambdas
             ('args', self.args),
@@ -273,15 +275,15 @@ class FunctionCall(Expr):
         separator = ', ' if inline else ',\n    '
         return separator.join(arg_strs)
 
-    def has_group_by(self) -> List[Expr]:
+    def has_group_by(self) -> list[Expr]:
         return self.group_by_stop_idx != 0
 
     @property
-    def group_by(self) -> List[Expr]:
+    def group_by(self) -> list[Expr]:
         return self.components[self.group_by_start_idx:self.group_by_stop_idx]
 
     @property
-    def order_by(self) -> List[Expr]:
+    def order_by(self) -> list[Expr]:
         return self.components[self.order_by_start_idx:]
 
     @property
@@ -291,20 +293,42 @@ class FunctionCall(Expr):
              or self.has_group_by() \
              or (len(self.order_by) > 0 and not self.fn.requires_order_by))
 
-    def get_window_sort_exprs(self) -> Tuple[List[Expr], List[Expr]]:
+    def get_window_sort_exprs(self) -> tuple[list[Expr], list[Expr]]:
         return self.group_by, self.order_by
 
     @property
     def is_agg_fn_call(self) -> bool:
         return isinstance(self.fn, func.AggregateFunction)
 
-    def get_agg_order_by(self) -> List[Expr]:
+    def get_agg_order_by(self) -> list[Expr]:
         assert self.is_agg_fn_call
         return self.order_by
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
-        # TODO: implement for standard aggregate functions
-        return None
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+        # try to construct args and kwargs to call self.fn._to_sql()
+        kwargs: dict[str, sql.ColumnElement] = {}
+        for param_name, (component_idx, arg) in self.kwargs.items():
+            param = self.fn.signature.parameters[param_name]
+            assert param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD
+            if component_idx is None:
+                kwargs[param_name] = sql.literal(arg)
+            else:
+                arg_element = sql_elements[self.components[component_idx]]
+                if arg_element is None:
+                    return None
+                kwargs[param_name] = arg_element
+
+        args: list[sql.ColumnElement] = []
+        for _, (component_idx, arg) in enumerate(self.args):
+            if component_idx is None:
+                args.append(sql.literal(arg))
+            else:
+                arg_element = sql_elements[self.components[component_idx]]
+                if arg_element is None:
+                    return None
+                args.append(arg_element)
+        result = self.fn._to_sql(*args, **kwargs)
+        return result
 
     def reset_agg(self) -> None:
         """
@@ -322,9 +346,9 @@ class FunctionCall(Expr):
         args, kwargs = self._make_args(data_row)
         self.aggregator.update(*args, **kwargs)
 
-    def _make_args(self, data_row: DataRow) -> Tuple[List[Any], Dict[str, Any]]:
+    def _make_args(self, data_row: DataRow) -> tuple[list[Any], dict[str, Any]]:
         """Return args and kwargs, constructed for data_row"""
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
             param = self.fn.signature.parameters[param_name]
@@ -335,7 +359,7 @@ class FunctionCall(Expr):
                 assert param.kind != inspect.Parameter.VAR_POSITIONAL
                 kwargs[param_name] = val
 
-        args: List[Any] = []
+        args: list[Any] = []
         for param_idx, (component_idx, arg) in enumerate(self.args):
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
             param = self.fn.signature.parameters_by_pos[param_idx]
@@ -393,7 +417,7 @@ class FunctionCall(Expr):
         else:
             data_row[self.slot_idx] = self.fn.exec(*args, **kwargs)
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         result = {
             'fn': self.fn.as_dict(), 'args': self.args, 'kwargs': self.kwargs,
             'group_by_start_idx': self.group_by_start_idx, 'group_by_stop_idx': self.group_by_stop_idx,
@@ -403,7 +427,7 @@ class FunctionCall(Expr):
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
         assert 'fn' in d
         assert 'args' in d
         assert 'kwargs' in d

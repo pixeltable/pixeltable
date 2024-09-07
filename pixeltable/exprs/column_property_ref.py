@@ -1,15 +1,16 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
+
 import enum
+from typing import Optional, List, Any, Dict, Tuple
 
 import sqlalchemy as sql
 
-from .expr import Expr
-from .column_ref import ColumnRef
-from .row_builder import RowBuilder
-from .data_row import DataRow
-import pixeltable.catalog as catalog
 import pixeltable.type_system as ts
+from .column_ref import ColumnRef
+from .data_row import DataRow
+from .expr import Expr
+from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class ColumnPropertyRef(Expr):
@@ -45,7 +46,7 @@ class ColumnPropertyRef(Expr):
     def __str__(self) -> str:
         return f'{self._col_ref}.{self.prop.name.lower()}'
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         if not self._col_ref.col.is_stored:
             return None
         if self.prop == self.Property.ERRORTYPE:
@@ -56,7 +57,7 @@ class ColumnPropertyRef(Expr):
             return self._col_ref.col.sa_errormsg_col
         if self.prop == self.Property.FILEURL:
             # the file url is stored as the column value
-            return self._col_ref.sql_expr()
+            return sql_elements[self._col_ref]
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

@@ -8,6 +8,7 @@ import pixeltable.type_system as ts
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class IsNull(Expr):
@@ -22,8 +23,8 @@ class IsNull(Expr):
     def _equals(self, other: IsNull) -> bool:
         return True
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
-        e = self.components[0].sql_expr()
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ClauseElement]:
+        e = sql_elements[self.components[0]]
         if e is None:
             return None
         return e == None
