@@ -32,7 +32,6 @@ def year(self: datetime) -> int:
 
 @year.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    import sqlalchemy as sql
     return sql.extract('year', self)
 
 
@@ -47,8 +46,7 @@ def month(self: datetime) -> int:
 
 
 @month.to_sql
-def _(self: 'sqlalchemy.ColumnElement') -> 'sqlalchemy.ColumnElement':
-    import sqlalchemy as sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('month', self)
 
 
@@ -63,8 +61,7 @@ def day(self: datetime) -> int:
 
 
 @day.to_sql
-def _(self: 'sqlalchemy.ColumnElement') -> 'sqlalchemy.ColumnElement':
-    import sqlalchemy as sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('day', self)
 
 
@@ -79,8 +76,7 @@ def hour(self: datetime) -> int:
 
 
 @hour.to_sql
-def _(self: 'sqlalchemy.ColumnElement') -> 'sqlalchemy.ColumnElement':
-    import sqlalchemy as sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('hour', self)
 
 
@@ -95,8 +91,7 @@ def minute(self: datetime) -> int:
 
 
 @minute.to_sql
-def _(self: 'sqlalchemy.ColumnElement') -> 'sqlalchemy.ColumnElement':
-    import sqlalchemy as sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('minute', self)
 
 
@@ -111,8 +106,7 @@ def second(self: datetime) -> int:
 
 
 @second.to_sql
-def _(self: 'sqlalchemy.ColumnElement') -> 'sqlalchemy.ColumnElement':
-    import sqlalchemy as sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('second', self)
 
 
@@ -127,8 +121,7 @@ def microsecond(self: datetime) -> int:
 
 
 @microsecond.to_sql
-def _(self: 'sqlalchemy.ColumnElement') -> 'sqlalchemy.ColumnElement':
-    import sqlalchemy as sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('microseconds', self) - sql.extract('second', self) * 1000000
 
 
@@ -143,8 +136,7 @@ def weekday(self: datetime) -> int:
 
 
 @weekday.to_sql
-def _(self: 'sqlalchemy.ColumnElement') -> 'sqlalchemy.ColumnElement':
-    import sqlalchemy as sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('isodow', self) - 1
 
 
@@ -159,8 +151,7 @@ def isoweekday(self: datetime) -> int:
 
 
 @isoweekday.to_sql
-def _(self: 'sqlalchemy.ColumnElement') -> 'sqlalchemy.ColumnElement':
-    import sqlalchemy as sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('isodow', self)
 
 
@@ -221,7 +212,6 @@ def _(
         hour: sql.ColumnElement = sql.literal(0), minute: sql.ColumnElement = sql.literal(0),
         second: sql.ColumnElement = sql.literal(0), microsecond: sql.ColumnElement = sql.literal(0)
 ) -> sql.ColumnElement:
-    import sqlalchemy as sql
     return sql.func.make_timestamp(
         sql.cast(year, sql.Integer),
         sql.cast(month, sql.Integer),

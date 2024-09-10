@@ -1,11 +1,10 @@
-from typing import Any, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.exec as exec
-import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable import exprs
@@ -81,12 +80,10 @@ class Analyzer:
         self.group_by_clause = [e.resolve_computed_cols() for e in group_by_clause]
         self.order_by_clause = [(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
 
-        # not executable
         self.sql_where_clause = None
         self.filter = None
         if where_clause is not None:
-            where_clause_conjuncts, self.filter = where_clause.split_conjuncts(
-                lambda e: self.sql_elements[e] is not None)
+            where_clause_conjuncts, self.filter = where_clause.split_conjuncts(self.sql_elements.contains)
             self.sql_where_clause = exprs.CompoundPredicate.make_conjunction(where_clause_conjuncts)
 
         # all exprs that are evaluated in Python; not executable
@@ -95,13 +92,7 @@ class Analyzer:
         self.all_exprs.extend(e for e, _ in self.order_by_clause)
         if self.filter is not None:
             self.all_exprs.append(self.filter)
-        #self.sql_exprs = list(exprs.Expr.list_subexprs(
-            #self.all_exprs, filter=lambda e: self.sql_elements[e] is not None, traverse_matches=False))
 
-        # we don't want to materialize literals via SQL, so we remove them here
-        #self.sql_exprs = [e for e in self.sql_exprs if not isinstance(e, exprs.Literal)]
-
-        self.agg_fn_calls = []
         self.agg_order_by = []
         self._analyze_agg()
 
@@ -128,7 +119,7 @@ class Analyzer:
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
         # aggregation and rely on the SqlScanNode returning data in the correct order)
         for e in self.group_by_clause:
-            if self.sql_elements[e] is None:
+            if not self.sql_elements.contains(e):
                 raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
             if e._contains(filter=lambda e: _is_agg_fn_call(e)):
                 raise excs.Error(f'Grouping expression contains aggregate function: {e}')
@@ -206,7 +197,7 @@ class Planner:
     def create_count_stmt(
             cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Expr] = None
     ) -> sql.Select:
-        stmt = sql.select(sql.func.count('*'))
+        stmt = sql.select(sql.func.count())
         refd_tbl_ids: set[UUID] = set()
         if where_clause is not None:
             analyzer = cls.analyze(tbl, where_clause)
@@ -390,7 +381,7 @@ class Planner:
         # - ExprEvalNode to evaluate the remaining output exprs
         analyzer = Analyzer(tbl, select_list)
         sql_exprs = list(exprs.Expr.list_subexprs(
-            analyzer.all_exprs, filter=lambda e: analyzer.sql_elements[e] is not None, traverse_matches=False))
+            analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False))
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs)
         analyzer.finalize(row_builder)
         sql_lookup_node = exec.SqlLookupNode(tbl, row_builder, sql_exprs, sa_key_cols, key_vals)
@@ -597,7 +588,7 @@ class Planner:
             order_by_origin = unstored_iter_col_refs[0]
 
         for e in [e for e, _ in order_by_items]:
-            if analyzer.sql_elements[e] is None:
+            if not analyzer.sql_elements.contains(e):
                 raise excs.Error(f'order_by element cannot be expressed in SQL: {e}')
         # we do ascending ordering by default, if not specified otherwise
         order_by_items = [(e, True) if asc is None else (e, asc) for e, asc in order_by_items]
@@ -650,7 +641,7 @@ class Planner:
             tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
             order_by_clause=order_by_clause)
         input_exprs = exprs.ExprSet(exprs.Expr.list_subexprs(
-            analyzer.all_exprs, filter=lambda e: analyzer.sql_elements[e] is not None, traverse_matches=False))
+            analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False))
         # remove Literals from sql_exprs, we don't want to materialize them via a Select
         input_exprs = exprs.ExprSet(e for e in input_exprs if not isinstance(e, exprs.Literal))
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], input_exprs)
@@ -690,7 +681,9 @@ class Planner:
 
         order_by_items = cls._determine_ordering(analyzer)
         sql_limit = 0 if is_agg_query else limit  # if we're aggregating, the limit applies to the agg output
-        sql_exprs = [e for e in eval_ctx.exprs if analyzer.sql_elements[e] is not None and not isinstance(e, exprs.Literal)]
+        sql_exprs = [
+            e for e in eval_ctx.exprs if analyzer.sql_elements.contains(e) and not isinstance(e, exprs.Literal)
+        ]
         plan = exec.SqlScanNode(
             tbl, row_builder, select_list=sql_exprs, where_clause=analyzer.sql_where_clause,
             filter=analyzer.filter, order_by_items=order_by_items,

@@ -1,4 +1,4 @@
-from typing import Iterable, Optional
+from typing import Iterable, Union, Optional
 
 import sqlalchemy as sql
 
@@ -8,7 +8,7 @@ from .expr import Expr
 class SqlElementCache:
     """Cache of sql.ColumnElements for exprs"""
 
-    cache: dict[int, sql.ColumnElement]  # key: Expr.id
+    cache: dict[int, Optional[sql.ColumnElement]]  # key: Expr.id
 
     def __init__(self):
         self.cache = {}
@@ -22,5 +22,7 @@ class SqlElementCache:
         self.cache[e.id] = el
         return el
 
-    def contains(self, expr_set: Iterable[Expr]) -> bool:
-        return all(self[e] is not None for e in expr_set)
+    def contains(self, items: Union[Expr, Iterable[Expr]]) -> bool:
+        if isinstance(items, Expr):
+            return self[items] is not None
+        return all(self[e] is not None for e in items)

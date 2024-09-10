@@ -228,21 +228,24 @@ class RowBuilder:
         return sorted(set().union(*[dependencies[i] for i in target_slot_idxs]))
 
     def set_slot_idxs(self, expr_list: list[Expr], remove_duplicates: bool = True) -> None:
-        """Recursively sets slot_idx in expr_list and its components"""
+        """
+        Recursively sets slot_idx in expr_list and its components
+
+        remove_duplicates == True: removes duplicates in-place
+        """
         for e in expr_list:
-            self._set_slot_idxs_aux(e)
+            self.__set_slot_idxs_aux(e)
         if remove_duplicates:
-            seen: set[int] = set()  # seen Expr.ids
-            deduped = [e for e in expr_list if e.id not in seen and not seen.add(e.id)]
+            deduped = list(ExprSet(expr_list))
             expr_list[:] = deduped
 
-    def _set_slot_idxs_aux(self, e: Expr) -> None:
+    def __set_slot_idxs_aux(self, e: Expr) -> None:
         """Recursively sets slot_idx in e and its components"""
         if e not in self.unique_exprs:
             return
         e.slot_idx = self.unique_exprs[e].slot_idx
         for c in e.components:
-            self._set_slot_idxs_aux(c)
+            self.__set_slot_idxs_aux(c)
 
     def get_dependencies(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> List[Expr]:
         """

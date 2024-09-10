@@ -5,10 +5,10 @@ import importlib
 import inspect
 from typing import Any, Callable, Dict, Optional, Tuple
 
-import pixeltable
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
+import sqlalchemy as sql
 
+import pixeltable
+import pixeltable.type_system as ts
 from .globals import resolve_symbol
 from .signature import Signature
 
@@ -21,14 +21,29 @@ class Function(abc.ABC):
     via the member self_path.
     """
 
-    def __init__(self, signature: Signature, self_path: Optional[str] = None, is_method: bool = False, is_property: bool = False):
+    signature: Signature
+    self_path: Optional[str]
+    is_method: bool
+    is_property: bool
+    _conditional_return_type: Optional[Callable[..., ts.ColumnType]]
+
+    # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
+    # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
+    # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
+    _to_sql: Optional[Callable[..., Optional[sql.ColumnElement]]]
+
+
+    def __init__(
+        self, signature: Signature, self_path: Optional[str] = None, is_method: bool = False, is_property: bool = False
+    ):
         # Check that stored functions cannot be declared using `is_method` or `is_property`:
         assert not ((is_method or is_property) and self_path is None)
         self.signature = signature
         self.self_path = self_path  # fully-qualified path to self
         self.is_method = is_method
         self.is_property = is_property
-        self._conditional_return_type: Optional[Callable[..., ts.ColumnType]] = None
+        self._conditional_return_type = None
+        self._to_sql = self.__to_sql
 
     @property
     def name(self) -> str:
@@ -88,19 +103,14 @@ class Function(abc.ABC):
         """Execute the function with the given arguments and return the result."""
         pass
 
-    def _to_sql(self, *args: Any, **kwargs: Any) -> Optional['sqlalchemy.ColumnElement']:
-        """
-        Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
-        Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
-        parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
-        """
-        return None
-
-    def to_sql(
-            self, fn: Callable[..., Optional['sqlalchemy.ColumnElement']]
-    ) -> Callable[..., Optional['sqlalchemy.ColumnElement']]:
+    def to_sql(self, fn: Callable[..., Optional[sql.ColumnElement]]) -> Callable[..., Optional[sql.ColumnElement]]:
+        """Instance decorator for specifying the SQL translation of this function"""
         self._to_sql = fn
         return fn
+
+    def __to_sql(self, *args: Any, **kwargs: Any) -> Optional[sql.ColumnElement]:
+        """Translate a call to this function with the given arguments to its SQLAlchemy equivalent."""
+        return None
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):

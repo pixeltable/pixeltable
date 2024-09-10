@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Optional, Dict, Iterable, Iterator
+
+from typing import Optional, Iterable, Iterator
 
 from .expr import Expr
 
