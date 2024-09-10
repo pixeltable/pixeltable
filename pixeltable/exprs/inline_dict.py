@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import copy
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -17,7 +18,7 @@ class InlineDict(Expr):
     Dictionary 'literal' which can use Exprs as values.
     """
     def __init__(self, d: Dict):
-        from .inline_array import InlineArray
+        from .inline_list import InlineList
         super().__init__(ts.JsonType())  # we need to call this in order to populate self.components
         # dict_items contains
         # - for Expr fields: (key, index into components, None)
@@ -30,7 +31,7 @@ class InlineDict(Expr):
             if isinstance(val, dict):
                 val = InlineDict(val)
             if isinstance(val, list) or isinstance(val, tuple):
-                val = InlineArray(tuple(val), force_json=True)
+                val = InlineList(val)
             if isinstance(val, Expr):
                 self.dict_items.append((key, len(self.components), None))
                 self.components.append(val)

@@ -345,13 +345,12 @@ class Expr(abc.ABC):
         """
         if isinstance(o, Expr):
             return o
-        # Try to create a literal. We need to check for InlineArray/InlineDict
-        # first, to prevent arrays from inappropriately being interpreted as JsonType
+        # Try to create a literal. We need to check for InlineList/InlineDict
+        # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
-        # TODO: general cleanup of InlineArray/InlineDict
         if isinstance(o, list):
-            from .inline_array import InlineArray
-            return InlineArray(tuple(o))
+            from .inline_list import InlineList
+            return InlineList(o)
         if isinstance(o, dict):
             from .inline_dict import InlineDict
             return InlineDict(o)

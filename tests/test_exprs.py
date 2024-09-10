@@ -466,7 +466,7 @@ class TestExprs:
 
     def test_arrays(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        t.add_column(array_col=[[t.c2, 1], [1, t.c2]])
+        t.add_column(array_col=pxt.array([[t.c2, 1], [1, t.c2]]))
         _ = t[t.array_col].show()
         print(_)
         _ = t[t.array_col[:, 0]].show()

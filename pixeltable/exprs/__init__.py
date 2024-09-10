@@ -11,6 +11,7 @@ from .function_call import FunctionCall
 from .in_predicate import InPredicate
 from .inline_array import InlineArray
 from .inline_dict import InlineDict
+from .inline_list import InlineList
 from .is_null import IsNull
 from .json_mapper import JsonMapper
 from .json_path import RELATIVE_PATH_ROOT, JsonPath

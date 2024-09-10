@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import sys
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sql
 
@@ -11,10 +11,11 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .expr import Expr
-from .inline_array import InlineArray
 from .inline_dict import InlineDict
+from .inline_list import InlineList
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 
@@ -47,7 +48,7 @@ class FunctionCall(Expr):
         super().__init__(fn.call_return_type(bound_args))
         self.fn = fn
         self.is_method_call = is_method_call
-        self.normalize_args(signature, bound_args)
+        self.normalize_args(fn.name, signature, bound_args)
 
         self.agg_init_args = {}
         if self.is_agg_fn_call:
@@ -141,7 +142,7 @@ class FunctionCall(Expr):
         return super().default_column_name()
 
     @classmethod
-    def normalize_args(cls, signature: func.Signature, bound_args: Dict[str, Any]) -> None:
+    def normalize_args(cls, name: str, signature: func.Signature, bound_args: Dict[str, Any]) -> None:
         """Converts all args to Exprs and checks that they are compatible with signature.
 
         Updates bound_args in place, where necessary.
@@ -161,9 +162,7 @@ class FunctionCall(Expr):
 
             if isinstance(arg, list) or isinstance(arg, tuple):
                 try:
-                    # If the column type is JsonType, force the literal to be JSON
-                    is_json = is_var_param or (param.col_type is not None and param.col_type.is_json_type())
-                    arg = InlineArray(arg, force_json=is_json)
+                    arg = InlineList(arg)
                     bound_args[param_name] = arg
                     continue
                 except excs.Error:
@@ -213,7 +212,7 @@ class FunctionCall(Expr):
                     or (arg.col_type.is_json_type() and param.col_type.is_scalar_type())
                 ):
                     raise excs.Error(
-                        f'Parameter {param_name}: argument type {arg.col_type} does not match parameter type '
+                        f'Parameter {param_name} (in function {name}): argument type {arg.col_type} does not match parameter type '
                         f'{param.col_type}')
 
     def _equals(self, other: FunctionCall) -> bool:
