@@ -226,9 +226,13 @@ class Dumper:
         add_column('isin_2', t.c2.isin([1, 2, 3, 4, 5]))
         add_column('isin_3', t.c2.isin(t.c6.f5))
 
-        # inline_array and inline_dict
-        add_column('inline_array_1', [[1, 2, 3], [4, 5, 6]])
-        add_column('inline_array_2', [['a', 'b', 'c'], ['d', 'e', 'f']])
+        # inline_array, inline_list, inline_dict
+        add_column('inline_array_1', pxt.array([[1, 2, 3], [4, 5, 6]]))
+        add_column('inline_array_2', pxt.array([['a', 'b', 'c'], ['d', 'e', 'f']]))
+        add_column('inline_array_exprs', pxt.array([[t.c2, t.c2 + 1], [t.c2 + 2, t.c2]]))
+        add_column('inline_array_mixed', pxt.array([[1, t.c2], [3, t.c2]]))
+        add_column('inline_list_1', [[1, 2, 3], [4, 5, 6]])
+        add_column('inline_list_2', [['a', 'b', 'c'], ['d', 'e', 'f']])
         add_column('inline_list_exprs', [t.c1, [t.c1n, t.c2]])
         add_column('inline_list_mixed', [1, 'a', t.c1, [1, 'a', t.c1n], 1, 'a'])
         add_column('inline_dict', {'int': 22, 'dict': {'key': 'val'}, 'expr': t.c1})
