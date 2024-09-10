@@ -14,8 +14,7 @@ import pixeltable.type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
-from .inline_dict import InlineDict
-from .inline_list import InlineList
+from .inline_expr import InlineDict, InlineList
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 

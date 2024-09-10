@@ -349,10 +349,10 @@ class Expr(abc.ABC):
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
         if isinstance(o, list):
-            from .inline_list import InlineList
+            from .inline_expr import InlineList
             return InlineList(o)
         if isinstance(o, dict):
-            from .inline_dict import InlineDict
+            from .inline_expr import InlineDict
             return InlineDict(o)
         obj_type = ts.ColumnType.infer_literal_type(o)
         if obj_type is not None:
