@@ -80,6 +80,8 @@ class TestMigration:
             reload_catalog()
 
             # TODO(aaron-siegel) We need many more of these sorts of checks.
+            if 12 <= old_version <= 14:
+                self._run_v12_tests()
             if 13 <= old_version <= 14:
                 self._run_v13_tests()
             if old_version == 14:
@@ -97,6 +99,13 @@ class TestMigration:
         assert VERSION in VERSION_NOTES, (
             f'No version notes found for current schema version {VERSION}. '
             f'Please add them to pixeltable/metadata/notes.py.')
+
+    @classmethod
+    def _run_v12_tests(cls) -> None:
+        """Tests that apply to DB artifacts of version 12-14."""
+        pxt.get_table('sample_table').describe()
+        pxt.get_table('views.sample_view').describe()
+        pxt.get_table('views.sample_snapshot').describe()
 
     @classmethod
     def _run_v13_tests(cls) -> None:

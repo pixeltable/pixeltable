@@ -24,9 +24,12 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
                 # Replace any -1's that show up as indices with Nones
                 # (this corrects for an older legacy inconsistency)
                 updated_elements.append((None if idx == -1 else idx, val))
-            updated_v = v.copy()
-            updated_v['elements'] = updated_elements
-            updated_v['_classname'] = 'InlineList'
+            updated_v = {
+                'elements': updated_elements,
+                '_classname': 'InlineList'
+            }
+            if 'components' in v:
+                updated_v['components'] = v['components']
             return k, updated_v
         if v['_classname'] == 'InlineDict':
             updated_dict_items = []
