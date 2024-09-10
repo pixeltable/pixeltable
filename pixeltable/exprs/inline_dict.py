@@ -93,11 +93,10 @@ class InlineDict(Expr):
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'dict_items' in d
-        arg: Dict[str, Any] = {}
+        arg: dict[str, Any] = {}
         for key, idx, val in d['dict_items']:
-            # TODO Normalize idx -1 to None via schema migrations.
-            # Long-term we should not be allowing idx == -1.
-            if idx is not None and idx >= 0:  # Older schemas might have -1 instead of None
+            assert idx != -1
+            if idx is not None:
                 arg[key] = components[idx]
             else:
                 arg[key] = val

@@ -76,9 +76,8 @@ class InlineList(Expr):
         assert 'elements' in d
         arg: list[Any] = []
         for idx, val in d['elements']:
-            # TODO Normalize idx -1 to None via schema migrations.
-            # Long-term we should not be allowing idx == -1.
-            if idx is not None and idx >= 0:  # Older schemas might have -1 instead of None
+            assert idx != -1
+            if idx is not None:
                 arg.append(components[idx])
             else:
                 arg.append(val)

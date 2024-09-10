@@ -136,6 +136,14 @@ class TestMigration:
         expr = v['view_test_udf_batched'].col.value_expr
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
 
+        # Test that InlineLists are properly loaded
+        inline_list = v.where(v.c2 == 19).select(v.base_table_inline_list_exprs).head(1)['base_table_inline_list_exprs'][0]
+        assert inline_list == ['test string 19', ['test string 19', 19]]
+
+        # Test that InlineDicts are properly loaded
+        inline_dict = v.where(v.c2 == 19).select(v.base_table_inline_dict).head(1)['base_table_inline_dict'][0]
+        assert inline_dict == {'int': 22, 'dict': {'key': 'val'}, 'expr': 'test string 19'}
+
     @classmethod
     def _run_v17_tests(cls) -> None:
         from pixeltable.io.external_store import MockProject

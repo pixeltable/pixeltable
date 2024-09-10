@@ -14,15 +14,26 @@ def _(engine: sql.engine.Engine) -> None:
 
 
 def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
-    if isinstance(v, dict) and '_classname' in v and v['_classname'] == 'InlineArray':
-        # Assume an `InlineArray` from schema version <= 19 should actually be an
-        # `InlineList`. This was formerly ambiguous in metadata,
-        # but assuming it's an `InlineList` maps to the most common deployed use cases.
-        updated_v = {
-            'elements': v['elements'],
-            '_classname': 'InlineList'
-        }
-        if 'components' in v:
-            updated_v['components'] = v['components']
-        return k, updated_v
+    if isinstance(v, dict) and '_classname' in v:
+        if v['_classname'] == 'InlineArray':
+            # Assume an `InlineArray` from schema version <= 19 should actually be an
+            # `InlineList`. This was formerly ambiguous in metadata,
+            # but assuming it's an `InlineList` maps to the most common deployed use cases.
+            updated_elements = []
+            for idx, val in v['elements']:
+                # Replace any -1's that show up as indices with Nones
+                # (this corrects for an older legacy inconsistency)
+                updated_elements.append((None if idx == -1 else idx, val))
+            updated_v = v.copy()
+            updated_v['elements'] = updated_elements
+            updated_v['_classname'] = 'InlineList'
+            return k, updated_v
+        if v['_classname'] == 'InlineDict':
+            updated_dict_items = []
+            for key, idx, val in v['dict_items']:
+                # Replace any -1's that show up as indices with Nones
+                updated_dict_items.append((key, None if idx == -1 else idx, val))
+            updated_v = v.copy()
+            updated_v['dict_items'] = updated_dict_items
+            return k, updated_v
     return None
