@@ -95,7 +95,14 @@ class InlineArray(Expr):
                 arg.append(components[idx])
             else:
                 arg.append(val)
-        return cls(tuple(arg))
+        try:
+            return cls(tuple(arg))
+        except excs.Error:
+            # For legacy compatibility reasons, we need to try constructing as an `InlineList`.
+            # This is because in schema versions <= 19, `InlineArray` was serialized incorrectly, and
+            # there is no way to determine the correct expression type until the subexpressions are
+            # loaded and their types are known.
+            return InlineList(tuple(arg))
 
 
 class InlineDict(Expr):

@@ -1,3 +1,4 @@
+import datetime
 import glob
 import logging
 import os
@@ -17,7 +18,7 @@ from pixeltable.metadata import VERSION, SystemInfo
 from pixeltable.metadata.notes import VERSION_NOTES
 
 from .conftest import clean_db
-from .utils import reload_catalog, skip_test_if_not_installed
+from .utils import reload_catalog, skip_test_if_not_installed, validate_update_status
 
 _logger = logging.getLogger('pixeltable')
 
@@ -90,6 +91,8 @@ class TestMigration:
                 self._run_v15_tests()
             if old_version >= 17:
                 self._run_v17_tests()
+            if old_version >= 19:
+                self._run_v19_tests()
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
@@ -134,6 +137,7 @@ class TestMigration:
         pxt.get_table('views.view_of_views').describe()
         pxt.get_table('views.empty_view').describe()
 
+        t = pxt.get_table('base_table')
         v = pxt.get_table('views.view')
         e = pxt.get_table('views.empty_view')
 
@@ -177,3 +181,27 @@ class TestMigration:
         # Test that the stored proxies were retained properly
         assert len(store1.stored_proxies) == 1
         assert t.base_table_image_rot.col in store1.stored_proxies
+
+    @classmethod
+    def _run_v19_tests(cls) -> None:
+        t = pxt.get_table('base_table')
+        status = t.insert(
+            c1='test string 21',
+            c2=21,
+            c3=21.0,
+            c4=True,
+            c5=datetime.datetime.now(),
+            c6={
+                'f1': f'test string 21',
+                'f2': 21,
+                'f3': float(21.0),
+                'f4': True,
+                'f5': [1.0, 2.0, 3.0, 4.0],
+                'f6': {
+                    'f7': 'test string 2',
+                    'f8': [1.0, 2.0, 3.0, 4.0],
+                },
+            },
+            c7=[]
+        )
+        validate_update_status(status)

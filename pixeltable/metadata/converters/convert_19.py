@@ -24,12 +24,13 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
                 # Replace any -1's that show up as indices with Nones
                 # (this corrects for an older legacy inconsistency)
                 updated_elements.append((None if idx == -1 else idx, val))
-            updated_v = {
-                'elements': updated_elements,
-                '_classname': 'InlineList'
-            }
-            if 'components' in v:
-                updated_v['components'] = v['components']
+            updated_v = v.copy()
+            updated_v['elements'] = updated_elements
+            if 'is_json' in updated_v:
+                if updated_v['is_json']:
+                    # If the InlineArray is JSON, convert it to a list
+                    updated_v['_classname'] = 'InlineList'
+                del updated_v['is_json']
             return k, updated_v
         if v['_classname'] == 'InlineDict':
             updated_dict_items = []
