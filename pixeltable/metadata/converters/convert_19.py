@@ -22,12 +22,6 @@ def _(engine: sql.engine.Engine) -> None:
             for col in tbl_version.cols:
                 if col.col_type.is_timestamp_type():
                     __update_timestamp_col(conn, tbl_version, col)
-            for idx in tbl_version.idxs:
-                if idx.col.col_type.is_timestamp_type():
-                    assert idx.val_col.col_type.is_timestamp_type()
-                    assert idx.undo_col.col_type.is_timestamp_type()
-                    __update_timestamp_col(conn, tbl_version, idx.val_col)
-                    __update_timestamp_col(conn, tbl_version, idx.undo_col)
 
 
 def __update_timestamp_col(conn: sql.Connection, tbl_version: 'TableVersion', col: 'Column') -> None:
