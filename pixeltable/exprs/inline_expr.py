@@ -11,6 +11,7 @@ import pixeltable.type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
+from .literal import Literal
 from .row_builder import RowBuilder
 
 
@@ -185,35 +186,31 @@ class InlineList(Expr):
     List 'literal' which can use Exprs as values.
     """
 
-    elements: list[tuple[Optional[int], Any]]
+    elements: list[Expr]
 
     def __init__(self, elements: Iterable):
         super().__init__(ts.JsonType())
 
-        # self.elements contains
-        # - for Expr elements: (index into components, None)
-        # - for non-Expr elements: (None, value)
         self.elements = []
         for el in elements:
-            if isinstance(el, list) or isinstance(el, tuple):
-                el = InlineList(el)
-            elif isinstance(el, dict):
-                el = InlineDict(el)
-
             if isinstance(el, Expr):
-                self.elements.append((len(self.components), None))
-                self.components.append(el)
+                self.elements.append(el)
+            elif isinstance(el, list) or isinstance(el, tuple):
+                self.elements.append(InlineList(el))
+            elif isinstance(el, dict):
+                self.elements.append(InlineDict(el))
             else:
-                self.elements.append((None, el))
+                self.elements.append(Literal(el))
 
+        self.components.extend(self.elements)
         self.id = self._create_id()
 
     def __str__(self) -> str:
-        elem_strs = [str(val) if val is not None else str(self.components[idx]) for idx, val in self.elements]
+        elem_strs = [str(expr) for expr in self.elements]
         return f'[{", ".join(elem_strs)}]'
 
-    def _equals(self, other: InlineList) -> bool:
-        return self.elements == other.elements
+    def _equals(self, _: InlineList) -> bool:
+        return True  # Always true if components match
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('elements', self.elements)]
@@ -222,25 +219,11 @@ class InlineList(Expr):
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        result = [None] * len(self.elements)
-        for i, (child_idx, val) in enumerate(self.elements):
-            if child_idx is not None:
-                result[i] = data_row[self.components[child_idx].slot_idx]
-            else:
-                result[i] = copy.deepcopy(val)
-        data_row[self.slot_idx] = result
+        data_row[self.slot_idx] = [data_row[el.slot_idx] for el in self.components]
 
     def _as_dict(self) -> dict:
-        return {'elements': self.elements, **super()._as_dict()}
+        return super()._as_dict()
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
-        assert 'elements' in d
-        arg: list[Any] = []
-        for idx, val in d['elements']:
-            assert idx != -1
-            if idx is not None:
-                arg.append(components[idx])
-            else:
-                arg.append(val)
-        return cls(tuple(arg))
+        return cls(components)

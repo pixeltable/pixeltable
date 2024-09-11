@@ -173,7 +173,7 @@ class FunctionCall(Expr):
                 try:
                     _ = json.dumps(arg)
                 except TypeError:
-                    raise excs.Error(f'Argument for parameter {param_name!r} is not json-serializable: {arg}')
+                    raise excs.Error(f'Argument for parameter {param_name!r} is not json-serializable: {arg} (of type {type(arg)})')
                 if arg is not None:
                     try:
                         param_type = param.col_type

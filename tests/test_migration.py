@@ -150,8 +150,10 @@ class TestMigration:
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
 
         # Test that InlineLists are properly loaded
-        inline_list = v.where(v.c2 == 19).select(v.base_table_inline_list_exprs).head(1)['base_table_inline_list_exprs'][0]
-        assert inline_list == ['test string 19', ['test string 19', 19]]
+        inline_list_exprs = v.where(v.c2 == 19).select(v.base_table_inline_list_exprs).head(1)['base_table_inline_list_exprs'][0]
+        assert inline_list_exprs == ['test string 19', ['test string 19', 19]]
+        inline_list_mixed = v.where(v.c2 == 19).select(v.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
+        assert inline_list_mixed == [1, 'a', 'test string 19', [1, 'a', 'test string 19'], 1, 'a']
 
         # Test that InlineDicts are properly loaded
         inline_dict = v.where(v.c2 == 19).select(v.base_table_inline_dict).head(1)['base_table_inline_dict'][0]
@@ -205,3 +207,5 @@ class TestMigration:
             c7=[]
         )
         validate_update_status(status)
+        inline_list_mixed = t.where(t.c2 == 21).select(t.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
+        assert inline_list_mixed == [1, 'a', 'test string 21', [1, 'a', 'test string 21'], 1, 'a']
