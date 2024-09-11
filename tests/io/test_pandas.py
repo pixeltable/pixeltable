@@ -96,6 +96,7 @@ class TestPandas:
         assert result_set['bool'] == [True, False, True, True]
         assert result_set['string'] == ['fish', 'cake', 'salad', 'egg']
         assert result_set['string_n'] == ['fish', 'cake', None, 'egg']
+        # Timestamps coming out of the DB will always be aware; we need to compare them to aware datetimes
         assert result_set['ts'] == [datetime.datetime(2024, 5, n).astimezone(None) for n in range(3, 7)]
         assert result_set['ts_n'] == [datetime.datetime(2024, 5, 3).astimezone(None), None, None, datetime.datetime(2024, 5, 6).astimezone(None)]
 

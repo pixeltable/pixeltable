@@ -14,7 +14,7 @@ import uuid
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Dict, Any, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
@@ -38,6 +38,36 @@ class Env:
     _instance: Optional[Env] = None
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
+    _home: Optional[Path]
+    _media_dir: Optional[Path]
+    _file_cache_dir: Optional[Path]  # cached media files with external URL
+    _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
+    _log_dir: Optional[Path]  # log files
+    _tmp_dir: Optional[Path]  # any tmp files
+    _sa_engine: Optional[sql.engine.base.Engine]
+    _pgdata_dir: Optional[Path]
+    _db_name: Optional[str]
+    _db_server: Optional[pixeltable_pgserver.PostgresServer]
+    _db_url: Optional[str]
+    _default_time_zone: Optional[ZoneInfo]
+
+    # info about installed packages that are utilized by some parts of the code;
+    # package name -> version; version == []: package is installed, but we haven't determined the version yet
+    _installed_packages: dict[str, Optional[list[int]]]
+
+    _spacy_nlp: Optional[spacy.Language]
+    _httpd: Optional[http.server.HTTPServer]
+    _http_address: Optional[str]
+    _logger: logging.Logger
+    _default_log_level: int
+    _logfilename: Optional[str]
+    _log_to_stdout: bool
+    _module_log_level: dict[str, int]  # module name -> log level
+    _config_file: Optional[Path]
+    _config: Optional[dict[str, Any]]
+    _stdout_handler: logging.StreamHandler
+    _initialized: bool
+
     @classmethod
     def get(cls) -> Env:
         if cls._instance is None:
@@ -52,24 +82,23 @@ class Env:
         cls._instance = env
 
     def __init__(self):
-        self._home: Optional[Path] = None
-        self._media_dir: Optional[Path] = None  # computed media files
-        self._file_cache_dir: Optional[Path] = None  # cached media files with external URL
-        self._dataset_cache_dir: Optional[Path] = None  # cached datasets (eg, pytorch or COCO)
-        self._log_dir: Optional[Path] = None  # log files
-        self._tmp_dir: Optional[Path] = None  # any tmp files
-        self._sa_engine: Optional[sql.engine.base.Engine] = None
-        self._pgdata_dir: Optional[Path] = None
-        self._db_name: Optional[str] = None
-        self._db_server: Optional[pixeltable_pgserver.PostgresServer] = None
-        self._db_url: Optional[str] = None
+        self._home = None
+        self._media_dir = None  # computed media files
+        self._file_cache_dir = None  # cached media files with external URL
+        self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
+        self._log_dir = None  # log files
+        self._tmp_dir = None  # any tmp files
+        self._sa_engine = None
+        self._pgdata_dir = None
+        self._db_name = None
+        self._db_server = None
+        self._db_url = None
+        self._default_time_zone = None
 
-        # info about installed packages that are utilized by some parts of the code;
-        # package name -> version; version == []: package is installed, but we haven't determined the version yet
-        self._installed_packages: Dict[str, Optional[List[int]]] = {}
-        self._spacy_nlp: Optional[spacy.Language] = None
-        self._httpd: Optional[http.server.HTTPServer] = None
-        self._http_address: Optional[str] = None
+        self._installed_packages = {}
+        self._spacy_nlp = None
+        self._httpd = None
+        self._http_address = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -77,13 +106,12 @@ class Env:
         self._logger.propagate = False
         self._logger.addFilter(self._log_filter)
         self._default_log_level = logging.INFO
-        self._logfilename: Optional[str] = None
+        self._logfilename = None
         self._log_to_stdout = False
-        self._module_log_level: Dict[str, int] = {}  # module name -> log level
+        self._module_log_level = {}  # module name -> log level
 
-        # config
-        self._config_file: Optional[Path] = None
-        self._config: Optional[dict[str, Any]] = None
+        self._config_file = None
+        self._config = None
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -119,16 +147,16 @@ class Env:
             # we first set the Postgres time zone to its default, and then query Postgres for the IANA zone
             # name, using the latter to set an explicit default time zone in Python.
             with self.engine.begin() as conn:
-                conn.execute(sql.text('SET TIME ZONE LOCAL;'))
+                conn.execute(sql.text('SET TIME ZONE LOCAL'))
             with self.engine.begin() as conn:
-                tz_name = conn.execute(sql.text('SHOW TIME ZONE;')).scalar()
+                tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
                 assert isinstance(tz_name, str)
                 self._logger.info(f'Database time zone is now: LOCAL; IANA equivalent is (from Postgres): {tz_name}')
                 self._default_time_zone = ZoneInfo(tz_name)
         else:
             with self.engine.begin() as conn:
                 # Explicit default time zone.
-                conn.execute(sql.text(f"SET TIME ZONE '{tz.key}';"))
+                conn.execute(sql.text(f"SET TIME ZONE '{tz.key}'"))
                 self._logger.info(f'Database time zone is now: {tz.key}')
                 self._default_time_zone = tz
 
@@ -496,7 +524,7 @@ class Env:
         check('label_studio_sdk')
         check('openpyxl')
 
-    def require_package(self, package: str, min_version: Optional[List[int]] = None) -> None:
+    def require_package(self, package: str, min_version: Optional[list[int]] = None) -> None:
         assert package in self._installed_packages
         if self._installed_packages[package] is None:
             raise excs.Error(f'Package {package} is not installed')

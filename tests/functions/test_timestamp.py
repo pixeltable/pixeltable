@@ -97,6 +97,7 @@ class TestTimestamp:
 
     def test_time_zones(self, reset_db) -> None:
         timestamps = [
+            # Some random times in the summer months (to ensure varying DST treatment)
             datetime.fromisoformat('2024-07-01T22:45:12'),
             datetime.fromisoformat('2024-07-01T22:45:12-02:00'),
             datetime(2024, 7, 1, 22, 45, 12, tzinfo=ZoneInfo('Pacific/Auckland'))
@@ -104,7 +105,7 @@ class TestTimestamp:
         # Test various methods and properties that are timezone-sensitive
         props_to_test = ['year', 'month', 'day', 'hour', 'minute']
         methods_to_test = ['weekday', 'isoweekday']
-        query_time_zone = ZoneInfo('Europe/London')
+        query_time_zone = ZoneInfo('Europe/Berlin')
         # Test time zone conversions several ways: (i) with default time zone equal to
         # system local time, and (ii) with default time zone set to a couple different
         # values, to ensure that we test some values where it's different from
@@ -127,28 +128,28 @@ class TestTimestamp:
             results = t.select(**selection).collect()
 
             assert len(results) == len(timestamps)
-            for row in range(len(timestamps)):
+            for row_idx in range(len(timestamps)):
                 # `effective_dt` is the aware timestamp that is the Pixeltable interpretation of the input
                 # timestamp: if the input timestamp is naive, it is interpreted as being in default_time_zone.
                 effective_dt = (
-                    timestamps[row] if timestamps[row].tzinfo is not None
-                    else timestamps[row].replace(tzinfo=default_time_zone)
+                    timestamps[row_idx] if timestamps[row_idx].tzinfo is not None
+                    else timestamps[row_idx].replace(tzinfo=default_time_zone)
                 )
                 for col in 'dt', 'dt_tz':
                     # Ensure that timestamps are always returned from the database as aware datetimes
-                    assert results[col][row].tzinfo is not None
+                    assert results[col][row_idx].tzinfo is not None
                     # Ensure that they map to the same absolute time as the inputs
-                    assert results[col][row].timestamp() == effective_dt.timestamp()
+                    assert results[col][row_idx].timestamp() == effective_dt.timestamp()
                 # Ensure that the 'dt_tz' column is in the correct time zone
                 # (the 'dt' column depends on the system time where the test is run!)
-                assert results['dt_tz'][row].utcoffset() == timedelta(hours=1)
+                assert results['dt_tz'][row_idx].utcoffset() == timedelta(hours=2)
                 # Ensure that the properties are computed correctly based on timezone
                 for prop in props_to_test:
-                    assert results[prop][row] == getattr(effective_dt.astimezone(default_time_zone), prop)
-                    assert results[prop + '_tz'][row] == getattr(effective_dt.astimezone(query_time_zone), prop)
+                    assert results[prop][row_idx] == getattr(effective_dt.astimezone(default_time_zone), prop)
+                    assert results[prop + '_tz'][row_idx] == getattr(effective_dt.astimezone(query_time_zone), prop)
                 for method in methods_to_test:
-                    assert results[method][row] == getattr(effective_dt.astimezone(default_time_zone), method)()
-                    assert results[method + '_tz'][row] == getattr(effective_dt.astimezone(query_time_zone), method)()
+                    assert results[method][row_idx] == getattr(effective_dt.astimezone(default_time_zone), method)()
+                    assert results[method + '_tz'][row_idx] == getattr(effective_dt.astimezone(query_time_zone), method)()
 
     def test_time_zone_in_literals(self, reset_db) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')

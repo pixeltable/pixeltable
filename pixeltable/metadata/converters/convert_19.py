@@ -15,19 +15,26 @@ if TYPE_CHECKING:
 def _(engine: sql.engine.Engine) -> None:
     from pixeltable.catalog import Catalog
 
+    convert_table_md(engine, substitution_fn=__update_timestamp_literals)
+
     with engine.begin() as conn:
         for tbl_version in Catalog.get().tbl_versions.values():
             for col in tbl_version.cols:
                 if col.col_type.is_timestamp_type():
                     __update_timestamp_col(conn, tbl_version, col)
-    convert_table_md(engine, substitution_fn=__update_timestamp_literals)
+            for idx in tbl_version.idxs:
+                if idx.col.col_type.is_timestamp_type():
+                    assert idx.val_col.col_type.is_timestamp_type()
+                    assert idx.undo_col.col_type.is_timestamp_type()
+                    __update_timestamp_col(conn, tbl_version, idx.val_col)
+                    __update_timestamp_col(conn, tbl_version, idx.undo_col)
 
 
 def __update_timestamp_col(conn: sql.Connection, tbl_version: 'TableVersion', col: 'Column') -> None:
     sa_tbl = tbl_version.store_tbl.sa_tbl
     sa_col = col.sa_col
     conn.execute(
-        sql.text(f'ALTER TABLE {sa_tbl.name} ALTER COLUMN {sa_col.name} TYPE TIMESTAMPTZ;')
+        sql.text(f'ALTER TABLE {sa_tbl.name} ALTER COLUMN {sa_col.name} TYPE TIMESTAMPTZ')
     )
 
 
@@ -36,6 +43,7 @@ def __update_timestamp_literals(k: Any, v: Any) -> Optional[tuple[Any, Any]]:
         # It's a literal with an explicit 'val_t' field. In version 19 this can only mean a
         # timestamp literal, which (in version 19) is stored in the DB as a naive datetime.
         # We convert it to an aware datetime, stored in UTC.
+        assert v['_classname'] == 'Literal'
         assert v['val_t'] == pxt.ColumnType.Type.TIMESTAMP.name
         assert isinstance(v['val'], str)
         dt = datetime.datetime.fromisoformat(v['val'])

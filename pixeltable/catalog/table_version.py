@@ -122,6 +122,7 @@ class TableVersion:
         self.cols: list[Column] = []  # contains complete history of columns, incl dropped ones
         self.cols_by_name: dict[str, Column] = {}  # contains only user-facing (named) columns visible in this version
         self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
+        self.idxs: list[TableVersion.IndexInfo] = []  # contains complete history of indices, incl dropped ones
         self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
         self.external_stores: dict[str, pxt.io.ExternalStore] = {}
@@ -278,14 +279,10 @@ class TableVersion:
 
     def _init_idxs(self, tbl_md: schema.TableMd) -> None:
         self.idx_md = tbl_md.index_md
+        self.idxs = []
         self.idxs_by_name = {}
         import pixeltable.index as index_module
         for md in tbl_md.index_md.values():
-            if md.schema_version_add > self.schema_version \
-                    or md.schema_version_drop is not None and md.schema_version_drop <= self.schema_version:
-                # index not visible in this schema version
-                continue
-
             # instantiate index object
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index_module, cls_name)
@@ -300,7 +297,16 @@ class TableVersion:
             undo_col.sa_col_type = idx.index_sa_type()
             undo_col._records_errors = False
             idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
-            self.idxs_by_name[md.name] = idx_info
+            self.idxs.append(idx_info)
+
+            if (
+                md.schema_version_add <= self.schema_version
+                and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
+            ):
+                # index is visible in this schema version
+                self.idxs_by_name[md.name] = idx_info
+
+
 
     def _init_sa_schema(self) -> None:
         # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
