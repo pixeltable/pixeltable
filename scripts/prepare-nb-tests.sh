@@ -12,7 +12,7 @@ for notebook in $(find docs/release -name '*.ipynb' | grep -v .ipynb_checkpoints
     sed -E 's/%pip install [^"]*//' "$notebook" > "$TEST_PATH/$(basename "$notebook")"
 done
 
-for env in {OPENAI_API_KEY,TOGETHER_API_KEY,FIREWORKS_API_KEY,LABEL_STUDIO_API_KEY}; do
+for env in {ANTHROPIC_API_KEY,FIREWORKS_API_KEY,LABEL_STUDIO_API_KEY,OPENAI_API_KEY,TOGETHER_API_KEY}; do
     if [ -z "${!env}" ]; then
         # The given API key is not available. Delete all notebooks that require it.
         for notebook in $(grep -l "$env" $TEST_PATH/*.ipynb); do

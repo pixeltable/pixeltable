@@ -39,6 +39,7 @@ nav:
   - Use Cases:
     - Computer Vision: api/functions/vision.md
   - Model and Inference Functions:
+    - anthropic: api/functions/anthropic.md
     - fireworks: api/functions/fireworks.md
     - huggingface: api/functions/huggingface.md
     - openai: api/functions/openai.md

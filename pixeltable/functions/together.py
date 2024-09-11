@@ -136,7 +136,7 @@ def chat_completions(
         of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl['response'] = chat_completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1')
+        ... tbl['response'] = chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1')
     """
     return (
         _together_client()

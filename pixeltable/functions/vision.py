@@ -274,7 +274,6 @@ def draw_bounding_boxes(
         boxes: list[list[int]],
         labels: Optional[list[Any]] = None,
         color: Optional[str] = None,
-        label_colors: Optional[dict[Union[str, int], str]] = None,
         box_colors: Optional[list[str]] = None,
         fill: bool  = False,
         width: int = 1,
@@ -297,7 +296,6 @@ def draw_bounding_boxes(
         boxes: List of bounding boxes, each represented as [xmin, ymin, xmax, ymax].
         labels: List of labels for each bounding box.
         color: Single color to be used for all bounding boxes and labels.
-        label_colors: Dictionary mapping labels to colors.
         box_colors: List of colors, one per bounding box.
         fill: Whether to fill the bounding boxes with color.
         width: Width of the bounding box borders.
@@ -310,9 +308,9 @@ def draw_bounding_boxes(
     Returns:
         The image with bounding boxes drawn on it.
     """
-    color_params = sum([color is not None, label_colors is not None, box_colors is not None])
+    color_params = sum([color is not None, box_colors is not None])
     if color_params > 1:
-        raise ValueError("Only one of 'color', 'label_colors', or 'box_colors' can be set")
+        raise ValueError("Only one of 'color' or 'box_colors' can be set")
 
     # ensure the number of labels matches the number of boxes
     num_boxes = len(boxes)
@@ -328,8 +326,6 @@ def draw_bounding_boxes(
     else:
         if color is not None:
             box_colors = [color] * num_boxes
-        elif label_colors is not None:
-            box_colors = [label_colors.get(label, DEFAULT_COLOR) for label in labels]
         else:
             label_colors = _create_label_colors(labels)
             box_colors = [label_colors[label] for label in labels]
