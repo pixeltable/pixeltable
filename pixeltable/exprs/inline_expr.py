@@ -20,31 +20,24 @@ class InlineArray(Expr):
     Array 'literal' which can use Exprs as values.
     """
 
-    elements: list[tuple[Optional[int], Any]]
+    elements: list[Expr]
 
     def __init__(self, elements: Iterable):
         # we need to call this in order to populate self.components
         super().__init__(ts.ArrayType((len(elements),), ts.IntType()))
 
-        # elements contains
-        # - for Expr elements: (index into components, None)
-        # - for non-Expr elements: (None, value)
         self.elements = []
         for el in elements:
-            if isinstance(el, list) or isinstance(el, tuple):
-                el = InlineArray(el)
             if isinstance(el, Expr):
-                self.elements.append((len(self.components), None))
-                self.components.append(el)
+                self.elements.append(el)
+            elif isinstance(el, list) or isinstance(el, tuple):
+                self.elements.append(InlineArray(el))
             else:
-                self.elements.append((None, el))
+                self.elements.append(Literal(el))
 
         inferred_element_type: Optional[ts.ColumnType] = ts.InvalidType()
-        for idx, val in self.elements:
-            if idx is not None:
-                inferred_element_type = inferred_element_type.supertype(self.components[idx].col_type)
-            else:
-                inferred_element_type = inferred_element_type.supertype(ts.ColumnType.infer_literal_type(val))
+        for expr in self.elements:
+            inferred_element_type = inferred_element_type.supertype(expr.col_type)
             if inferred_element_type is None:
                 raise excs.Error('Could not infer element type of array')
 
@@ -59,14 +52,15 @@ class InlineArray(Expr):
         else:
             raise excs.Error(f'Element type is not a valid dtype for an array: {inferred_element_type}')
 
+        self.components.extend(self.elements)
         self.id = self._create_id()
 
     def __str__(self) -> str:
-        elem_strs = [str(val) if val is not None else str(self.components[idx]) for idx, val in self.elements]
-        return f'pxt.array([{", ".join(elem_strs)}])'
+        elem_strs = [str(expr) for expr in self.elements]
+        return f'[{", ".join(elem_strs)}]'
 
-    def _equals(self, other: InlineArray) -> bool:
-        return self.elements == other.elements
+    def _equals(self, _: InlineList) -> bool:
+        return True  # Always true if components match
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('elements', self.elements)]
@@ -75,35 +69,21 @@ class InlineArray(Expr):
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        result = [None] * len(self.elements)
-        for i, (child_idx, val) in enumerate(self.elements):
-            if child_idx is not None:
-                result[i] = data_row[self.components[child_idx].slot_idx]
-            else:
-                result[i] = copy.deepcopy(val)
-        data_row[self.slot_idx] = np.array(result)
+        data_row[self.slot_idx] = np.array([data_row[el.slot_idx] for el in self.components])
 
     def _as_dict(self) -> dict:
-        return {'elements': self.elements, **super()._as_dict()}
+        return super()._as_dict()
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
-        assert 'elements' in d
-        arg: list[Any] = []
-        for idx, val in d['elements']:
-            assert idx != -1
-            if idx is not None:
-                arg.append(components[idx])
-            else:
-                arg.append(val)
+    def _from_dict(cls, _: dict, components: list[Expr]) -> Expr:
         try:
-            return cls(tuple(arg))
+            return cls(components)
         except excs.Error:
             # For legacy compatibility reasons, we need to try constructing as an `InlineList`.
             # This is because in schema versions <= 19, `InlineArray` was serialized incorrectly, and
             # there is no way to determine the correct expression type until the subexpressions are
             # loaded and their types are known.
-            return InlineList(tuple(arg))
+            return InlineList(components)
 
 
 class InlineDict(Expr):
@@ -225,5 +205,5 @@ class InlineList(Expr):
         return super()._as_dict()
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, _: dict, components: list[Expr]) -> Expr:
         return cls(components)
