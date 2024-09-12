@@ -12,7 +12,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 ```
 """
 
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import pixeltable.exceptions as excs
 import pixeltable.func as func

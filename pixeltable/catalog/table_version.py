@@ -833,7 +833,7 @@ class TableVersion:
         return update_targets
 
     def propagate_update(
-            self, plan: Optional['exec.ExecNode'], where_clause: Optional[sql.ColumnElement[bool]],
+            self, plan: Optional['exec.ExecNode'], where_clause: Optional[sql.ColumnElement],
             recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
             timestamp: float, cascade: bool, show_progress: bool = True
     ) -> UpdateStatus:
