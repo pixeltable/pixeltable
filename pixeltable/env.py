@@ -440,6 +440,7 @@ class Env:
             self._spacy_nlp = spacy.load('en_core_web_sm')
         check('tiktoken')
         check('openai')
+        check('anthropic')
         check('together')
         check('fireworks')
         check('label_studio_sdk')

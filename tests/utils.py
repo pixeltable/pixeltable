@@ -13,6 +13,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import catalog
 from pixeltable.catalog.globals import UpdateStatus
@@ -354,6 +355,13 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
 def skip_test_if_not_installed(package) -> None:
     if not Env.get().is_installed_package(package):
         pytest.skip(f'Package `{package}` is not installed.')
+
+
+def skip_test_if_no_client(client_name: str) -> None:
+    try:
+        _ = Env.get().get_client(client_name)
+    except excs.Error as exc:
+        pytest.skip(str(exc))
 
 
 def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = None) -> None:
