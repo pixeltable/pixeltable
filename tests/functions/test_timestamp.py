@@ -67,19 +67,7 @@ class TestTimestamp:
 
         for pxt_fn, dt_fn, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
-            # We have to call astimezone(default_tz.key) on the timestamps that come out of the DB. They are already
-            # in the default time zone at that point (Postgres does this for us); *but* SQLAlchemy returns them
-            # expressed as offsets rather than IANA time zones (even though Postgres thinks in terms of IANA zones).
-            # This matters only in the specific case of `replace()`: if we `replace()` the year, month, and day in a
-            # way that crosses a daylight savings boundary, the offset will change if the time zone is expressed as
-            # an IANA zone, but remain the same if it's expressed as a hardcoded offset. Thus `replace()` will give
-            # different answers in each case. None of the other functions depend on this distinction.
-            # TODO: We might consider explicitly casting timestamps to the IANA time zone in SqlScanNode, as soon as
-            # we receive them from SQLAlchemy. That would be a more consistent solution for the user (it would also
-            # result in the datetime being cast back into a naive datetime if no default_tz is configured, which is
-            # probably the most logical thing to do anyway). However, doing this would require inspecting every value
-            # returned from the DB, so I didn't want to make that change lightly.
-            actual = t.select(out=pxt_fn(t.dt.astimezone(default_tz.key), *args, **kwargs)).collect()['out']
+            actual = t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
             expected = [dt_fn(dt.astimezone(default_tz), *args, **kwargs) for dt in test_dts]
             assert actual == expected, debug_str()
 
