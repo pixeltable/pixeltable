@@ -4,6 +4,7 @@ import glob
 import hashlib
 import logging
 import os
+import warnings
 from collections import OrderedDict, defaultdict, namedtuple
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
+import pixeltable.exceptions as excs
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -56,6 +58,16 @@ class FileCache:
     """
     __instance: Optional[FileCache] = None
 
+    cache: OrderedDict[str, CacheEntry]
+    total_size: int
+    capacity_bytes: int
+    num_requests: int
+    num_hits: int
+    num_evictions: int
+    keys_retrieved_this_session: set[str]  # keys retrieved (downloaded or accessed) this session
+    keys_evicted_this_session: set[str]  # keys that were evicted after having been retrieved this session
+    has_warned_about_eviction: bool
+
     ColumnStats = namedtuple('FileCacheColumnStats', ('tbl_id', 'col_id', 'num_files', 'total_size'))
     CacheStats = namedtuple(
         'FileCacheStats',
@@ -73,12 +85,15 @@ class FileCache:
         cls.__instance = cls()
 
     def __init__(self):
-        self.cache: OrderedDict[str, CacheEntry] = OrderedDict()
+        self.cache = OrderedDict()
         self.total_size = 0
         self.capacity_bytes = Env.get()._cache_size_mb * (1 << 20)
         self.num_requests = 0
         self.num_hits = 0
         self.num_evictions = 0
+        self.keys_retrieved_this_session = set()
+        self.keys_evicted_this_session = set()
+        self.has_warned_about_eviction = False
         paths = glob.glob(str(Env.get().file_cache_dir / '*'))
         entries = [CacheEntry.from_file(Path(path_str)) for path_str in paths]
         # we need to insert entries in access order
@@ -106,6 +121,9 @@ class FileCache:
             entries_to_remove = list(self.cache.values())
             _logger.debug(f'clearing {self.num_files()} entries from file cache')
             self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
+            self.keys_retrieved_this_session.clear()
+            self.keys_evicted_this_session.clear()
+            self.has_warned_about_eviction = False
         else:
             entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
             _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
@@ -133,6 +151,7 @@ class FileCache:
         entry.last_used = file_info.st_mtime
         self.cache.move_to_end(key, last=True)
         self.num_hits += 1
+        self.keys_retrieved_this_session.add(key)
         _logger.debug(f'file cache hit for {url}')
         return path
 
@@ -142,9 +161,18 @@ class FileCache:
         """
         file_info = os.stat(str(path))
         self.ensure_capacity(file_info.st_size)
-
         key = self._url_hash(url)
         assert key not in self.cache
+        if not self.has_warned_about_eviction and key in self.keys_evicted_this_session:
+            warnings.warn(
+                f'A media file was retrieved multiple times this session:\n'
+                f'{url}\n'
+                'It had to be downloaded a second time, because it was evicted from the file cache after its first access.\n'
+                'Consider increasing the cache size; you can do this by setting the value of `cache_size_mb` in $PIXELTABLE_HOME/config.toml.',
+                excs.PixeltableWarning
+            )
+            self.has_warned_about_eviction = True
+        self.keys_retrieved_this_session.add(key)
         entry = CacheEntry(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime, path.suffix)
         self.cache[key] = entry
         self.total_size += entry.size
@@ -162,6 +190,10 @@ class FileCache:
             _, lru_entry = self.cache.popitem(last=False)
             self.total_size -= lru_entry.size
             self.num_evictions += 1
+            if lru_entry.key in self.keys_retrieved_this_session:
+                # This key was retrieved at some point earlier this session and is now being evicted.
+                # Make a record of the eviction, so that we can generate a warning later if the key is retrieved again.
+                self.keys_evicted_this_session.add(lru_entry.key)
             os.remove(str(lru_entry.path))
             _logger.debug(f'evicted entry for cell {lru_entry.key} from file cache')
 

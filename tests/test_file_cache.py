@@ -2,7 +2,10 @@ import os
 from collections import OrderedDict
 from pathlib import Path
 
+import pytest
+
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
@@ -57,3 +60,9 @@ class TestFileCache:
         # modified time, we should get an exact match vs. the LRU tracker.
         files.sort(key=lambda f: f.stat().st_mtime)
         assert [f.stat().st_size for f in files] == [size for _, size in lru_tracker.values()]
+
+        # Re-insert some images and check that we get a "previously evicted" warning
+        with pytest.warns(excs.PixeltableWarning, match='A media file was retrieved multiple times') as record:
+            t.insert({'index': len(image_files) + n, 'image': image_urls[n]} for n in range(10))
+        # Check that we saw the warning exactly once
+        assert sum(r.category is excs.PixeltableWarning for r in record) == 1

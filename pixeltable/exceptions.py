@@ -1,6 +1,9 @@
-from typing import List, Any
-from types import TracebackType
 from dataclasses import dataclass
+from types import TracebackType
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 
 class Error(Exception):
@@ -9,9 +12,13 @@ class Error(Exception):
 
 @dataclass
 class ExprEvalError(Exception):
-    expr: Any  # exprs.Expr, but we're not importing pixeltable.exprs to avoid circular imports
+    expr: 'exprs.Expr'
     expr_msg: str
     exc: Exception
     exc_tb: TracebackType
-    input_vals: List[Any]
+    input_vals: list[Any]
     row_num: int
+
+
+class PixeltableWarning(Warning):
+    pass
