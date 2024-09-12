@@ -49,6 +49,11 @@ jobs:
             python-version: "3.9"
             test-category: "ipynb"
             poetry-options: "--with dev"
+          # Linting, type-checking, docstrings validation, etc.
+          - os: ubuntu-22.04
+            python-version: "3.9"
+            test-category: "lint"
+            poetry-options: "--with dev"
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -134,6 +139,12 @@ jobs:
         run: |
           ./scripts/prepare-nb-tests.sh
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
+      - name: Type-check the code
+        if: ${{ matrix.test-category == 'lint' }}
+        run: mypy pixeltable/*.py pixeltable/catalog pixeltable/ext pixeltable/functions
+      - name: Validate docstrings
+        if: ${{ matrix.test-category == 'lint' }}
+        run: mkdocs build --strict
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
@@ -143,28 +154,3 @@ jobs:
       - name: Print utilization info
         if: ${{ !startsWith(matrix.os, 'ubuntu') }}
         run: df -h
-  lint:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.9"]
-    steps:
-    - name: Checkout repo
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    - name: Install python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install type-checking and linting tools
-      run: |
-        python -m pip install --upgrade pip
-        python -m pip install mypy 'sqlalchemy[mypy]' pylint ruff
-        # TODO We should really be using poetry for this
-        python -m pip install mkdocs==1.6.0 mkdocstrings==0.25.1 mkdocs-material==9.5.23 mkdocstrings-python==1.10.2 griffe==0.45.0 black
-        python -m pip install -e .
-    - name: Analyze code with mypy
-      run: mypy pixeltable/*.py pixeltable/catalog pixeltable/ext pixeltable/functions
-    - name: Validate docstrings
-      run: mkdocs build --strict
