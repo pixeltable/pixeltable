@@ -52,8 +52,15 @@ class TestTimestamp:
         ]
 
         for pxt_fn, dt_fn, args, kwargs in test_params:
-            assert (t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
-                == [dt_fn(dt, *args, **kwargs) for dt in test_dts]), pxt_fn.name
+            assert (
+                t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
+                    == [dt_fn(dt, *args, **kwargs) for dt in test_dts]
+            ), pxt_fn.name
+            # run the same timestamp function again, but force its execution to happen in Python
+            assert (
+                t.select(out=pxt_fn(t.dt.apply(lambda x: x, col_type=pxt.TimestampType()), *args, **kwargs))
+                    .collect()['out'] == [dt_fn(dt, *args, **kwargs) for dt in test_dts]
+            ), pxt_fn.name
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:

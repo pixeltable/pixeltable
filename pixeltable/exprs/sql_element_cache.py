@@ -14,6 +14,7 @@ class SqlElementCache:
         self.cache = {}
 
     def __getitem__(self, e: Expr) -> Optional[sql.ColumnElement]:
+        """Returns the sql.ColumnElement for the given Expr, or None if Expr.to_sql() returns None."""
         try:
             return self.cache[e.id]
         except KeyError:
@@ -23,6 +24,7 @@ class SqlElementCache:
         return el
 
     def contains(self, items: Union[Expr, Iterable[Expr]]) -> bool:
+        """Returns True if every item has a (non-None) sql.ColumnElement."""
         if isinstance(items, Expr):
             return self[items] is not None
         return all(self[e] is not None for e in items)

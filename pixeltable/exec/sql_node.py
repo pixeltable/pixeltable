@@ -35,7 +35,7 @@ class SqlNode(ExecNode):
         self.sql_exprs = exprs.ExprSet(select_list)
         # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
         for iter_arg in row_builder.unstored_iter_args.values():
-            sql_subexprs = iter_arg.subexprs(filter=lambda e: sql_elements[e] is not None, traverse_matches=False)
+            sql_subexprs = iter_arg.subexprs(filter=sql_elements.contains, traverse_matches=False)
             for e in sql_subexprs:
                 self.sql_exprs.add(e)
         super().__init__(row_builder, self.sql_exprs, [], None)  # we materialize self.sql_exprs

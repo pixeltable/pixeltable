@@ -30,7 +30,7 @@ class Function(abc.ABC):
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
     # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
-    _to_sql: Optional[Callable[..., Optional[sql.ColumnElement]]]
+    _to_sql: Callable[..., Optional[sql.ColumnElement]]
 
 
     def __init__(
@@ -43,7 +43,7 @@ class Function(abc.ABC):
         self.is_method = is_method
         self.is_property = is_property
         self._conditional_return_type = None
-        self._to_sql = self.__to_sql
+        self._to_sql = self.__default_to_sql
 
     @property
     def name(self) -> str:
@@ -108,8 +108,8 @@ class Function(abc.ABC):
         self._to_sql = fn
         return fn
 
-    def __to_sql(self, *args: Any, **kwargs: Any) -> Optional[sql.ColumnElement]:
-        """Translate a call to this function with the given arguments to its SQLAlchemy equivalent."""
+    def __default_to_sql(self, *args: Any, **kwargs: Any) -> Optional[sql.ColumnElement]:
+        """The default implementation of SQL translation, which provides no translation"""
         return None
 
     def __eq__(self, other: object) -> bool:
