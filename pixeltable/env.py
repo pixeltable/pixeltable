@@ -139,26 +139,11 @@ class Env:
     @default_time_zone.setter
     def default_time_zone(self, tz: Optional[ZoneInfo]) -> None:
         """
-        This is not a publicly visible setter. It is only intended to be set during initialization
-        or for testing purposes.
+        This is not a publicly visible setter; it is only for testing purposes.
         """
-        if tz is None:
-            # System time zone. Since Postgres and Python may interpret the default time zone differently,
-            # we first set the Postgres time zone to its default, and then query Postgres for the IANA zone
-            # name, using the latter to set an explicit default time zone in Python.
-            with self.engine.begin() as conn:
-                conn.execute(sql.text('SET TIME ZONE LOCAL'))
-            with self.engine.begin() as conn:
-                tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
-                assert isinstance(tz_name, str)
-                self._logger.info(f'Database time zone is now: LOCAL; IANA equivalent is (from Postgres): {tz_name}')
-                self._default_time_zone = ZoneInfo(tz_name)
-        else:
-            with self.engine.begin() as conn:
-                # Explicit default time zone.
-                conn.execute(sql.text(f"SET TIME ZONE '{tz.key}'"))
-                self._logger.info(f'Database time zone is now: {tz.key}')
-                self._default_time_zone = tz
+        tz_name = None if tz is None else tz.key
+        self.engine.dispose()
+        self._create_engine(time_zone_name=tz_name)
 
     def configure_logging(
         self,
@@ -327,46 +312,57 @@ class Env:
         self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
         self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
 
-        if reinit_db:
-            if self._store_db_exists():
-                self._drop_store_db()
-
-        if not self._store_db_exists():
-            self._logger.info(f'creating database at {self.db_url}')
-            self._create_store_db()
-            self._create_engine(echo=echo)
-            from pixeltable.metadata import schema
-            schema.Base.metadata.create_all(self._sa_engine)
-            metadata.create_system_info(self._sa_engine)
-        else:
-            self._logger.info(f'found database {self.db_url}')
-            self._create_engine(echo=echo)
-
-        print(f'Connected to Pixeltable database at: {self.db_url}')
-
-        self._default_time_zone: Optional[ZoneInfo] = None
-
-        # Configure default time zone
-        tz: Optional[ZoneInfo] = None
-        tzname = os.environ.get('PXT_TIME_ZONE', self._config.get('pxt_time_zone', None))
-        if tzname is not None:
-            if not isinstance(tzname, str):
+        tz_name = os.environ.get('PXT_TIME_ZONE', self._config.get('pxt_time_zone', None))
+        if tz_name is not None:
+            # Validate tzname
+            if not isinstance(tz_name, str):
                 self._logger.error(f'Invalid time zone specified in configuration.')
             else:
                 try:
-                    tz = ZoneInfo(tzname)
+                    _ = ZoneInfo(tz_name)
                 except ZoneInfoNotFoundError:
-                    self._logger.error(f'Invalid time zone specified in configuration: {tzname}')
-        # Set the default time zone; we need to do this even if tz is None, in order to set the system time zone
-        # properly
-        self.default_time_zone = tz
+                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
+
+        if reinit_db and self._store_db_exists():
+            self._drop_store_db()
+
+        should_create_db = not self._store_db_exists()
+
+        if should_create_db:
+            self._logger.info(f'creating database at: {self.db_url}')
+            self._create_store_db()
+        else:
+            self._logger.info(f'found database at: {self.db_url}')
+
+        # Create the SQLAlchemy engine. This will also set the default time zone.
+        self._create_engine(time_zone_name=tz_name, echo=echo)
+
+        if should_create_db:
+            from pixeltable.metadata import schema
+            schema.Base.metadata.create_all(self._sa_engine)
+            metadata.create_system_info(self._sa_engine)
+
+        print(f'Connected to Pixeltable database at: {self.db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
         self.log_to_stdout(False)
 
-    def _create_engine(self, echo: bool = False) -> None:
-        self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True, isolation_level='AUTOCOMMIT')
+    def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
+        connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
+        self._sa_engine = sql.create_engine(
+            self.db_url,
+            echo=echo,
+            future=True,
+            isolation_level='AUTOCOMMIT',
+            connect_args=connect_args,
+        )
+        self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        with self.engine.begin() as conn:
+            tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
+            assert isinstance(tz_name, str)
+            self._logger.info(f'Database time zone is now: {tz_name}')
+            self._default_time_zone = ZoneInfo(tz_name)
 
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
@@ -381,7 +377,6 @@ class Env:
                 return result == 1
         finally:
             engine.dispose()
-
 
     def _create_store_db(self) -> None:
         assert self._db_name is not None
