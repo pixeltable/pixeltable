@@ -4,10 +4,10 @@ import logging
 from typing import Optional, Union
 from uuid import UUID
 
-import pixeltable
+import pixeltable as pxt
+from pixeltable import exprs
 
 from .column import Column
-from .globals import _POS_COLUMN_NAME
 from .table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
@@ -81,7 +81,7 @@ class TableVersionPath:
             return None
         return self.base.find_tbl_version(id)
 
-    def __getattr__(self, col_name: str) -> 'pixeltable.exprs.ColumnRef':
+    def __getattr__(self, col_name: str) -> exprs.ColumnRef:
         """Return a ColumnRef for the given column name."""
         from pixeltable.exprs import ColumnRef
         if col_name not in self.tbl_version.cols_by_name:
@@ -91,14 +91,13 @@ class TableVersionPath:
         col = self.tbl_version.cols_by_name[col_name]
         return ColumnRef(col)
 
-    def __getitem__(self, index: object) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.dataframe.DataFrame']:
+    def __getitem__(self, index: object) -> Union[exprs.ColumnRef, pxt.DataFrame]:
         """Return a ColumnRef for the given column name, or a DataFrame for the given slice.
         """
         if isinstance(index, str):
             # basically <tbl>.<colname>
             return self.__getattr__(index)
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self).__getitem__(index)
+        return pxt.DataFrame(self).__getitem__(index)
 
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
