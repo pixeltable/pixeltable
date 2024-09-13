@@ -1,22 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional, List, Any, Dict
 
 import sqlalchemy as sql
 
+import pixeltable.exceptions as excs
+import pixeltable.index as index
+import pixeltable.type_system as ts
 from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
 from .globals import ComparisonOperator
 from .literal import Literal
 from .row_builder import RowBuilder
-import pixeltable.exceptions as excs
-import pixeltable.index as index
-import pixeltable.type_system as ts
+from .sql_element_cache import SqlElementCache
 
 
 class Comparison(Expr):
+    is_search_arg_comparison: bool
+    operator: ComparisonOperator
+
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
         super().__init__(ts.BoolType())
         self.operator = operator
@@ -62,8 +65,8 @@ class Comparison(Expr):
     def _op2(self) -> Expr:
         return self.components[1]
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
-        left = self._op1.sql_expr()
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ClauseElement]:
+        left = sql_elements.get(self._op1)
         if self.is_search_arg_comparison:
             # reference the index value column if there is an index and this is not a snapshot
             # (indices don't apply to snapshots)
@@ -76,7 +79,7 @@ class Comparison(Expr):
                 assert len(idx_info) == 1
                 left = idx_info[0].val_col.sa_col
 
-        right = self._op2.sql_expr()
+        right = sql_elements.get(self._op2)
         if left is None or right is None:
             return None
 

@@ -8,6 +8,7 @@ from .data_row import DataRow
 from .expr import Expr
 from .globals import print_slice
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class ArraySlice(Expr):
@@ -41,7 +42,7 @@ class ArraySlice(Expr):
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         return super()._id_attrs() + [('index', self.index)]
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

@@ -22,7 +22,7 @@ class ExecProfile:
         self.eval_count = [0] * row_builder.num_materialized
         self.row_builder = row_builder
 
-    def print(self, num_rows: int) -> str:
+    def print(self, num_rows: int) -> None:
         for i in range(self.row_builder.num_materialized):
             if self.eval_count[i] == 0:
                 continue
@@ -96,7 +96,7 @@ class RowBuilder:
                 expr = ColumnRef(col)
                 expr = self._record_unique_expr(expr, recursive=False)
             self.add_table_column(col, expr.slot_idx)
-            self.output_exprs.append(expr)
+            self.output_exprs.add(expr)
 
         # default eval ctx: all output exprs
         self.default_eval_ctx = self.create_eval_ctx(list(self.output_exprs), exclude=unique_input_exprs)
@@ -193,7 +193,7 @@ class RowBuilder:
                 expr.components[i] = self._record_unique_expr(c, True)
         assert expr.slot_idx is None
         expr.slot_idx = self._next_slot_idx()
-        self.unique_exprs.append(expr)
+        self.unique_exprs.add(expr)
         return expr
 
     def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
@@ -227,18 +227,25 @@ class RowBuilder:
         # merge dependencies and convert to list
         return sorted(set().union(*[dependencies[i] for i in target_slot_idxs]))
 
-    def substitute_exprs(self, expr_list: list, remove_duplicates: bool = True) -> None:
-        """Substitutes exprs with their executable counterparts from unique_exprs and optionally removes duplicates"""
-        i = 0
-        unique_ids: set[int] = set()  # slot idxs within expr_list
-        while i < len(expr_list):
-            unique_expr = self.unique_exprs[expr_list[i]]
-            if unique_expr.slot_idx in unique_ids and remove_duplicates:
-                del expr_list[i]
-            else:
-                expr_list[i] = unique_expr
-                unique_ids.add(unique_expr.slot_idx)
-                i += 1
+    def set_slot_idxs(self, expr_list: list[Expr], remove_duplicates: bool = True) -> None:
+        """
+        Recursively sets slot_idx in expr_list and its components
+
+        remove_duplicates == True: removes duplicates in-place
+        """
+        for e in expr_list:
+            self.__set_slot_idxs_aux(e)
+        if remove_duplicates:
+            deduped = list(ExprSet(expr_list))
+            expr_list[:] = deduped
+
+    def __set_slot_idxs_aux(self, e: Expr) -> None:
+        """Recursively sets slot_idx in e and its components"""
+        if e not in self.unique_exprs:
+            return
+        e.slot_idx = self.unique_exprs[e].slot_idx
+        for c in e.components:
+            self.__set_slot_idxs_aux(c)
 
     def get_dependencies(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> List[Expr]:
         """
