@@ -21,10 +21,11 @@ class TestTimestamp:
         "2019-01-01T00:00:01-08:00"
     ]
 
-    def test_all(self, reset_db) -> None:
+    def test_methods(self, reset_db) -> None:
         # Set a default time zone that's likely to be different from the system time zone of most test environments
         default_tz = ZoneInfo('America/Anchorage')
         Env.get().default_time_zone = default_tz
+
         t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
@@ -70,6 +71,10 @@ class TestTimestamp:
             actual = t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
             expected = [dt_fn(dt.astimezone(default_tz), *args, **kwargs) for dt in test_dts]
             assert actual == expected, debug_str()
+            actual_py = t.select(
+                out=pxt_fn(t.dt.apply(lambda x: x, col_type=pxt.TimestampType()), *args, **kwargs)
+            ).collect()['out']
+            assert actual_py == expected, debug_str()
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
@@ -153,3 +158,18 @@ class TestTimestamp:
         assert str(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00-04:00')) == "dt >= '2024-06-30T20:00:00-08:00'"
         assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00')).count() == 960
         assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00-04:00')).count() == 1200
+
+    def test_make_ts(self, reset_db) -> None:
+        t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
+        test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
+        validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
+        from pixeltable.functions.timestamp import make_timestamp
+        res = t.select(
+            out=make_timestamp(
+                year=t.dt.year, month=t.dt.month, day=t.dt.day, hour=t.dt.hour,
+                # omit minute in order to force FunctionCall.sql_expr() to deal with kw args
+                second=t.dt.second)
+        ).collect()
+        assert (
+            res['out'] == [datetime(dt.year, dt.month, dt.day, dt.hour, minute=0, second=dt.second) for dt in test_dts]
+        )

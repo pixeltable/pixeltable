@@ -13,6 +13,8 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 from datetime import datetime
 from typing import Optional
 
+import sqlalchemy as sql
+
 import pixeltable.func as func
 from pixeltable.utils.code import local_public_names
 
@@ -28,6 +30,11 @@ def year(self: datetime) -> int:
     return self.year
 
 
+@year.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('year', self)
+
+
 @func.udf(is_property=True)
 def month(self: datetime) -> int:
     """
@@ -36,6 +43,11 @@ def month(self: datetime) -> int:
     Equivalent to [`datetime.month`](https://docs.python.org/3/library/datetime.html#datetime.datetime.month).
     """
     return self.month
+
+
+@month.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('month', self)
 
 
 @func.udf(is_property=True)
@@ -48,6 +60,11 @@ def day(self: datetime) -> int:
     return self.day
 
 
+@day.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('day', self)
+
+
 @func.udf(is_property=True)
 def hour(self: datetime) -> int:
     """
@@ -56,6 +73,11 @@ def hour(self: datetime) -> int:
     Equivalent to [`datetime.hour`](https://docs.python.org/3/library/datetime.html#datetime.datetime.hour).
     """
     return self.hour
+
+
+@hour.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('hour', self)
 
 
 @func.udf(is_property=True)
@@ -68,6 +90,11 @@ def minute(self: datetime) -> int:
     return self.minute
 
 
+@minute.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('minute', self)
+
+
 @func.udf(is_property=True)
 def second(self: datetime) -> int:
     """
@@ -78,6 +105,11 @@ def second(self: datetime) -> int:
     return self.second
 
 
+@second.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('second', self)
+
+
 @func.udf(is_property=True)
 def microsecond(self: datetime) -> int:
     """
@@ -86,6 +118,11 @@ def microsecond(self: datetime) -> int:
     Equivalent to [`datetime.microsecond`](https://docs.python.org/3/library/datetime.html#datetime.datetime.microsecond).
     """
     return self.microsecond
+
+
+@microsecond.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('microseconds', self) - sql.extract('second', self) * 1000000
 
 
 @func.udf(is_method=True)
@@ -110,6 +147,12 @@ def weekday(self: datetime) -> int:
     """
     return self.weekday()
 
+
+@weekday.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('isodow', self) - 1
+
+
 @func.udf(is_method=True)
 def isoweekday(self: datetime) -> int:
     """
@@ -118,6 +161,11 @@ def isoweekday(self: datetime) -> int:
     Equivalent to [`datetime.isoweekday()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isoweekday).
     """
     return self.isoweekday()
+
+
+@isoweekday.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('isodow', self)
 
 
 @func.udf(is_method=True)
@@ -159,7 +207,33 @@ def strftime(self: datetime, format: str) -> str:
     return self.strftime(format)
 
 
-# @func.udf(is_method=True)
+@func.udf(is_method=True)
+def make_timestamp(
+        year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, microsecond: int = 0
+) -> datetime:
+    """
+    Create a timestamp.
+
+    Equivalent to [`datetime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime).
+    """
+    return datetime(year, month, day, hour, minute, second, microsecond)
+
+
+@make_timestamp.to_sql
+def _(
+        year: sql.ColumnElement, month: sql.ColumnElement, day: sql.ColumnElement,
+        hour: sql.ColumnElement = sql.literal(0), minute: sql.ColumnElement = sql.literal(0),
+        second: sql.ColumnElement = sql.literal(0), microsecond: sql.ColumnElement = sql.literal(0)
+) -> sql.ColumnElement:
+    return sql.func.make_timestamp(
+        sql.cast(year, sql.Integer),
+        sql.cast(month, sql.Integer),
+        sql.cast(day, sql.Integer),
+        sql.cast(hour, sql.Integer),
+        sql.cast(minute, sql.Integer),
+        sql.cast(second + microsecond / 1000000.0, sql.Double))
+
+# @func.udf
 # def date(self: datetime) -> datetime:
 #     """
 #     Return the date part of the datetime.

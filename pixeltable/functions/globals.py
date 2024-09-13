@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Optional, Union, Any
 
 import pixeltable.func as func
 import pixeltable.type_system as ts
@@ -24,6 +24,11 @@ class sum(func.Aggregator):
 
     def value(self) -> Union[int, float]:
         return self.sum
+
+# @sum.to_sql
+# def _(val: 'sqlalchemy.ColumnElements') -> Optional['sqlalchemy.ColumnElements']:
+#     import sqlalchemy as sql
+#     return sql.sql.functions.sum(val)
 
 
 @func.uda(update_types=[ts.IntType()], value_type=ts.IntType(), allows_window=True, requires_order_by=False)

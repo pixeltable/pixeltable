@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 class Aggregator(abc.ABC):
     def update(self, *args: Any, **kwargs: Any) -> None:
         pass
+
     def value(self) -> Any:
         pass
 

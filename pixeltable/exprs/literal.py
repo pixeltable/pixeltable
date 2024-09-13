@@ -11,6 +11,7 @@ from pixeltable.env import Env
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class Literal(Expr):
@@ -47,13 +48,16 @@ class Literal(Expr):
             return f"'{self.val.astimezone(default_tz).isoformat()}'"
         return str(self.val)
 
+    def __repr__(self) -> str:
+        return f'Literal({self.val!r})'
+
     def _equals(self, other: Literal) -> bool:
         return self.val == other.val
 
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         return super()._id_attrs() + [('val', self.val)]
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         # we need to return something here so that we can generate a Where clause for predicates
         # that involve literals (like Where c > 0)
         return sql.sql.expression.literal(self.val)
