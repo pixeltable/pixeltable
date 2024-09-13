@@ -44,6 +44,40 @@ class TableVersion:
         have TableVersions reference those
     - mutable TableVersions record their TableVersionPath, which is needed for expr evaluation in updates
     """
+
+    id: UUID
+    name: str
+    version: int
+    comment: str
+    num_retained_versions: int
+    schema_version: int
+    view_md: Optional[schema.ViewMd]
+    is_snapshot: bool
+    effective_version: Optional[int]
+    path: Optional[pxt.catalog.TableVersionPath]
+    base: Optional[TableVersion]
+    next_col_id: int
+    next_idx_id: int
+    next_rowid: int
+    predicate: Optional[exprs.Expr]
+    mutable_views: List[TableVersion]
+    iterator_cls: Optional[Type[ComponentIterator]]
+    iterator_args: Optional[exprs.InlineDict]
+    num_iterator_cols: int
+
+    # contains complete history of columns, incl dropped ones
+    cols: list[Column]
+    # contains only user-facing (named) columns visible in this version
+    cols_by_name: dict[str, Column]
+    # contains only columns visible in this version, both system and user
+    cols_by_id: dict[int, Column]
+    # needed for _create_tbl_md()
+    idx_md: dict[int, schema.IndexMd]
+    # contains only actively maintained indices
+    idxs_by_name: dict[str, TableVersion.IndexInfo]
+
+    external_stores: dict[str, pxt.io.ExternalStore]
+
     @dataclasses.dataclass
     class IndexInfo:
         id: int
@@ -95,13 +129,13 @@ class TableVersion:
         from pixeltable import exprs
         predicate_dict = None if not is_view or tbl_md.view_md.predicate is None else tbl_md.view_md.predicate
         self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None
-        self.mutable_views: List[TableVersion] = []  # targets for update propagation
+        self.mutable_views = []  # targets for update propagation
         if self.base is not None and not self.base.is_snapshot and not self.is_snapshot:
             self.base.mutable_views.append(self)
 
         # component view-specific initialization
-        self.iterator_cls: Optional[Type[ComponentIterator]] = None
-        self.iterator_args: Optional[exprs.InlineDict] = None
+        self.iterator_cls = None
+        self.iterator_args = None
         self.num_iterator_cols = 0
         if is_view and tbl_md.view_md.iterator_class_fqn is not None:
             module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
@@ -119,12 +153,12 @@ class TableVersion:
         cat.tbl_versions[(self.id, self.effective_version)] = self
 
         # init schema after we determined whether we're a component view, and before we create the store table
-        self.cols: list[Column] = []  # contains complete history of columns, incl dropped ones
-        self.cols_by_name: dict[str, Column] = {}  # contains only user-facing (named) columns visible in this version
-        self.cols_by_id: dict[int, Column] = {}  # contains only columns visible in this version, both system and user
-        self.idx_md = tbl_md.index_md  # needed for _create_tbl_md()
-        self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}  # contains only actively maintained indices
-        self.external_stores: dict[str, pxt.io.ExternalStore] = {}
+        self.cols = []
+        self.cols_by_name = {}
+        self.cols_by_id = {}
+        self.idx_md = tbl_md.index_md
+        self.idxs_by_name = {}
+        self.external_stores = {}
 
         self._init_schema(tbl_md, schema_version_md)
 
@@ -719,8 +753,9 @@ class TableVersion:
             plan, updated_cols, recomputed_cols = (
                 Planner.create_update_plan(self.path, update_spec, [], where, cascade)
             )
+            from pixeltable.exprs import SqlElementCache
             result = self.propagate_update(
-                plan, where.sql_expr() if where is not None else None, recomputed_cols,
+                plan, where.sql_expr(SqlElementCache()) if where is not None else None, recomputed_cols,
                 base_versions=[], conn=conn, timestamp=time.time(), cascade=cascade, show_progress=True)
             result.updated_cols = updated_cols
             return result
@@ -802,7 +837,7 @@ class TableVersion:
         return update_targets
 
     def propagate_update(
-            self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ClauseElement],
+            self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ColumnElement],
             recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
             timestamp: float, cascade: bool, show_progress: bool = True
     ) -> UpdateStatus:
@@ -843,6 +878,7 @@ class TableVersion:
         assert self.is_insertable()
         from pixeltable.exprs import Expr
         from pixeltable.plan import Planner
+        sql_where_clause: Optional[Expr] = None
         if where is not None:
             if not isinstance(where, Expr):
                 raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
@@ -850,10 +886,10 @@ class TableVersion:
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+            sql_where_clause = analysis_info.sql_where_clause
 
-        analysis_info = Planner.analyze(self.path, where)
         with Env.get().engine.begin() as conn:
-            num_rows = self.propagate_delete(analysis_info.sql_where_clause, base_versions=[], conn=conn, timestamp=time.time())
+            num_rows = self.propagate_delete(sql_where_clause, base_versions=[], conn=conn, timestamp=time.time())
 
         status = UpdateStatus(num_rows=num_rows)
         return status
@@ -867,7 +903,8 @@ class TableVersion:
         Returns:
             number of deleted rows
         """
-        sql_where_clause = where.sql_expr() if where is not None else None
+        from pixeltable.exprs import SqlElementCache
+        sql_where_clause = where.sql_expr(SqlElementCache()) if where is not None else None
         num_rows = self.store_tbl.delete_rows(
             self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause,
             conn=conn)

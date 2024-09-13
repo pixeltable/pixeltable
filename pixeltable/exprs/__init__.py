@@ -19,5 +19,6 @@ from .object_ref import ObjectRef
 from .row_builder import RowBuilder, ColumnSlotIdx, ExecProfile
 from .rowid_ref import RowidRef
 from .similarity_expr import SimilarityExpr
+from .sql_element_cache import SqlElementCache
 from .type_cast import TypeCast
 from .variable import Variable

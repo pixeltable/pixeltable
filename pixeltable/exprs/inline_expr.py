@@ -13,6 +13,7 @@ from .data_row import DataRow
 from .expr import Expr
 from .literal import Literal
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class InlineArray(Expr):
@@ -63,7 +64,7 @@ class InlineArray(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('elements', self.elements)]
 
-    def sql_expr(self) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -117,7 +118,7 @@ class InlineList(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('elements', self.elements)]
 
-    def sql_expr(self) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
 
     def eval(self, data_row: DataRow, _: RowBuilder) -> None:
@@ -167,7 +168,7 @@ class InlineDict(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('expr_dict', self.expr_dict)]
 
-    def sql_expr(self) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
 
     def eval(self, data_row: DataRow, _: RowBuilder) -> None:

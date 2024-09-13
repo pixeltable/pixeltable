@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Optional, List, Any, Dict, Tuple
+from .sql_element_cache import SqlElementCache
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -72,7 +73,7 @@ class RowidRef(Expr):
         self.tbl = tbl.tbl_version
         self.tbl_id = self.tbl.id
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         tbl = self.tbl if self.tbl is not None else catalog.Catalog.get().tbl_versions[(self.tbl_id, None)]
         rowid_cols = tbl.store_tbl.rowid_columns()
         return rowid_cols[self.rowid_component_idx]
