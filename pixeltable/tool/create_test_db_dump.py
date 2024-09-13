@@ -4,6 +4,7 @@ import logging
 import os
 import pathlib
 import subprocess
+import sys
 from typing import Any
 
 import pixeltable_pgserver
@@ -23,6 +24,12 @@ _logger = logging.getLogger('pixeltable')
 class Dumper:
 
     def __init__(self, output_dir='target', db_name='pxtdump') -> None:
+        if sys.version_info >= (3, 10):
+            raise RuntimeError(
+                'This script must be run on Python 3.9. '
+                'DB dumps are incompatible across versions due to issues with pickling anonymous UDFs.'
+            )
+
         self.output_dir = pathlib.Path(output_dir)
         shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', '~/.pixeltable')).expanduser()
         mock_home_dir = self.output_dir / '.pixeltable'
