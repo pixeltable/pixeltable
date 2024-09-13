@@ -38,7 +38,7 @@ class DocumentSectionMetadata:
     sourceline: Optional[int] = None
     # the stack of headings up to the most recently observed one;
     # eg, if the most recent one was an h2, 'headings' would contain keys 1 and 2, but nothing below that
-    heading: Optional[Dict[int, str]] = None
+    heading: Optional[Dict[str, str]] = None
 
     # pdf-specific metadata
     page: Optional[int] = None
@@ -236,7 +236,7 @@ class DocumentSplitter(ComponentIterator):
         accumulated_text = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
 
-        headings: Dict[int, str] = {}   # current state of observed headings (level -> text)
+        headings: Dict[str, str] = {}   # current state of observed headings (level -> text)
         sourceline = 0  # most recently seen sourceline
 
         def update_metadata(el: bs4.Tag) -> None:
@@ -244,12 +244,11 @@ class DocumentSplitter(ComponentIterator):
             nonlocal headings, sourceline
             sourceline = el.sourceline
             if el.name in _HTML_HEADINGS:
-                level = int(el.name[1])
                 # remove the previously seen lower levels
-                lower_levels = [l for l in headings if l > level]
+                lower_levels = [l for l in headings if l > el.name]
                 for l in lower_levels:
                     del headings[l]
-                headings[level] = el.get_text().strip()
+                headings[el.name] = el.get_text().strip()
 
         def emit() -> None:
             nonlocal accumulated_text, headings, sourceline
@@ -295,13 +294,14 @@ class DocumentSplitter(ComponentIterator):
         # current state
         accumulated_text = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
-        headings: Dict[int, str] = {}   # current state of observed headings (level -> text)
+        headings: Dict[str, str] = {}   # current state of observed headings (level -> text)
 
         def update_headings(heading: Dict) -> None:
             # update current state
             nonlocal headings
             assert 'type' in heading and heading['type'] == 'heading'
-            level = heading['attrs']['level']
+            lint = heading['attrs']['level']
+            level = f'h{lint}'
             text = heading['children'][0]['raw'].strip()
             # remove the previously seen lower levels
             lower_levels = [l for l in headings.keys() if l > level]

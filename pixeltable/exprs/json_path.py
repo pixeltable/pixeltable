@@ -9,6 +9,12 @@ import pixeltable
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from .data_row import DataRow
+from .expr import Expr
+from .globals import print_slice
+from .json_mapper import JsonMapper
+from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 from .data_row import DataRow
 from .expr import Expr
@@ -140,7 +146,7 @@ class JsonPath(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('path_elements', self.path_elements)]
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         """
         Postgres appears to have a bug: jsonb_path_query('{a: [{b: 0}, {b: 1}]}', '$.a.b') returns
         *two* rows (each containing col val 0), not a single row with [0, 0].

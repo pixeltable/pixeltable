@@ -1,14 +1,15 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
-import copy
+
+from typing import Optional
 
 import sqlalchemy as sql
 
+import pixeltable.type_system as ts
+from .data_row import DataRow
 from .expr import Expr, ExprScope
 from .json_mapper import JsonMapper
-from .data_row import DataRow
 from .row_builder import RowBuilder
-import pixeltable.type_system as ts
+from .sql_element_cache import SqlElementCache
 
 
 class ObjectRef(Expr):
@@ -32,7 +33,7 @@ class ObjectRef(Expr):
     def _equals(self, other: ObjectRef) -> bool:
         return self.owner is other.owner
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
