@@ -109,7 +109,7 @@ class TableVersion:
             self.iterator_cls = getattr(module, class_name)
             self.iterator_args = exprs.Expr.from_dict(tbl_md.view_md.iterator_args)
             assert isinstance(self.iterator_args, exprs.InlineDict)
-            output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_dict())
+            output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.unwrap())
             self.num_iterator_cols = len(output_schema)
             assert tbl_md.view_md.iterator_args is not None
 

@@ -23,9 +23,6 @@ class InlineArray(Expr):
     elements: list[Expr]
 
     def __init__(self, elements: Iterable):
-        # we need to call this in order to populate self.components
-        super().__init__(ts.ArrayType((len(elements),), ts.IntType()))
-
         self.elements = []
         for el in elements:
             if isinstance(el, Expr):
@@ -42,16 +39,17 @@ class InlineArray(Expr):
                 raise excs.Error('Could not infer element type of array')
 
         if inferred_element_type.is_scalar_type():
-            self.col_type = ts.ArrayType((len(self.elements),), inferred_element_type)
+            col_type = ts.ArrayType((len(self.elements),), inferred_element_type)
         elif inferred_element_type.is_array_type():
             assert isinstance(inferred_element_type, ts.ArrayType)
-            self.col_type = ts.ArrayType(
+            col_type = ts.ArrayType(
                 (len(self.elements), *inferred_element_type.shape),
                 ts.ColumnType.make_type(inferred_element_type.dtype)
             )
         else:
             raise excs.Error(f'Element type is not a valid dtype for an array: {inferred_element_type}')
 
+        super().__init__(col_type)
         self.components.extend(self.elements)
         self.id = self._create_id()
 
@@ -86,6 +84,53 @@ class InlineArray(Expr):
             return InlineList(components)
 
 
+class InlineList(Expr):
+    """
+    List 'literal' which can use Exprs as values.
+    """
+
+    elements: list[Expr]
+
+    def __init__(self, elements: Iterable):
+        self.elements = []
+        for el in elements:
+            if isinstance(el, Expr):
+                self.elements.append(el)
+            elif isinstance(el, list) or isinstance(el, tuple):
+                self.elements.append(InlineList(el))
+            elif isinstance(el, dict):
+                self.elements.append(InlineDict(el))
+            else:
+                self.elements.append(Literal(el))
+
+        super().__init__(ts.JsonType())
+        self.components.extend(self.elements)
+        self.id = self._create_id()
+
+    def __str__(self) -> str:
+        elem_strs = [str(expr) for expr in self.elements]
+        return f'[{", ".join(elem_strs)}]'
+
+    def _equals(self, _: InlineList) -> bool:
+        return True  # Always true if components match
+
+    def _id_attrs(self) -> list[tuple[str, Any]]:
+        return super()._id_attrs() + [('elements', self.elements)]
+
+    def sql_expr(self) -> Optional[sql.ColumnElement]:
+        return None
+
+    def eval(self, data_row: DataRow, _: RowBuilder) -> None:
+        data_row[self.slot_idx] = [data_row[el.slot_idx] for el in self.components]
+
+    def _as_dict(self) -> dict:
+        return super()._as_dict()
+
+    @classmethod
+    def _from_dict(cls, _: dict, components: list[Expr]) -> Expr:
+        return cls(components)
+
+
 class InlineDict(Expr):
     """
     Dictionary 'literal' which can use Exprs as values.
@@ -94,8 +139,6 @@ class InlineDict(Expr):
     expr_dict: dict[str, Expr]
 
     def __init__(self, d: dict[str, Any]):
-        super().__init__(ts.JsonType())
-
         self.expr_dict = {}
         for key, val in d.items():
             if not isinstance(key, str):
@@ -109,6 +152,7 @@ class InlineDict(Expr):
             else:
                 self.expr_dict[key] = Literal(val)
 
+        super().__init__(ts.JsonType())
         self.components.extend(self.expr_dict.values())
         self.id = self._create_id()
 
@@ -121,19 +165,19 @@ class InlineDict(Expr):
         return list(self.expr_dict.keys()) == list(other.expr_dict.keys())
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('dict_items', self.expr_dict)]
+        return super()._id_attrs() + [('expr_dict', self.expr_dict)]
 
     def sql_expr(self) -> Optional[sql.ColumnElement]:
         return None
 
-    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+    def eval(self, data_row: DataRow, _: RowBuilder) -> None:
         assert len(self.expr_dict) == len(self.components)
         data_row[self.slot_idx] = {
             key: data_row[self.components[i].slot_idx]
             for i, key in enumerate(self.expr_dict.keys())
         }
 
-    def to_dict(self) -> dict[str, Any]:
+    def unwrap(self) -> dict[str, Any]:
         """Deconstructs this expression into a dictionary by unwrapping all Literals,
         InlineDicts, and InlineLists."""
         return InlineDict._to_dict_element(self)
@@ -157,51 +201,3 @@ class InlineDict(Expr):
         assert len(d['keys']) == len(components)
         arg = dict(zip(d['keys'], components))
         return InlineDict(arg)
-
-
-class InlineList(Expr):
-    """
-    List 'literal' which can use Exprs as values.
-    """
-
-    elements: list[Expr]
-
-    def __init__(self, elements: Iterable):
-        super().__init__(ts.JsonType())
-
-        self.elements = []
-        for el in elements:
-            if isinstance(el, Expr):
-                self.elements.append(el)
-            elif isinstance(el, list) or isinstance(el, tuple):
-                self.elements.append(InlineList(el))
-            elif isinstance(el, dict):
-                self.elements.append(InlineDict(el))
-            else:
-                self.elements.append(Literal(el))
-
-        self.components.extend(self.elements)
-        self.id = self._create_id()
-
-    def __str__(self) -> str:
-        elem_strs = [str(expr) for expr in self.elements]
-        return f'[{", ".join(elem_strs)}]'
-
-    def _equals(self, _: InlineList) -> bool:
-        return True  # Always true if components match
-
-    def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('elements', self.elements)]
-
-    def sql_expr(self) -> Optional[sql.ColumnElement]:
-        return None
-
-    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        data_row[self.slot_idx] = [data_row[el.slot_idx] for el in self.components]
-
-    def _as_dict(self) -> dict:
-        return super()._as_dict()
-
-    @classmethod
-    def _from_dict(cls, _: dict, components: list[Expr]) -> Expr:
-        return cls(components)
