@@ -94,16 +94,16 @@ class TestExprs:
         _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
         _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
         sql_elements = pxt.exprs.SqlElementCache()
-        e = sql_elements[((t.c1 == 'test string') & (t.c2 > 50))]
+        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
         assert len(e.clauses) == 2
 
-        e = sql_elements[((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0))]
+        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)))
         assert len(e.clauses) == 3
-        e = sql_elements[((t.c1 == 'test string') | (t.c2 > 50))]
+        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50)))
         assert len(e.clauses) == 2
-        e = sql_elements[((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0))]
+        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0)))
         assert len(e.clauses) == 3
-        e = sql_elements[(~(t.c1 == 'test string'))]
+        e = sql_elements.get((~(t.c1 == 'test string')))
         assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         with pytest.raises(TypeError) as exc_info:

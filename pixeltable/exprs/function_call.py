@@ -313,7 +313,7 @@ class FunctionCall(Expr):
             if component_idx is None:
                 kwargs[param_name] = sql.literal(arg)
             else:
-                arg_element = sql_elements[self.components[component_idx]]
+                arg_element = sql_elements.get(self.components[component_idx])
                 if arg_element is None:
                     return None
                 kwargs[param_name] = arg_element
@@ -323,7 +323,7 @@ class FunctionCall(Expr):
             if component_idx is None:
                 args.append(sql.literal(arg))
             else:
-                arg_element = sql_elements[self.components[component_idx]]
+                arg_element = sql_elements.get(self.components[component_idx])
                 if arg_element is None:
                     return None
                 args.append(arg_element)

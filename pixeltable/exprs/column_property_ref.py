@@ -57,7 +57,7 @@ class ColumnPropertyRef(Expr):
             return self._col_ref.col.sa_errormsg_col
         if self.prop == self.Property.FILEURL:
             # the file url is stored as the column value
-            return sql_elements[self._col_ref]
+            return sql_elements.get(self._col_ref)
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -74,5 +74,6 @@ class ColumnPropertyRef(Expr):
     @classmethod
     def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
         assert 'prop' in d
+        assert isinstance(components[0], ColumnRef)
         return cls(components[0], cls.Property(d['prop']))
 

@@ -68,7 +68,7 @@ class CompoundPredicate(Expr):
         return (matches, self.make_conjunction(non_matches))
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
-        sql_exprs = [sql_elements[op] for op in self.components]
+        sql_exprs = [sql_elements.get(op) for op in self.components]
         if any(e is None for e in sql_exprs):
             return None
         if self.operator == LogicalOperator.NOT:

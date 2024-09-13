@@ -24,7 +24,7 @@ class IsNull(Expr):
         return True
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ClauseElement]:
-        e = sql_elements[self.components[0]]
+        e = sql_elements.get(self.components[0])
         if e is None:
             return None
         return e == None

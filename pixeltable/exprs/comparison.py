@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional, List, Any, Dict
 
 import sqlalchemy as sql
@@ -67,7 +66,7 @@ class Comparison(Expr):
         return self.components[1]
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ClauseElement]:
-        left = sql_elements[self._op1]
+        left = sql_elements.get(self._op1)
         if self.is_search_arg_comparison:
             # reference the index value column if there is an index and this is not a snapshot
             # (indices don't apply to snapshots)
@@ -80,7 +79,7 @@ class Comparison(Expr):
                 assert len(idx_info) == 1
                 left = idx_info[0].val_col.sa_col
 
-        right = sql_elements[self._op2]
+        right = sql_elements.get(self._op2)
         if left is None or right is None:
             return None
 

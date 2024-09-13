@@ -45,7 +45,7 @@ class SqlNode(ExecNode):
         for rowid_ref in [e for e in self.sql_exprs if isinstance(e, exprs.RowidRef)]:
             rowid_ref.set_tbl(tbl)
 
-        sql_select_list = [sql_elements[e] for e in self.sql_exprs]
+        sql_select_list = [sql_elements.get(e) for e in self.sql_exprs]
         assert len(sql_select_list) == len(self.sql_exprs)
         assert all(e is not None for e in sql_select_list)
         self.set_pk = set_pk
@@ -232,10 +232,10 @@ class SqlScanNode(SqlNode):
             if isinstance(e, exprs.SimilarityExpr):
                 order_by_clause.append(e.as_order_by_clause(asc))
             else:
-                order_by_clause.append(sql_elements[e].desc() if not asc else sql_elements[e])
+                order_by_clause.append(sql_elements.get(e).desc() if not asc else sql_elements.get(e))
 
         if where_clause is not None:
-            sql_where_clause = sql_elements[where_clause]
+            sql_where_clause = sql_elements.get(where_clause)
             assert sql_where_clause is not None
             self.stmt = self.stmt.where(sql_where_clause)
         if len(order_by_clause) > 0:

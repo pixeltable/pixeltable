@@ -56,8 +56,8 @@ class ArithmeticExpr(Expr):
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         assert self.col_type.is_int_type() or self.col_type.is_float_type() or self.col_type.is_json_type()
-        left = sql_elements[self._op1]
-        right = sql_elements[self._op2]
+        left = sql_elements.get(self._op1)
+        right = sql_elements.get(self._op2)
         if left is None or right is None:
             return None
         if self.operator == ArithmeticOperator.ADD:
