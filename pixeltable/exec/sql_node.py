@@ -18,7 +18,7 @@ class SqlNode(ExecNode):
 
     def __init__(
             self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
-            select_list: Iterable[exprs.Expr], set_pk: bool = False
+            select_list: Iterable[exprs.Expr], sql_elements: exprs.SqlElementCache, set_pk: bool = False
     ):
         """
         Initialize self.stmt with expressions derived from select_list.
@@ -35,8 +35,9 @@ class SqlNode(ExecNode):
         self.sql_exprs = exprs.ExprSet(select_list)
         # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
         for iter_arg in row_builder.unstored_iter_args.values():
-            sql_subexprs = iter_arg.subexprs(filter=lambda e: e.sql_expr() is not None, traverse_matches=False)
-            [self.sql_exprs.append(e) for e in sql_subexprs]
+            sql_subexprs = iter_arg.subexprs(filter=sql_elements.contains, traverse_matches=False)
+            for e in sql_subexprs:
+                self.sql_exprs.add(e)
         super().__init__(row_builder, self.sql_exprs, [], None)  # we materialize self.sql_exprs
 
         # change rowid refs against a base table to rowid refs against the target table, so that we minimize
@@ -44,7 +45,7 @@ class SqlNode(ExecNode):
         for rowid_ref in [e for e in self.sql_exprs if isinstance(e, exprs.RowidRef)]:
             rowid_ref.set_tbl(tbl)
 
-        sql_select_list = [e.sql_expr() for e in self.sql_exprs]
+        sql_select_list = [sql_elements.get(e) for e in self.sql_exprs]
         assert len(sql_select_list) == len(self.sql_exprs)
         assert all(e is not None for e in sql_select_list)
         self.set_pk = set_pk
@@ -204,7 +205,8 @@ class SqlScanNode(SqlNode):
             set_pk: if True, sets the primary for each DataRow
             exact_version_only: tables for which we only want to see rows created at the current version
         """
-        super().__init__(tbl, row_builder, select_list, set_pk=set_pk)
+        sql_elements = exprs.SqlElementCache()
+        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=set_pk)
         # create Select stmt
         if order_by_items is None:
             order_by_items = []
@@ -230,10 +232,10 @@ class SqlScanNode(SqlNode):
             if isinstance(e, exprs.SimilarityExpr):
                 order_by_clause.append(e.as_order_by_clause(asc))
             else:
-                order_by_clause.append(e.sql_expr().desc() if not asc else e.sql_expr())
+                order_by_clause.append(sql_elements.get(e).desc() if not asc else sql_elements.get(e))
 
         if where_clause is not None:
-            sql_where_clause = where_clause.sql_expr()
+            sql_where_clause = sql_elements.get(where_clause)
             assert sql_where_clause is not None
             self.stmt = self.stmt.where(sql_where_clause)
         if len(order_by_clause) > 0:
@@ -272,7 +274,8 @@ class SqlLookupNode(SqlNode):
             sa_key_cols: list of key columns in the store table
             key_vals: list of key values to look up
         """
-        super().__init__(tbl, row_builder, select_list, set_pk=True)
+        sql_elements = exprs.SqlElementCache()
+        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=True)
         target = tbl.tbl_version  # the stored table we're scanning
         refd_tbl_ids = exprs.Expr.list_tbl_ids(self.sql_exprs)
         self.stmt = self.create_from_clause(tbl, self.stmt, refd_tbl_ids)

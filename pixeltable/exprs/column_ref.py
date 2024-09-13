@@ -7,6 +7,7 @@ import sqlalchemy as sql
 from .expr import Expr
 from .data_row import DataRow
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 import pixeltable.iterators as iters
 import pixeltable.exceptions as excs
 import pixeltable.catalog as catalog
@@ -92,7 +93,7 @@ class ColumnRef(Expr):
     def __repr__(self) -> str:
         return f'ColumnRef({self.col!r})'
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
