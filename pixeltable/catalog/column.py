@@ -24,7 +24,7 @@ class Column:
     """
     def __init__(
             self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
-            computed_with: Optional[Union['exprs.Expr', Callable]] = None,
+            computed_with: Optional[Union[exprs.Expr, Callable]] = None,
             is_pk: bool = False, stored: bool = True,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
             schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
