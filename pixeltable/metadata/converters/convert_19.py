@@ -1,4 +1,5 @@
 from typing import Any, Optional
+
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
@@ -39,11 +40,17 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
                 updated_v['components'] = updated_components
             return k, updated_v
         if v['_classname'] == 'InlineDict':
-            updated_dict_items = []
+            components = v.get('components')
+            keys = []
+            updated_components = []
             for key, idx, val in v['dict_items']:
-                # Replace any -1's that show up as indices with Nones
-                updated_dict_items.append((key, None if idx == -1 else idx, val))
-            updated_v = v.copy()
-            updated_v['dict_items'] = updated_dict_items
+                keys.append(key)
+                if idx is not None and idx >= 0:
+                    updated_components.append(components[idx])
+                else:
+                    updated_components.append({'val': val, '_classname': 'Literal'})
+            updated_v = {'keys': keys, '_classname': 'InlineDict'}
+            if len(updated_components) > 0:
+                updated_v['components'] = updated_components
             return k, updated_v
     return None

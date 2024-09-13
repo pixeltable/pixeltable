@@ -90,76 +90,74 @@ class InlineDict(Expr):
     """
     Dictionary 'literal' which can use Exprs as values.
     """
-    def __init__(self, d: dict):
+
+    expr_dict: dict[str, Expr]
+
+    def __init__(self, d: dict[str, Any]):
         super().__init__(ts.JsonType())
-        # dict_items contains
-        # - for Expr fields: (key, index into components, None)
-        # - for non-Expr fields: (key, None, value)
-        self.dict_items: list[tuple[str, Optional[int], Any]] = []
+
+        self.expr_dict = {}
         for key, val in d.items():
             if not isinstance(key, str):
-                raise excs.Error(f'Dictionary requires string keys, {key} has type {type(key)}')
-            val = copy.deepcopy(val)
-            if isinstance(val, dict):
-                val = InlineDict(val)
-            if isinstance(val, list) or isinstance(val, tuple):
-                val = InlineList(val)
+                raise excs.Error(f'Dictionary requires string keys; {key} has type {type(key)}')
             if isinstance(val, Expr):
-                self.dict_items.append((key, len(self.components), None))
-                self.components.append(val)
+                self.expr_dict[key] = val
+            elif isinstance(val, dict):
+                self.expr_dict[key] = InlineDict(val)
+            elif isinstance(val, list) or isinstance(val, tuple):
+                self.expr_dict[key] = InlineList(val)
             else:
-                self.dict_items.append((key, None, val))
+                self.expr_dict[key] = Literal(val)
 
+        self.components.extend(self.expr_dict.values())
         self.id = self._create_id()
 
     def __str__(self) -> str:
-        item_strs: list[str] = []
-        i = 0
-        for key, idx, val in self.dict_items:
-            if idx is not None:
-                item_strs.append(f"'{key}': {str(self.components[i])}")
-                i += 1
-            else:
-                item_strs.append(f"'{key}': {val!r}")
+        item_strs = list(f"'{key}': {str(expr)}" for key, expr in self.expr_dict.items())
         return '{' + ', '.join(item_strs) + '}'
 
     def _equals(self, other: InlineDict) -> bool:
-        return self.dict_items == other.dict_items
+        # The values are just the components, which have already been checked
+        return list(self.expr_dict.keys()) == list(other.expr_dict.keys())
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('dict_items', self.dict_items)]
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return the original dict used to construct this"""
-        return {key: val if idx is None else self.components[idx] for key, idx, val in self.dict_items}
+        return super()._id_attrs() + [('dict_items', self.expr_dict)]
 
     def sql_expr(self) -> Optional[sql.ColumnElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        result = {}
-        for key, idx, val in self.dict_items:
-            assert isinstance(key, str)
-            if idx is not None:
-                result[key] = data_row[self.components[idx].slot_idx]
-            else:
-                result[key] = copy.deepcopy(val)
-        data_row[self.slot_idx] = result
+        assert len(self.expr_dict) == len(self.components)
+        data_row[self.slot_idx] = {
+            key: data_row[self.components[i].slot_idx]
+            for i, key in enumerate(self.expr_dict.keys())
+        }
 
-    def _as_dict(self) -> dict:
-        return {'dict_items': self.dict_items, **super()._as_dict()}
+    def to_dict(self) -> dict[str, Any]:
+        """Deconstructs this expression into a dictionary by unwrapping all Literals,
+        InlineDicts, and InlineLists."""
+        return InlineDict._to_dict_element(self)
+
+    @classmethod
+    def _to_dict_element(cls, expr: Expr) -> Any:
+        if isinstance(expr, Literal):
+            return expr.val
+        if isinstance(expr, InlineDict):
+            return {key: cls._to_dict_element(val) for key, val in expr.expr_dict.items()}
+        if isinstance(expr, InlineList):
+            return [cls._to_dict_element(el) for el in expr.elements]
+        return expr
+
+    def _as_dict(self) -> dict[str, Any]:
+        return {'keys': list(self.expr_dict.keys()), **super()._as_dict()}
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
-        assert 'dict_items' in d
-        arg: dict[str, Any] = {}
-        for key, idx, val in d['dict_items']:
-            assert idx != -1
-            if idx is not None:
-                arg[key] = components[idx]
-            else:
-                arg[key] = val
-        return cls(arg)
+        assert 'keys' in d
+        assert len(d['keys']) == len(components)
+        arg = dict(zip(d['keys'], components))
+        return InlineDict(arg)
+
 
 class InlineList(Expr):
     """
