@@ -3,8 +3,6 @@ from datetime import datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-import pytest
-
 import pixeltable as pxt
 from pixeltable.env import Env
 
@@ -30,12 +28,9 @@ class TestTimestamp:
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
 
-        from pixeltable.functions.timestamp import (day, hour, isocalendar,
-                                                    isoformat, isoweekday,
-                                                    microsecond, minute, month,
-                                                    posix_timestamp, replace,
-                                                    second, strftime,
-                                                    toordinal, weekday, year)
+        from pixeltable.functions.timestamp import (day, hour, isocalendar, isoformat, isoweekday, microsecond, minute,
+                                                    month, posix_timestamp, replace, second, strftime, toordinal,
+                                                    weekday, year)
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
             # (pxt_fn, str_fn, args, kwargs)
@@ -160,6 +155,7 @@ class TestTimestamp:
         assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00-04:00')).count() == 1200
 
     def test_make_ts(self, reset_db) -> None:
+        Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
@@ -171,5 +167,5 @@ class TestTimestamp:
                 second=t.dt.second)
         ).collect()
         assert (
-            res['out'] == [datetime(dt.year, dt.month, dt.day, dt.hour, minute=0, second=dt.second) for dt in test_dts]
+            res['out'] == [dt.replace(minute=0).astimezone(Env.get().default_time_zone) for dt in test_dts]
         )
