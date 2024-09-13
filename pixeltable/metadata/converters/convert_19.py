@@ -15,22 +15,28 @@ def _(engine: sql.engine.Engine) -> None:
 
 def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
     if isinstance(v, dict) and '_classname' in v:
+        # The way InlineArray is represented changed in v20. Previously, literal values were stored
+        # directly in the Inline expr; now we store them in Literal sub-exprs. This converter
+        # constructs new Literal exprs for the literal values in InlineArray, interleaving them
+        # with non-literal exprs into the correct sequence.
         if v['_classname'] == 'InlineArray':
-            # Assume an `InlineArray` from schema version <= 19 should actually be an
-            # `InlineList`. This was formerly ambiguous in metadata,
-            # but assuming it's an `InlineList` maps to the most common deployed use cases.
-            updated_elements = []
+            components = v.get('components')  # Might be None, but that's ok
+            updated_components = []
             for idx, val in v['elements']:
-                # Replace any -1's that show up as indices with Nones
-                # (this corrects for an older legacy inconsistency)
-                updated_elements.append((None if idx == -1 else idx, val))
-            updated_v = v.copy()
-            updated_v['elements'] = updated_elements
-            if 'is_json' in updated_v:
-                if updated_v['is_json']:
-                    # If the InlineArray is JSON, convert it to a list
-                    updated_v['_classname'] = 'InlineList'
-                del updated_v['is_json']
+                # idx >= 0, then this is a non-literal sub-expr. Otherwise, idx could be either
+                # None or -1, for legacy reasons (which are now obviated).
+                if idx is not None and idx >= 0:
+                    updated_components.append(components[idx])
+                else:
+                    updated_components.append({'val': val, '_classname': 'Literal'})
+            # InlineList was split out from InlineArray in v20. If is_json=True, then this is
+            # actually an InlineList. If is_json=False, then we assume it's an InlineArray for now,
+            # but it might actually be transformed into an InlineList when it is instantiated
+            # (unfortunately, there is no way to disambiguate at this stage; see comments in
+            # InlineArray._from_dict() for more details).
+            updated_v = {'_classname': 'InlineList' if v.get('is_json') else 'InlineArray'}
+            if len(updated_components) > 0:
+                updated_v['components'] = updated_components
             return k, updated_v
         if v['_classname'] == 'InlineDict':
             updated_dict_items = []

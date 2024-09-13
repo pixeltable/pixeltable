@@ -189,6 +189,7 @@ class TestMigration:
         t = pxt.get_table('base_table')
         status = t.insert(
             c1='test string 21',
+            c1n='test string 21',
             c2=21,
             c3=21.0,
             c4=True,
