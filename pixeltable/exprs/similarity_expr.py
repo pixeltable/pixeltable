@@ -1,4 +1,5 @@
 from typing import Optional, List, Any
+from .sql_element_cache import SqlElementCache
 
 import sqlalchemy as sql
 import PIL.Image
@@ -56,7 +57,7 @@ class SimilarityExpr(Expr):
     def __str__(self) -> str:
         return f'{self.components[0]}.similarity({self.components[1]})'
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         if not isinstance(self.components[1], Literal):
              raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = self.components[1].val

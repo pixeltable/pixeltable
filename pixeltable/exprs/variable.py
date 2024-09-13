@@ -6,6 +6,7 @@ import pixeltable.type_system as ts
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class Variable(Expr):
@@ -31,7 +32,7 @@ class Variable(Expr):
     def __str__(self) -> str:
         return self.name
 
-    def sql_expr(self) -> NoReturn:
+    def sql_expr(self, _: SqlElementCache) -> NoReturn:
         raise NotImplementedError()
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> NoReturn:

@@ -547,6 +547,7 @@ class Table(SchemaObject):
             metric: str = 'cosine'
     ) -> None:
         """Add an index to the table.
+
         Args:
             col_name: name of column to index
             idx_name: name of index, which needs to be unique for the table; if not provided, a name will be generated

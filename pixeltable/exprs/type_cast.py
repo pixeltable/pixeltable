@@ -1,4 +1,3 @@
-import json
 from typing import Optional, Dict, List, Tuple, Any
 
 import sqlalchemy as sql
@@ -6,6 +5,7 @@ import sqlalchemy as sql
 import pixeltable.type_system as ts
 from .expr import DataRow, Expr
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class TypeCast(Expr):
@@ -29,9 +29,9 @@ class TypeCast(Expr):
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         return super()._id_attrs() + [('new_type', self.col_type)]
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         """
-        `sql_expr` is unimplemented for now, in order to sidestep potentially thorny
+        sql_expr() is unimplemented for now, in order to sidestep potentially thorny
         questions about consistency of doing type conversions in both Python and Postgres.
         """
         return None

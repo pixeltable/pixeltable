@@ -10,6 +10,7 @@ import pixeltable.type_system as ts
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class InlineDict(Expr):
@@ -73,7 +74,7 @@ class InlineDict(Expr):
         """Return the original dict used to construct this"""
         return {key: val if idx is None else self.components[idx] for key, idx, val in self.dict_items}
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

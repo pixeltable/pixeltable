@@ -2,12 +2,12 @@ from typing import Any, Optional
 
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.exprs import Expr, FunctionCall
-from pixeltable.func import FunctionRegistry, CallableFunction
+from pixeltable.func import FunctionRegistry
 from .data_row import DataRow
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class MethodRef(Expr):
@@ -53,7 +53,7 @@ class MethodRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('method_name', self.method_name)]
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

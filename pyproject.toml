@@ -83,6 +83,7 @@ torch = "^2.2"
 torchvision = "^0.17"
 pyarrow = ">=13.0.0"
 openai = "^1.10.0"
+anthropic = ">=0.34.2"
 together = "^1.1"
 fireworks-ai = "^0.13.0"
 boto3 = "==1.35.5"  # Locking a specific version of boto3 dramatically improves `poetry lock` runtimes
