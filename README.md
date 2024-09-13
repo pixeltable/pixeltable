@@ -16,7 +16,7 @@ Pixeltable is a Python library that lets ML Engineers and Data Scientists focus 
 
 ### What problems does Pixeltable solve?
 
-Today’s solutions for AI app development require extensive custom coding and infrastructure plumbing. Tracking lineage and versions between and across data transformations, models, and deployment is cumbersome.
+Today's solutions for AI app development require extensive custom coding and infrastructure plumbing. Tracking lineage and versions between and across data transformations, models, and deployments is cumbersome. Pixeltable provides a declarative interface for working with text, images, embeddings, and even video, enabling users to store, transform, index, and iterate on data within a single table interface.
 
 ## 💾 Installation
 
