@@ -11,6 +11,7 @@ from .data_row import DataRow
 from .expr import Expr
 from .inline_dict import InlineDict
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class InlineArray(Expr):
@@ -82,7 +83,7 @@ class InlineArray(Expr):
     def _id_attrs(self) -> List[Tuple[str, Any]]:
         return super()._id_attrs() + [('elements', self.elements)]
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

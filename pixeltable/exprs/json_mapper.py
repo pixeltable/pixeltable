@@ -1,13 +1,14 @@
 from __future__ import annotations
+
 from typing import Optional, List, Dict
 
 import sqlalchemy as sql
 
-from .expr import Expr, ExprScope, _GLOBAL_SCOPE
-from .data_row import DataRow
-from .row_builder import RowBuilder
-import pixeltable.catalog as catalog
 import pixeltable.type_system as ts
+from .data_row import DataRow
+from .expr import Expr, ExprScope, _GLOBAL_SCOPE
+from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class JsonMapper(Expr):
@@ -86,7 +87,7 @@ class JsonMapper(Expr):
     def _equals(self, other: JsonMapper) -> bool:
         return True
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

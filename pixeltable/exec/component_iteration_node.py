@@ -19,7 +19,7 @@ class ComponentIterationNode(ExecNode):
         super().__init__(input.row_builder, [], [], input)
         self.view = view
         iterator_args = [view.iterator_args.copy()]
-        self.row_builder.substitute_exprs(iterator_args)
+        self.row_builder.set_slot_idxs(iterator_args)
         self.iterator_args = iterator_args[0]
         assert isinstance(self.iterator_args, exprs.InlineDict)
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args])

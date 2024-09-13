@@ -9,6 +9,7 @@ from .data_row import DataRow
 from .expr import Expr
 from .globals import LogicalOperator
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 import pixeltable.type_system as ts
 
 
@@ -66,8 +67,8 @@ class CompoundPredicate(Expr):
         non_matches = [op for op in self.components if not condition(op)]
         return (matches, self.make_conjunction(non_matches))
 
-    def sql_expr(self) -> Optional[sql.ClauseElement]:
-        sql_exprs = [op.sql_expr() for op in self.components]
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+        sql_exprs = [sql_elements.get(op) for op in self.components]
         if any(e is None for e in sql_exprs):
             return None
         if self.operator == LogicalOperator.NOT:

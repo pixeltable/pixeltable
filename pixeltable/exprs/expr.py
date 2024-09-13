@@ -7,11 +7,12 @@ import inspect
 import json
 import sys
 import typing
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union, overload
-from typing_extensions import Self
+from typing import (TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union,
+                    overload)
 from uuid import UUID
 
 import sqlalchemy as sql
+from typing_extensions import Self
 
 import pixeltable
 import pixeltable.catalog as catalog
@@ -22,6 +23,8 @@ import pixeltable.type_system as ts
 from .data_row import DataRow
 from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator
 
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 class ExprScope:
     """
@@ -50,21 +53,29 @@ class Expr(abc.ABC):
     - during eval(), components can only be accessed via self.components; any Exprs outside of that won't
       have slot_idx set
     """
+
+    col_type: ts.ColumnType
+
+    # the subexprs are needed to construct this expr
+    components: list[Expr]
+
+    # each instance has an id that is used for equality comparisons
+    # - set by the subclass's __init__()
+    # - produced by _create_id()
+    # - not expected to survive a serialize()/deserialize() roundtrip
+    id: Optional[int]
+
+    # index of the expr's value in the data row:
+    # - set for all materialized exprs
+    # - None: not executable
+    # - not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
+    slot_idx: Optional[int]
+
     def __init__(self, col_type: ts.ColumnType):
         self.col_type = col_type
-
-        # each instance has an id that is used for equality comparisons
-        # - set by the subclass's __init__()
-        # - produced by _create_id()
-        # - not expected to survive a serialize()/deserialize() roundtrip
-        self.id: Optional[int] = None
-
-        # index of the expr's value in the data row:
-        # - set for all materialized exprs
-        # - None: not executable
-        # - not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
-        self.slot_idx: Optional[int] = None
-        self.components: List[Expr] = []  # the subexprs that are needed to construct this expr
+        self.components = []
+        self.id = None
+        self.slot_idx = None
 
     def dependencies(self) -> List[Expr]:
         """
@@ -363,7 +374,7 @@ class Expr(abc.ABC):
         return None
 
     @abc.abstractmethod
-    def sql_expr(self) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: 'exprs.SqlElementCache') -> Optional[sql.ColumnElement]:
         """
         If this expr can be materialized directly in SQL:
         - returns a ColumnElement
