@@ -1,7 +1,6 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-banner.png" alt="Pixeltable" width="45%" />
-
-# Unifying Data, Models, and Orchestration for AI Products
+<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-banner.png" alt="Pixeltable" width="30%" />
+<br></br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-darkblue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white)
