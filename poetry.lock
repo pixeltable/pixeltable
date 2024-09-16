@@ -2136,7 +2136,7 @@ tqdm = ["tqdm"]
 name = "ftfy"
 version = "6.2.0"
 description = "Fixes mojibake and other problems with Unicode, after the fact"
-optional = false
+optional = true
 python-versions = ">=3.8,<4"
 files = [
     {file = "ftfy-6.2.0-py3-none-any.whl", hash = "sha256:f94a2c34b76e07475720e3096f5ca80911d152406fbde66fdb45c4d0c9150026"},
@@ -5951,7 +5951,7 @@ extra = ["pygments (>=2.12)"]
 name = "pymupdf"
 version = "1.24.2"
 description = "A high performance Python library for data extraction, analysis, conversion & manipulation of PDF (and other) documents."
-optional = false
+optional = true
 python-versions = ">=3.8"
 files = [
     {file = "PyMuPDF-1.24.2-cp310-none-macosx_10_9_x86_64.whl", hash = "sha256:5faed2bbdfbea80db1bbaa5944888f27a672f2e10e16e61f7d4ff73429a00506"},
@@ -5994,7 +5994,7 @@ PyMuPDFb = "1.24.1"
 name = "pymupdfb"
 version = "1.24.1"
 description = "MuPDF shared libraries for PyMuPDF."
-optional = false
+optional = true
 python-versions = ">=3.8"
 files = [
     {file = "PyMuPDFb-1.24.1-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:37179e363bf69ce9be637937c5469957b96968341dabe3ce8f4b690a82e9ad92"},
@@ -9042,7 +9042,10 @@ files = [
 docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "rst.linker (>=1.9)", "sphinx (<7.2.5)", "sphinx (>=3.5)", "sphinx-lint"]
 testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-ignore-flaky", "pytest-mypy (>=0.9.1)", "pytest-ruff"]
 
+[extras]
+documents = ["ftfy", "mistune", "pymupdf"]
+
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "a3abb3ddb6892eef276ebdc6823d2b0db1650860dfc40bd4cf75636c78f99d07"
+content-hash = "e727c1fac8af2db21e459cb0416c096f4b5bc01e5d71926b2e8c44c2ddf20641"
