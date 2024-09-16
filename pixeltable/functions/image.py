@@ -137,7 +137,7 @@ def get_metadata(self: PIL.Image.Image) -> dict:
         'width': self.width,
         'height': self.height,
         'mode': self.mode,
-        'bits': self.bits,
+        'bits': getattr(self, 'bits', None),
         'format': self.format,
         'palette': self.palette,
     }
