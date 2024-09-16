@@ -1,7 +1,6 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-banner.png" alt="Pixeltable" width="45%" />
-
-# Unifying Data, Models, and Orchestration for AI Products
+<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-banner.png" alt="Pixeltable" width="30%" />
+<br></br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-darkblue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white)
@@ -16,7 +15,7 @@ Pixeltable is a Python library that lets ML Engineers and Data Scientists focus 
 
 ### What problems does Pixeltable solve?
 
-Today’s solutions for AI app development require extensive custom coding and infrastructure plumbing. Tracking lineage and versions between and across data transformations, models, and deployment is cumbersome.
+Today's solutions for AI app development require extensive custom coding and infrastructure plumbing. Tracking lineage and versions between and across data transformations, models, and deployments is cumbersome. Pixeltable provides a declarative interface for working with text, images, embeddings, and even video, enabling users to store, transform, index, and iterate on data within a single table interface.
 
 ## 💾 Installation
 
