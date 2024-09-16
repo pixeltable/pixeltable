@@ -326,9 +326,9 @@ class Env:
         if reinit_db and self._store_db_exists():
             self._drop_store_db()
 
-        should_create_db = not self._store_db_exists()
+        create_db = not self._store_db_exists()
 
-        if should_create_db:
+        if create_db:
             self._logger.info(f'creating database at: {self.db_url}')
             self._create_store_db()
         else:
@@ -337,7 +337,7 @@ class Env:
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
-        if should_create_db:
+        if create_db:
             from pixeltable.metadata import schema
             schema.Base.metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
