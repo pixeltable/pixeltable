@@ -337,7 +337,8 @@ def draw_bounding_boxes(
     img_to_draw = img.copy()
     draw = ImageDraw.Draw(img_to_draw, 'RGBA' if fill else 'RGB')
 
-    for i, (bbox, label) in enumerate(zip(boxes, labels)):
+    # Draw bounding boxes
+    for i, bbox in enumerate(boxes):
         # determine color for the current box and label
         color = box_colors[i % len(box_colors)]
 
@@ -348,10 +349,22 @@ def draw_bounding_boxes(
         else:
             draw.rectangle(bbox, outline=color, width=width)  # type: ignore[arg-type]
 
+    # Now draw labels separately, so they are not obscured by the boxes
+    for i, (bbox, label) in enumerate(zip(boxes, labels)):
         if label is not None:
             label_str = str(label)
-            margin = width + 1
-            draw.text((bbox[0] + margin, bbox[1] + margin), label_str, fill=color, font=txt_font)
+            _, _, text_width, text_height = draw.textbbox((0, 0), label_str, font=txt_font)
+            if bbox[1] - text_height - 2 >= 0:
+                # draw text above the box
+                y = bbox[1] - text_height - 2
+            else:
+                y = bbox[3]
+            if bbox[0] + text_width + 2 < img.width:
+                x = bbox[0]
+            else:
+                x = img.width - text_width - 2
+            draw.rectangle((x, y, x + text_width + 1, y + text_height + 1), fill='black')
+            draw.text((x, y), label_str, fill='white', font=txt_font)
 
     return img_to_draw
 

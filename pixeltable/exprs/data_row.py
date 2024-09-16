@@ -8,6 +8,7 @@ from typing import Optional, List, Any, Tuple
 import sqlalchemy as sql
 import pgvector.sqlalchemy
 import PIL
+import PIL.Image
 import numpy as np
 
 
@@ -197,7 +198,12 @@ class DataRow:
                 # we want to save this to a file
                 self.file_paths[index] = filepath
                 self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
-                self.vals[index].save(filepath, format='JPEG')
+                image = self.vals[index]
+                assert isinstance(image, PIL.Image.Image)
+                # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
+                # In that case, use WebP instead.
+                format = 'webp' if image.has_transparency_data else 'jpeg'
+                image.save(filepath, format=format)
             else:
                 # we discard the content of this cell
                 self.has_val[index] = False
