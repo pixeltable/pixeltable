@@ -12,18 +12,18 @@ t.select(pxt.functions.json.make_list()).collect()
 
 from typing import Any
 
-import pixeltable.func as func
+import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.utils.code import local_public_names
 
 
-@func.uda(
-    update_types=[ts.JsonType(nullable=True)],
-    value_type=ts.JsonType(),
+@pxt.uda(
+    update_types=[pxt.JsonType(nullable=True)],
+    value_type=pxt.JsonType(),
     requires_order_by=False,
     allows_window=False,
 )
-class make_list(func.Aggregator):
+class make_list(pxt.Aggregator):
     """
     Collects arguments into a list.
     """
