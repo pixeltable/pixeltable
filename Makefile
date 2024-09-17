@@ -41,7 +41,7 @@ YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info
 
 .make-install/deps: poetry.lock
 	@echo "Installing dependencies from poetry ..."
-	@poetry install --with dev
+	@poetry install --extras documents --with dev
 	@touch .make-install/deps
 
 .make-install/others:

@@ -3,8 +3,6 @@ import enum
 import logging
 from typing import Dict, Any, List, Tuple, Optional, Iterable, Iterator
 
-import ftfy
-
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
 from pixeltable.type_system import ColumnType, DocumentType, StringType, IntType, JsonType
@@ -118,6 +116,9 @@ class DocumentSplitter(ComponentIterator):
                  `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
                  (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
         """
+        Env.get().require_package('ftfy')
+        import ftfy
+
         if html_skip_tags is None:
             html_skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)
@@ -251,6 +252,8 @@ class DocumentSplitter(ComponentIterator):
                 headings[el.name] = el.get_text().strip()
 
         def emit() -> None:
+            import ftfy
+
             nonlocal accumulated_text, headings, sourceline
             if len(accumulated_text) > 0:
                 md = DocumentSectionMetadata(sourceline=sourceline, heading=headings.copy())
@@ -310,6 +313,8 @@ class DocumentSplitter(ComponentIterator):
             headings[level] = text
 
         def emit() -> None:
+            import ftfy
+
             nonlocal accumulated_text, headings
             if len(accumulated_text) > 0:
                 metadata = DocumentSectionMetadata(sourceline=0, heading=headings.copy())
@@ -356,6 +361,8 @@ class DocumentSplitter(ComponentIterator):
         accumulated_text = []  # invariant: all elements are ftfy clean and non-empty
 
         def _add_cleaned_text(raw_text: str) -> None:
+            import ftfy
+
             fixed = ftfy.fix_text(raw_text)
             if fixed:
                 accumulated_text.append(fixed)

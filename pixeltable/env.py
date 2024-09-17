@@ -435,7 +435,10 @@ class Env:
         check('yolox')
         check('whisperx')
         check('boto3')
+        check('bs4')
+        check('ftfy')
         check('fitz')  # pymupdf
+        check('mistune')
         check('pyarrow')
         check('spacy')  # TODO: deal with en-core-web-sm
         if self.is_installed_package('spacy'):

@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Dict
 
 import PIL.Image
-import bs4
 import numpy as np
 import pytest
 
@@ -197,6 +196,9 @@ class TestDataFrame:
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
     def test_html_media_url(self, reset_db) -> None:
+        skip_test_if_not_installed('bs4')
+        import bs4
+
         tab = pxt.create_table('test_html_repr', {'video': pxt.VideoType(),
                                                   'audio': pxt.AudioType(),
                                                   'doc': pxt.DocumentType()})

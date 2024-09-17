@@ -9043,9 +9043,9 @@ docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "rst.link
 testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-ignore-flaky", "pytest-mypy (>=0.9.1)", "pytest-ruff"]
 
 [extras]
-documents = ["ftfy", "mistune", "pymupdf"]
+documents = ["beautifulsoup4", "ftfy", "mistune", "pymupdf"]
 
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "e727c1fac8af2db21e459cb0416c096f4b5bc01e5d71926b2e8c44c2ddf20641"
+content-hash = "219244b51b69da9d92f1345049baa56f13251fbb56df50a09f0ec1ae195899ca"
