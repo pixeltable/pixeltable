@@ -144,11 +144,11 @@ class Formatter:
         else:
             width = 640  # A single image: larger display
         with io.BytesIO() as buffer:
-            img.save(buffer, 'jpeg')
+            img.save(buffer, 'webp')
             img_base64 = base64.b64encode(buffer.getvalue()).decode()
             return f"""
             <div class="pxt_image" style="width:{width}px;">
-                <img src="data:image/jpeg;base64,{img_base64}" width="{width}" />
+                <img src="data:image/webp;base64,{img_base64}" width="{width}" />
             </div>
             """
 

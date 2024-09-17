@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import sys
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pixeltable_pgserver
 import toml
@@ -258,7 +259,8 @@ class Dumper:
         add_column('str_const', 'str')
         add_column('int_const', 5)
         add_column('float_const', 5.0)
-        add_column('timestamp_const_1', datetime.datetime.now(tz=datetime.timezone.utc))
+        add_column('timestamp_const_1', datetime.datetime.now())
+        add_column('timestamp_const_2', datetime.datetime.now().astimezone(ZoneInfo('America/Anchorage')))
 
         # type_cast
         add_column('astype', t.c2.astype(FloatType()))

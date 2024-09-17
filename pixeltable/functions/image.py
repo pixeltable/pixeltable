@@ -128,6 +128,21 @@ def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     pass
 
 
+@func.udf(is_method=True)
+def get_metadata(self: PIL.Image.Image) -> dict:
+    """
+    Return metadata for the image.
+    """
+    return {
+        'width': self.width,
+        'height': self.height,
+        'mode': self.mode,
+        'bits': self.bits,
+        'format': self.format,
+        'palette': self.palette,
+    }
+
+
 @getchannel.conditional_return_type
 def _(self: Expr) -> ts.ColumnType:
     input_type = self.col_type

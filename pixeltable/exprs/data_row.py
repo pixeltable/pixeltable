@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import io
 import urllib.parse
 import urllib.request
@@ -8,7 +9,10 @@ from typing import Optional, List, Any, Tuple
 import sqlalchemy as sql
 import pgvector.sqlalchemy
 import PIL
+import PIL.Image
 import numpy as np
+
+from pixeltable import env
 
 
 class DataRow:
@@ -140,6 +144,10 @@ class DataRow:
         if self.vals[index] is None and sa_col_type is not None and isinstance(sa_col_type, sql.JSON):
             return sql.sql.null()
 
+        if isinstance(self.vals[index], datetime.datetime) and self.vals[index].tzinfo is None:
+            # if the datetime is naive, cast it to the default time zone
+            return self.vals[index].replace(tzinfo=env.Env.get().default_time_zone)
+
         return self.vals[index]
 
     def __setitem__(self, idx: object, val: Any) -> None:
@@ -195,7 +203,12 @@ class DataRow:
                 # we want to save this to a file
                 self.file_paths[index] = filepath
                 self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
-                self.vals[index].save(filepath, format='JPEG')
+                image = self.vals[index]
+                assert isinstance(image, PIL.Image.Image)
+                # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
+                # In that case, use WebP instead.
+                format = 'webp' if image.has_transparency_data else 'jpeg'
+                image.save(filepath, format=format)
             else:
                 # we discard the content of this cell
                 self.has_val[index] = False

@@ -15,7 +15,8 @@ import numpy as np
 import PIL.Image
 import sqlalchemy as sql
 
-from pixeltable import exceptions as excs
+import pixeltable.exceptions as excs
+from pixeltable.env import Env
 
 
 class ColumnType:
@@ -476,7 +477,7 @@ class TimestampType(ColumnType):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
-        return sql.TIMESTAMP()
+        return sql.TIMESTAMP(timezone=True)
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime):
