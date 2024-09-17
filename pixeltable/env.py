@@ -545,12 +545,20 @@ def register_client(name: str) -> Callable:
 
 
 class Config:
+    """
+    The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
+    configuration values, which can be set in the config file or as environment variables.
+    """
     __config: dict[str, Any] = {}
 
     T = TypeVar('T')
 
     @classmethod
     def from_file(cls, path: Path) -> Config:
+        """
+        Loads configuration from the specified TOML file. If the file does not exist, it will be
+        created and populated with the default configuration.
+        """
         if os.path.isfile(path):
             with open(path, 'r') as stream:
                 try:
@@ -570,6 +578,7 @@ class Config:
     @classmethod
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
         free_disk_space_bytes = shutil.disk_usage(config_path.parent).free
+        # Default cache size is 1/5 of free disk space
         cache_size_mb = free_disk_space_bytes // 5 // (1 << 20)
         return {
             'pixeltable': {

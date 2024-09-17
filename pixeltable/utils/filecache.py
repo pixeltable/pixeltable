@@ -195,7 +195,7 @@ class FileCache:
                 # Make a record of the eviction, so that we can generate a warning later if the key is retrieved again.
                 self.keys_evicted_this_session.add(lru_entry.key)
             os.remove(str(lru_entry.path))
-            _logger.debug(f'evicted entry for cell {lru_entry.key} from file cache')
+            _logger.debug(f'evicted entry for cell {lru_entry.key} from file cache (of size {lru_entry.size // (1 << 20)} MiB)')
 
     def set_capacity(self, capacity_bytes: int) -> None:
         self.capacity_bytes = capacity_bytes
