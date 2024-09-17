@@ -488,6 +488,7 @@ class Env:
         self.__register_packages()
 
     def __register_packages(self) -> None:
+        """Declare optional packages that are utilized by some parts of the code."""
         self.__register_package('toml')
         self.__register_package('datasets')
         self.__register_package('torch')
@@ -519,6 +520,10 @@ class Env:
         )
 
     def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
+        """
+        Checks whether the specified optional package is available. If not, raises an exception
+        with an error message informing the user how to install it.
+        """
         assert package_name in self.__optional_packages
         package_info = self.__optional_packages[package_name]
 
