@@ -5,6 +5,7 @@ import os
 import pathlib
 import subprocess
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pixeltable_pgserver
 import toml
@@ -15,8 +16,7 @@ from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
 from pixeltable.tool import embed_udf
-from pixeltable.type_system import \
-    StringType, IntType, FloatType, BoolType, TimestampType, JsonType, ImageType
+from pixeltable.type_system import BoolType, FloatType, ImageType, IntType, JsonType, StringType, TimestampType
 
 _logger = logging.getLogger('pixeltable')
 
@@ -248,7 +248,8 @@ class Dumper:
         add_column('str_const', 'str')
         add_column('int_const', 5)
         add_column('float_const', 5.0)
-        add_column('timestamp_const_1', datetime.datetime.now(tz=datetime.timezone.utc))
+        add_column('timestamp_const_1', datetime.datetime.now())
+        add_column('timestamp_const_2', datetime.datetime.now().astimezone(ZoneInfo('America/Anchorage')))
 
         # type_cast
         add_column('astype', t.c2.astype(FloatType()))
