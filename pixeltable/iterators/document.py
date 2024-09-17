@@ -1,14 +1,15 @@
 import dataclasses
 import enum
 import logging
-from typing import Dict, Any, List, Tuple, Optional, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Optional
 
 import ftfy
 
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
-from pixeltable.type_system import ColumnType, DocumentType, StringType, IntType, JsonType
+from pixeltable.type_system import ColumnType, DocumentType, IntType, JsonType, StringType
 from pixeltable.utils.documents import get_document_handle
+
 from .base import ComponentIterator
 
 _logger = logging.getLogger('pixeltable')
@@ -38,12 +39,12 @@ class DocumentSectionMetadata:
     sourceline: Optional[int] = None
     # the stack of headings up to the most recently observed one;
     # eg, if the most recent one was an h2, 'headings' would contain keys 1 and 2, but nothing below that
-    heading: Optional[Dict[str, str]] = None
+    heading: Optional[dict[str, str]] = None
 
     # pdf-specific metadata
     page: Optional[int] = None
     # bounding box as an {x1, y1, x2, y2} dictionary
-    bounding_box: Optional[Dict[str, float]] = None
+    bounding_box: Optional[dict[str, float]] = None
 
 
 @dataclasses.dataclass
@@ -53,7 +54,7 @@ class DocumentSection:
     metadata: Optional[DocumentSectionMetadata]
 
 
-def _parse_separators(separators: str) -> List[Separator]:
+def _parse_separators(separators: str) -> list[Separator]:
     ret = []
     for s in separators.split(','):
         clean_s = s.strip().upper()
@@ -67,7 +68,7 @@ def _parse_separators(separators: str) -> List[Separator]:
     return ret
 
 
-def _parse_metadata(metadata: str) -> List[ChunkMetadata]:
+def _parse_metadata(metadata: str) -> list[ChunkMetadata]:
     ret = []
     for m in metadata.split(','):
         clean_m = m.strip().upper()
@@ -161,7 +162,7 @@ class DocumentSplitter(ComponentIterator):
             self._sections = self._char_chunks(self._sections)
 
     @classmethod
-    def input_schema(cls) -> Dict[str, ColumnType]:
+    def input_schema(cls) -> dict[str, ColumnType]:
         return {
             'document': DocumentType(nullable=False),
             'separators': StringType(nullable=False),
@@ -174,7 +175,7 @@ class DocumentSplitter(ComponentIterator):
         }
 
     @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, ColumnType], List[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ColumnType], list[str]]:
         schema = {'text': StringType()}
         md_fields = _parse_metadata(kwargs['metadata']) if 'metadata' in kwargs else []
 
@@ -208,7 +209,7 @@ class DocumentSplitter(ComponentIterator):
 
         return schema, []
 
-    def __next__(self) -> Dict[str, Any]:
+    def __next__(self) -> dict[str, Any]:
         while True:
             section = next(self._sections)
             if section.text is None:
@@ -236,7 +237,7 @@ class DocumentSplitter(ComponentIterator):
         accumulated_text = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
 
-        headings: Dict[str, str] = {}   # current state of observed headings (level -> text)
+        headings: dict[str, str] = {}   # current state of observed headings (level -> text)
         sourceline = 0  # most recently seen sourceline
 
         def update_metadata(el: bs4.Tag) -> None:
@@ -250,7 +251,7 @@ class DocumentSplitter(ComponentIterator):
                     del headings[l]
                 headings[el.name] = el.get_text().strip()
 
-        def emit() -> None:
+        def emit() -> Iterator[DocumentSection]:
             nonlocal accumulated_text, headings, sourceline
             if len(accumulated_text) > 0:
                 md = DocumentSectionMetadata(sourceline=sourceline, heading=headings.copy())
@@ -294,9 +295,9 @@ class DocumentSplitter(ComponentIterator):
         # current state
         accumulated_text = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
-        headings: Dict[str, str] = {}   # current state of observed headings (level -> text)
+        headings: dict[str, str] = {}   # current state of observed headings (level -> text)
 
-        def update_headings(heading: Dict) -> None:
+        def update_headings(heading: dict) -> None:
             # update current state
             nonlocal headings
             assert 'type' in heading and heading['type'] == 'heading'
@@ -309,14 +310,14 @@ class DocumentSplitter(ComponentIterator):
                 del headings[l]
             headings[level] = text
 
-        def emit() -> None:
+        def emit() -> Iterator[DocumentSection]:
             nonlocal accumulated_text, headings
             if len(accumulated_text) > 0:
                 metadata = DocumentSectionMetadata(sourceline=0, heading=headings.copy())
                 yield DocumentSection(text=ftfy.fix_text(' '.join(accumulated_text)), metadata=metadata)
                 accumulated_text = []
 
-        def process_element(el: Dict) -> Iterator[DocumentSection]:
+        def process_element(el: dict) -> Iterator[DocumentSection]:
             # process the element and emit sections as necessary
             nonlocal accumulated_text, headings, emit_on_heading, emit_on_paragraph
             assert 'type' in el

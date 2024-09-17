@@ -392,6 +392,7 @@ class TestTable:
         self.check_bad_media(rows, AudioType(nullable=True))
 
     def test_validate_docs(self, reset_db) -> None:
+        skip_test_if_not_installed('mistune')
         valid_doc_paths = get_documents()
         invalid_doc_paths = [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
         doc_paths = valid_doc_paths + invalid_doc_paths
