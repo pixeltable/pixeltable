@@ -15,6 +15,7 @@ from typing import Optional
 
 import sqlalchemy as sql
 
+from pixeltable.env import Env
 import pixeltable.func as func
 from pixeltable.utils.code import local_public_names
 
@@ -126,6 +127,19 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @func.udf(is_method=True)
+def astimezone(self: datetime, tz: str) -> datetime:
+    """
+    Convert the datetime to the given time zone.
+
+    Args:
+        tz: The time zone to convert to. Must be a valid time zone name from the IANA Time Zone Database.
+    """
+    from zoneinfo import ZoneInfo
+    tzinfo = ZoneInfo(tz)
+    return self.astimezone(tzinfo)
+
+
+@func.udf(is_method=True)
 def weekday(self: datetime) -> int:
     """
     Between 0 (Monday) and 6 (Sunday) inclusive.
@@ -203,7 +217,7 @@ def make_timestamp(
 
     Equivalent to [`datetime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime).
     """
-    return datetime(year, month, day, hour, minute, second, microsecond)
+    return datetime(year, month, day, hour, minute, second, microsecond, tzinfo=Env.get().default_time_zone)
 
 
 @make_timestamp.to_sql
@@ -212,7 +226,7 @@ def _(
         hour: sql.ColumnElement = sql.literal(0), minute: sql.ColumnElement = sql.literal(0),
         second: sql.ColumnElement = sql.literal(0), microsecond: sql.ColumnElement = sql.literal(0)
 ) -> sql.ColumnElement:
-    return sql.func.make_timestamp(
+    return sql.func.make_timestamptz(
         sql.cast(year, sql.Integer),
         sql.cast(month, sql.Integer),
         sql.cast(day, sql.Integer),
