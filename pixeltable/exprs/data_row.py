@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import io
 import urllib.parse
 import urllib.request
@@ -10,6 +11,8 @@ import pgvector.sqlalchemy
 import PIL
 import PIL.Image
 import numpy as np
+
+from pixeltable import env
 
 
 class DataRow:
@@ -141,6 +144,10 @@ class DataRow:
         # for JSON columns, we need to store None as an explicit NULL, otherwise it stores a json 'null'
         if self.vals[index] is None and sa_col_type is not None and isinstance(sa_col_type, sql.JSON):
             return sql.sql.null()
+
+        if isinstance(self.vals[index], datetime.datetime) and self.vals[index].tzinfo is None:
+            # if the datetime is naive, cast it to the default time zone
+            return self.vals[index].replace(tzinfo=env.Env.get().default_time_zone)
 
         return self.vals[index]
 
