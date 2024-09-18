@@ -516,7 +516,7 @@ class Env:
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
         self.__optional_packages[package_name] = PackageInfo(
             is_installed=importlib.util.find_spec(package_name) is not None,
-            library_name=library_name
+            library_name=library_name or package_name  # defaults to package_name unless specified otherwise
         )
 
     def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
@@ -536,7 +536,7 @@ class Env:
             if not package_info.is_installed:
                 # Still not found.
                 raise excs.Error(
-                    f'This feature requires the `{package_name}` library. To install it, run: `pip install -U {package_info.library_name or package_name}`'
+                    f'This feature requires the `{package_name}` package. To install it, run: `pip install -U {package_info.library_name}`'
                 )
 
         if min_version is None:
@@ -550,8 +550,8 @@ class Env:
         if min_version > package_info.version:
             raise excs.Error(
                 f'The installed version of package `{package_name}` is {".".join(str(v) for v in package_info.version)}, '
-                f'but version  >={".".join(str(v) for v in min_version)} is required. '
-                f'To fix this, run: `pip install -U {package_info.library_name or package_name}`'
+                f'but version >={".".join(str(v) for v in min_version)} is required. '
+                f'To fix this, run: `pip install -U {package_info.library_name}`'
             )
 
     def num_tmp_files(self) -> int:
@@ -642,5 +642,5 @@ class ApiClient:
 @dataclass
 class PackageInfo:
     is_installed: bool
-    library_name: str
-    version: Optional[list[int]] = None
+    library_name: str  # pypi library name (may be different from package name)
+    version: Optional[list[int]] = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")

@@ -61,7 +61,7 @@ def get_html_handle(path: str) -> Optional[bs4.BeautifulSoup]:
 
 
 def get_markdown_handle(path: str) -> Optional[dict]:
-    Env.get().require_package('mistune')
+    Env.get().require_package('mistune', [3, 0])
     import mistune
     try:
         with open(path, encoding='utf8') as file:
