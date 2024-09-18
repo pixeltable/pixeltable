@@ -32,7 +32,7 @@ class TestFileCache:
         expected_num_evictions = 0
 
         for index, (file, url) in enumerate(zip(image_files, image_urls)):
-            if index % 5 == 2:
+            if index % 5 == 2:  # Arbitrary points in time at which to adjust the LRU order
                 # Every so often, query the (expected) eldest item in the cache to adjust the (expected) eviction order
                 eldest_index = next(iter(lru_tracker.keys()))
                 _ = t.where(t.index == eldest_index).select(t.image.rotate(180)).collect()
@@ -62,7 +62,14 @@ class TestFileCache:
         assert [f.stat().st_size for f in files] == [size for _, size in lru_tracker.values()]
 
         # Re-insert some images and check that we get a "previously evicted" warning
-        with pytest.warns(excs.PixeltableWarning, match='A media file was retrieved multiple times') as record:
+        with pytest.warns(excs.PixeltableWarning, match='10 media file\\(s\\) had to be downloaded multiple times') as record:
             t.insert({'index': len(image_files) + n, 'image': image_urls[n]} for n in range(10))
+        # Check that we saw the warning exactly once
+        assert sum(r.category is excs.PixeltableWarning for r in record) == 1
+
+        # Re-insert some more files and check that we get another warning (we should get one per top-level operation),
+        # and that the new warning reflects cumulative session eviction stats.
+        with pytest.warns(excs.PixeltableWarning, match='15 media file\\(s\\) had to be downloaded multiple times') as record:
+            t.insert({'index': len(image_files) + n, 'image': image_urls[n]} for n in range(10, 15))
         # Check that we saw the warning exactly once
         assert sum(r.category is excs.PixeltableWarning for r in record) == 1

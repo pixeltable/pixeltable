@@ -66,7 +66,16 @@ class FileCache:
     num_evictions: int
     keys_retrieved_this_session: set[str]  # keys retrieved (downloaded or accessed) this session
     keys_evicted_this_session: set[str]  # keys that were evicted after having been retrieved this session
-    has_warned_about_eviction: bool
+
+    # A key is added to this set when it is already present in `keys_evicted_this_session` and is downloaded again.
+    # In other words, for a key to be added to this set, the following sequence of events must occur in this order:
+    # - It is retrieved during this session (either because it was newly downloaded, or because it was in the cache
+    #   at the start of the session and was accessed at some point during the session)
+    # - It is subsequently evicted
+    # - It is subsequently retrieved a second time ("download after a previous retrieval")
+    # The contents of this set will be used to generate a more informative warning.
+    keys_multiply_downloaded: set[str]
+    new_redownload_witnessed: bool  # whether a new re-download has occurred since the last time a warning was issued
 
     ColumnStats = namedtuple('FileCacheColumnStats', ('tbl_id', 'col_id', 'num_files', 'total_size'))
     CacheStats = namedtuple(
@@ -93,7 +102,8 @@ class FileCache:
         self.num_evictions = 0
         self.keys_retrieved_this_session = set()
         self.keys_evicted_this_session = set()
-        self.has_warned_about_eviction = False
+        self.keys_multiply_downloaded = set()
+        self.new_redownload_witnessed = False
         paths = glob.glob(str(Env.get().file_cache_dir / '*'))
         entries = [CacheEntry.from_file(Path(path_str)) for path_str in paths]
         # we need to insert entries in access order
@@ -123,7 +133,7 @@ class FileCache:
             self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
             self.keys_retrieved_this_session.clear()
             self.keys_evicted_this_session.clear()
-            self.has_warned_about_eviction = False
+            self.new_redownload_witnessed = False
         else:
             entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
             _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
@@ -131,6 +141,22 @@ class FileCache:
             os.remove(entry.path)
             del self.cache[entry.key]
             self.total_size -= entry.size
+
+    def emit_eviction_warnings(self) -> None:
+        if self.new_redownload_witnessed:
+            # Compute the additional capacity that would be needed in order to retain all the re-downloaded files
+            extra_capacity_needed = sum(self.cache[key].size for key in self.keys_multiply_downloaded)
+            suggested_cache_size = self.capacity_bytes + extra_capacity_needed + (1 << 30)
+            warnings.warn(
+                f'{len(self.keys_multiply_downloaded)} media file(s) had to be downloaded multiple times this session, '
+                'because they were evicted\nfrom the file cache after their first access. The total size '
+                f'of the evicted file(s) is {round(extra_capacity_needed / (1 << 30), 1)} GiB.\n'
+                f'Consider increasing the cache size to at least {round(suggested_cache_size / (1 << 30), 1)} GiB '
+                f'(it is currently {round(self.capacity_bytes / (1 << 30), 1)} GiB).\n'
+                f'You can do this by setting the value of `cache_size_gb` in: {str(Env.get()._config_file)}',
+                excs.PixeltableWarning
+            )
+            self.new_redownload_witnessed = False
 
     def _url_hash(self, url: str) -> str:
         h = hashlib.sha256()
@@ -163,15 +189,11 @@ class FileCache:
         self.ensure_capacity(file_info.st_size)
         key = self._url_hash(url)
         assert key not in self.cache
-        if not self.has_warned_about_eviction and key in self.keys_evicted_this_session:
-            warnings.warn(
-                f'A media file was retrieved multiple times this session:\n'
-                f'{url}\n'
-                'It had to be downloaded a second time, because it was evicted from the file cache after its first access.\n'
-                'Consider increasing the cache size; you can do this by setting the value of `cache_size_mb` in $PIXELTABLE_HOME/config.toml.',
-                excs.PixeltableWarning
-            )
-            self.has_warned_about_eviction = True
+        if key in self.keys_evicted_this_session:
+            # This key was evicted after being retrieved earlier this session, and is now being retrieved again.
+            # Add it to `keys_multiply_downloaded` so that we may generate a warning later.
+            self.keys_multiply_downloaded.add(key)
+            self.new_redownload_witnessed = True
         self.keys_retrieved_this_session.add(key)
         entry = CacheEntry(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime, path.suffix)
         self.cache[key] = entry
