@@ -489,29 +489,30 @@ class Env:
 
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""
-        self.__register_package('toml')
+        self.__register_package('anthropic')
+        self.__register_package('boto3')
         self.__register_package('datasets')
+        self.__register_package('fireworks', library_name='fireworks-ai')
+        self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('mistune')
+        self.__register_package('openai')
+        self.__register_package('openpyxl')
+        self.__register_package('pyarrow')
+        self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('spacy')  # TODO: deal with en-core-web-sm
+        self.__register_package('tiktoken')
+        self.__register_package('together')
+        self.__register_package('toml')
         self.__register_package('torch')
         self.__register_package('torchvision')
         self.__register_package('transformers')
-        self.__register_package('sentence_transformers', library_name='sentence-transformers')
         self.__register_package('whisper', library_name='openai-whisper')
-        self.__register_package('yolox', library_name='git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a')
         self.__register_package('whisperx')
-        self.__register_package('boto3')
-        self.__register_package('mistune')
-        self.__register_package('pyarrow')
-        self.__register_package('spacy')  # TODO: deal with en-core-web-sm
+        self.__register_package('yolox', library_name='git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a')
+
         if self.is_installed_package('spacy'):
             import spacy
             self._spacy_nlp = spacy.load('en_core_web_sm')
-        self.__register_package('tiktoken')
-        self.__register_package('openai')
-        self.__register_package('anthropic')
-        self.__register_package('together')
-        self.__register_package('fireworks', library_name='fireworks-ai')
-        self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
-        self.__register_package('openpyxl')
 
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
         self.__optional_packages[package_name] = PackageInfo(
