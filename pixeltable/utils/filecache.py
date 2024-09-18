@@ -96,7 +96,7 @@ class FileCache:
     def __init__(self):
         self.cache = OrderedDict()
         self.total_size = 0
-        self.capacity_bytes = Env.get()._cache_size_mb * (1 << 20)
+        self.capacity_bytes = Env.get()._cache_size_gb * (1 << 30)
         self.num_requests = 0
         self.num_hits = 0
         self.num_evictions = 0

@@ -261,12 +261,12 @@ class Env:
 
         # Read in the config
         self._config = Config.from_file(self._config_file)
-        self._cache_size_mb = self._config.get_int_value('cache_size_mb')
-        if self._cache_size_mb is None:
+        self._cache_size_gb = self._config.get_float_value('cache_size_gb')
+        if self._cache_size_gb is None:
             raise excs.Error(
-                'pixeltable/cache_size_mb is missing from configuration\n'
-                '(either add a `cache_size_mb` entry to the `pixeltable` section of config.toml, '
-                'or set the PIXELTABLE_CACHE_SIZE_MB environment variable)'
+                'pixeltable/cache_size_gb is missing from configuration\n'
+                f'(either add a `cache_size_gb` entry to the `pixeltable` section of {self._config_file},\n'
+                'or set the PIXELTABLE_CACHE_SIZE_GB environment variable)'
             )
 
         # Disable spurious warnings
@@ -663,10 +663,10 @@ class Config:
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
         free_disk_space_bytes = shutil.disk_usage(config_path.parent).free
         # Default cache size is 1/5 of free disk space
-        cache_size_mb = free_disk_space_bytes // 5 // (1 << 20)
+        cache_size_gb = free_disk_space_bytes / 5 / (1 << 30)
         return {
             'pixeltable': {
-                'cache_size_mb': cache_size_mb,
+                'cache_size_gb': round(cache_size_gb, 1),
                 'hide_warnings': False,
             }
         }
@@ -693,6 +693,9 @@ class Config:
 
     def get_int_value(self, key: str, section: str = 'pixeltable') -> Optional[int]:
         return self.get_value(key, int, section)
+
+    def get_float_value(self, key: str, section: str = 'pixeltable') -> Optional[float]:
+        return self.get_value(key, float, section)
 
     def get_bool_value(self, key: str, section: str = 'pixeltable') -> Optional[bool]:
         return self.get_value(key, bool, section)
