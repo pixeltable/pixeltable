@@ -5,7 +5,9 @@ first `pip install anthropic` and configure your Anthropic credentials, as descr
 the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anthropic) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
+
+import tenacity
 
 import pixeltable as pxt
 from pixeltable import env
@@ -18,12 +20,20 @@ if TYPE_CHECKING:
 @env.register_client('anthropic')
 def _(api_key: str) -> 'anthropic.Anthropic':
     import anthropic
-
     return anthropic.Anthropic(api_key=api_key)
 
 
 def _anthropic_client() -> 'anthropic.Anthropic':
     return env.Env.get().get_client('anthropic')
+
+
+def _retry(fn: Callable) -> Callable:
+    import anthropic
+    return tenacity.retry(
+        retry=tenacity.retry_if_exception_type(anthropic.RateLimitError),
+        wait=tenacity.wait_random_exponential(multiplier=1, max=60),
+        stop=tenacity.stop_after_attempt(20),
+    )(fn)
 
 
 @pxt.udf
@@ -67,7 +77,7 @@ def messages(
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl['response'] = messages(msgs, model='claude-3-haiku-20240307')
     """
-    return _anthropic_client().messages.create(
+    return _retry(_anthropic_client().messages.create)(
         messages=messages,
         model=model,
         max_tokens=max_tokens,
@@ -86,8 +96,8 @@ _T = TypeVar('_T')
 
 
 def _opt(arg: _T) -> Union[_T, 'anthropic.NotGiven']:
-    from anthropic import NOT_GIVEN
-    return arg if arg is not None else NOT_GIVEN
+    import anthropic
+    return arg if arg is not None else anthropic.NOT_GIVEN
 
 
 __all__ = local_public_names(__name__)

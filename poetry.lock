@@ -7519,7 +7519,6 @@ files = [
 
 [package.dependencies]
 greenlet = {version = "!=0.4.17", markers = "platform_machine == \"aarch64\" or platform_machine == \"ppc64le\" or platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"AMD64\" or platform_machine == \"win32\" or platform_machine == \"WIN32\""}
-mypy = {version = ">=0.910", optional = true, markers = "extra == \"mypy\""}
 typing-extensions = ">=4.6.0"
 
 [package.extras]
@@ -9056,4 +9055,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "5b4836f92aad828197a79240372837819b0c0afaf42284401677284c4d81641f"
+content-hash = "3e5dd29b02fd4a176a4487fc60fc57ea5c682405844293932492f274e1f6125c"

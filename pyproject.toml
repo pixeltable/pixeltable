@@ -27,7 +27,7 @@ more-itertools = "^10.2"
 cloudpickle = "^2.2.1"
 psycopg = {extras = ["binary"], version = "==3.1.18"}
 psutil = "^5.9.5"
-sqlalchemy = {extras = ["mypy"], version = "^2.0.23"}
+sqlalchemy = "^2.0.23"
 pgvector = "^0.2.1"
 av = ">=10.0.0"
 beautifulsoup4 = "^4.0.0"
