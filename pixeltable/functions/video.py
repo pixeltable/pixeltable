@@ -16,9 +16,9 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-import PIL.Image
-import av
+import av  # type: ignore[import-untyped]
 import numpy as np
+import PIL.Image
 
 import pixeltable.env as env
 import pixeltable.func as func

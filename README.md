@@ -22,11 +22,10 @@ Today's solutions for AI app development require extensive custom coding and inf
 ```python
 pip install pixeltable
 ```
-> [!IMPORTANT]
-> Pixeltable is persistent. Unlike in-memory Python libraries such as Pandas, Pixeltable is a database. When working locally or against an hosted version of Pixeltable, use [get_table](https://pixeltable.github.io/pixeltable/api/pixeltable/#pixeltable.get_table) at any time to retrieve an existing table.
+**Pixeltable is persistent. Unlike in-memory Python libraries such as Pandas, Pixeltable is a database.**
 
 ## 💡 Getting Started
-Learn how to create tables, populate them with data, and enhance them with built-in or user-defined transformations and AI operations.
+Learn how to create tables, populate them with data, and enhance them with built-in or user-defined transformations.
 
 | Topic | Notebook | Topic | Notebook |
 |:----------|:-----------------|:-------------------------|:---------------------------------:|
@@ -53,9 +52,32 @@ v.insert({'video': prefix + p} for p in paths)
 ```
 Learn how to [work with data in Pixeltable](https://pixeltable.readme.io/docs/working-with-external-files).
 
-### Add an object detection model to your workflow
+### Object detection in images using DETR model
 ```python
-table['detections'] = huggingface.detr_for_object_detection(table.input_image, model_id='facebook/detr-resnet-50')
+import pixeltable as pxt
+from pixeltable.functions import huggingface
+
+# Create a table to store data persistently
+t = pxt.create_table('image', {'image': pxt.ImageType()})
+
+# Insert some images
+prefix = 'https://upload.wikimedia.org/wikipedia/commons'
+paths = [
+    '/1/15/Cat_August_2010-4.jpg',
+    '/e/e1/Example_of_a_Dog.jpg',
+    '/thumb/b/bf/Bird_Diversity_2013.png/300px-Bird_Diversity_2013.png'
+]
+t.insert({'image': prefix + p} for p in paths)
+
+# Add a computed column for image classification
+t['classification'] = huggingface.detr_for_object_detection(
+    (t.image), model_id='facebook/detr-resnet-50'
+    )
+
+# Retrieve the rows where cats have been identified
+t.select(animal = t.image,
+         classification = t.classification.label_text[0]) \
+.where(t.classification.label_text[0]=='cat').head()
 ```
 Learn about computed columns and object detection: [Comparing object detection models](https://pixeltable.readme.io/docs/object-detection-in-videos).
 
@@ -71,9 +93,9 @@ def draw_boxes(img: PIL.Image.Image, boxes: list[list[float]]) -> PIL.Image.Imag
 ```
 Learn more about user-defined functions: [UDFs in Pixeltable](https://pixeltable.readme.io/docs/user-defined-functions-udfs).
 
-### Automate data operations with views
+### Automate data operations with views, e.g., split documents into chunks
 ```python
-# In this example, the view is defined by iteration over the chunks of a DocumentSplitter.
+# In this example, the view is defined by iteration over the chunks of a DocumentSplitter
 chunks_table = pxt.create_view(
     'rag_demo.chunks',
     documents_table,
@@ -86,7 +108,7 @@ Learn how to leverage views to build your [RAG workflow](https://pixeltable.read
 
 ### Evaluate model performance
 ```python
-# The computation of the mAP metric can simply become a query over the evaluation output, aggregated with the mean_ap() function.
+# The computation of the mAP metric can become a query over the evaluation output
 frames_view.select(mean_ap(frames_view.eval_yolox_tiny), mean_ap(frames_view.eval_yolox_m)).show()
 ```
 Learn how to leverage Pixeltable for [Model analytics](https://pixeltable.readme.io/docs/object-detection-in-videos).
@@ -98,7 +120,7 @@ chat_table = pxt.create_table('together_demo.chat', {'input': pxt.StringType()})
 # The chat-completions API expects JSON-formatted input:
 messages = [{'role': 'user', 'content': chat_table.input}]
 
-# This example shows how additional parameters from the Together API can be used in Pixeltable to customize the model behavior.
+# This example shows how additional parameters from the Together API can be used in Pixeltable
 chat_table['output'] = chat_completions(
     messages=messages,
     model='mistralai/Mixtral-8x7B-Instruct-v0.1',

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import Optional, List, Dict, Type
+from typing import Optional
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -10,6 +10,7 @@ import sqlalchemy.orm as orm
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+
 from .dir import Dir
 from .path import Path
 from .schema_object import SchemaObject
@@ -19,8 +20,8 @@ _logger = logging.getLogger('pixeltable')
 class PathDict:
     """Keep track of all paths in a Db instance"""
     def __init__(self):
-        self.dir_contents: Dict[UUID, Dict[str, SchemaObject]] = {}
-        self.schema_objs: Dict[UUID, SchemaObject] = {}
+        self.dir_contents: dict[UUID, dict[str, SchemaObject]] = {}
+        self.schema_objs: dict[UUID, SchemaObject] = {}
 
         # load dirs
         with orm.Session(Env.get().engine, future=True) as session:
@@ -36,7 +37,8 @@ class PathDict:
         self.root_dir = root_dirs[0]
 
         # build dir_contents
-        def record_dir(dir: Dir) -> None:
+        def record_dir(dir: SchemaObject) -> None:
+            assert isinstance(dir, Dir)
             if dir._id in self.dir_contents:
                 return
             else:
@@ -99,7 +101,7 @@ class PathDict:
         assert to_path.name not in self.dir_contents[to_dir._id]
         self.dir_contents[to_dir._id][to_path.name] = obj
 
-    def check_is_valid(self, path: Path, expected: Optional[Type[SchemaObject]]) -> None:
+    def check_is_valid(self, path: Path, expected: Optional[type[SchemaObject]]) -> None:
         """Check that path is valid and that the object at path has the expected type.
 
         Args:
@@ -124,7 +126,7 @@ class PathDict:
                 obj = self.dir_contents[parent_obj._id][path.name]
                 raise excs.Error(f"{type(obj)._display_name()} '{str(path)}' already exists")
 
-    def get_children(self, parent: Path, child_type: Optional[Type[SchemaObject]], recursive: bool) -> List[Path]:
+    def get_children(self, parent: Path, child_type: Optional[type[SchemaObject]], recursive: bool) -> list[Path]:
         dir = self._resolve_path(parent)
         if not isinstance(dir, Dir):
             raise excs.Error(f'{str(parent)} is a {type(dir)._display_name()}, not a directory')

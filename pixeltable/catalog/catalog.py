@@ -1,8 +1,9 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
-from uuid import UUID
+
 import dataclasses
 import logging
+from typing import Optional
+from uuid import UUID
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
@@ -10,8 +11,8 @@ import sqlalchemy.orm as orm
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
 from .table import Table
-from .named_function import NamedFunction
 from .path_dict import PathDict
+
 import pixeltable.env as env
 import pixeltable.metadata.schema as schema
 
@@ -39,10 +40,10 @@ class Catalog:
         # key: [id, version]
         # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
         # - snapshot versions: records the version of the snapshot
-        self.tbl_versions: Dict[Tuple[UUID, Optional[int]], TableVersion] = {}
+        self.tbl_versions: dict[tuple[UUID, Optional[int]], TableVersion] = {}
 
-        self.tbls: Dict[UUID, Table] = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
-        self.tbl_dependents: Dict[UUID, List[Table]] = {}
+        self.tbls: dict[UUID, Table] = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
+        self.tbl_dependents: dict[UUID, list[Table]] = {}
 
         self._init_store()
         self.paths = PathDict()  # do this after _init_catalog()
@@ -133,7 +134,7 @@ class Catalog:
                         base_path=base_path if not is_snapshot else None)
                     view_path = TableVersionPath(tbl_version, base=base_path)
 
-                tbl = View(
+                tbl: Table = View(
                     tbl_record.id, tbl_record.dir_id, tbl_md.name, view_path, base_tbl_id,
                     snapshot_only=snapshot_only)
                 self.tbl_dependents[base_tbl_id].append(tbl)

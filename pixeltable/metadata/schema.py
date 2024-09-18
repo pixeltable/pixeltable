@@ -3,6 +3,7 @@ import uuid
 from typing import Optional, List, get_type_hints, Type, Any, TypeVar, Tuple, Union
 
 import sqlalchemy as sql
+import sqlalchemy.orm as orm
 from sqlalchemy import ForeignKey
 from sqlalchemy import Integer, BigInteger, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -64,8 +65,8 @@ class DirMd:
 class Dir(Base):
     __tablename__ = 'dirs'
 
-    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
-    parent_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
+    id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    parent_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md = sql.Column(JSONB, nullable=False)
 
 
@@ -163,8 +164,8 @@ class Table(Base):
 
     MAX_VERSION = 9223372036854775807  # 2^63 - 1
 
-    id = sql.Column(UUID(as_uuid=True), primary_key=True, nullable=False)
-    dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
+    id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
+    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     md = sql.Column(JSONB, nullable=False)  # TableMd
 
 

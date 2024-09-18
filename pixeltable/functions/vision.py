@@ -177,7 +177,7 @@ def eval_detections(
     pred_scores: list[float],
     gt_bboxes: list[list[int]],
     gt_labels: list[int],
-) -> dict:
+) -> list[dict]:
     """
     Evaluates the performance of a set of predicted bounding boxes against a set of ground truth bounding boxes.
     """
@@ -192,7 +192,7 @@ def eval_detections(
         pred_filter = pred_classes_arr == class_idx
         gt_filter = gt_classes_arr == class_idx
         class_pred_scores = pred_scores_arr[pred_filter]
-        tp, fp = __calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], [0.5])
+        tp, fp = __calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], 0.5)
         ordered_class_pred_scores = -np.sort(-class_pred_scores)
         result.append(
             {
@@ -330,10 +330,9 @@ def draw_bounding_boxes(
     from PIL import ImageColor, ImageDraw, ImageFont
 
     # set default font if not provided
-    if font is None:
-        txt_font = ImageFont.load_default()
-    else:
-        txt_font = ImageFont.truetype(font=font, size=font_size or 10)
+    txt_font: Union[ImageFont.ImageFont, ImageFont.FreeTypeFont] = (
+        ImageFont.load_default() if font is None else ImageFont.truetype(font=font, size=font_size or 10)
+    )
 
     img_to_draw = img.copy()
     draw = ImageDraw.Draw(img_to_draw, 'RGBA' if fill else 'RGB')
@@ -346,9 +345,9 @@ def draw_bounding_boxes(
         if fill:
             rgb_color = ImageColor.getrgb(color)
             fill_color = rgb_color + (100,)  # semi-transparent
-            draw.rectangle(bbox, outline=color, width=width, fill=fill_color)
+            draw.rectangle(bbox, outline=color, width=width, fill=fill_color)  # type: ignore[arg-type]
         else:
-            draw.rectangle(bbox, outline=color, width=width)
+            draw.rectangle(bbox, outline=color, width=width)  # type: ignore[arg-type]
 
     # Now draw labels separately, so they are not obscured by the boxes
     for i, (bbox, label) in enumerate(zip(boxes, labels)):

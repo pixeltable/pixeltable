@@ -6,7 +6,7 @@ import inspect
 import logging
 import time
 import uuid
-from typing import Optional, List, Dict, Any, Tuple, Type, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, Optional
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -23,9 +23,13 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
-from .column import Column
-from .globals import UpdateStatus, _POS_COLUMN_NAME, is_valid_identifier, _ROWID_COLUMN_NAME
+
 from ..func.globals import resolve_symbol
+from .column import Column
+from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, UpdateStatus, is_valid_identifier
+
+if TYPE_CHECKING:
+    from pixeltable import exec, store
 
 _logger = logging.getLogger('pixeltable')
 
@@ -60,8 +64,8 @@ class TableVersion:
     next_idx_id: int
     next_rowid: int
     predicate: Optional[exprs.Expr]
-    mutable_views: List[TableVersion]
-    iterator_cls: Optional[Type[ComponentIterator]]
+    mutable_views: list[TableVersion]
+    iterator_cls: Optional[type[ComponentIterator]]
     iterator_args: Optional[exprs.InlineDict]
     num_iterator_cols: int
 
@@ -77,6 +81,7 @@ class TableVersion:
     idxs_by_name: dict[str, TableVersion.IndexInfo]
 
     external_stores: dict[str, pxt.io.ExternalStore]
+    store_tbl: 'store.StoreBase'
 
     @dataclasses.dataclass
     class IndexInfo:
@@ -90,7 +95,7 @@ class TableVersion:
 
     def __init__(
             self, id: UUID, tbl_md: schema.TableMd, version: int, schema_version_md: schema.TableSchemaVersionMd,
-            base: Optional[TableVersion] = None, base_path: Optional['pxt.catalog.TableVersionPath'] = None,
+            base: Optional[TableVersion] = None, base_path: Optional[pxt.catalog.TableVersionPath] = None,
             is_snapshot: Optional[bool] = None
     ):
         # only one of base and base_path can be non-None
@@ -141,15 +146,13 @@ class TableVersion:
             module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
             module = importlib.import_module(module_name)
             self.iterator_cls = getattr(module, class_name)
-            self.iterator_args = exprs.Expr.from_dict(tbl_md.view_md.iterator_args)
-            assert isinstance(self.iterator_args, exprs.InlineDict)
+            self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
             output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_dict())
             self.num_iterator_cols = len(output_schema)
             assert tbl_md.view_md.iterator_args is not None
 
         # register this table version now so that it's available when we're re-creating value exprs
-        import pixeltable.catalog as catalog
-        cat = catalog.Catalog.get()
+        cat = pxt.catalog.Catalog.get()
         cat.tbl_versions[(self.id, self.effective_version)] = self
 
         # init schema after we determined whether we're a component view, and before we create the store table
@@ -178,12 +181,12 @@ class TableVersion:
 
     @classmethod
     def create(
-            cls, session: orm.Session, dir_id: UUID, name: str, cols: List[Column], num_retained_versions: int,
-            comment: str, base_path: Optional['pxt.catalog.TableVersionPath'] = None,
+            cls, session: orm.Session, dir_id: UUID, name: str, cols: list[Column], num_retained_versions: int,
+            comment: str, base_path: Optional[pxt.catalog.TableVersionPath] = None,
             view_md: Optional[schema.ViewMd] = None
-    ) -> Tuple[UUID, Optional[TableVersion]]:
+    ) -> tuple[UUID, Optional[TableVersion]]:
         # assign ids
-        cols_by_name: Dict[str, Column] = {}
+        cols_by_name: dict[str, Column] = {}
         for pos, col in enumerate(cols):
             col.id = pos
             col.schema_version_add = 0
@@ -278,8 +281,6 @@ class TableVersion:
 
     def _init_cols(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
-        import pixeltable.exprs as exprs
-
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
@@ -339,13 +340,13 @@ class TableVersion:
     def _init_sa_schema(self) -> None:
         # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
         # need to record errors
-        from pixeltable.store import StoreBase, StoreTable, StoreView, StoreComponentView
+        from pixeltable.store import StoreComponentView, StoreTable, StoreView
         if self.is_component_view():
-            self.store_tbl: StoreBase = StoreComponentView(self)
+            self.store_tbl = StoreComponentView(self)
         elif self.is_view():
-            self.store_tbl: StoreBase = StoreView(self)
+            self.store_tbl = StoreView(self)
         else:
-            self.store_tbl: StoreBase = StoreTable(self)
+            self.store_tbl = StoreTable(self)
 
     def _update_md(
             self, timestamp: float, conn: sql.engine.Connection, update_tbl_version: bool = True, preceding_schema_version: Optional[int] = None
@@ -522,7 +523,7 @@ class TableVersion:
                         f'Cannot add non-nullable column "{col.name}" to table {self.name} with existing rows')
 
         num_excs = 0
-        cols_with_excs: List[Column] = []
+        cols_with_excs: list[Column] = []
         for col in cols:
             col.schema_version_add = self.schema_version
             # add the column to the lookup structures now, rather than after the store changes executed successfully,
@@ -589,7 +590,7 @@ class TableVersion:
         with Env.get().engine.begin() as conn:
             # drop this column and all dependent index columns and indices
             dropped_cols = [col]
-            dropped_idx_names: List[str] = []
+            dropped_idx_names: list[str] = []
             for idx_info in self.idxs_by_name.values():
                 if idx_info.col != col:
                     continue
@@ -695,7 +696,7 @@ class TableVersion:
             return self._insert(plan, conn, time.time(), print_stats)
 
     def _insert(
-            self, exec_plan: exec.ExecNode, conn: sql.engine.Connection, timestamp: float, print_stats: bool = False,
+        self, exec_plan: 'exec.ExecNode', conn: sql.engine.Connection, timestamp: float, print_stats: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
@@ -726,7 +727,7 @@ class TableVersion:
         return result
 
     def update(
-        self, value_spec: dict[str, Any], where: Optional['exprs.Expr'] = None, cascade: bool = True
+        self, value_spec: dict[str, Any], where: Optional[exprs.Expr] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this TableVersionPath.
         Args:
@@ -761,7 +762,7 @@ class TableVersion:
             return result
 
     def batch_update(
-            self, batch: list[dict[Column, 'exprs.Expr']], rowids: list[tuple[int, ...]], insert_if_not_exists: bool,
+            self, batch: list[dict[Column, exprs.Expr]], rowids: list[tuple[int, ...]], insert_if_not_exists: bool,
             error_if_not_exists: bool, cascade: bool = True,
     ) -> UpdateStatus:
         """Update rows in batch.
@@ -794,7 +795,7 @@ class TableVersion:
 
     def _validate_update_spec(
             self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
-    ) -> dict[Column, 'exprs.Expr']:
+    ) -> dict[Column, exprs.Expr]:
         update_targets: dict[Column, exprs.Expr] = {}
         for col_name, val in value_spec.items():
             if not isinstance(col_name, str):
@@ -817,7 +818,7 @@ class TableVersion:
             # make sure that the value is compatible with the column type
             try:
                 # check if this is a literal
-                value_expr = exprs.Literal(val, col_type=col.col_type)
+                value_expr: exprs.Expr = exprs.Literal(val, col_type=col.col_type)
             except TypeError:
                 if not allow_exprs:
                     raise excs.Error(
@@ -838,7 +839,7 @@ class TableVersion:
 
     def propagate_update(
             self, plan: Optional[exec.ExecNode], where_clause: Optional[sql.ColumnElement],
-            recomputed_view_cols: List[Column], base_versions: List[Optional[int]], conn: sql.engine.Connection,
+            recomputed_view_cols: list[Column], base_versions: list[Optional[int]], conn: sql.engine.Connection,
             timestamp: float, cascade: bool, show_progress: bool = True
     ) -> UpdateStatus:
         result = UpdateStatus()
@@ -857,7 +858,7 @@ class TableVersion:
             # propagate to views
             for view in self.mutable_views:
                 recomputed_cols = [col for col in recomputed_view_cols if col.tbl is view]
-                plan: Optional[exec.ExecNode] = None
+                plan = None
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner
                     plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
@@ -870,7 +871,7 @@ class TableVersion:
         result.cols_with_excs = list(dict.fromkeys(result.cols_with_excs).keys())  # remove duplicates
         return result
 
-    def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
         """Delete rows in this table.
         Args:
             where: a predicate to filter rows to delete.
@@ -895,7 +896,7 @@ class TableVersion:
         return status
 
     def propagate_delete(
-            self, where: Optional['exprs.Expr'], base_versions: List[Optional[int]],
+            self, where: Optional[exprs.Expr], base_versions: list[Optional[int]],
             conn: sql.engine.Connection, timestamp: float) -> int:
         """Delete rows in this table and propagate to views.
         Args:
@@ -903,8 +904,7 @@ class TableVersion:
         Returns:
             number of deleted rows
         """
-        from pixeltable.exprs import SqlElementCache
-        sql_where_clause = where.sql_expr(SqlElementCache()) if where is not None else None
+        sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
         num_rows = self.store_tbl.delete_rows(
             self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause,
             conn=conn)
@@ -963,7 +963,7 @@ class TableVersion:
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions
-        set_clause = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
+        set_clause: dict[sql.Column, Any] = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
         for index_info in self.idxs_by_name.values():
             # copy the index value back from the undo column and reset the undo column to NULL
             set_clause[index_info.val_col.sa_col] = index_info.undo_col.sa_col
@@ -1087,27 +1087,27 @@ class TableVersion:
             return True
         return False
 
-    def user_columns(self) -> List[Column]:
+    def user_columns(self) -> list[Column]:
         """Return all non-system columns"""
         return [c for c in self.cols if not self.is_system_column(c)]
 
-    def primary_key_columns(self) -> List[Column]:
+    def primary_key_columns(self) -> list[Column]:
         """Return all non-system columns"""
         return [c for c in self.cols if c.is_pk]
 
-    def get_required_col_names(self) -> List[str]:
+    def get_required_col_names(self) -> list[str]:
         """Return the names of all columns for which values must be specified in insert()"""
         assert not self.is_view()
         names = [c.name for c in self.cols_by_name.values() if not c.is_computed and not c.col_type.nullable]
         return names
 
-    def get_computed_col_names(self) -> List[str]:
+    def get_computed_col_names(self) -> list[str]:
         """Return the names of all computed columns"""
         names = [c.name for c in self.cols_by_name.values() if c.is_computed]
         return names
 
     @classmethod
-    def _create_value_expr(cls, col: Column, path: 'pxt.catalog.TableVersionPath') -> None:
+    def _create_value_expr(cls, col: Column, path: pxt.catalog.TableVersionPath) -> None:
         """
         Create col.value_expr, given col.compute_func.
         Interprets compute_func's parameters to be references to columns and construct ColumnRefs as args.
@@ -1117,7 +1117,7 @@ class TableVersion:
         assert col.compute_func is not None
         from pixeltable import exprs
         params = inspect.signature(col.compute_func).parameters
-        args: List[exprs.ColumnRef] = []
+        args: list[exprs.ColumnRef] = []
         for param_name in params:
             param = path.get_column(param_name)
             if param is None:
@@ -1160,7 +1160,7 @@ class TableVersion:
         return 1
 
     @classmethod
-    def _create_column_md(cls, cols: List[Column]) -> dict[int, schema.ColumnMd]:
+    def _create_column_md(cls, cols: list[Column]) -> dict[int, schema.ColumnMd]:
         column_md: dict[int, schema.ColumnMd] = {}
         for col in cols:
             value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
@@ -1171,7 +1171,7 @@ class TableVersion:
         return column_md
 
     @classmethod
-    def _create_stores_md(cls, stores: Iterable['pxt.io.ExternalStore']) -> list[dict[str, Any]]:
+    def _create_stores_md(cls, stores: Iterable[pxt.io.ExternalStore]) -> list[dict[str, Any]]:
         return [
             {
                 'class': f'{type(store).__module__}.{type(store).__qualname__}',
@@ -1191,7 +1191,7 @@ class TableVersion:
         return schema.TableVersionMd(created_at=timestamp, version=self.version, schema_version=self.schema_version)
 
     def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
-        column_md: Dict[int, schema.SchemaColumn] = {}
+        column_md: dict[int, schema.SchemaColumn] = {}
         for pos, col in enumerate(self.cols_by_name.values()):
             column_md[col.id] = schema.SchemaColumn(pos=pos, name=col.name)
         # preceding_schema_version to be set by the caller
@@ -1203,7 +1203,7 @@ class TableVersion:
         return {'id': str(self.id), 'effective_version': self.effective_version}
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'TableVersion':
+    def from_dict(cls, d: dict) -> TableVersion:
         import pixeltable.catalog as catalog
         id = UUID(d['id'])
         effective_version = d['effective_version']

@@ -1,3 +1,4 @@
+import itertools
 from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
 
@@ -367,7 +368,7 @@ class Planner:
         copied_cols = [
             col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
-        select_list = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(exprs.ColumnRef(col) for col in updated_cols)
 
         recomputed_exprs = \
@@ -707,7 +708,7 @@ class Planner:
 
             plan = exec.AggregationNode(
                 tbl.tbl_version, row_builder, analyzer.group_by_clause, analyzer.agg_fn_calls, agg_input, input=plan)
-            agg_output = exprs.ExprSet(analyzer.group_by_clause + analyzer.agg_fn_calls)
+            agg_output = exprs.ExprSet(itertools.chain(analyzer.group_by_clause, analyzer.agg_fn_calls))
             if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
                 plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
