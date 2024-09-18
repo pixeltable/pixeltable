@@ -64,7 +64,7 @@ class Env:
     _log_to_stdout: bool
     _module_log_level: dict[str, int]  # module name -> log level
     _config_file: Optional[Path]
-    _config: Optional[dict[str, Any]]
+    _config: Optional[Config]
     _stdout_handler: logging.StreamHandler
     _initialized: bool
 
@@ -111,8 +111,8 @@ class Env:
         self._module_log_level = {}  # module name -> log level
 
         # config
-        self._config_file: Optional[Path] = None
-        self._config: Optional[Config] = None
+        self._config_file = None
+        self._config = None
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -633,7 +633,7 @@ class Config:
     The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
     configuration values, which can be set in the config file or as environment variables.
     """
-    __config: dict[str, Any] = {}
+    __config: dict[str, Any]
 
     T = TypeVar('T')
 
@@ -647,16 +647,16 @@ class Config:
             with open(path, 'r') as stream:
                 try:
                     config_dict = toml.load(stream)
-                except toml.TomlDecodeError as exc:
+                except Exception as exc:
                     raise excs.Error(f'Could not read config file: {str(path)}') from exc
         else:
             config_dict = cls.__create_default_config(path)
             with open(path, 'w') as stream:
                 try:
                     toml.dump(config_dict, stream)
-                except toml.TomlEncodeError as exc:
+                except Exception as exc:
                     raise excs.Error(f'Could not write config file: {str(path)}') from exc
-            logging.getLogger('pixeltable').info(f'Created default config file at {str(path)}')
+            logging.getLogger('pixeltable').info(f'Created default config file at: {str(path)}')
         return cls(config_dict)
 
     @classmethod
