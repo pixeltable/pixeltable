@@ -861,9 +861,6 @@ class DocumentType(ColumnType):
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         from pixeltable.utils.documents import get_document_handle
-        try:
-            dh = get_document_handle(val)
-            if dh is None:
-                raise excs.Error(f'Not a recognized document format: {val}')
-        except Exception as e:
-            raise excs.Error(f'Not a recognized document format: {val}') from None
+        dh = get_document_handle(val)
+        if dh is None:
+            raise excs.Error(f'Not a recognized document format: {val}')

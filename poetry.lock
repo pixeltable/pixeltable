@@ -5504,6 +5504,17 @@ files = [
 tests = ["pytest"]
 
 [[package]]
+name = "puremagic"
+version = "1.27"
+description = "Pure python implementation of magic file detection"
+optional = false
+python-versions = "*"
+files = [
+    {file = "puremagic-1.27-py3-none-any.whl", hash = "sha256:b5519ad89e9b7c96a5fd9947d9a907e44f97cc30eae6dcf746d90a58e3681936"},
+    {file = "puremagic-1.27.tar.gz", hash = "sha256:7cb316f40912f56f34149f8ebdd77a91d099212d2ed936feb2feacfc7cbce2c1"},
+]
+
+[[package]]
 name = "pyannote-audio"
 version = "3.1.1"
 description = "Neural building blocks for speaker diarization"
@@ -9044,4 +9055,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "87b0fd42698729cf174bbfa7cebe05f65442c6299029b83a1164a53f2fa94610"
+content-hash = "3e5dd29b02fd4a176a4487fc60fc57ea5c682405844293932492f274e1f6125c"
