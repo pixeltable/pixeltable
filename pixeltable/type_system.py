@@ -100,7 +100,7 @@ class ColumnType:
         if nullable == self.nullable:
             return self
         else:
-            return self.__class__(nullable=nullable)
+            return self.__class__(nullable=nullable)  # type: ignore[call-arg]
 
     @classmethod
     def serialize_list(cls, type_list: List[ColumnType]) -> str:
@@ -497,7 +497,7 @@ class JsonType(ColumnType):
         return JsonType(self.type_spec, nullable=nullable)
 
     def matches(self, other: ColumnType) -> bool:
-        return other._type == self.Type.JSON and self.type_spec == other.type_spec
+        return isinstance(other, JsonType) and self.type_spec == other.type_spec
 
     def supertype(self, other: ColumnType) -> Optional[JsonType]:
         if not isinstance(other, JsonType):
@@ -559,7 +559,7 @@ class JsonType(ColumnType):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
 
     @classmethod
-    def __is_valid_literal(cls, val: Any) -> None:
+    def __is_valid_literal(cls, val: Any) -> bool:
         if val is None or isinstance(val, (str, int, float, bool)):
             return True
         if isinstance(val, (list, tuple)):
@@ -586,7 +586,7 @@ class ArrayType(ColumnType):
         return ArrayType(self.shape, self.pxt_dtype, nullable=nullable)
 
     def matches(self, other: ColumnType) -> bool:
-        return other._type == self.Type.ARRAY and self.shape == other.shape and self.dtype == other.dtype
+        return isinstance(other, ArrayType) and self.shape == other.shape and self.dtype == other.dtype
 
     def supertype(self, other: ColumnType) -> Optional[ArrayType]:
         if not isinstance(other, ArrayType):
@@ -719,7 +719,7 @@ class ImageType(ColumnType):
 
     def matches(self, other: ColumnType) -> bool:
         return (
-            other._type == self.Type.IMAGE
+            isinstance(other, ImageType)
             and self.width == other.width
             and self.height == other.height
             and self.mode == other.mode
@@ -849,7 +849,7 @@ class DocumentType(ColumnType):
         return DocumentType(doc_formats=self.doc_formats, nullable=nullable)
 
     def matches(self, other: ColumnType) -> bool:
-        return other._type == self.Type.DOCUMENT and self._doc_formats == other._doc_formats
+        return isinstance(other, DocumentType) and self._doc_formats == other._doc_formats
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         # stored as a file path

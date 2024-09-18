@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Optional
 import pixeltable as pxt
 
 if TYPE_CHECKING:
-    from whisper import Whisper
+    from whisper import Whisper  # type: ignore[import-untyped]
 
 
 @pxt.udf(

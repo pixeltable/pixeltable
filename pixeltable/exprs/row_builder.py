@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass
-from typing import Optional, List, Any, Dict, Sequence, Tuple, Set
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import sqlalchemy as sql
 
@@ -11,6 +11,7 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.utils as utils
+
 from .data_row import DataRow
 from .expr import Expr
 from .expr_set import ExprSet
@@ -57,7 +58,7 @@ class RowBuilder:
         target_exprs: List[Expr]  # exprs corresponding to target_slot_idxs
 
     def __init__(
-            self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Sequence[Expr]
+            self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Iterable[Expr]
     ):
         """
         Args:
@@ -227,7 +228,7 @@ class RowBuilder:
         # merge dependencies and convert to list
         return sorted(set().union(*[dependencies[i] for i in target_slot_idxs]))
 
-    def set_slot_idxs(self, expr_list: list[Expr], remove_duplicates: bool = True) -> None:
+    def set_slot_idxs(self, expr_list: Sequence[Expr], remove_duplicates: bool = True) -> None:
         """
         Recursively sets slot_idx in expr_list and its components
 
