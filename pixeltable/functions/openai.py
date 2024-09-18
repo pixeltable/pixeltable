@@ -9,10 +9,10 @@ import base64
 import io
 import pathlib
 import uuid
-from typing import Optional, TypeVar, Union, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union
 
-import PIL.Image
 import numpy as np
+import PIL.Image
 import tenacity
 
 import pixeltable as pxt
@@ -23,13 +23,11 @@ from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import openai
-    from openai._types import NotGiven
 
 
 @env.register_client('openai')
 def _(api_key: str) -> 'openai.OpenAI':
     import openai
-
     return openai.OpenAI(api_key=api_key)
 
 
@@ -42,10 +40,9 @@ def _openai_client() -> 'openai.OpenAI':
 # by OpenAI. Should we investigate making this more customizable in the future?
 def _retry(fn: Callable) -> Callable:
     import openai
-
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(openai.RateLimitError),
-        wait=tenacity.wait_random_exponential(multiplier=3, max=180),
+        wait=tenacity.wait_random_exponential(multiplier=1, max=60),
         stop=tenacity.stop_after_attempt(20),
     )(fn)
 
@@ -454,10 +451,9 @@ def moderations(input: str, *, model: Optional[str] = None) -> dict:
 _T = TypeVar('_T')
 
 
-def _opt(arg: _T) -> Union[_T, 'NotGiven']:
-    from openai._types import NOT_GIVEN
-
-    return arg if arg is not None else NOT_GIVEN
+def _opt(arg: _T) -> Union[_T, 'openai.NotGiven']:
+    import openai
+    return arg if arg is not None else openai.NOT_GIVEN
 
 
 __all__ = local_public_names(__name__)

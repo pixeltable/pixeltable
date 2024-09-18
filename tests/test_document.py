@@ -8,15 +8,11 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators.document import DocumentSplitter
-from .utils import (
-    get_audio_files,
-    get_documents,
-    get_image_files,
-    get_video_files,
-    skip_test_if_not_installed,
-)
 from pixeltable.type_system import DocumentType
 from pixeltable.utils.documents import get_document_handle
+
+from .utils import get_audio_files, get_documents, get_image_files, get_video_files, skip_test_if_not_installed
+
 
 def _check_pdf_metadata(rec, sep1):
     if sep1 in ['page', 'paragraph', 'sentence']:
@@ -48,6 +44,8 @@ class TestDocument:
         return [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
 
     def test_insert(self, reset_db) -> None:
+        skip_test_if_not_installed('mistune')
+
         file_paths = self.valid_doc_paths()
         doc_t = pxt.create_table('docs', {'doc': DocumentType()})
         status = doc_t.insert({'doc': p} for p in file_paths)
@@ -62,6 +60,8 @@ class TestDocument:
         assert status.num_excs >= len(file_paths)
 
     def test_get_document_handle(self) -> None:
+        skip_test_if_not_installed('mistune')
+
         file_paths = self.valid_doc_paths()
         for path in file_paths:
             extension = path.split('.')[-1].lower()
@@ -121,7 +121,6 @@ class TestDocument:
 
     def test_doc_splitter(self, reset_db) -> None:
         skip_test_if_not_installed('tiktoken')
-        skip_test_if_not_installed('fitz')
         skip_test_if_not_installed('spacy')
 
         file_paths = self.valid_doc_paths()

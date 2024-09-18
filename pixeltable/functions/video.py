@@ -16,7 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-import av
+import av  # type: ignore[import-untyped]
 import numpy as np
 import PIL.Image
 

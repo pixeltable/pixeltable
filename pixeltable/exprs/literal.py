@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import datetime
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
+from pixeltable.env import Env
+
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -22,6 +24,15 @@ class Literal(Expr):
             if col_type is None:
                 raise TypeError(f'Not a valid literal: {val}')
         super().__init__(col_type)
+        if isinstance(val, datetime.datetime):
+            # Normalize the datetime to UTC: all timestamps are stored as UTC (both in the database and in literals)
+            if val.tzinfo is None:
+                # We have a naive datetime. Modify it to use the configured default time zone
+                default_tz = Env.get().default_time_zone
+                if default_tz is not None:
+                    val = val.replace(tzinfo=default_tz)
+            # Now convert to UTC
+            val = val.astimezone(datetime.timezone.utc)
         self.val = val
         self.id = self._create_id()
 
@@ -29,8 +40,12 @@ class Literal(Expr):
         return 'Literal'
 
     def __str__(self) -> str:
-        if self.col_type.is_string_type() or self.col_type.is_timestamp_type():
+        if self.col_type.is_string_type():
             return f"'{self.val}'"
+        if self.col_type.is_timestamp_type():
+            assert isinstance(self.val, datetime.datetime)
+            default_tz = Env.get().default_time_zone
+            return f"'{self.val.astimezone(default_tz).isoformat()}'"
         return str(self.val)
 
     def __repr__(self) -> str:
@@ -55,7 +70,12 @@ class Literal(Expr):
         # For some types, we need to explictly record their type, because JSON does not know
         # how to interpret them unambiguously
         if self.col_type.is_timestamp_type():
-            return {'val': self.val.isoformat(), 'val_t': self.col_type._type.name, **super()._as_dict()}
+            assert isinstance(self.val, datetime.datetime)
+            assert self.val.tzinfo == datetime.timezone.utc  # Must be UTC in a literal
+            # Convert to ISO format in UTC (in keeping with the principle: all timestamps are
+            # stored as UTC in the database)
+            encoded_val = self.val.isoformat()
+            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         else:
             return {'val': self.val, **super()._as_dict()}
 
@@ -64,6 +84,10 @@ class Literal(Expr):
         assert 'val' in d
         if 'val_t' in d:
             val_t = d['val_t']
+            # Currently the only special-cased literal type is TIMESTAMP
             assert val_t == ts.ColumnType.Type.TIMESTAMP.name
-            return cls(datetime.datetime.fromisoformat(d['val']))
-        return cls(d['val'])
+            dt = datetime.datetime.fromisoformat(d['val'])
+            assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
+            return cls(dt)
+        else:
+            return cls(d['val'])

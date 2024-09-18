@@ -1,9 +1,9 @@
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    from whisperx.asr import FasterWhisperPipeline
+    from whisperx.asr import FasterWhisperPipeline  # type: ignore[import-untyped]
 
 import pixeltable as pxt
 
@@ -40,7 +40,7 @@ def transcribe(
         >>> tbl['result'] = transcribe(tbl.audio, model='tiny.en')
     """
     import torch
-    import whisperx
+    import whisperx  # type: ignore[import-untyped]
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     compute_type = compute_type or ('float16' if device == 'cuda' else 'int8')
@@ -60,7 +60,7 @@ def _lookup_model(model_id: str, device: str, compute_type: str) -> 'FasterWhisp
     return _model_cache[key]
 
 
-_model_cache = {}
+_model_cache: dict[tuple[str, str, str], 'FasterWhisperPipeline'] = {}
 
 
 __all__ = local_public_names(__name__)

@@ -49,6 +49,11 @@ jobs:
             python-version: "3.9"
             test-category: "ipynb"
             poetry-options: "--with dev"
+          # Linting, type-checking, docstrings validation, etc.
+          - os: ubuntu-22.04
+            python-version: "3.9"
+            test-category: "lint"
+            poetry-options: "--with dev"
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -134,6 +139,12 @@ jobs:
         run: |
           ./scripts/prepare-nb-tests.sh
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
+      - name: Type-check the code
+        if: ${{ matrix.test-category == 'lint' }}
+        run: mypy pixeltable/*.py pixeltable/catalog pixeltable/ext pixeltable/functions
+      - name: Validate docstrings
+        if: ${{ matrix.test-category == 'lint' }}
+        run: mkdocs build --strict
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |

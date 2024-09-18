@@ -53,7 +53,6 @@ class StoreBase:
     def _create_rowid_columns(self) -> List[sql.Column]:
         """Create and return rowid columns"""
 
-    @abc.abstractmethod
     def _create_system_columns(self) -> List[sql.Column]:
         """Create and return system columns"""
         rowid_cols = self._create_rowid_columns()
@@ -432,6 +431,11 @@ class StoreComponentView(StoreView):
 
     PK: now also includes pos, the position returned by the ComponentIterator for the base row identified by base_rowid
     """
+
+    rowid_cols: list[sql.Column]
+    pos_col: sql.Column
+    pos_col_idx: int
+
     def __init__(self, catalog_view: catalog.TableVersion):
         super().__init__(catalog_view)
 

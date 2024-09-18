@@ -9,6 +9,7 @@ import sqlalchemy.orm as orm
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
 import pixeltable.func as func
 import pixeltable.metadata.schema as md_schema
 from pixeltable.env import Env
@@ -220,5 +221,5 @@ class View(Table):
     ) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot insert into view')
 
-    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot delete from view')

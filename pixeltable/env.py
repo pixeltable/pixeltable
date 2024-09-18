@@ -14,7 +14,8 @@ import uuid
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Dict, Any, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
@@ -37,6 +38,35 @@ class Env:
     _instance: Optional[Env] = None
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
+    _home: Optional[Path]
+    _media_dir: Optional[Path]
+    _file_cache_dir: Optional[Path]  # cached media files with external URL
+    _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
+    _log_dir: Optional[Path]  # log files
+    _tmp_dir: Optional[Path]  # any tmp files
+    _sa_engine: Optional[sql.engine.base.Engine]
+    _pgdata_dir: Optional[Path]
+    _db_name: Optional[str]
+    _db_server: Optional[pixeltable_pgserver.PostgresServer]
+    _db_url: Optional[str]
+    _default_time_zone: Optional[ZoneInfo]
+
+    # info about optional packages that are utilized by some parts of the code
+    __optional_packages: dict[str, PackageInfo]
+
+    _spacy_nlp: Optional[spacy.Language]
+    _httpd: Optional[http.server.HTTPServer]
+    _http_address: Optional[str]
+    _logger: logging.Logger
+    _default_log_level: int
+    _logfilename: Optional[str]
+    _log_to_stdout: bool
+    _module_log_level: dict[str, int]  # module name -> log level
+    _config_file: Optional[Path]
+    _config: Optional[dict[str, Any]]
+    _stdout_handler: logging.StreamHandler
+    _initialized: bool
+
     @classmethod
     def get(cls) -> Env:
         if cls._instance is None:
@@ -51,24 +81,23 @@ class Env:
         cls._instance = env
 
     def __init__(self):
-        self._home: Optional[Path] = None
-        self._media_dir: Optional[Path] = None  # computed media files
-        self._file_cache_dir: Optional[Path] = None  # cached media files with external URL
-        self._dataset_cache_dir: Optional[Path] = None  # cached datasets (eg, pytorch or COCO)
-        self._log_dir: Optional[Path] = None  # log files
-        self._tmp_dir: Optional[Path] = None  # any tmp files
-        self._sa_engine: Optional[sql.engine.base.Engine] = None
-        self._pgdata_dir: Optional[Path] = None
-        self._db_name: Optional[str] = None
-        self._db_server: Optional[pixeltable_pgserver.PostgresServer] = None
-        self._db_url: Optional[str] = None
+        self._home = None
+        self._media_dir = None  # computed media files
+        self._file_cache_dir = None  # cached media files with external URL
+        self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
+        self._log_dir = None  # log files
+        self._tmp_dir = None  # any tmp files
+        self._sa_engine = None
+        self._pgdata_dir = None
+        self._db_name = None
+        self._db_server = None
+        self._db_url = None
+        self._default_time_zone = None
 
-        # info about installed packages that are utilized by some parts of the code;
-        # package name -> version; version == []: package is installed, but we haven't determined the version yet
-        self._installed_packages: Dict[str, Optional[List[int]]] = {}
-        self._spacy_nlp: Optional[spacy.Language] = None
-        self._httpd: Optional[http.server.HTTPServer] = None
-        self._http_address: Optional[str] = None
+        self.__optional_packages = {}
+        self._spacy_nlp = None
+        self._httpd = None
+        self._http_address = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -76,13 +105,12 @@ class Env:
         self._logger.propagate = False
         self._logger.addFilter(self._log_filter)
         self._default_log_level = logging.INFO
-        self._logfilename: Optional[str] = None
+        self._logfilename = None
         self._log_to_stdout = False
-        self._module_log_level: Dict[str, int] = {}  # module name -> log level
+        self._module_log_level = {}  # module name -> log level
 
-        # config
-        self._config_file: Optional[Path] = None
-        self._config: Optional[Dict[str, Any]] = None
+        self._config_file = None
+        self._config = None
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -102,6 +130,19 @@ class Env:
     def http_address(self) -> str:
         assert self._http_address is not None
         return self._http_address
+
+    @property
+    def default_time_zone(self) -> Optional[ZoneInfo]:
+        return self._default_time_zone
+
+    @default_time_zone.setter
+    def default_time_zone(self, tz: Optional[ZoneInfo]) -> None:
+        """
+        This is not a publicly visible setter; it is only for testing purposes.
+        """
+        tz_name = None if tz is None else tz.key
+        self.engine.dispose()
+        self._create_engine(time_zone_name=tz_name)
 
     def configure_logging(
         self,
@@ -158,7 +199,8 @@ class Env:
             self._module_log_level[module] = level
 
     def is_installed_package(self, package_name: str) -> bool:
-        return self._installed_packages[package_name] is not None
+        assert package_name in self.__optional_packages
+        return self.__optional_packages[package_name].is_installed
 
     def _log_filter(self, record: logging.LogRecord) -> bool:
         if record.name == 'pixeltable':
@@ -270,20 +312,35 @@ class Env:
         self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
         self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
 
-        if reinit_db:
-            if self._store_db_exists():
-                self._drop_store_db()
+        tz_name = os.environ.get('PXT_TIME_ZONE', self._config.get('pxt_time_zone', None))
+        if tz_name is not None:
+            # Validate tzname
+            if not isinstance(tz_name, str):
+                self._logger.error(f'Invalid time zone specified in configuration.')
+            else:
+                try:
+                    _ = ZoneInfo(tz_name)
+                except ZoneInfoNotFoundError:
+                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
 
-        if not self._store_db_exists():
-            self._logger.info(f'creating database at {self.db_url}')
+        if reinit_db and self._store_db_exists():
+            self._drop_store_db()
+
+        create_db = not self._store_db_exists()
+
+        if create_db:
+            self._logger.info(f'creating database at: {self.db_url}')
             self._create_store_db()
-            self._create_engine(echo=echo)
+        else:
+            self._logger.info(f'found database at: {self.db_url}')
+
+        # Create the SQLAlchemy engine. This will also set the default time zone.
+        self._create_engine(time_zone_name=tz_name, echo=echo)
+
+        if create_db:
             from pixeltable.metadata import schema
             schema.Base.metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
-        else:
-            self._logger.info(f'found database {self.db_url}')
-            self._create_engine(echo=echo)
 
         print(f'Connected to Pixeltable database at: {self.db_url}')
 
@@ -291,8 +348,21 @@ class Env:
         self._set_up_runtime()
         self.log_to_stdout(False)
 
-    def _create_engine(self, echo: bool = False) -> None:
-        self._sa_engine = sql.create_engine(self.db_url, echo=echo, future=True, isolation_level='AUTOCOMMIT')
+    def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
+        connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
+        self._sa_engine = sql.create_engine(
+            self.db_url,
+            echo=echo,
+            future=True,
+            isolation_level='AUTOCOMMIT',
+            connect_args=connect_args,
+        )
+        self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        with self.engine.begin() as conn:
+            tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
+            assert isinstance(tz_name, str)
+            self._logger.info(f'Database time zone is now: {tz_name}')
+            self._default_time_zone = ZoneInfo(tz_name)
 
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
@@ -307,7 +377,6 @@ class Env:
                 return result == 1
         finally:
             engine.dispose()
-
 
     def _create_store_db(self) -> None:
         assert self._db_name is not None
@@ -416,61 +485,74 @@ class Env:
     def _set_up_runtime(self) -> None:
         """Check for and start runtime services"""
         self._start_web_server()
-        self._check_installed_packages()
+        self.__register_packages()
 
-    def _check_installed_packages(self) -> None:
-        def check(package: str) -> None:
-            if importlib.util.find_spec(package) is not None:
-                self._installed_packages[package] = []
-            else:
-                self._installed_packages[package] = None
+    def __register_packages(self) -> None:
+        """Declare optional packages that are utilized by some parts of the code."""
+        self.__register_package('anthropic')
+        self.__register_package('boto3')
+        self.__register_package('datasets')
+        self.__register_package('fireworks', library_name='fireworks-ai')
+        self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('mistune')
+        self.__register_package('openai')
+        self.__register_package('openpyxl')
+        self.__register_package('pyarrow')
+        self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('spacy')  # TODO: deal with en-core-web-sm
+        self.__register_package('tiktoken')
+        self.__register_package('together')
+        self.__register_package('toml')
+        self.__register_package('torch')
+        self.__register_package('torchvision')
+        self.__register_package('transformers')
+        self.__register_package('whisper', library_name='openai-whisper')
+        self.__register_package('whisperx')
+        self.__register_package('yolox', library_name='git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a')
 
-        check('toml')
-        check('datasets')
-        check('torch')
-        check('torchvision')
-        check('transformers')
-        check('sentence_transformers')
-        check('whisper')
-        check('yolox')
-        check('whisperx')
-        check('boto3')
-        check('fitz')  # pymupdf
-        check('pyarrow')
-        check('spacy')  # TODO: deal with en-core-web-sm
         if self.is_installed_package('spacy'):
             import spacy
-
             self._spacy_nlp = spacy.load('en_core_web_sm')
-        check('tiktoken')
-        check('openai')
-        check('anthropic')
-        check('together')
-        check('fireworks')
-        check('label_studio_sdk')
-        check('openpyxl')
 
-    def require_package(self, package: str, min_version: Optional[List[int]] = None) -> None:
-        assert package in self._installed_packages
-        if self._installed_packages[package] is None:
-            raise excs.Error(f'Package {package} is not installed')
+    def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
+        self.__optional_packages[package_name] = PackageInfo(
+            is_installed=importlib.util.find_spec(package_name) is not None,
+            library_name=library_name or package_name  # defaults to package_name unless specified otherwise
+        )
+
+    def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
+        """
+        Checks whether the specified optional package is available. If not, raises an exception
+        with an error message informing the user how to install it.
+        """
+        assert package_name in self.__optional_packages
+        package_info = self.__optional_packages[package_name]
+
+        if not package_info.is_installed:
+            # Check again whether the package has been installed.
+            # We do this so that if a user gets an "optional library not found" error message, they can
+            # `pip install` the library and re-run the Pixeltable operation without having to restart
+            # their Python session.
+            package_info.is_installed = importlib.util.find_spec(package_name) is not None
+            if not package_info.is_installed:
+                # Still not found.
+                raise excs.Error(
+                    f'This feature requires the `{package_name}` package. To install it, run: `pip install -U {package_info.library_name}`'
+                )
+
         if min_version is None:
             return
 
         # check whether we have a version >= the required one
-        if not self._installed_packages[package]:
-            m = importlib.import_module(package)
-            module_version = [int(x) for x in m.__version__.split('.')]
-            self._installed_packages[package] = module_version
-        installed_version = self._installed_packages[package]
-        if len(min_version) < len(installed_version):
-            normalized_min_version = min_version + [0] * (len(installed_version) - len(min_version))
-        if any([a < b for a, b in zip(installed_version, normalized_min_version)]):
+        if package_info.version is None:
+            module = importlib.import_module(package_name)
+            package_info.version = [int(x) for x in module.__version__.split('.')]
+
+        if min_version > package_info.version:
             raise excs.Error(
-                (
-                    f'The installed version of package {package} is {".".join(str(v) for v in installed_version)}, '
-                    f'but version  >={".".join(str(v) for v in min_version)} is required'
-                )
+                f'The installed version of package `{package_name}` is {".".join(str(v) for v in package_info.version)}, '
+                f'but version >={".".join(str(v) for v in min_version)} is required. '
+                f'To fix this, run: `pip install -U {package_info.library_name}`'
             )
 
     def num_tmp_files(self) -> int:
@@ -556,3 +638,10 @@ class ApiClient:
     init_fn: Callable
     param_names: list[str]
     client_obj: Optional[Any] = None
+
+
+@dataclass
+class PackageInfo:
+    is_installed: bool
+    library_name: str  # pypi library name (may be different from package name)
+    version: Optional[list[int]] = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")

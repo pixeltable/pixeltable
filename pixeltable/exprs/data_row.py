@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import io
 import urllib.parse
 import urllib.request
@@ -8,7 +9,10 @@ from typing import Optional, List, Any, Tuple
 import sqlalchemy as sql
 import pgvector.sqlalchemy
 import PIL
+import PIL.Image
 import numpy as np
+
+from pixeltable import env
 
 
 class DataRow:
@@ -101,6 +105,7 @@ class DataRow:
 
     def __getitem__(self, index: object) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""
+        assert isinstance(index, int)
         if not self.has_val[index]:
             # for debugging purposes
             pass
@@ -115,7 +120,7 @@ class DataRow:
 
         return self.vals[index]
 
-    def get_stored_val(self, index: object, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
+    def get_stored_val(self, index: int, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
         """Return the value that gets stored in the db"""
         assert self.excs[index] is None
         if not self.has_val[index]:
@@ -140,12 +145,17 @@ class DataRow:
         if self.vals[index] is None and sa_col_type is not None and isinstance(sa_col_type, sql.JSON):
             return sql.sql.null()
 
+        if isinstance(self.vals[index], datetime.datetime) and self.vals[index].tzinfo is None:
+            # if the datetime is naive, cast it to the default time zone
+            return self.vals[index].replace(tzinfo=env.Env.get().default_time_zone)
+
         return self.vals[index]
 
     def __setitem__(self, idx: object, val: Any) -> None:
         """Assign in-memory cell value
         This allows overwriting
         """
+        assert isinstance(idx, int)
         assert self.excs[idx] is None
 
         if (idx in self.img_slot_idxs or idx in self.media_slot_idxs) and isinstance(val, str):
@@ -177,7 +187,7 @@ class DataRow:
             self.vals[idx] = val
         self.has_val[idx] = True
 
-    def set_file_path(self, idx: object, path: str) -> None:
+    def set_file_path(self, idx: int, path: str) -> None:
         """Augment an existing url with a local file path"""
         assert self.has_val[idx]
         assert idx in self.img_slot_idxs or idx in self.media_slot_idxs
@@ -185,7 +195,7 @@ class DataRow:
         if idx in self.media_slot_idxs:
             self.vals[idx] = path
 
-    def flush_img(self, index: object, filepath: Optional[str] = None) -> None:
+    def flush_img(self, index: int, filepath: Optional[str] = None) -> None:
         """Discard the in-memory value and save it to a local file, if filepath is not None"""
         if self.vals[index] is None:
             return
@@ -195,7 +205,12 @@ class DataRow:
                 # we want to save this to a file
                 self.file_paths[index] = filepath
                 self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
-                self.vals[index].save(filepath, format='JPEG')
+                image = self.vals[index]
+                assert isinstance(image, PIL.Image.Image)
+                # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
+                # In that case, use WebP instead.
+                format = 'webp' if image.has_transparency_data else 'jpeg'
+                image.save(filepath, format=format)
             else:
                 # we discard the content of this cell
                 self.has_val[index] = False

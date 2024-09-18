@@ -16,7 +16,8 @@ import numpy as np
 import PIL.Image
 import sqlalchemy as sql
 
-from pixeltable import exceptions as excs
+import pixeltable.exceptions as excs
+from pixeltable.env import Env
 
 
 class ColumnType:
@@ -100,7 +101,7 @@ class ColumnType:
         if nullable == self.nullable:
             return self
         else:
-            return self.__class__(nullable=nullable)
+            return self.__class__(nullable=nullable)  # type: ignore[call-arg]
 
     @classmethod
     def serialize_list(cls, type_list: List[ColumnType]) -> str:
@@ -484,7 +485,7 @@ class TimestampType(ColumnType):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
-        return sql.TIMESTAMP()
+        return sql.TIMESTAMP(timezone=True)
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime):
@@ -506,7 +507,7 @@ class JsonType(ColumnType):
         return JsonType(self.type_spec, nullable=nullable)
 
     def matches(self, other: ColumnType) -> bool:
-        return other._type == self.Type.JSON and self.type_spec == other.type_spec
+        return isinstance(other, JsonType) and self.type_spec == other.type_spec
 
     def supertype(self, other: ColumnType) -> Optional[JsonType]:
         if not isinstance(other, JsonType):
@@ -568,7 +569,7 @@ class JsonType(ColumnType):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
 
     @classmethod
-    def __is_valid_literal(cls, val: Any) -> None:
+    def __is_valid_literal(cls, val: Any) -> bool:
         if val is None or isinstance(val, (str, int, float, bool)):
             return True
         if isinstance(val, (list, tuple)):
@@ -595,7 +596,7 @@ class ArrayType(ColumnType):
         return ArrayType(self.shape, self.pxt_dtype, nullable=nullable)
 
     def matches(self, other: ColumnType) -> bool:
-        return other._type == self.Type.ARRAY and self.shape == other.shape and self.dtype == other.dtype
+        return isinstance(other, ArrayType) and self.shape == other.shape and self.dtype == other.dtype
 
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self.shape, self.dtype))
@@ -731,7 +732,7 @@ class ImageType(ColumnType):
 
     def matches(self, other: ColumnType) -> bool:
         return (
-            other._type == self.Type.IMAGE
+            isinstance(other, ImageType)
             and self.width == other.width
             and self.height == other.height
             and self.mode == other.mode
@@ -864,7 +865,7 @@ class DocumentType(ColumnType):
         return DocumentType(doc_formats=self.doc_formats, nullable=nullable)
 
     def matches(self, other: ColumnType) -> bool:
-        return other._type == self.Type.DOCUMENT and self._doc_formats == other._doc_formats
+        return isinstance(other, DocumentType) and self._doc_formats == other._doc_formats
 
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self._doc_formats))
@@ -879,12 +880,9 @@ class DocumentType(ColumnType):
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         from pixeltable.utils.documents import get_document_handle
-        try:
-            dh = get_document_handle(val)
-            if dh is None:
-                raise excs.Error(f'Not a recognized document format: {val}')
-        except Exception as e:
-            raise excs.Error(f'Not a recognized document format: {val}') from None
+        dh = get_document_handle(val)
+        if dh is None:
+            raise excs.Error(f'Not a recognized document format: {val}')
 
 
 NotNull = object()

@@ -36,5 +36,7 @@ class TestParquet:
 
                 if column_types[col].is_array_type():
                     assert (val == arrow_tup[col]).all()
+                elif column_types[col].is_timestamp_type():
+                    assert val == arrow_tup[col].astimezone(None)
                 else:
                     assert val == arrow_tup[col]

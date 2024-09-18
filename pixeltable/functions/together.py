@@ -6,19 +6,19 @@ the [Working with Together AI](https://pixeltable.readme.io/docs/together-ai) tu
 """
 
 import base64
-from typing import Optional, TYPE_CHECKING
-
-import PIL.Image
-import numpy as np
-
 import io
+from typing import TYPE_CHECKING, Optional
+
+import numpy as np
+import PIL.Image
+
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import together
+    import together  # type: ignore[import-untyped]
 
 
 @env.register_client('together')
