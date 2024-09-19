@@ -51,9 +51,8 @@ class Env:
     _db_url: Optional[str]
     _default_time_zone: Optional[ZoneInfo]
 
-    # info about installed packages that are utilized by some parts of the code;
-    # package name -> version; version == []: package is installed, but we haven't determined the version yet
-    _installed_packages: dict[str, Optional[list[int]]]
+    # info about optional packages that are utilized by some parts of the code
+    __optional_packages: dict[str, PackageInfo]
 
     _spacy_nlp: Optional[spacy.Language]
     _httpd: Optional[http.server.HTTPServer]
@@ -95,7 +94,7 @@ class Env:
         self._db_url = None
         self._default_time_zone = None
 
-        self._installed_packages = {}
+        self.__optional_packages = {}
         self._spacy_nlp = None
         self._httpd = None
         self._http_address = None
@@ -200,7 +199,8 @@ class Env:
             self._module_log_level[module] = level
 
     def is_installed_package(self, package_name: str) -> bool:
-        return self._installed_packages[package_name] is not None
+        assert package_name in self.__optional_packages
+        return self.__optional_packages[package_name].is_installed
 
     def _log_filter(self, record: logging.LogRecord) -> bool:
         if record.name == 'pixeltable':
@@ -485,61 +485,74 @@ class Env:
     def _set_up_runtime(self) -> None:
         """Check for and start runtime services"""
         self._start_web_server()
-        self._check_installed_packages()
+        self.__register_packages()
 
-    def _check_installed_packages(self) -> None:
-        def check(package: str) -> None:
-            if importlib.util.find_spec(package) is not None:
-                self._installed_packages[package] = []
-            else:
-                self._installed_packages[package] = None
+    def __register_packages(self) -> None:
+        """Declare optional packages that are utilized by some parts of the code."""
+        self.__register_package('anthropic')
+        self.__register_package('boto3')
+        self.__register_package('datasets')
+        self.__register_package('fireworks', library_name='fireworks-ai')
+        self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('mistune')
+        self.__register_package('openai')
+        self.__register_package('openpyxl')
+        self.__register_package('pyarrow')
+        self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('spacy')  # TODO: deal with en-core-web-sm
+        self.__register_package('tiktoken')
+        self.__register_package('together')
+        self.__register_package('toml')
+        self.__register_package('torch')
+        self.__register_package('torchvision')
+        self.__register_package('transformers')
+        self.__register_package('whisper', library_name='openai-whisper')
+        self.__register_package('whisperx')
+        self.__register_package('yolox', library_name='git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a')
 
-        check('toml')
-        check('datasets')
-        check('torch')
-        check('torchvision')
-        check('transformers')
-        check('sentence_transformers')
-        check('whisper')
-        check('yolox')
-        check('whisperx')
-        check('boto3')
-        check('fitz')  # pymupdf
-        check('pyarrow')
-        check('spacy')  # TODO: deal with en-core-web-sm
         if self.is_installed_package('spacy'):
             import spacy
-
             self._spacy_nlp = spacy.load('en_core_web_sm')
-        check('tiktoken')
-        check('openai')
-        check('anthropic')
-        check('together')
-        check('fireworks')
-        check('label_studio_sdk')
-        check('openpyxl')
 
-    def require_package(self, package: str, min_version: Optional[list[int]] = None) -> None:
-        assert package in self._installed_packages
-        if self._installed_packages[package] is None:
-            raise excs.Error(f'Package {package} is not installed')
+    def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
+        self.__optional_packages[package_name] = PackageInfo(
+            is_installed=importlib.util.find_spec(package_name) is not None,
+            library_name=library_name or package_name  # defaults to package_name unless specified otherwise
+        )
+
+    def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
+        """
+        Checks whether the specified optional package is available. If not, raises an exception
+        with an error message informing the user how to install it.
+        """
+        assert package_name in self.__optional_packages
+        package_info = self.__optional_packages[package_name]
+
+        if not package_info.is_installed:
+            # Check again whether the package has been installed.
+            # We do this so that if a user gets an "optional library not found" error message, they can
+            # `pip install` the library and re-run the Pixeltable operation without having to restart
+            # their Python session.
+            package_info.is_installed = importlib.util.find_spec(package_name) is not None
+            if not package_info.is_installed:
+                # Still not found.
+                raise excs.Error(
+                    f'This feature requires the `{package_name}` package. To install it, run: `pip install -U {package_info.library_name}`'
+                )
+
         if min_version is None:
             return
 
         # check whether we have a version >= the required one
-        if not self._installed_packages[package]:
-            m = importlib.import_module(package)
-            module_version = [int(x) for x in m.__version__.split('.')]
-            self._installed_packages[package] = module_version
-        installed_version = self._installed_packages[package]
-        if len(min_version) < len(installed_version):
-            normalized_min_version = min_version + [0] * (len(installed_version) - len(min_version))
-        if any([a < b for a, b in zip(installed_version, normalized_min_version)]):
+        if package_info.version is None:
+            module = importlib.import_module(package_name)
+            package_info.version = [int(x) for x in module.__version__.split('.')]
+
+        if min_version > package_info.version:
             raise excs.Error(
-                (
-                    f'The installed version of package {package} is {".".join(str(v) for v in installed_version)}, '
-                    f'but version  >={".".join(str(v) for v in min_version)} is required'
-                )
+                f'The installed version of package `{package_name}` is {".".join(str(v) for v in package_info.version)}, '
+                f'but version >={".".join(str(v) for v in min_version)} is required. '
+                f'To fix this, run: `pip install -U {package_info.library_name}`'
             )
 
     def num_tmp_files(self) -> int:
@@ -625,3 +638,10 @@ class ApiClient:
     init_fn: Callable
     param_names: list[str]
     client_obj: Optional[Any] = None
+
+
+@dataclass
+class PackageInfo:
+    is_installed: bool
+    library_name: str  # pypi library name (may be different from package name)
+    version: Optional[list[int]] = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")

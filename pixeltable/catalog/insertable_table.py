@@ -82,7 +82,7 @@ class InsertableTable(Table):
     @overload
     def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
 
-    def insert(
+    def insert(  # type: ignore[misc]
             self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
             fail_on_exception: bool = True, **kwargs: Any
     ) -> UpdateStatus:
