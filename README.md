@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/pixeltable-logo-large.png" alt="Pixeltable" width="30%" />
+<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/pixeltable-logo-large.png" alt="Pixeltable" width="50%" />
 <br></br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-darkblue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -140,7 +140,7 @@ chat_table.select(chat_table.input, chat_table.response).head()
 ```
 Learn how to interact with inference services such as [Together AI](https://pixeltable.readme.io/docs/together-ai) in Pixeltable.
 
-### Image similarity search on video frames with embedding indexes
+### Text and image similarity search on video frames with embedding indexes
 ```python
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
@@ -162,12 +162,19 @@ def embed_image(img: PIL.Image.Image):
 def str_embed(s: str):
     return clip_text(s, model_id='openai/clip-vit-base-patch32')
 
+# Create an index on the 'frame' column that allows text and image search
 frames_view.add_embedding_index('frame', string_embed=str_embed, image_embed=embed_image)
 
+# Now we will retrieve images based on a sample image
 sample_image = '/image.jpeg'
 sim = frames_view.frame.similarity(sample_image)
-
 frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
+
+# Now we will retrieve images based on a string
+sample_text = 'red truck'
+sim = frames_view.frame.similarity(sample_text)
+frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
+
 ```
 Learn how to work with [Embedding and Vector Indexes](https://docs.pixeltable.com/docs/embedding-vector-indexes).
 
