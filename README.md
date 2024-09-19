@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-banner-white.png" alt="Pixeltable" width="30%" />
+<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-logo-large.png" alt="Pixeltable" width="30%" />
 <br></br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-darkblue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -139,6 +139,36 @@ chat_table.insert([
 chat_table.select(chat_table.input, chat_table.response).head()
 ```
 Learn how to interact with inference services such as [Together AI](https://pixeltable.readme.io/docs/together-ai) in Pixeltable.
+
+### Image similarity search on video frames with embedding indexes
+```python
+import pixeltable as pxt
+from pixeltable.functions.huggingface import clip_image, clip_text
+from pixeltable.iterators import FrameIterator
+import PIL.Image
+
+video_table = pxt.create_table('videos', {'video': pxt.VideoType()})
+
+video_table.insert([{'video': '/video.mp4'}])
+
+frames_view = pxt.create_view('frames', video_table, iterator=FrameIterator.create(video=video_table.video))
+
+@pxt.expr_udf
+def embed_image(img: PIL.Image.Image):
+    return clip_image(img, model_id='openai/clip-vit-base-patch32')
+
+@pxt.expr_udf
+def str_embed(s: str):
+    return clip_text(s, model_id='openai/clip-vit-base-patch32')
+
+frames_view.add_embedding_index('frame', string_embed=str_embed, image_embed=embed_image)
+
+sample_image = '/image.jpeg'
+sim = frames_view.frame.similarity(sample_image)
+
+frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
+```
+Learn how to work with [Embedding and Vector Indexes](https://docs.pixeltable.com/docs/embedding-vector-indexes).
 
 ## ❓ FAQ
 
