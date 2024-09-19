@@ -107,7 +107,7 @@ def fim_completions(
     - `pip install mistralai`
 
     Args:
-        messages: The text/code to complete.
+        prompt: The text/code to complete.
         model: ID of the model to use. (See overview here: <https://docs.mistral.ai/getting-started/models/>)
 
     For details on the other parameters, see: <https://docs.mistral.ai/api/#tag/fim>
