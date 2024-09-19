@@ -7,8 +7,11 @@ the [Working with Mistral AI](https://pixeltable.readme.io/docs/working-with-mis
 
 from typing import TYPE_CHECKING, Optional, TypeVar, Union
 
+import numpy as np
+
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
+from pixeltable.func.signature import Batch
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -26,7 +29,7 @@ def _mistralai_client() -> 'mistralai.Mistral':
 
 
 @pxt.udf
-def completions(
+def chat_completions(
     messages: list[dict[str, str]],
     *,
     model: str,
@@ -38,13 +41,11 @@ def completions(
     random_seed: Optional[int] = None,
     response_format: Optional[dict] = None,
     safe_prompt: Optional[bool] = False,
-    server_url: Optional[str] = None,
-    timeout_ms: Optional[int] = None,
 ) -> dict:
     """
-    Create a Message.
+    Chat Completion API.
 
-    Equivalent to the Anthropic `messages` API endpoint.
+    Equivalent to the Mistral AI `chat/completions` API endpoint.
     For additional details, see: <https://docs.mistral.ai/api/#tag/chat>
 
     __Requirements:__
@@ -79,9 +80,98 @@ def completions(
         random_seed=_opt(random_seed),
         response_format=response_format,
         safe_prompt=safe_prompt,
-        server_url=server_url,
-        timeout_ms=timeout_ms,
     ).dict()
+
+
+@pxt.udf
+def fim_completions(
+    prompt: str,
+    *,
+    model: str,
+    temperature: Optional[float] = 0.7,
+    top_p: Optional[float] = 1.0,
+    max_tokens: Optional[int] = None,
+    min_tokens: Optional[int] = None,
+    stop: Optional[list[str]] = None,
+    random_seed: Optional[int] = None,
+    suffix: Optional[str] = None,
+) -> dict:
+    """
+    Fill-in-the-middle Completion API.
+
+    Equivalent to the Mistral AI `fim/completions` API endpoint.
+    For additional details, see: <https://docs.mistral.ai/api/#tag/fim>
+
+    __Requirements:__
+
+    - `pip install mistralai`
+
+    Args:
+        messages: The text/code to complete.
+        model: ID of the model to use. (See overview here: <https://docs.mistral.ai/getting-started/models/>)
+
+    For details on the other parameters, see: <https://docs.mistral.ai/api/#tag/fim>
+
+    Returns:
+        A dictionary containing the response and other metadata.
+
+    Examples:
+        Add a computed column that applies the model `codestral-latest`
+        to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+
+        >>> tbl['response'] = completions(tbl.prompt, model='codestral-latest')
+    """
+    Env.get().require_package('mistralai')
+    return _mistralai_client().fim.complete(
+        prompt=prompt,
+        model=model,
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=_opt(max_tokens),
+        min_tokens=_opt(min_tokens),
+        stop=stop,
+        random_seed=_opt(random_seed),
+        suffix=_opt(suffix)
+    ).dict()
+
+
+_embedding_dimensions_cache: dict[str, int] = {
+    'mistral-embed': 1024
+}
+
+
+@pxt.udf(batch_size=16, return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()))
+def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
+    """
+    Embeddings API.
+
+    Equivalent to the Mistral AI `embeddings` API endpoint.
+    For additional details, see: <https://docs.mistral.ai/api/#tag/embeddings>
+
+    __Requirements:__
+
+    - `pip install mistralai`
+
+    Args:
+        input: Text to embed.
+        model: ID of the model to use. (See overview here: <https://docs.mistral.ai/getting-started/models/>)
+
+    Returns:
+        An array representing the application of the given embedding to `input`.
+    """
+    Env.get().require_package('mistralai')
+    result = _mistralai_client().embeddings.create(
+        inputs=input,
+        model=model,
+    )
+    return [np.array(data.embedding, dtype=np.float64) for data in result.data]
+
+
+@embeddings.conditional_return_type
+def _(model: str) -> pxt.ArrayType:
+    dimensions = _embedding_dimensions_cache.get(model)  # `None` if unknown model
+    return pxt.ArrayType((dimensions,), dtype=pxt.FloatType())
+
 
 _T = TypeVar('_T')
 
