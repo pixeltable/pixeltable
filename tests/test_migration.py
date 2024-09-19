@@ -5,6 +5,7 @@ import os
 import platform
 import subprocess
 import sys
+from datetime import datetime
 
 import pixeltable_pgserver
 import pytest
@@ -12,7 +13,7 @@ import sqlalchemy.orm as orm
 
 import pixeltable as pxt
 from pixeltable.env import Env
-from pixeltable.exprs import FunctionCall
+from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
 from pixeltable.metadata import VERSION, SystemInfo
 from pixeltable.metadata.notes import VERSION_NOTES
@@ -148,6 +149,15 @@ class TestMigration:
         # Test that stored batched functions are properly loaded as batched
         expr = v['view_test_udf_batched'].col.value_expr
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
+
+        # Test that timestamp literals are properly stored as aware datetimes
+        expr = v['view_timestamp_const_1'].col.value_expr
+        assert isinstance(expr, Literal) and isinstance(expr.val, datetime) and expr.val.tzinfo is not None
+
+        # Test that timestamp columns are properly converted to aware columns (TIMESTAMPTZ in Postgres)
+        ts1 = v.select(v.c5).head(1)[0]['c5']
+        assert isinstance(ts1, datetime)
+        assert ts1.tzinfo is not None  # ensure timestamps are aware
 
         # Test that InlineLists are properly loaded
         inline_list_exprs = v.where(v.c2 == 19).select(v.base_table_inline_list_exprs).head(1)['base_table_inline_list_exprs'][0]

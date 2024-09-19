@@ -1,35 +1,34 @@
 import datetime
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable.metadata import register_converter
+from pixeltable.metadata import register_converter, schema
 from pixeltable.metadata.converters.util import convert_table_md
-
-if TYPE_CHECKING:
-    from pixeltable.catalog import Column, TableVersion
 
 
 @register_converter(version=19)
 def _(engine: sql.engine.Engine) -> None:
-    from pixeltable.catalog import Catalog
-
+    # Convert all timestamp literals to aware datetimes
     convert_table_md(engine, substitution_fn=__update_timestamp_literals)
 
+    # Convert all timestamp columns to TIMESTAMPTZ. (This conversion will take place in the database
+    # default time zone, which is what we want, since in versions <= 19 they were naive timestamps.)
     with engine.begin() as conn:
-        for tbl_version in Catalog.get().tbl_versions.values():
-            for col in tbl_version.cols:
-                if col.col_type.is_timestamp_type():
-                    __update_timestamp_col(conn, tbl_version, col)
-
-
-def __update_timestamp_col(conn: sql.Connection, tbl_version: 'TableVersion', col: 'Column') -> None:
-    sa_tbl = tbl_version.store_tbl.sa_tbl
-    sa_col = col.sa_col
-    conn.execute(
-        sql.text(f'ALTER TABLE {sa_tbl.name} ALTER COLUMN {sa_col.name} TYPE TIMESTAMPTZ')
-    )
+        tables = conn.execute(sql.select(schema.Table.id, schema.Table.md))
+        for id, md in tables:
+            store_prefix = 'view' if md['view_md'] is not None else 'tbl'
+            store_name = f'{store_prefix}_{id.hex}'
+            column_md = md['column_md']
+            timestamp_cols = [
+                col_id for col_id, col in column_md.items()
+                if col['col_type']['_classname'] == 'TimestampType'
+            ]
+            for col_id in timestamp_cols:
+                conn.execute(
+                    sql.text(f'ALTER TABLE {store_name} ALTER COLUMN col_{col_id} TYPE TIMESTAMPTZ')
+                )
 
 
 def __update_timestamp_literals(k: Any, v: Any) -> Optional[tuple[Any, Any]]:

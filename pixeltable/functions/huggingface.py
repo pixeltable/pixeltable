@@ -332,8 +332,8 @@ def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
     return _processor_cache[key]
 
 
-_model_cache = {}
-_processor_cache = {}
+_model_cache: dict[tuple[str, Callable, Optional[str]], Any] = {}
+_processor_cache: dict[tuple[str, Callable], Any] = {}
 
 
 __all__ = local_public_names(__name__)

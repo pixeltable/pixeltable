@@ -7,17 +7,18 @@ import inspect
 import json
 import sys
 import typing
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Type, TypeVar, Union, overload, \
-    TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar, Union, overload
 from uuid import UUID
 
 import sqlalchemy as sql
+from typing_extensions import Self
 
 import pixeltable
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator
 
@@ -75,7 +76,7 @@ class Expr(abc.ABC):
         self.id = None
         self.slot_idx = None
 
-    def dependencies(self) -> List[Expr]:
+    def dependencies(self) -> list[Expr]:
         """
         Returns all exprs that need to have been evaluated before eval() can be called on this one.
         """
@@ -125,7 +126,7 @@ class Expr(abc.ABC):
         # override this
         return True
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         """Returns attribute name/value pairs that are used to construct the instance id.
 
         Attribute values must be immutable and have str() defined.
@@ -147,7 +148,7 @@ class Expr(abc.ABC):
         return self.id
 
     @classmethod
-    def list_equals(cls, a: List[Expr], b: List[Expr]) -> bool:
+    def list_equals(cls, a: list[Expr], b: list[Expr]) -> bool:
         if len(a) != len(b):
             return False
         for i in range(len(a)):
@@ -168,7 +169,7 @@ class Expr(abc.ABC):
         return result
 
     @classmethod
-    def copy_list(cls, expr_list: Optional[List[Expr]]) -> Optional[List[Expr]]:
+    def copy_list(cls, expr_list: Optional[list[Expr]]) -> Optional[list[Expr]]:
         if expr_list is None:
             return None
         return [e.copy() for e in expr_list]
@@ -193,11 +194,11 @@ class Expr(abc.ABC):
         return self
 
     @classmethod
-    def list_substitute(cls, expr_list: List[Expr], spec: dict[Expr, Expr]) -> None:
+    def list_substitute(cls, expr_list: list[Expr], spec: dict[Expr, Expr]) -> None:
         for i in range(len(expr_list)):
             expr_list[i] = expr_list[i].substitute(spec)
 
-    def resolve_computed_cols(self, resolve_cols: Optional[Set[catalog.Column]] = None) -> Expr:
+    def resolve_computed_cols(self, resolve_cols: Optional[set[catalog.Column]] = None) -> Expr:
         """
         Recursively replace ColRefs to unstored computed columns with their value exprs.
         Also replaces references to stored computed columns in resolve_cols.
@@ -225,12 +226,12 @@ class Expr(abc.ABC):
                 return False
         return True
 
-    def retarget(self, tbl: catalog.TableVersionPath) -> Expr:
+    def retarget(self, tbl: catalog.TableVersionPath) -> Self:
         """Retarget ColumnRefs in this expr to the specific TableVersions in tbl."""
         tbl_versions = {tbl_version.id: tbl_version for tbl_version in tbl.get_tbl_versions()}
         return self._retarget(tbl_versions)
 
-    def _retarget(self, tbl_versions: Dict[UUID, catalog.TableVersion]) -> Expr:
+    def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
         from .column_ref import ColumnRef
         if isinstance(self, ColumnRef):
             target = tbl_versions[self.col.tbl.id]
@@ -309,7 +310,7 @@ class Expr(abc.ABC):
         for e in expr_list:
             yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
 
-    def _contains(self, cls: Optional[Type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
+    def _contains(self, cls: Optional[type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls.
         """
@@ -322,15 +323,15 @@ class Expr(abc.ABC):
         except StopIteration:
             return False
 
-    def tbl_ids(self) -> Set[UUID]:
+    def tbl_ids(self) -> set[UUID]:
         """Returns table ids referenced by this expr."""
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
         return {ref.col.tbl.id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
 
     @classmethod
-    def list_tbl_ids(cls, expr_list: List[Expr]) -> Set[UUID]:
-        ids: Set[UUID] = set()
+    def list_tbl_ids(cls, expr_list: list[Expr]) -> set[UUID]:
+        ids: set[UUID] = set()
         for e in expr_list:
             ids.update(e.tbl_ids())
         return ids
@@ -398,14 +399,14 @@ class Expr(abc.ABC):
             c.release()
 
     @classmethod
-    def release_list(cls, expr_list: List[Expr]) -> None:
+    def release_list(cls, expr_list: list[Expr]) -> None:
         for e in expr_list:
             e.release()
 
     def serialize(self) -> str:
         return json.dumps(self.as_dict())
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> dict:
         """
         Turn Expr object into a dict that can be passed to json.dumps().
         Subclasses override _as_dict().
@@ -416,10 +417,10 @@ class Expr(abc.ABC):
         }
 
     @classmethod
-    def as_dict_list(self, expr_list: List[Expr]) -> List[Dict]:
+    def as_dict_list(self, expr_list: list[Expr]) -> list[dict]:
         return [e.as_dict() for e in expr_list]
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         if len(self.components) > 0:
             return {'components': [c.as_dict() for c in self.components]}
         return {}
@@ -429,24 +430,24 @@ class Expr(abc.ABC):
         return cls.from_dict(json.loads(dict_str))
 
     @classmethod
-    def from_dict(cls, d: Dict) -> Expr:
+    def from_dict(cls, d: dict) -> Self:
         """
         Turn dict that was produced by calling Expr.as_dict() into an instance of the correct Expr subclass.
         """
         assert '_classname' in d
         exprs_module = importlib.import_module(cls.__module__.rsplit('.', 1)[0])
         type_class = getattr(exprs_module, d['_classname'])
-        components: List[Expr] = []
+        components: list[Expr] = []
         if 'components' in d:
             components = [cls.from_dict(component_dict) for component_dict in d['components']]
         return type_class._from_dict(d, components)
 
     @classmethod
-    def from_dict_list(cls, dict_list: List[Dict]) -> List[Expr]:
+    def from_dict_list(cls, dict_list: list[dict]) -> list[Expr]:
         return [cls.from_dict(d) for d in dict_list]
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> Self:
         assert False, 'not implemented'
 
     def isin(self, value_set: Any) -> 'pixeltable.exprs.InPredicate':

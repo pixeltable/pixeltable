@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import abc
+import builtins
 import json
 import logging
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, overload
 from uuid import UUID
 
 import pandas as pd
+import pandas.io.formats.style
 import sqlalchemy as sql
 
 import pixeltable
@@ -24,6 +26,9 @@ from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
+
+if TYPE_CHECKING:
+    import torch.utils.data
 
 _logger = logging.getLogger('pixeltable')
 
@@ -210,23 +215,24 @@ class Table(SchemaObject):
         })
         return df
 
-    def _description_html(self) -> pd.DataFrame:
+    def _description_html(self) -> pandas.io.formats.style.Styler:
         pd_df = self._description()
         # white-space: pre-wrap: print \n as newline
         # th: center-align headings
-        return pd_df.style.set_properties(**{'white-space': 'pre-wrap', 'text-align': 'left'}) \
-            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])]) \
+        return (
+            pd_df.style.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
+            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
             .hide(axis='index')
+        )
 
     def describe(self) -> None:
         """
         Print the table schema.
         """
-        try:
-            __IPYTHON__
+        if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import display
             display(self._description_html())
-        except NameError:
+        else:
             print(self.__repr__())
 
     # TODO: Display comments in _repr_html()
@@ -239,7 +245,7 @@ class Table(SchemaObject):
         return f'{self._display_name()} \'{self._name}\'\n{comment}{description_str}'
 
     def _repr_html_(self) -> str:
-        return self._description_html()._repr_html_()
+        return self._description_html()._repr_html_()  # type: ignore[attr-defined]
 
     def _drop(self) -> None:
         self._check_is_dropped()
@@ -281,7 +287,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
         if not isinstance(spec, (ts.ColumnType, exprs.Expr)):
             raise excs.Error(f'Column spec must be a ColumnType or an Expr, got {type(spec)}')
-        self.add_column(**{col_name: spec})
+        self.add_column(type=None, stored=None, print_stats=False, **{col_name: spec})
 
     def add_column(
             self,
@@ -367,7 +373,7 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
-        self._verify_column(new_col, set(self._schema.keys()), self._query_names)
+        self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
         return self._tbl_version.add_column(new_col, print_stats=print_stats)
 
     @classmethod
@@ -394,7 +400,7 @@ class Table(SchemaObject):
             value_expr = exprs.Expr.from_object(value_spec)
             if value_expr is None:
                 # needs to be a Callable
-                if not isinstance(value_spec, Callable):
+                if not callable(value_spec):
                     raise excs.Error(
                         f'Column {name}: value needs to be either a Pixeltable expression or a Callable, '
                         f'but it is a {type(value_spec)}')
@@ -426,7 +432,7 @@ class Table(SchemaObject):
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
-            elif isinstance(spec, Callable):
+            elif callable(spec):
                 raise excs.Error((
                     f'Column {name} computed with a Callable: specify using a dictionary with '
                     f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": IntType()}})'
@@ -656,7 +662,7 @@ class Table(SchemaObject):
     @overload
     def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
 
-    @abc.abstractmethod
+    @abc.abstractmethod  # type: ignore[misc]
     def insert(
             self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
             fail_on_exception: bool = True, **kwargs: Any
