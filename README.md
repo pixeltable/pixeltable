@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-banner.png" alt="Pixeltable" width="30%" />
+<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-banner-white.png" alt="Pixeltable" width="30%" />
 <br></br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-darkblue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -11,7 +11,7 @@
 [Installation](https://pixeltable.github.io/pixeltable/getting-started/) | [Documentation](https://pixeltable.readme.io/) | [API Reference](https://pixeltable.github.io/pixeltable/) | [Code Samples](https://pixeltable.readme.io/recipes) | [Examples](https://github.com/pixeltable/pixeltable/tree/release/docs/release/tutorials)
 </div>
 
-Pixeltable is a Python library providing a declarative interface for working with text, images, embeddings, and even video, enabling users to store, transform, index, and iterate on data within a single table interface.
+Pixeltable is a Python library providing a declarative interface for multimodal data (text, images, audio, video). It features built-in versioning, lineage tracking, and incremental updates, enabling users to store, transform, index, and iterate on data for their ML workflows. Data transformations, model inference, and custom logic are embedded as computed columns.
 
 ## 💾 Installation
 
