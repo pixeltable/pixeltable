@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/pixeltable-logo-large.png" alt="Pixeltable" width="30%" />
+<img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/pixeltable-logo-large.png" alt="Pixeltable" width="30%" />
 <br></br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-darkblue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -151,7 +151,8 @@ video_table = pxt.create_table('videos', {'video': pxt.VideoType()})
 
 video_table.insert([{'video': '/video.mp4'}])
 
-frames_view = pxt.create_view('frames', video_table, iterator=FrameIterator.create(video=video_table.video))
+frames_view = pxt.create_view(
+    'frames', video_table, iterator=FrameIterator.create(video=video_table.video))
 
 @pxt.expr_udf
 def embed_image(img: PIL.Image.Image):
