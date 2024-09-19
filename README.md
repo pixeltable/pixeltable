@@ -11,11 +11,7 @@
 [Installation](https://pixeltable.github.io/pixeltable/getting-started/) | [Documentation](https://pixeltable.readme.io/) | [API Reference](https://pixeltable.github.io/pixeltable/) | [Code Samples](https://pixeltable.readme.io/recipes) | [Examples](https://github.com/pixeltable/pixeltable/tree/release/docs/release/tutorials)
 </div>
 
-Pixeltable is a Python library that lets ML Engineers and Data Scientists focus on exploration, modeling, and app development without dealing with the customary data plumbing.
-
-### What problems does Pixeltable solve?
-
-Today's solutions for AI app development require extensive custom coding and infrastructure plumbing. Tracking lineage and versions between and across data transformations, models, and deployments is cumbersome. Pixeltable provides a declarative interface for working with text, images, embeddings, and even video, enabling users to store, transform, index, and iterate on data within a single table interface.
+Pixeltable is a Python library providing a declarative interface for working with text, images, embeddings, and even video, enabling users to store, transform, index, and iterate on data within a single table interface.
 
 ## 💾 Installation
 
@@ -149,6 +145,10 @@ Learn how to interact with inference services such as [Together AI](https://pixe
 ### What is Pixeltable?
 
 Pixeltable unifies data storage, versioning, and indexing with orchestration and model versioning under a declarative table interface, with transformations, model inference, and custom logic represented as computed columns.
+
+### What problems does Pixeltable solve?
+
+Today's solutions for AI app development require extensive custom coding and infrastructure plumbing. Tracking lineage and versions between and across data transformations, models, and deployments is cumbersome. Pixeltable lets ML Engineers and Data Scientists focus on exploration, modeling, and app development without dealing with the customary data plumbing.
 
 ### What does Pixeltable provide me with? Pixeltable provides:
 
