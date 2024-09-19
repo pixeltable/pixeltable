@@ -203,7 +203,7 @@ class TestMigration:
             c2=21,
             c3=21.0,
             c4=True,
-            c5=datetime.datetime.now(),
+            c5=datetime.now(),
             c6={
                 'f1': f'test string 21',
                 'f2': 21,
