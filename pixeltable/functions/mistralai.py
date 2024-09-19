@@ -70,7 +70,7 @@ def chat_completions(
     """
     Env.get().require_package('mistralai')
     return _mistralai_client().chat.complete(
-        messages=messages,
+        messages=messages,  # type: ignore[arg-type]
         model=model,
         temperature=temperature,
         top_p=top_p,
@@ -78,7 +78,7 @@ def chat_completions(
         min_tokens=_opt(min_tokens),
         stop=stop,
         random_seed=_opt(random_seed),
-        response_format=response_format,
+        response_format=response_format,  # type: ignore[arg-type]
         safe_prompt=safe_prompt,
     ).dict()
 
