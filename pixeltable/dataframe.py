@@ -279,7 +279,7 @@ class DataFrame:
         """
         plan = self._create_query_plan()
 
-        def exec_plan(conn: sql.engine.Connection) -> Iterator[exec.DataRowBatch]:
+        def exec_plan(conn: sql.engine.Connection) -> Iterator[exprs.DataRow]:
             plan.ctx.set_conn(conn)
             plan.open()
             try:

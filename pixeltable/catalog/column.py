@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable import exprs
 
 from .globals import is_valid_identifier
+
+if TYPE_CHECKING:
+    from .table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
 
@@ -20,7 +24,7 @@ class Column:
     """
     def __init__(
             self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
-            computed_with: Optional[Union['Expr', Callable]] = None,
+            computed_with: Optional[Union[exprs.Expr, Callable]] = None,
             is_pk: bool = False, stored: bool = True,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
             schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
@@ -57,15 +61,14 @@ class Column:
         if col_type is None and computed_with is None:
             raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
-        self._value_expr: Optional['Expr'] = None
+        self._value_expr: Optional[exprs.Expr] = None
         self.compute_func: Optional[Callable] = None
         self.value_expr_dict = value_expr_dict
-        from pixeltable import exprs
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
             if value_expr is None:
                 # computed_with needs to be a Callable
-                if not isinstance(computed_with, Callable):
+                if not callable(computed_with):
                     raise excs.Error(
                         f'Column {name}: computed_with needs to be either a Pixeltable expression or a Callable, '
                         f'but it is a {type(computed_with)}')
@@ -103,7 +106,7 @@ class Column:
         self.tbl: Optional[TableVersion] = None  # set by owning TableVersion
 
     @property
-    def value_expr(self) -> Optional['Expr']:
+    def value_expr(self) -> Optional[exprs.Expr]:
         """Instantiate value_expr on-demand"""
         # TODO: instantiate expr in the c'tor and add an Expr.prepare() that can create additional state after the
         # catalog has been fully loaded; that way, we encounter bugs in the serialization/deserialization logic earlier
@@ -112,7 +115,7 @@ class Column:
             self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
         return self._value_expr
 
-    def set_value_expr(self, value_expr: 'Expr') -> None:
+    def set_value_expr(self, value_expr: exprs.Expr) -> None:
         self._value_expr = value_expr
         self.value_expr_dict = None
 
@@ -130,7 +133,7 @@ class Column:
         l = list(self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call))
         return len(l) > 0
 
-    def get_idx_info(self) -> dict[str, 'pixeltable.catalog.TableVersion.IndexInfo']:
+    def get_idx_info(self) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl is not None
         return {name: info for name, info in self.tbl.idxs_by_name.items() if info.col == self}
 

@@ -128,6 +128,21 @@ def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     pass
 
 
+@func.udf(is_method=True)
+def get_metadata(self: PIL.Image.Image) -> dict:
+    """
+    Return metadata for the image.
+    """
+    return {
+        'width': self.width,
+        'height': self.height,
+        'mode': self.mode,
+        'bits': getattr(self, 'bits', None),
+        'format': self.format,
+        'palette': self.palette,
+    }
+
+
 @getchannel.conditional_return_type
 def _(self: Expr) -> ts.ColumnType:
     input_type = self.col_type
@@ -144,7 +159,7 @@ def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
     Equivalent to
     [`PIL.Image.Image.resize()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize)
     """
-    return self.resize(tuple(size))
+    return self.resize(tuple(size))  # type: ignore[arg-type]
 
 
 @resize.conditional_return_type
@@ -294,7 +309,7 @@ def getpixel(self: PIL.Image.Image, xy: tuple[int, int]) -> tuple[int]:
         xy: The coordinates, given as (x, y).
     """
     # `xy` will be a list; `tuple(xy)` is necessary for pillow 9 compatibility
-    return self.getpixel(tuple(xy))
+    return self.getpixel(tuple(xy))  # type: ignore[arg-type]
 
 
 @func.udf(substitute_fn=PIL.Image.Image.getprojection, is_method=True)

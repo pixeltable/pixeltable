@@ -96,8 +96,9 @@ class TestPandas:
         assert result_set['bool'] == [True, False, True, True]
         assert result_set['string'] == ['fish', 'cake', 'salad', 'egg']
         assert result_set['string_n'] == ['fish', 'cake', None, 'egg']
-        assert result_set['ts'] == [datetime.datetime(2024, 5, n) for n in range(3, 7)]
-        assert result_set['ts_n'] == [datetime.datetime(2024, 5, 3), None, None, datetime.datetime(2024, 5, 6)]
+        # Timestamps coming out of the DB will always be aware; we need to compare them to aware datetimes
+        assert result_set['ts'] == [datetime.datetime(2024, 5, n).astimezone(None) for n in range(3, 7)]
+        assert result_set['ts_n'] == [datetime.datetime(2024, 5, 3).astimezone(None), None, None, datetime.datetime(2024, 5, 6).astimezone(None)]
 
     def test_pandas_images(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
@@ -120,7 +121,7 @@ class TestPandas:
         assert t4.count() == 700
         assert t4._schema['Date'] == pxt.TimestampType(nullable=True)
         entry = t4.limit(1).collect()[0]
-        assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0)
+        assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
         t5 = import_excel('sale_data', 'tests/data/datasets/SaleData.xlsx')
         assert t5.count() == 45

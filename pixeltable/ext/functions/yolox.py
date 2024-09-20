@@ -1,10 +1,10 @@
 import logging
 from pathlib import Path
-from typing import Iterable, Iterator, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable, Iterator
 from urllib.request import urlretrieve
 
-import PIL.Image
 import numpy as np
+import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import env
@@ -14,8 +14,8 @@ from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import torch
-    from yolox.exp import Exp
-    from yolox.models import YOLOX
+    from yolox.exp import Exp  # type: ignore[import-untyped]
+    from yolox.models import YOLOX  # type: ignore[import-untyped]
 
 _logger = logging.getLogger('pixeltable')
 
@@ -47,7 +47,7 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
         >>> tbl['detections'] = yolox(tbl.image, model_id='yolox_m', threshold=0.8)
     """
     import torch
-    from yolox.utils import postprocess
+    from yolox.utils import postprocess  # type: ignore[import-untyped]
 
     model, exp = _lookup_model(model_id, 'cpu')
     image_tensors = list(_images_to_tensors(images, exp))
@@ -107,7 +107,7 @@ def yolo_to_coco(detections: dict) -> list:
 
 def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: 'Exp') -> Iterator['torch.Tensor']:
     import torch
-    from yolox.data import ValTransform
+    from yolox.data import ValTransform  # type: ignore[import-untyped]
 
     _val_transform = ValTransform(legacy=False)
     for image in images:
