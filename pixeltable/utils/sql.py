@@ -1,10 +1,11 @@
 import logging
 
 import sqlalchemy as sql
+from sqlalchemy.dialects import postgresql
 
 
 def log_stmt(logger: logging.Logger, stmt) -> None:
-    logger.debug(f'executing {str(stmt.compile(dialect=sql.dialects.postgresql.dialect()))}')
+    logger.debug(f'executing {str(stmt.compile(dialect=postgresql.dialect()))}')
 
 def log_explain(logger: logging.Logger, stmt: sql.sql.ClauseElement, conn: sql.engine.Connection) -> None:
     try:

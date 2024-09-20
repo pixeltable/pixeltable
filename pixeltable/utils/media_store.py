@@ -3,9 +3,9 @@ import os
 import re
 import shutil
 import uuid
-from typing import Optional, List, Tuple, Dict
-from pathlib import Path
 from collections import defaultdict
+from pathlib import Path
+from typing import Optional
 from uuid import UUID
 
 from pixeltable.env import Env
@@ -46,8 +46,8 @@ class MediaStore:
         else:
             # Remove only the elements for the specified version.
             paths = glob.glob(str(Env.get().media_dir / tbl_id.hex) + f'/**/{tbl_id.hex}_*_{version}_*', recursive=True)
-            for path in paths:
-                os.remove(path)
+            for p in paths:
+                os.remove(p)
 
     @classmethod
     def count(cls, tbl_id: UUID) -> int:
@@ -58,10 +58,10 @@ class MediaStore:
         return len(paths)
 
     @classmethod
-    def stats(cls) -> List[Tuple[int, int, int, int]]:
+    def stats(cls) -> list[tuple[UUID, int, int, int]]:
         paths = glob.glob(str(Env.get().media_dir) + "/**", recursive=True)
         # key: (tbl_id, col_id), value: (num_files, size)
-        d: Dict[Tuple[UUID, int], List[int]] = defaultdict(lambda: [0, 0])
+        d: dict[tuple[UUID, int], list[int]] = defaultdict(lambda: [0, 0])
         for p in paths:
             if not os.path.isdir(p):
                 matched = re.match(cls.pattern, Path(p).name)
