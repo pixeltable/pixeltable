@@ -11,6 +11,7 @@ env:
   # in a PR, the secrets will be empty
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+  MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
   OPENCV_VIDEOIO_DEBUG: 1

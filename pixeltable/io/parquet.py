@@ -151,8 +151,8 @@ def import_parquet(
         table_path: Path to the table.
         parquet_path: Path to an individual Parquet file or directory of Parquet files.
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
-            name `name` will be given type `type`, instead of being inferred from the `DataFrame`. The keys in
-            `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid
+            name `name` will be given type `type`, instead of being inferred from the Parquet dataset. The keys in
+            `schema_overrides` should be the column names of the Parquet dataset (whether or not they are valid
             Pixeltable identifiers).
         kwargs: Additional arguments to pass to `create_table`.
 
