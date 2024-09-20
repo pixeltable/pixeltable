@@ -7,7 +7,7 @@ import random
 import typing
 from collections import deque
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 import PIL.Image
 import numpy as np
@@ -142,21 +142,22 @@ def import_parquet(
     table_path: str,
     *,
     parquet_path: str,
-    schema_override: Optional[Dict[str, ts.ColumnType]] = None,
-    **kwargs,
-) -> pxt.catalog.InsertableTable:
-    """Create a new `Table` from a Parquet file or set of files. Requires pyarrow to be installed.
+    schema_overrides: Optional[Dict[str, ts.ColumnType]] = None,
+    **kwargs: Any,
+) -> pxt.Table:
+    """Creates a new base table from a Parquet file or set of files. Requires pyarrow to be installed.
+
     Args:
-        path_str: Path to the table within pixeltable.
+        table_path: Path to the table.
         parquet_path: Path to an individual Parquet file or directory of Parquet files.
-        schema_override: Optional dictionary mapping column names to column type to override the default
-                        schema inferred from the Parquet file. The column type should be a pixeltable ColumnType.
-                        For example, {'col_vid': VideoType()}, rather than {'col_vid': StringType()}.
-                        Any fields not provided explicitly will map to types with `pixeltable.utils.parquet.parquet_schema_to_pixeltable_schema`
+        schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
+            name `name` will be given type `type`, instead of being inferred from the `DataFrame`. The keys in
+            `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid
+            Pixeltable identifiers).
         kwargs: Additional arguments to pass to `create_table`.
 
     Returns:
-        The newly created table. The table will have loaded the data from the Parquet file(s).
+        A handle to the newly created [`Table`][pixeltable.Table].
     """
     import pixeltable as pxt
     from pyarrow import parquet
@@ -166,10 +167,10 @@ def import_parquet(
     parquet_dataset = parquet.ParquetDataset(input_path)
 
     schema = parquet_schema_to_pixeltable_schema(parquet_path)
-    if schema_override is None:
-        schema_override = {}
+    if schema_overrides is None:
+        schema_overrides = {}
 
-    schema.update(schema_override)
+    schema.update(schema_overrides)
     for k, v in schema.items():
         if v is None:
             raise exc.Error(f'Could not infer pixeltable type for column {k} from parquet file')
