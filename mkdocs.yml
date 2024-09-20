@@ -45,6 +45,9 @@ nav:
     - openai: api/functions/openai.md
     - together: api/functions/together.md
     - whisper: api/functions/whisper.md
+  - Extended Model and Inference Functions:
+    - whisperx: api/ext/functions/whisperx.md
+    - yolox: api/ext/functions/yolox.md
 
 validation:
   omitted_files: warn
