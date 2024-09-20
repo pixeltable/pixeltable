@@ -94,8 +94,8 @@ def import_huggingface_dataset(
             to insert into the table.
         column_name_for_split: column name to use for split information. If None, no split information will be stored.
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
-            name `name` will be given type `type`, instead of being inferred from the `DataFrame`. The keys in
-            `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid
+            name `name` will be given type `type`, instead of being inferred from the `Dataset` or `DatasetDict`. The keys in
+            `schema_overrides` should be the column names of the `Dataset` or `DatasetDict` (whether or not they are valid
             Pixeltable identifiers).
         kwargs: Additional arguments to pass to `create_table`.
 
