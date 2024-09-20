@@ -6,7 +6,7 @@ import random
 import typing
 from typing import Union, Optional, Any
 
-import pixeltable
+import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 
@@ -81,24 +81,26 @@ def import_huggingface_dataset(
     dataset: Union[datasets.Dataset, datasets.DatasetDict],
     *,
     column_name_for_split: Optional[str] = None,
-    schema_override: Optional[dict[str, Any]] = None,
-    **kwargs,
-) -> 'pixeltable.InsertableTable':
-    """Create a new `Table` from a Huggingface dataset, or dataset dict with multiple splits.
-        Requires datasets library to be installed.
+    schema_overrides: Optional[dict[str, Any]] = None,
+    **kwargs: Any,
+) -> pxt.Table:
+    """Create a new base table from a Huggingface dataset, or dataset dict with multiple splits.
+        Requires `datasets` library to be installed.
 
     Args:
-        path_str: Path to the table.
-        dataset: Huggingface datasets.Dataset or datasets.DatasetDict to insert into the table.
+        table_path: Path to the table.
+        dataset: Huggingface [`datasets.Dataset`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.Dataset)
+            or [`datasets.DatasetDict`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.DatasetDict)
+            to insert into the table.
         column_name_for_split: column name to use for split information. If None, no split information will be stored.
-        schema_override: Optional dictionary mapping column names to column type to override the corresponding defaults from
-        `pixeltable.utils.hf_datasets.huggingface_schema_to_pixeltable_schema`. The column type should be a pixeltable ColumnType.
-        For example, {'col_vid': VideoType()}, rather than {'col_vid': StringType()}.
-
+        schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
+            name `name` will be given type `type`, instead of being inferred from the `DataFrame`. The keys in
+            `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid
+            Pixeltable identifiers).
         kwargs: Additional arguments to pass to `create_table`.
 
     Returns:
-        The newly created table. The table will have loaded the data from the dataset.
+        A handle to the newly created [`Table`][pixeltable.Table].
     """
     import datasets
     import pixeltable as pxt
@@ -118,8 +120,8 @@ def import_huggingface_dataset(
         dataset_dict = dataset
 
     pixeltable_schema = huggingface_schema_to_pixeltable_schema(dataset)
-    if schema_override is not None:
-        pixeltable_schema.update(schema_override)
+    if schema_overrides is not None:
+        pixeltable_schema.update(schema_overrides)
 
     if column_name_for_split is not None:
         if column_name_for_split in pixeltable_schema:
