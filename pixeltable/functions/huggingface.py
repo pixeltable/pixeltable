@@ -228,7 +228,7 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
 
     Args:
         image: The image to embed.
-        model_id: The pretrained model to use for the embedding.
+        model_id: The pretrained model to use for object detection.
 
     Returns:
         A dictionary containing the output of the object detection model, in the following format:
@@ -279,6 +279,64 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
             'boxes': [box.tolist() for box in result['boxes']],
         }
         for result in results
+    ]
+
+
+@pxt.udf(batch_size=4)
+def vit_for_image_classification(
+    image: Batch[PIL.Image.Image],
+    *,
+    model_id: str,
+    top_k: int = 5
+) -> Batch[dict]:
+    """
+    Computes image classifications for the specified image using a Vision Transformer (ViT) model.
+    `model_id` should be a reference to a pretrained [ViT Model](https://huggingface.co/docs/transformers/en/model_doc/vit).
+
+    __Requirements:__
+
+    - `pip install transformers`
+
+    Args:
+        image: The image to classify.
+        model_id: The pretrained model to use for the classification.
+
+    Returns:
+        A dictionary containing the output of the image classification model, in the following format:
+
+    Examples:
+        Add a computed column that applies the model `google/vit-base-patch16-224` to an existing
+        Pixeltable column `tbl.image` of the table `tbl`:
+
+        >>> tbl['image_class'] = vit_for_image_classification(tbl.image, model_id='google/vit-base-patch16-224')
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import ViTImageProcessor, ViTForImageClassification
+
+    model: ViTForImageClassification = _lookup_model(model_id, ViTForImageClassification.from_pretrained, device=device)
+    processor = _lookup_processor(model_id, ViTImageProcessor.from_pretrained)
+    normalized_images = [normalize_image_mode(img) for img in image]
+
+    with torch.no_grad():
+        inputs = processor(images=normalized_images, return_tensors='pt')
+        outputs = model(**inputs.to(device))
+        logits = outputs.logits
+
+    probs = torch.softmax(logits, dim=-1)
+    top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
+
+    return [
+        [
+            {
+                'class': top_k_indices[n, k].item(),
+                'label': model.config.id2label[top_k_indices[n, k].item()],
+                'p': top_k_probs[n, k].item(),
+            }
+            for k in range(top_k_probs.shape[1])
+        ]
+        for n in range(top_k_probs.shape[0])
     ]
 
 
