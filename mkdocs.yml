@@ -42,6 +42,7 @@ nav:
     - anthropic: api/functions/anthropic.md
     - fireworks: api/functions/fireworks.md
     - huggingface: api/functions/huggingface.md
+    - mistralai: api/functions/mistralai.md
     - openai: api/functions/openai.md
     - together: api/functions/together.md
     - whisper: api/functions/whisper.md
