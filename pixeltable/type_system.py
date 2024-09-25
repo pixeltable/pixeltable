@@ -905,7 +905,7 @@ class _PxtType:
     @classmethod
     def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
         if item is NotNull:
-            return typing.Annotated[cls, cls.as_col_type.copy(nullable=False)]
+            return typing.Annotated[cls, cls.as_col_type().copy(nullable=False)]
         else:
             raise TypeError(f'Invalid type parameter for `{cls}`: {item}')
 
@@ -1015,7 +1015,3 @@ class Document(str, _PxtType):
     @classmethod
     def as_col_type(cls) -> ColumnType:
         return DocumentType(nullable=True)
-
-
-def test_fn() -> Image[(3, 4)]:
-    return None

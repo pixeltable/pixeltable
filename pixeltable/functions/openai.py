@@ -16,7 +16,6 @@ import PIL.Image
 import tenacity
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
@@ -54,7 +53,7 @@ def _retry(fn: Callable) -> Callable:
 @pxt.udf
 def speech(
     input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
-) -> ts.Audio:
+) -> pxt.Audio:
     """
     Generates audio from the input text.
 
@@ -93,7 +92,7 @@ def speech(
 
 @pxt.udf
 def transcriptions(
-    audio: ts.Audio,
+    audio: pxt.Audio,
     *,
     model: str,
     language: Optional[str] = None,
@@ -133,7 +132,7 @@ def transcriptions(
 
 
 @pxt.udf
-def translations(audio: ts.Audio, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
+def translations(audio: pxt.Audio, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
     """
     Translates audio into English.
 
@@ -299,7 +298,7 @@ _embedding_dimensions_cache: dict[str, int] = {
 @pxt.udf(batch_size=32)
 def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
-) -> Batch[ts.Array[(None,), float]]:
+) -> Batch[pxt.Array[(None,), float]]:
     """
     Creates an embedding vector representing the input text.
 
@@ -334,13 +333,13 @@ def embeddings(
 
 
 @embeddings.conditional_return_type
-def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
+def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
     if dimensions is None:
         if model not in _embedding_dimensions_cache:
             # TODO: find some other way to retrieve a sample
-            return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+            return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
         dimensions = _embedding_dimensions_cache.get(model, None)
-    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
+    return pxt.ArrayType((dimensions,), dtype=pxt.FloatType(), nullable=False)
 
 
 #####################################
@@ -400,17 +399,17 @@ def image_generations(
 
 
 @image_generations.conditional_return_type
-def _(size: Optional[str] = None) -> ts.ImageType:
+def _(size: Optional[str] = None) -> pxt.ImageType:
     if size is None:
-        return ts.ImageType(size=(1024, 1024))
+        return pxt.ImageType(size=(1024, 1024))
     x_pos = size.find('x')
     if x_pos == -1:
-        return ts.ImageType()
+        return pxt.ImageType()
     try:
         width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
     except ValueError:
-        return ts.ImageType()
-    return ts.ImageType(size=(width, height))
+        return pxt.ImageType()
+    return pxt.ImageType(size=(width, height))
 
 
 #####################################

@@ -22,8 +22,6 @@ import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.env as env
-import pixeltable.func as func
-import pixeltable.type_system as ts
 from pixeltable.utils.code import local_public_names
 
 _format_defaults = {  # format -> (codec, ext)
@@ -49,14 +47,14 @@ _format_defaults = {  # format -> (codec, ext)
 #         output_container.mux(packet)
 
 
-@func.uda(
-    init_types=[ts.IntType()],
-    update_types=[ts.ImageType()],
-    value_type=ts.VideoType(),
+@pxt.uda(
+    init_types=[pxt.IntType()],
+    update_types=[pxt.ImageType()],
+    value_type=pxt.VideoType(),
     requires_order_by=True,
     allows_window=False,
 )
-class make_video(func.Aggregator):
+class make_video(pxt.Aggregator):
     """
     Aggregator that creates a video from a sequence of images.
     """
@@ -89,9 +87,9 @@ class make_video(func.Aggregator):
         return str(self.out_file)
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def extract_audio(
-    video_path: ts.Video, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
+    video_path: pxt.Video[pxt.NotNull], stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
 ) -> pxt.Audio:
     """
     Extract an audio stream from a video file, save it as a media file and return its path.
@@ -121,8 +119,8 @@ def extract_audio(
         return output_filename
 
 
-@func.udf(is_method=True)
-def get_metadata(video: ts.Video) -> dict:
+@pxt.udf(is_method=True)
+def get_metadata(video: pxt.Video) -> dict:
     """
     Gets various metadata associated with a video file and returns it as a dictionary.
     """
