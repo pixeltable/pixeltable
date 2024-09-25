@@ -402,12 +402,16 @@ class TestExprs:
 
     def test_inline_array(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        result = t.select([[t.c2, 1], [t.c2, 2]]).show()
-        t = next(iter(result.schema.values()))
-        assert t.is_array_type()
-        assert isinstance(t, ArrayType)
-        assert t.shape == (2, 2)
-        assert t.dtype == ColumnType.Type.INT
+        result = t.select(pxt.array([[t.c2, 1], [t.c2, 2]])).show()
+        col_type = next(iter(result.schema.values()))
+        assert col_type.is_array_type()
+        assert isinstance(col_type, ArrayType)
+        assert col_type.shape == (2, 2)
+        assert col_type.dtype == ColumnType.Type.INT
+
+        with pytest.raises(excs.Error) as excinfo:
+            _ = t.select(pxt.array([t.c1, t.c2])).collect()
+        assert 'element of type `int` at index 1 is not compatible with type `string` of preceding elements' in str(excinfo.value)
 
     def test_json_slice(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

@@ -143,7 +143,7 @@ class FunctionCall(Expr):
         return super().default_column_name()
 
     @classmethod
-    def normalize_args(cls, name: str, signature: func.Signature, bound_args: dict[str, Any]) -> None:
+    def normalize_args(cls, fn_name: str, signature: func.Signature, bound_args: dict[str, Any]) -> None:
         """Converts all args to Exprs and checks that they are compatible with signature.
 
         Updates bound_args in place, where necessary.
@@ -213,7 +213,7 @@ class FunctionCall(Expr):
                     or (arg.col_type.is_json_type() and param.col_type.is_scalar_type())
                 ):
                     raise excs.Error(
-                        f'Parameter {param_name} (in function {name}): argument type {arg.col_type} does not match parameter type '
+                        f'Parameter {param_name} (in function {fn_name}): argument type {arg.col_type} does not match parameter type '
                         f'{param.col_type}')
 
     def _equals(self, other: FunctionCall) -> bool:
