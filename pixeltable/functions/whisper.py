@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 @pxt.udf
 def transcribe(
-    audio: pxt.AudioT,
+    audio: pxt.Audio,
     *,
     model: str,
     temperature: Optional[list[float]] = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],

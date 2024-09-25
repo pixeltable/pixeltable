@@ -91,8 +91,8 @@ class make_video(func.Aggregator):
 
 @func.udf(is_method=True)
 def extract_audio(
-    video_path: ts.VideoT, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
-) -> Optional[pxt.AudioT]:
+    video_path: ts.Video, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
+) -> pxt.Audio:
     """
     Extract an audio stream from a video file, save it as a media file and return its path.
 
@@ -122,7 +122,7 @@ def extract_audio(
 
 
 @func.udf(is_method=True)
-def get_metadata(video: ts.VideoT) -> dict:
+def get_metadata(video: ts.Video) -> dict:
     """
     Gets various metadata associated with a video file and returns it as a dictionary.
     """

@@ -54,7 +54,7 @@ def _retry(fn: Callable) -> Callable:
 @pxt.udf
 def speech(
     input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
-) -> ts.AudioT:
+) -> ts.Audio:
     """
     Generates audio from the input text.
 
@@ -93,7 +93,7 @@ def speech(
 
 @pxt.udf
 def transcriptions(
-    audio: ts.AudioT,
+    audio: ts.Audio,
     *,
     model: str,
     language: Optional[str] = None,
@@ -133,7 +133,7 @@ def transcriptions(
 
 
 @pxt.udf
-def translations(audio: ts.AudioT, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
+def translations(audio: ts.Audio, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
     """
     Translates audio into English.
 
@@ -299,7 +299,7 @@ _embedding_dimensions_cache: dict[str, int] = {
 @pxt.udf(batch_size=32)
 def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
-) -> Batch[ts.ArrayT[(None,), float]]:
+) -> Batch[ts.Array[(None,), float]]:
     """
     Creates an embedding vector representing the input text.
 

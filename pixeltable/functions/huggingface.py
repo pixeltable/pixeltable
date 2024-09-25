@@ -23,7 +23,7 @@ from pixeltable.utils.code import local_public_names
 @pxt.udf(batch_size=32)
 def sentence_transformer(
     sentence: Batch[str], *, model_id: str, normalize_embeddings: bool = False
-) -> Batch[pxt.ArrayT[(None,), float]]:
+) -> Batch[pxt.Array[(None,), float]]:
     """
     Computes sentence embeddings. `model_id` should be a pretrained Sentence Transformers model, as described
     in the [Sentence Transformers Pretrained Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html)
@@ -167,7 +167,7 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
 
 
 @pxt.udf(batch_size=32)
-def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.ArrayT[(None,), float]]:
+def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,), float]]:
     """
     Computes a CLIP embedding for the specified image. `model_id` should be a reference to a pretrained
     [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
