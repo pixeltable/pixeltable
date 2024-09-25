@@ -1,9 +1,7 @@
-import datetime
 from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
-import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
