@@ -72,6 +72,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+      - name: Set up tmate session
+        uses: mxschmitt/action-tmate@v3
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
@@ -80,6 +82,9 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /opt/hostedtoolcache
           df -h
+      - name: Create user runtime dir
+        if: ${{ matrix.os == 'ubuntu-arm64' }}
+        run: sudo mkdir -p /run/user/1001
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
