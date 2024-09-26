@@ -72,8 +72,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-      - name: Set up tmate session
-        uses: mxschmitt/action-tmate@v3
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
