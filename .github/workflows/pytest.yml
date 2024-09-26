@@ -26,8 +26,8 @@ jobs:
         # After a PR, test only the basic (free) platforms: ubuntu-22.04, macos-12, macos-latest, windows-2022.
         # On other event types (push and workflow_dispatch), test also ubuntu-arm64 and ubuntu-x64-t4.
         os: ${{ github.event_name == 'pull_request'
-                && fromJSON('["ubuntu-22.04", "macos-12", "macos-latest", "windows-2022"]')
-                || fromJSON('["ubuntu-22.04", "macos-12", "macos-latest", "windows-2022", "ubuntu-arm64", "ubuntu-x64-t4"]') }}
+                && fromJSON('["ubuntu-22.04", "macos-12", "macos-latest-xlarge", "windows-2022"]')
+                || fromJSON('["ubuntu-22.04", "macos-12", "macos-latest-xlarge", "windows-2022", "ubuntu-arm64", "ubuntu-x64-t4"]') }}
         python-version: ["3.9"]
         test-category: ["py"]
         poetry-options: ["--with dev"]
