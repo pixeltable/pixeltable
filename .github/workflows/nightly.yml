@@ -26,7 +26,7 @@ jobs:
           - ""
           - "torch torchvision transformers sentence-transformers pyarrow"
           - "openai together fireworks-ai"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
+          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy"
           - "label_studio_sdk"
         include:
           # Test the basic pixeltable installation on other platforms.
