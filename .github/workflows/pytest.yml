@@ -18,7 +18,7 @@ env:
   POETRY_VERSION: 1.8.2
 
 jobs:
-  pytest:
+  tests:
     strategy:
       fail-fast: false
       matrix:
@@ -147,7 +147,7 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh
+          ./scripts/prepare-nb-tests.sh --no-pip
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
