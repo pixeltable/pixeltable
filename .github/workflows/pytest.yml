@@ -81,7 +81,8 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Create user runtime dir
-        if: ${{ matrix.os == 'ubuntu-arm64' }}
+        if: ${{ matrix.os == 'ubuntu-arm64' || matrix.os == 'ubuntu-x64-t4' }}
+        # pgserver needs this dir, and it doesn't seem to exist on ubuntu-arm64 or t4 instances for some reason.
         run: sudo mkdir -p /run/user/1001
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
@@ -135,8 +136,8 @@ jobs:
           fi
           echo "Dependencies installation succeeded."
       - name: Install yolox
-        # Yolox cannot be installed with poetry and only seems to work with python <= 3.10
-        if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && startsWith(matrix.os, 'ubuntu') }}
+        # Yolox cannot be installed with poetry and only seems to work with python <= 3.10 and not on ubuntu-arm64
+        if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && maxtrix.os == 'ubuntu-22.04' }}
         run: python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
