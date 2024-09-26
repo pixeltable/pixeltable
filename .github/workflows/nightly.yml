@@ -1,4 +1,4 @@
-name: Nightly CI
+name: nightly
 
 on:
   schedule:
@@ -30,7 +30,16 @@ jobs:
           - os: macos-12
             python-version: "3.9"
             package-configs: ""
+          - os: macos-latest
+            python-version: "3.9"
+            package-configs: ""
           - os: windows-2022
+            python-version: "3.9"
+            package-configs: ""
+          - os: ubuntu-arm64
+            python-version: "3.9"
+            package-configs: ""
+          - os: ubuntu-x64-t4
             python-version: "3.9"
             package-configs: ""
 
