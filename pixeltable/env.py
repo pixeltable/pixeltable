@@ -514,30 +514,6 @@ class Env:
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a')
 
-    def __init_spacy(self) -> None:
-        import spacy
-        from spacy.cli.download import get_model_filename
-        spacy_model = 'en_core_web_sm'
-        spacy_model_version = '3.7.1'
-        filename = get_model_filename(spacy_model, spacy_model_version, sdist=False)
-        url = f'{spacy.about.__download_url__}/{filename}'
-        # Try to `pip install` the model. We set check=False; if the pip command fails, it's not necessarily
-        # a problem, because the model have been installed on a previous attempt.
-        self._logger.info(f'Ensuring spaCy model is installed: {filename}')
-        ret = subprocess.run([sys.executable, '-m', 'pip', 'install', '-qU', url], check=False)
-        if ret.returncode != 0:
-            self._logger.warn(f'pip install failed for spaCy model: {filename}')
-        try:
-            self._logger.info(f'Loading spaCy model: {spacy_model}')
-            self._spacy_nlp = spacy.load(spacy_model)
-        except Exception as exc:
-            self._logger.warn(f'Failed to load spaCy model: {spacy_model}', exc_info=exc)
-            warnings.warn(
-                f"Failed to load spaCy model '{spacy_model}'. spaCy features will not be available.",
-                excs.PixeltableWarning
-            )
-            self.__optional_packages['spacy'].is_installed = False
-
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
         self.__optional_packages[package_name] = PackageInfo(
             is_installed=importlib.util.find_spec(package_name) is not None,
@@ -578,6 +554,35 @@ class Env:
                 f'but version >={".".join(str(v) for v in min_version)} is required. '
                 f'To fix this, run: `pip install -U {package_info.library_name}`'
             )
+
+    def __init_spacy(self) -> None:
+        """
+        spaCy relies on a pip-installed model to operate. In order to avoid requiring the model as a separate
+        dependency, we install it programmatically here. This should cause no problems, since the model packages
+        have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
+        """
+        import spacy
+        from spacy.cli.download import get_model_filename
+        spacy_model = 'en_core_web_sm'
+        spacy_model_version = '3.7.1'
+        filename = get_model_filename(spacy_model, spacy_model_version, sdist=False)
+        url = f'{spacy.about.__download_url__}/{filename}'
+        # Try to `pip install` the model. We set check=False; if the pip command fails, it's not necessarily
+        # a problem, because the model have been installed on a previous attempt.
+        self._logger.info(f'Ensuring spaCy model is installed: {filename}')
+        ret = subprocess.run([sys.executable, '-m', 'pip', 'install', '-qU', url], check=False)
+        if ret.returncode != 0:
+            self._logger.warn(f'pip install failed for spaCy model: {filename}')
+        try:
+            self._logger.info(f'Loading spaCy model: {spacy_model}')
+            self._spacy_nlp = spacy.load(spacy_model)
+        except Exception as exc:
+            self._logger.warn(f'Failed to load spaCy model: {spacy_model}', exc_info=exc)
+            warnings.warn(
+                f"Failed to load spaCy model '{spacy_model}'. spaCy features will not be available.",
+                excs.PixeltableWarning
+            )
+            self.__optional_packages['spacy'].is_installed = False
 
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
