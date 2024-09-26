@@ -26,7 +26,7 @@ toml = ">=0.10"
 jmespath = "^1.0.1"
 more-itertools = "^10.2"
 cloudpickle = "^2.2.1"
-psycopg = {extras = ["binary"], version = "==3.1.18"}
+psycopg = { extras = ["binary"], version = "==3.1.18" }
 psutil = "^5.9.5"
 sqlalchemy = "^2.0.23"
 pgvector = "^0.2.1"
@@ -47,13 +47,12 @@ optional = true
 [tool.poetry.group.dev.dependencies]
 # pytest-related
 pytest = "^7.2.1"
-pytest-xdist = {extras = ["psutil"], version = "^3.3.1"}
+pytest-xdist = { extras = ["psutil"], version = "^3.3.1" }
 coverage = "^7.4"
 # type checking
 mypy = "^1.11.2"
 boto3-stubs = "==1.35.5"
 pandas-stubs = ">=2.0"
-pytype = [{version = ">=2024.4", platform = "linux"}, {version = ">=2024.4", platform = "darwin"}]
 pyarrow-stubs = "^10.0.1.7"
 types-beautifulsoup4 = ">=4.2"
 types-jmespath = ">=1.0"
@@ -86,10 +85,11 @@ openai = "^1.10.0"
 anthropic = ">=0.34.2"
 together = "^1.1"
 fireworks-ai = "^0.13.0"
+mistralai = "^1.0.3"
 boto3 = "==1.35.5"  # Locking a specific version of boto3 dramatically improves `poetry lock` runtimes
 spacy = ">=3.7"
 pydantic = ">=2.7.4"  # Required minimum version to work with spacy + python 3.12
-en-core-web-sm = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"}
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl" }
 sentencepiece = ">=0.2.0"
 tiktoken = ">=0.7"
 sentence-transformers = "^2.0.0"
@@ -100,8 +100,8 @@ openpyxl = ">=3.1"  # Excel (.xlsx) support
 # the latest pypi release of Whisper is 7 months old and still does not include that fix. (Way to go, OpenAI!)
 # The repo-reference can be replaced by a pypi reference as soon as a new version of Whisper is published.
 # (Note that Whisper will `pip install` fine on any system.)
-openai-whisper = {git = "https://github.com/openai/whisper.git"}
-whisperx = {git = "https://github.com/m-bain/whisperX.git", rev = "f2da2f8"}
+openai-whisper = { git = "https://github.com/openai/whisper.git" }
+whisperx = { git = "https://github.com/m-bain/whisperX.git", rev = "f2da2f8" }
 label-studio-sdk = "^0.0.32"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
