@@ -137,7 +137,7 @@ jobs:
           echo "Dependencies installation succeeded."
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10 and not on ubuntu-arm64
-        if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && maxtrix.os == 'ubuntu-22.04' }}
+        if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && matrix.os == 'ubuntu-22.04' }}
         run: python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
