@@ -1,4 +1,4 @@
-name: Run pytest
+name: tests
 
 on:
   pull_request:
@@ -22,9 +22,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Test the earliest and latest supported Python versions on every supported platform.
-        os: [ubuntu-22.04, macos-12, windows-2022]
-        python-version: ["3.9", "3.12"]
+        # Test with Python 3.9 (minimum supported version) on every platform.
+        # After a PR, test only the basic (free) platforms: ubuntu-22.04, macos-12, macos-latest, windows-2022.
+        # On other event types (push and workflow_dispatch), test also ubuntu-arm64 and ubuntu-x64-t4.
+        os: ${{ github.event_name == 'pull_request'
+                && fromJSON('["ubuntu-22.04", "macos-12", "macos-latest", "windows-2022"]')
+                || fromJSON('["ubuntu-22.04", "macos-12", "macos-latest", "windows-2022", "ubuntu-arm64", "ubuntu-x64-t4"]') }}
+        python-version: ["3.9"]
         test-category: ["py"]
         poetry-options: ["--with dev"]
         # Add some additional matrix configurations that are run only on linux, to test
@@ -38,6 +42,11 @@ jobs:
           # Python 3.11
           - os: ubuntu-22.04
             python-version: "3.11"
+            test-category: "py"
+            poetry-options: "--with dev"
+          # Python 3.12
+          - os: ubuntu-22.04
+            python-version: "3.12"
             test-category: "py"
             poetry-options: "--with dev"
           # Minimal installation of pixeltable (without --with dev)
@@ -140,7 +149,7 @@ jobs:
         run: |
           ./scripts/prepare-nb-tests.sh
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
-      - name: Type-check the code
+      - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable/*.py pixeltable/catalog pixeltable/ext pixeltable/functions
       - name: Validate docstrings
