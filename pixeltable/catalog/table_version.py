@@ -147,7 +147,7 @@ class TableVersion:
             module = importlib.import_module(module_name)
             self.iterator_cls = getattr(module, class_name)
             self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
-            output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.unwrap())
+            output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_kwargs())
             self.num_iterator_cols = len(output_schema)
             assert tbl_md.view_md.iterator_args is not None
 

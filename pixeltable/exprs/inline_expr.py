@@ -158,7 +158,7 @@ class InlineDict(Expr):
         return '{' + ', '.join(item_strs) + '}'
 
     def _equals(self, other: InlineDict) -> bool:
-        # The values are just the components, which have already been checked
+        # The dict values are just the components, which have already been checked
         return self.keys == other.keys
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
@@ -174,19 +174,19 @@ class InlineDict(Expr):
             for key, expr in zip(self.keys, self.components)
         }
 
-    def unwrap(self) -> dict[str, Any]:
-        """Deconstructs this expression into a dictionary by unwrapping all Literals,
+    def to_kwargs(self) -> dict[str, Any]:
+        """Deconstructs this expression into a dictionary by recursively unwrapping all Literals,
         InlineDicts, and InlineLists."""
-        return InlineDict._to_dict_element(self)
+        return InlineDict._to_kwarg_element(self)
 
     @classmethod
-    def _to_dict_element(cls, expr: Expr) -> Any:
+    def _to_kwarg_element(cls, expr: Expr) -> Any:
         if isinstance(expr, Literal):
             return expr.val
         if isinstance(expr, InlineDict):
-            return {key: cls._to_dict_element(val) for key, val in zip(expr.keys, expr.components)}
+            return {key: cls._to_kwarg_element(val) for key, val in zip(expr.keys, expr.components)}
         if isinstance(expr, InlineList):
-            return [cls._to_dict_element(el) for el in expr.components]
+            return [cls._to_kwarg_element(el) for el in expr.components]
         return expr
 
     def _as_dict(self) -> dict[str, Any]:
