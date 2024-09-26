@@ -204,6 +204,8 @@ class ColumnType:
 
     @classmethod
     def infer_literal_type(cls, val: Any, nullable: bool = False) -> Optional[ColumnType]:
+        if val is None:
+            return InvalidType(nullable=True)
         if isinstance(val, str):
             return StringType(nullable=nullable)
         if isinstance(val, bool):
@@ -395,7 +397,7 @@ class InvalidType(ColumnType):
         assert False
 
     def print_value(self, val: Any) -> str:
-        assert False
+        return str(val)
 
     def _validate_literal(self, val: Any) -> None:
         assert False
