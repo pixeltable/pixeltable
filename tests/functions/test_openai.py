@@ -2,12 +2,14 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.type_system import ImageType, StringType
+
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, validate_update_status
-from pixeltable.type_system import StringType, ImageType
 
 
 @pytest.mark.remote_api
 class TestOpenai:
+    @pytest.mark.expensive
     def test_audio(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
@@ -94,6 +96,7 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
 
+    @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
@@ -151,6 +154,7 @@ class TestOpenai:
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
 
+    @pytest.mark.expensive
     def test_image_generations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()

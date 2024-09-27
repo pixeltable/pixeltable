@@ -20,6 +20,8 @@ jobs:
       fail-fast: false
       matrix:
         # Test with a variety of different packages on ubuntu, with the minimum and maximum supported Python versions.
+        # We DO include 'expensive' tests in the nightly workflow, but they will only run twice per test (in the
+        # min version + max version tests with the configuration that references them).
         os: [ubuntu-22.04]
         python-version: ["3.9", "3.12"]
         package-configs:
