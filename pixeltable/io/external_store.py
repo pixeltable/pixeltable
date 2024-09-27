@@ -69,6 +69,9 @@ class Project(ExternalStore, abc.ABC):
     An `ExternalStore` that represents a labeling project. Extends `ExternalStore` with a few
     additional capabilities specific to such projects.
     """
+
+    stored_proxies: dict[Column, Column]
+
     def __init__(self, name: str, col_mapping: dict[Column, str], stored_proxies: Optional[dict[Column, Column]]):
         super().__init__(name)
         self._col_mapping = col_mapping
@@ -329,7 +332,7 @@ class MockProject(Project):
     def get_import_columns(self) -> dict[str, ts.ColumnType]:
         return self.import_cols
 
-    def sync(self, t: Table, export_data: bool, import_data: bool) -> NotImplemented:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
         raise NotImplementedError()
 
     def delete(self) -> None:
