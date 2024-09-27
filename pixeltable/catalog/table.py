@@ -295,25 +295,34 @@ class Table(SchemaObject):
             type: Optional[ts.ColumnType] = None,
             stored: Optional[bool] = None,
             print_stats: bool = False,
+            on_error: Literal['raise', 'continue'] = 'raise',
             **kwargs: Union[ts.ColumnType, exprs.Expr, Callable]
     ) -> UpdateStatus:
         """
         Adds a column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form ``column-name=type|value-expression``.
-            type: The type of the column. Only valid and required if ``value-expression`` is a Callable.
+            kwargs: Exactly one keyword argument of the form `column-name=type|value-expression`.
+            type: The type of the column. Only valid and required if `value-expression` is a Callable.
             stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
-            print_stats: If ``True``, print execution metrics.
+            print_stats: If `True`, print execution metrics.
+            on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
+                row.
+
+                - If `on_error='raise'`, then an Exception will be raised and the column will not be added.
+                - If `on_error='continue'`, then execution will continue and the column will be added. Any rows that
+                  had errors will have a `None` value for the column, with information about the error stored in the
+                  corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
         Returns:
-            execution status
+            An [`UpdateStatus`][pixeltable.catalog.UpdateStatus] object containing information about the execution
+                status of the operation.
 
         Raises:
-            Error: If the column name is invalid or already exists.
+            [`Error`][pixeltable.exceptions.Error]: If the column name is invalid or already exists.
 
         Examples:
-            Add an int column with ``None`` values:
+            Add an int column with `None` values:
 
             >>> tbl.add_column(new_col=IntType())
 
@@ -374,7 +383,7 @@ class Table(SchemaObject):
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
-        return self._tbl_version.add_column(new_col, print_stats=print_stats)
+        return self._tbl_version.add_column(new_col, print_stats=print_stats, on_error=on_error)
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
