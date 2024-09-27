@@ -19,11 +19,8 @@ from typing import Any, Optional, Union
 import numpy as np
 import PIL.Image
 
-import pixeltable.func as func
-import pixeltable.type_system as ts
+import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
-
-# TODO: figure out a better submodule structure
 
 
 # the following function has been adapted from MMEval
@@ -161,25 +158,41 @@ def __calculate_image_tpfp(
     return tp, fp
 
 
-@func.udf(
-    return_type=ts.JsonType(nullable=False),
-    param_types=[
-        ts.JsonType(nullable=False),
-        ts.JsonType(nullable=False),
-        ts.JsonType(nullable=False),
-        ts.JsonType(nullable=False),
-        ts.JsonType(nullable=False),
-    ],
-)
+@pxt.udf
 def eval_detections(
     pred_bboxes: list[list[int]],
     pred_labels: list[int],
     pred_scores: list[float],
     gt_bboxes: list[list[int]],
     gt_labels: list[int],
+    min_iou: float = 0.5,
 ) -> list[dict]:
     """
     Evaluates the performance of a set of predicted bounding boxes against a set of ground truth bounding boxes.
+
+    Args:
+        pred_bboxes: List of predicted bounding boxes, each represented as [xmin, ymin, xmax, ymax].
+        pred_labels: List of predicted labels.
+        pred_scores: List of predicted scores.
+        gt_bboxes: List of ground truth bounding boxes, each represented as [xmin, ymin, xmax, ymax].
+        gt_labels: List of ground truth labels.
+        min_iou: Minimum intersection-over-union (IoU) threshold for a predicted bounding box to be
+            considered a true positive.
+
+    Returns:
+        A list of dictionaries, one per label class, with the following structure:
+        ```python
+        {
+            'min_iou': float,  # The value of `min_iou` used for the detections
+            'class': int,  # The label class
+            'tp': list[int],  # List of 1's and 0's indicating true positives for each
+                              # predicted bounding box of this class
+            'fp': list[int],  # List of 1's and 0's indicating false positives for each
+                              # predicted bounding box of this class; `fp[n] == 1 - tp[n]`
+            'scores': list[float],  # List of predicted scores for each bounding box of this class
+            'num_gts': int,  # Number of ground truth bounding boxes of this class
+        }
+        ```
     """
     class_idxs = list(set(pred_labels + gt_labels))
     result: list[dict] = []
@@ -192,11 +205,11 @@ def eval_detections(
         pred_filter = pred_classes_arr == class_idx
         gt_filter = gt_classes_arr == class_idx
         class_pred_scores = pred_scores_arr[pred_filter]
-        tp, fp = __calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], 0.5)
+        tp, fp = __calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], min_iou)
         ordered_class_pred_scores = -np.sort(-class_pred_scores)
         result.append(
             {
-                'min_iou': 0.5,
+                'min_iou': min_iou,
                 'class': class_idx,
                 'tp': tp.tolist(),
                 'fp': fp.tolist(),
@@ -207,11 +220,20 @@ def eval_detections(
     return result
 
 
-@func.uda(update_types=[ts.JsonType()], value_type=ts.JsonType(), allows_std_agg=True, allows_window=False)
-class mean_ap(func.Aggregator):
+@pxt.uda(update_types=[pxt.JsonType()], value_type=pxt.JsonType(), allows_std_agg=True, allows_window=False)
+class mean_ap(pxt.Aggregator):
     """
     Calculates the mean average precision (mAP) over
     [`eval_detections()`][pixeltable.functions.vision.eval_detections] results.
+
+    __Parameters:__
+
+    - `eval_dicts` (list[dict]): List of dictionaries as returned by
+        [`eval_detections()`][pixeltable.functions.vision.eval_detections].
+
+    __Returns:__
+
+    - A `dict[int, float]` mapping each label class to an average precision (AP) value for that class.
     """
     def __init__(self):
         self.class_tpfp: dict[int, list[dict]] = defaultdict(list)
@@ -246,7 +268,7 @@ class mean_ap(func.Aggregator):
         return result
 
 
-def _create_label_colors(labels: list[Any]) -> dict[Any, str]:
+def __create_label_colors(labels: list[Any]) -> dict[Any, str]:
     """
     Create random colors for labels such that a particular label always gets the same color.
 
@@ -265,7 +287,7 @@ def _create_label_colors(labels: list[Any]) -> dict[Any, str]:
     return result
 
 
-@func.udf
+@pxt.udf
 def draw_bounding_boxes(
         img: PIL.Image.Image,
         boxes: list[list[int]],
@@ -324,7 +346,7 @@ def draw_bounding_boxes(
         if color is not None:
             box_colors = [color] * num_boxes
         else:
-            label_colors = _create_label_colors(labels)
+            label_colors = __create_label_colors(labels)
             box_colors = [label_colors[label] for label in labels]
 
     from PIL import ImageColor, ImageDraw, ImageFont

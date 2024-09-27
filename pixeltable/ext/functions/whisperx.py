@@ -19,6 +19,8 @@ def transcribe(
     equivalent to the WhisperX `transcribe` function, as described in the
     [WhisperX library documentation](https://github.com/m-bain/whisperX).
 
+    WhisperX is part of the `pixeltable.ext` package: long-term support in Pixeltable is not guaranteed.
+
     __Requirements:__
 
     - `pip install whisperx`

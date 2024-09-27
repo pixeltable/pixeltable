@@ -8,6 +8,7 @@ import importlib.util
 import inspect
 import logging
 import os
+import subprocess
 import sys
 import threading
 import uuid
@@ -486,6 +487,8 @@ class Env:
         """Check for and start runtime services"""
         self._start_web_server()
         self.__register_packages()
+        if self.is_installed_package('spacy'):
+            self.__init_spacy()
 
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""
@@ -494,12 +497,13 @@ class Env:
         self.__register_package('datasets')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('mistralai')
         self.__register_package('mistune')
         self.__register_package('openai')
         self.__register_package('openpyxl')
         self.__register_package('pyarrow')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
-        self.__register_package('spacy')  # TODO: deal with en-core-web-sm
+        self.__register_package('spacy')
         self.__register_package('tiktoken')
         self.__register_package('together')
         self.__register_package('toml')
@@ -509,10 +513,6 @@ class Env:
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a')
-
-        if self.is_installed_package('spacy'):
-            import spacy
-            self._spacy_nlp = spacy.load('en_core_web_sm')
 
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
         self.__optional_packages[package_name] = PackageInfo(
@@ -555,6 +555,35 @@ class Env:
                 f'To fix this, run: `pip install -U {package_info.library_name}`'
             )
 
+    def __init_spacy(self) -> None:
+        """
+        spaCy relies on a pip-installed model to operate. In order to avoid requiring the model as a separate
+        dependency, we install it programmatically here. This should cause no problems, since the model packages
+        have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
+        """
+        import spacy
+        from spacy.cli.download import get_model_filename
+        spacy_model = 'en_core_web_sm'
+        spacy_model_version = '3.7.1'
+        filename = get_model_filename(spacy_model, spacy_model_version, sdist=False)
+        url = f'{spacy.about.__download_url__}/{filename}'
+        # Try to `pip install` the model. We set check=False; if the pip command fails, it's not necessarily
+        # a problem, because the model have been installed on a previous attempt.
+        self._logger.info(f'Ensuring spaCy model is installed: {filename}')
+        ret = subprocess.run([sys.executable, '-m', 'pip', 'install', '-qU', url], check=False)
+        if ret.returncode != 0:
+            self._logger.warn(f'pip install failed for spaCy model: {filename}')
+        try:
+            self._logger.info(f'Loading spaCy model: {spacy_model}')
+            self._spacy_nlp = spacy.load(spacy_model)
+        except Exception as exc:
+            self._logger.warn(f'Failed to load spaCy model: {spacy_model}', exc_info=exc)
+            warnings.warn(
+                f"Failed to load spaCy model '{spacy_model}'. spaCy features will not be available.",
+                excs.PixeltableWarning
+            )
+            self.__optional_packages['spacy'].is_installed = False
+
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
 
@@ -593,6 +622,7 @@ class Env:
 
     @property
     def spacy_nlp(self) -> spacy.Language:
+        Env.get().require_package('spacy')
         assert self._spacy_nlp is not None
         return self._spacy_nlp
 

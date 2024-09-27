@@ -26,8 +26,7 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
     Computes YOLOX object detections for the specified image. `model_id` should reference one of the models
     defined in the [YOLOX documentation](https://github.com/Megvii-BaseDetection/YOLOX).
 
-    YOLOX support is part of the `pixeltable.ext` package: long-term support is not guaranteed, and it is not
-    intended for use in production applications.
+    YOLOX is part of the `pixeltable.ext` package: long-term support in Pixeltable is not guaranteed.
 
     __Requirements__:
 
@@ -79,6 +78,8 @@ def yolo_to_coco(detections: dict) -> list:
     """
     Converts the output of a YOLOX object detection model to COCO format.
 
+    YOLOX is part of the `pixeltable.ext` package: long-term support in Pixeltable is not guaranteed.
+
     Args:
         detections: The output of a YOLOX object detection model, as returned by `yolox`.
 
@@ -89,7 +90,8 @@ def yolo_to_coco(detections: dict) -> list:
         Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image`
         is the image for which detections were computed:
 
-        >>> tbl['detections_coco'] = yolo_to_coco(tbl.detections)
+        >>> tbl['detections'] = yolox(tbl.image, model_id='yolox_m', threshold=0.8)
+        ... tbl['detections_coco'] = yolo_to_coco(tbl.detections)
     """
     bboxes, labels = detections['bboxes'], detections['labels']
     num_annotations = len(detections['bboxes'])

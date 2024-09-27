@@ -54,7 +54,7 @@ class TestHfDatasets:
                 dataset_name,
                 hf_dataset,
                 column_name_for_split=split_column_name,
-                schema_override=rec.get('schema_override', None),
+                schema_overrides=rec.get('schema_override', None),
             )
             if isinstance(hf_dataset, datasets.Dataset):
                 self._assert_hf_dataset_equal(hf_dataset, tab.select(), split_column_name)
