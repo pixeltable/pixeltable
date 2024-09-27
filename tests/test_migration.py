@@ -1,3 +1,4 @@
+import datetime
 import glob
 import logging
 import os
@@ -18,7 +19,7 @@ from pixeltable.metadata import VERSION, SystemInfo
 from pixeltable.metadata.notes import VERSION_NOTES
 
 from .conftest import clean_db
-from .utils import reload_catalog, skip_test_if_not_installed
+from .utils import reload_catalog, skip_test_if_not_installed, validate_update_status
 
 _logger = logging.getLogger('pixeltable')
 
@@ -26,7 +27,7 @@ _logger = logging.getLogger('pixeltable')
 class TestMigration:
 
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
-    @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Does not run on Python 3.11+ (due to pickling issue)')
+    @pytest.mark.skipif(sys.version_info >= (3, 10), reason='Runs only on Python 3.9 (due to pickling issue)')
     def test_db_migration(self, init_env) -> None:
         skip_test_if_not_installed('transformers')
         import toml
@@ -80,6 +81,8 @@ class TestMigration:
             reload_catalog()
 
             # TODO(aaron-siegel) We need many more of these sorts of checks.
+            if 12 <= old_version <= 14:
+                self._run_v12_tests()
             if 13 <= old_version <= 14:
                 self._run_v13_tests()
             if old_version == 14:
@@ -88,6 +91,8 @@ class TestMigration:
                 self._run_v15_tests()
             if old_version >= 17:
                 self._run_v17_tests()
+            if old_version >= 19:
+                self._run_v19_tests()
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
@@ -97,6 +102,13 @@ class TestMigration:
         assert VERSION in VERSION_NOTES, (
             f'No version notes found for current schema version {VERSION}. '
             f'Please add them to pixeltable/metadata/notes.py.')
+
+    @classmethod
+    def _run_v12_tests(cls) -> None:
+        """Tests that apply to DB artifacts of version 12-14."""
+        pxt.get_table('sample_table').describe()
+        pxt.get_table('views.sample_view').describe()
+        pxt.get_table('views.sample_snapshot').describe()
 
     @classmethod
     def _run_v13_tests(cls) -> None:
@@ -125,6 +137,7 @@ class TestMigration:
         pxt.get_table('views.view_of_views').describe()
         pxt.get_table('views.empty_view').describe()
 
+        t = pxt.get_table('base_table')
         v = pxt.get_table('views.view')
         e = pxt.get_table('views.empty_view')
 
@@ -144,6 +157,16 @@ class TestMigration:
         ts1 = v.select(v.c5).head(1)[0]['c5']
         assert isinstance(ts1, datetime)
         assert ts1.tzinfo is not None  # ensure timestamps are aware
+
+        # Test that InlineLists are properly loaded
+        inline_list_exprs = v.where(v.c2 == 19).select(v.base_table_inline_list_exprs).head(1)['base_table_inline_list_exprs'][0]
+        assert inline_list_exprs == ['test string 19', ['test string 19', 19]]
+        inline_list_mixed = v.where(v.c2 == 19).select(v.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
+        assert inline_list_mixed == [1, 'a', 'test string 19', [1, 'a', 'test string 19'], 1, 'a']
+
+        # Test that InlineDicts are properly loaded
+        inline_dict = v.where(v.c2 == 19).select(v.base_table_inline_dict).head(1)['base_table_inline_dict'][0]
+        assert inline_dict == {'int': 22, 'dict': {'key': 'val'}, 'expr': 'test string 19'}
 
     @classmethod
     def _run_v17_tests(cls) -> None:
@@ -169,3 +192,30 @@ class TestMigration:
         # Test that the stored proxies were retained properly
         assert len(store1.stored_proxies) == 1
         assert t.base_table_image_rot.col in store1.stored_proxies
+
+    @classmethod
+    def _run_v19_tests(cls) -> None:
+        t = pxt.get_table('base_table')
+        status = t.insert(
+            c1='test string 21',
+            c1n='test string 21',
+            c2=21,
+            c3=21.0,
+            c4=True,
+            c5=datetime.now(),
+            c6={
+                'f1': f'test string 21',
+                'f2': 21,
+                'f3': float(21.0),
+                'f4': True,
+                'f5': [1.0, 2.0, 3.0, 4.0],
+                'f6': {
+                    'f7': 'test string 2',
+                    'f8': [1.0, 2.0, 3.0, 4.0],
+                },
+            },
+            c7=[]
+        )
+        validate_update_status(status)
+        inline_list_mixed = t.where(t.c2 == 21).select(t.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
+        assert inline_list_mixed == [1, 'a', 'test string 21', [1, 'a', 'test string 21'], 1, 'a']

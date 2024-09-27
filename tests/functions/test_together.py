@@ -77,6 +77,7 @@ class TestTogether:
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
 
+    @pytest.mark.expensive
     def test_image_generations(self, reset_db) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()

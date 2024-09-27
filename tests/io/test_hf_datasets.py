@@ -1,14 +1,20 @@
 import pathlib
+import sysconfig
 from collections import namedtuple
 
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+
 from ..utils import skip_test_if_not_installed
 
 
 class TestHfDatasets:
+    @pytest.mark.skipif(
+        sysconfig.get_platform() == 'linux-aarch64',
+        reason='libsndfile.so is missing on Linux ARM instances in CI'
+    )
     def test_import_huggingface_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets

@@ -6,10 +6,27 @@ cd "$SCRIPT_DIR/.."
 TEST_PATH="target/nb-tests"
 mkdir -p "$TEST_PATH"
 
-# Copy notebooks to target directory, replacing `%pip install` lines with empty strings
+DO_PIP_INSTALL=true
+if [ -n "$1" ]; then
+    if [ "$1" == "--no-pip" ]; then
+        echo "Skipping pip install commands in notebooks."
+        DO_PIP_INSTALL=false
+    else
+        echo "Usage: $0 [--no-pip]"
+        exit 1
+    fi
+fi
+
+# Copy notebooks to target directory
 echo "Copying notebooks to test folder ..."
 for notebook in $(find docs/release -name '*.ipynb' | grep -v .ipynb_checkpoints); do
-    sed -E 's/%pip install [^"]*//' "$notebook" > "$TEST_PATH/$(basename "$notebook")"
+    if [[ $DO_PIP_INSTALL == true ]]; then
+        # Just copy the notebook to the test directory
+        cp "$notebook" "$TEST_PATH"
+    else
+        # Scrub the %pip install lines from the notebook
+        sed -E 's/%pip install [^"]*//' "$notebook" > "$TEST_PATH/$(basename "$notebook")"
+    fi
 done
 
 for env in {ANTHROPIC_API_KEY,FIREWORKS_API_KEY,LABEL_STUDIO_API_KEY,MISTRAL_API_KEY,OPENAI_API_KEY,TOGETHER_API_KEY}; do

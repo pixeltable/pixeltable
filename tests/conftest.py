@@ -99,9 +99,9 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
         exprs.InlineDict({
             'a': t.c1, 'b': t.c6.f1, 'c': 17,
             'd': exprs.InlineDict({'e': t.c2}),
-            'f': exprs.InlineArray((t.c3, t.c3))
+            'f': exprs.InlineList([t.c3, t.c3])
         }),
-        exprs.InlineArray([[t.c2, t.c2], [t.c2, t.c2]]),
+        exprs.InlineList([[t.c2, t.c2], [t.c2, t.c2]]),
         t.c2 > 5,
         t.c2 == None,
         ~(t.c2 > 5),

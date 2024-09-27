@@ -1,4 +1,4 @@
-name: Nightly CI
+name: nightly
 
 on:
   schedule:
@@ -7,30 +7,44 @@ on:
 
 env:
   # in a PR, the secrets will be empty
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+  MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
   OPENCV_VIDEOIO_DEBUG: 1
 
 jobs:
-  pytest:
+  tests:
     strategy:
       fail-fast: false
       matrix:
-        # Test the earliest and latest supported Python versions on every supported platform.
+        # Test with a variety of different packages on ubuntu, with the minimum and maximum supported Python versions.
+        # We DO include 'expensive' tests in the nightly workflow, but they will only run twice per test (in the
+        # min version + max version tests with the configuration that references them).
         os: [ubuntu-22.04]
         python-version: ["3.9", "3.12"]
         package-configs:
           - ""
           - "torch torchvision transformers sentence-transformers pyarrow"
           - "openai together fireworks-ai"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
+          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy"
           - "label_studio_sdk"
         include:
+          # Test the basic pixeltable installation on other platforms.
           - os: macos-12
             python-version: "3.9"
             package-configs: ""
+          - os: macos-latest
+            python-version: "3.9"
+            package-configs: ""
           - os: windows-2022
+            python-version: "3.9"
+            package-configs: ""
+          - os: ubuntu-arm64
+            python-version: "3.9"
+            package-configs: ""
+          - os: ubuntu-x64-t4
             python-version: "3.9"
             package-configs: ""
 
@@ -49,6 +63,12 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /opt/hostedtoolcache
           df -h
+      - name: Create user runtime dir
+        if: ${{ matrix.os == 'ubuntu-arm64' || matrix.os == 'ubuntu-x64-t4' }}
+        # pgserver needs this dir, and it doesn't seem to exist on ubuntu-arm64 or t4 instances for some reason.
+        run: |
+          sudo mkdir -p /run/user/1001
+          sudo chmod a+rwx /run/user/1001
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -75,3 +95,30 @@ jobs:
       - name: Print utilization info
         if: ${{ !startsWith(matrix.os, 'ubuntu') }}
         run: df -h
+
+  isolated-nb-tests:
+    # Runs a script that tests each notebook in a fresh conda environment with a clean Pixeltable DB,
+    # to ensure the notebook is capturing dependencies correctly and that the dependencies still work.
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash -el {0}  # Needed for conda to work
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Delete unnecessary files
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /opt/hostedtoolcache
+          df -h
+      - name: Install conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: latest
+          python-version: 3.9
+          use-only-tar-bz2: true  # Needed to use conda with cache action
+      - name: Run isolated notebook tests
+        run: ./scripts/run-isolated-nb-tests.sh
