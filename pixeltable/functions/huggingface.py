@@ -185,7 +185,7 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
 
     Examples:
         Add a computed column that applies the model `openai/clip-vit-base-patch32` to an existing
-        Pixeltable column `tbl.image` of the table `tbl`:
+        Pixeltable column `image` of the table `tbl`:
 
         >>> tbl['result'] = clip_image(tbl.image, model_id='openai/clip-vit-base-patch32')
     """
@@ -233,19 +233,19 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
     Returns:
         A dictionary containing the output of the object detection model, in the following format:
 
-    ```python
-    {
-        'scores': [0.99, 0.999],  # list of confidence scores for each detected object
-        'labels': [25, 25],  # list of COCO class labels for each detected object
-        'label_text': ['giraffe', 'giraffe'],  # corresponding text names of class labels
-        'boxes': [[51.942, 356.174, 181.481, 413.975], [383.225, 58.66, 605.64, 361.346]]
-            # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
-    }
-    ```
+            ```python
+            {
+                'scores': [0.99, 0.999],  # list of confidence scores for each detected object
+                'labels': [25, 25],  # list of COCO class labels for each detected object
+                'label_text': ['giraffe', 'giraffe'],  # corresponding text names of class labels
+                'boxes': [[51.942, 356.174, 181.481, 413.975], [383.225, 58.66, 605.64, 361.346]]
+                    # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
+            }
+            ```
 
     Examples:
         Add a computed column that applies the model `facebook/detr-resnet-50` to an existing
-        Pixeltable column `tbl.image` of the table `tbl`:
+        Pixeltable column `image` of the table `tbl`:
 
         >>> tbl['detections'] = detr_for_object_detection(
         ...     tbl.image,
@@ -293,9 +293,11 @@ def vit_for_image_classification(
     Computes image classifications for the specified image using a Vision Transformer (ViT) model.
     `model_id` should be a reference to a pretrained [ViT Model](https://huggingface.co/docs/transformers/en/model_doc/vit).
 
-    __Note:__ Be sure the model is a ViT model that is trained for image classification, such as
-    `google/vit-base-patch16-224`. General feature-extraction models such as `google/vit-base-patch16-224-in21k`
-    will not produce the desired results.
+    __Note:__ Be sure the model is a ViT model that is trained for image classification (that is, a model designed for
+    use with the
+    [ViTForImageClassification](https://huggingface.co/docs/transformers/en/model_doc/vit#transformers.ViTForImageClassification)
+    class), such as `google/vit-base-patch16-224`. General feature-extraction models such as
+    `google/vit-base-patch16-224-in21k` will not produce the desired results.
 
     __Requirements:__
 
@@ -310,20 +312,21 @@ def vit_for_image_classification(
         A list of the `top_k` highest-scoring classes for each image. Each element in the list is a dictionary
             in the following format:
 
-    ```python
-    {
-        'p': 0.494,  # class probability
-        'class': 935,  # class ID
-        'label': 'mashed potato',  # class label
-    }
-    ```
+            ```python
+            {
+                'p': 0.230,  # class probability
+                'class': 935,  # class ID
+                'label': 'mashed potato',  # class label
+            }
+            ```
 
     Examples:
         Add a computed column that applies the model `google/vit-base-patch16-224` to an existing
-        Pixeltable column `tbl.image` of the table `tbl`:
+        Pixeltable column `image` of the table `tbl`:
 
         >>> tbl['image_class'] = vit_for_image_classification(
-        ...     tbl.image, model_id='google/vit-base-patch16-224'
+        ...     tbl.image,
+        ...     model_id='google/vit-base-patch16-224'
         ... )
     """
     env.Env.get().require_package('transformers')
