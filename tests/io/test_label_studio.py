@@ -2,6 +2,7 @@ import logging
 import os
 import platform
 import subprocess
+import sysconfig
 import time
 import uuid
 from typing import Literal
@@ -20,6 +21,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 @pytest.mark.skipif(platform.system() == 'Windows', reason='Label Studio tests do not currently run on Windows')
+@pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Label Studio tests do not currently run on Linux ARM')
 class TestLabelStudio:
 
     test_config_image = """

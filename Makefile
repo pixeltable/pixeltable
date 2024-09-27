@@ -72,7 +72,7 @@ NB_CELL_TIMEOUT := 3600
 nbtest: install
 	@export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
 	@echo "Running pytest on notebooks ..."
-	@scripts/prepare-nb-tests.sh
+	@scripts/prepare-nb-tests.sh --no-pip
 	@ulimit -n 4000; pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
 
 .PHONY: typecheck
