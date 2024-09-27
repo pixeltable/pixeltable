@@ -293,6 +293,10 @@ def vit_for_image_classification(
     Computes image classifications for the specified image using a Vision Transformer (ViT) model.
     `model_id` should be a reference to a pretrained [ViT Model](https://huggingface.co/docs/transformers/en/model_doc/vit).
 
+    __Note:__ Be sure the model is a ViT model that is trained for image classification, such as
+    `google/vit-base-patch16-224`. General feature-extraction models such as `google/vit-base-patch16-224-in21k`
+    will not produce the desired results.
+
     __Requirements:__
 
     - `pip install transformers`
@@ -304,21 +308,23 @@ def vit_for_image_classification(
 
     Returns:
         A list of the `top_k` highest-scoring classes for each image. Each element in the list is a dictionary
-        in the following format:
+            in the following format:
 
-        ```python
-        {
-            'p': 0.494,  # class probability
-            'class': 935,  # class ID
-            'label': 'mashed potato',  # class label
-        }
-        ```
+    ```python
+    {
+        'p': 0.494,  # class probability
+        'class': 935,  # class ID
+        'label': 'mashed potato',  # class label
+    }
+    ```
 
     Examples:
         Add a computed column that applies the model `google/vit-base-patch16-224` to an existing
         Pixeltable column `tbl.image` of the table `tbl`:
 
-        >>> tbl['image_class'] = vit_for_image_classification(tbl.image, model_id='google/vit-base-patch16-224')
+        >>> tbl['image_class'] = vit_for_image_classification(
+        ...     tbl.image, model_id='google/vit-base-patch16-224'
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
