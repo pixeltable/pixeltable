@@ -151,8 +151,13 @@ jobs:
         run: pip install pytest coverage
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
+        # Run the tests with the 'expensive' marker only once, on ubuntu-22.04 with Python 3.9. The other tests
+        # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
+        # configurations.
         run: |
-          coverage run -m --source=pixeltable pytest -v -m ''
+          PYTEST_MARKERS="${{ (matrix.os != 'ubuntu-22.04' || matrix.python-version != '3.9') && 'not expensive' || '' }}"
+          echo "Running tests with markers: $PYTEST_MARKERS"
+          coverage run -m --source=pixeltable pytest -v -m "$PYTEST_MARKERS" --strict-markers
           coverage report -m
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
