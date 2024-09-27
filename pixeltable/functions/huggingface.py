@@ -288,7 +288,7 @@ def vit_for_image_classification(
     *,
     model_id: str,
     top_k: int = 5
-) -> Batch[dict]:
+) -> Batch[list[dict[str, Any]]]:
     """
     Computes image classifications for the specified image using a Vision Transformer (ViT) model.
     `model_id` should be a reference to a pretrained [ViT Model](https://huggingface.co/docs/transformers/en/model_doc/vit).
