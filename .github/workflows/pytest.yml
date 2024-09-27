@@ -28,13 +28,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Test with Python 3.9 (minimum supported version) on every platform.
+        # Test with Python 3.9 and 3.12 (minimum and maximum supported versions) on every platform.
         # After a PR, test only the basic (free) platforms: ubuntu-22.04, macos-12, macos-latest, windows-2022.
         # On other event types (push and workflow_dispatch), test also ubuntu-arm64 and ubuntu-x64-t4.
         os: ${{ github.event_name == 'pull_request'
                 && fromJSON('["ubuntu-22.04", "macos-12", "windows-2022"]')
                 || fromJSON('["ubuntu-22.04", "macos-12", "windows-2022", "ubuntu-arm64", "ubuntu-x64-t4"]') }}
-        python-version: ["3.9"]
+        python-version: ["3.9", "3.12"]
         test-category: ["py"]
         poetry-options: ["--with dev"]
         # Add some additional matrix configurations that are run only on linux, to test
@@ -48,11 +48,6 @@ jobs:
           # Python 3.11
           - os: ubuntu-22.04
             python-version: "3.11"
-            test-category: "py"
-            poetry-options: "--with dev"
-          # Python 3.12
-          - os: ubuntu-22.04
-            python-version: "3.12"
             test-category: "py"
             poetry-options: "--with dev"
           # Minimal installation of pixeltable (without --with dev)
