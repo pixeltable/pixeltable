@@ -300,9 +300,19 @@ def vit_for_image_classification(
     Args:
         image: The image to classify.
         model_id: The pretrained model to use for the classification.
+        top_k: The number of classes to return.
 
     Returns:
-        A dictionary containing the output of the image classification model, in the following format:
+        A list of the `top_k` highest-scoring classes for each image. Each element in the list is a dictionary
+        in the following format:
+
+        ```python
+        {
+            'p': 0.494,  # class probability
+            'class': 935,  # class ID
+            'label': 'mashed potato',  # class label
+        }
+        ```
 
     Examples:
         Add a computed column that applies the model `google/vit-base-patch16-224` to an existing
@@ -330,9 +340,9 @@ def vit_for_image_classification(
     return [
         [
             {
+                'p': top_k_probs[n, k].item(),
                 'class': top_k_indices[n, k].item(),
                 'label': model.config.id2label[top_k_indices[n, k].item()],
-                'p': top_k_probs[n, k].item(),
             }
             for k in range(top_k_probs.shape[1])
         ]

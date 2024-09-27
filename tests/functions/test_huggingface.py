@@ -1,10 +1,12 @@
-from typing import Dict, Any
+from typing import Any, Dict
 
 import pytest
 
 import pixeltable as pxt
-from pixeltable.type_system import StringType, JsonType, ImageType, BoolType, FloatType
-from ..utils import skip_test_if_not_installed, get_sentences, get_image_files, SAMPLE_IMAGE_URL, reload_catalog
+from pixeltable.type_system import BoolType, FloatType, ImageType, JsonType, StringType
+
+from ..utils import (SAMPLE_IMAGE_URL, get_image_files, get_sentences, reload_catalog, skip_test_if_not_installed,
+                     validate_update_status)
 
 
 class TestHuggingface:
@@ -115,7 +117,7 @@ class TestHuggingface:
         assert status.num_excs == 0
 
         # run multiple models one at a time in order to exercise batching
-        from pixeltable.functions.huggingface import clip_text, clip_image
+        from pixeltable.functions.huggingface import clip_image, clip_text
 
         model_ids = ['openai/clip-vit-base-patch32', 'laion/CLIP-ViT-B-32-laion2B-s34B-b79K']
         for idx, model_id in enumerate(model_ids):
@@ -159,3 +161,17 @@ class TestHuggingface:
         assert 'orange' in label_text
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
+
+    def test_vit_for_image_classification(self, reset_db) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import vit_for_image_classification
+
+        t = pxt.create_table('test_tbl', {'img': ImageType()})
+        t['img_class'] = vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224')
+        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+        result = t.select(t.img_class).collect()[0]['img_class']
+        assert tuple((r['class'], r['label']) for r in result[:3]) == (
+            (962, 'meat loaf, meatloaf'),
+            (935, 'mashed potato'),
+            (937, 'broccoli'),
+        )
