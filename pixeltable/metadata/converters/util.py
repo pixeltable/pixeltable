@@ -14,8 +14,22 @@ def convert_table_md(
     table_md_updater: Optional[Callable[[dict], None]] = None,
     column_md_updater: Optional[Callable[[dict], None]] = None,
     external_store_md_updater: Optional[Callable[[dict], None]] = None,
-    substitution_fn: Optional[Callable[[Any, Any], Optional[tuple[Any, Any]]]] = None
+    substitution_fn: Optional[Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]] = None
 ) -> None:
+    """
+    Converts table metadata based on the specified conversion functions.
+
+    Args:
+        engine: The SQLAlchemy engine.
+        table_md_updater: A function that updates the table metadata in place.
+        column_md_updater: A function that updates the column metadata in place.
+        external_store_md_updater: A function that updates the external store metadata in place.
+        substitution_fn: A function that substitutes metadata values. If specified, all metadata will be traversed
+            recursively, and `substitution_fn` will be called once for each metadata entry. If the entry appears in
+            a dict as a `(k, v)` pair, then `substitution_fn(k, v)` will be called. If the entry appears in a list,
+            then `substitution_fn(None, v)` will be called. If `substitution_fn` returns a tuple `(k', v')`, then
+            the original entry will be replaced, and the traversal will continue with `v'`.
+    """
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Table)):
             id = row[0]
@@ -49,18 +63,29 @@ def __update_external_store_md(table_md: dict, external_store_md_updater: Callab
         external_store_md_updater(store_md)
 
 
-def __substitute_md_rec(md: Any, substitution_fn: Callable[[Any, Any], Optional[tuple[Any, Any]]]) -> Any:
+def __substitute_md_rec(
+    md: Any,
+    substitution_fn: Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]
+) -> Any:
     if isinstance(md, dict):
         updated_md = {}
         for k, v in md.items():
             substitute = substitution_fn(k, v)
             if substitute is not None:
                 updated_k, updated_v = substitute
-                updated_md[updated_k] = updated_v
+                updated_md[updated_k] = __substitute_md_rec(updated_v, substitution_fn)
             else:
                 updated_md[k] = __substitute_md_rec(v, substitution_fn)
         return updated_md
     elif isinstance(md, list):
-        return [__substitute_md_rec(v, substitution_fn) for v in md]
+        updated_md = []
+        for v in md:
+            substitute = substitution_fn(None, v)
+            if substitute is not None:
+                _, updated_v = substitute
+                updated_md.append(__substitute_md_rec(updated_v, substitution_fn))
+            else:
+                updated_md.append(__substitute_md_rec(v, substitution_fn))
+        return updated_md
     else:
         return md

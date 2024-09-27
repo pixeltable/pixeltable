@@ -3,6 +3,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 from pixeltable.type_system import VideoType
+
 from ..utils import get_video_files, skip_test_if_not_installed
 
 
@@ -21,7 +22,7 @@ class TestVision:
         v.add_column(detections_a=yolox(v.frame_s, model_id='yolox_nano'))
         v.add_column(detections_b=yolox(v.frame_s, model_id='yolox_s'))
         v.add_column(gt=yolox(v.frame_s, model_id='yolox_m'))
-        from pixeltable.functions.vision import eval_detections, mean_ap, draw_bounding_boxes
+        from pixeltable.functions.vision import draw_bounding_boxes, eval_detections, mean_ap
 
         res = v.select(
             eval_detections(
@@ -35,7 +36,7 @@ class TestVision:
         )
         v.add_column(
             eval_b=eval_detections(
-                v.detections_b.bboxes, v.detections_b.labels, v.detections_b.scores, v.gt.bboxes, v.gt.labels
+                v.detections_b.bboxes, v.detections_b.labels, v.detections_b.scores, v.gt.bboxes, v.gt.labels, min_iou=0.8
             )
         )
         _ = v.select(mean_ap(v.eval_a)).show()[0, 0]
