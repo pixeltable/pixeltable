@@ -17,7 +17,7 @@ exclude = [
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
-numpy = ">=1.25"
+numpy = ">=1.25,<2.0"
 pandas = ">=2.0,<3.0"
 pillow = ">=9.3.0"
 opencv-python-headless = "^4.7.0.68"
@@ -149,9 +149,10 @@ max-line-length = 120
 disable = ["C0114","C0116","C0415","E1121","R0401","R0801","R0902","R0913","R0914","W0511"]
 
 [tool.pytest.ini_options]
-addopts = "-v -m \"not remote_api\""
+addopts = "-v -m \"not remote_api and not expensive\" --strict-markers"
 markers = [
-    "remote_api: marks tests as calling a remote API (such as OpenAI)"
+    "remote_api: marks tests as calling a remote API (such as OpenAI)",
+    "expensive: marks tests as expensive to run"
 ]
 filterwarnings = [
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
