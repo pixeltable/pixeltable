@@ -14,7 +14,7 @@
         <link rel="prev" href="../fireworks/">
       
       
-        <link rel="next" href="../openai/">
+        <link rel="next" href="../mistralai/">
       
       
       <link rel="icon" href="../../../assets/images/favicon.png">
@@ -528,6 +528,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../audio/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    audio
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../image/" class="md-nav__link">
         
   
@@ -740,6 +761,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../anthropic/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    anthropic
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../fireworks/" class="md-nav__link">
         
   
@@ -866,6 +908,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.huggingface.vit_for_image_classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;vit_for_image_classification
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -875,6 +926,27 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mistralai/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    mistralai
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -934,6 +1006,90 @@
   
   <span class="md-ellipsis">
     whisper
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Extended Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Extended Model and Inference Functions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ext/functions/whisperx/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    whisperx
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ext/functions/yolox/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    yolox
   </span>
   
 
@@ -1033,6 +1189,15 @@
   <a href="#pixeltable.functions.huggingface.sentence_transformer" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;sentence_transformer
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.huggingface.vit_for_image_classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;vit_for_image_classification
     </span>
   </a>
   
@@ -1152,7 +1317,7 @@ UDFs).</p>
 
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Add a computed column that applies the model <code>openai/clip-vit-base-patch32</code> to an existing
-Pixeltable column <code>tbl.image</code> of the table <code>tbl</code>:</p>
+Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">clip_image</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">image</span><span class="p">,</span> <span class="n">model_id</span><span class="o">=</span><span class="s1">&#39;openai/clip-vit-base-patch32&#39;</span><span class="p">)</span>
 </code></pre></div>
 
@@ -1338,7 +1503,7 @@ columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
               (<code>str</code>)
           –
           <div class="doc-md-description">
-            <p>The pretrained model to use for the embedding.</p>
+            <p>The pretrained model to use for object detection.</p>
           </div>
         </li>
     </ul>
@@ -1351,10 +1516,7 @@ columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
           –
           <div class="doc-md-description">
             <p>A dictionary containing the output of the object detection model, in the following format:</p>
-          </div>
-        </li>
-    </ul>
-      <pre><code class="language-python">{
+<pre><code class="language-python">{
     'scores': [0.99, 0.999],  # list of confidence scores for each detected object
     'labels': [25, 25],  # list of COCO class labels for each detected object
     'label_text': ['giraffe', 'giraffe'],  # corresponding text names of class labels
@@ -1362,11 +1524,14 @@ columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
         # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
 }
 </code></pre>
+          </div>
+        </li>
+    </ul>
 
 
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Add a computed column that applies the model <code>facebook/detr-resnet-50</code> to an existing
-Pixeltable column <code>tbl.image</code> of the table <code>tbl</code>:</p>
+Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;detections&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">detr_for_object_detection</span><span class="p">(</span>
 <span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">image</span><span class="p">,</span>
 <span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s1">&#39;facebook/detr-resnet-50&#39;</span><span class="p">,</span>
@@ -1510,6 +1675,97 @@ for more details</p>
     <p>Add a computed column that applies the model <code>all-mpnet-base-2</code> to an existing Pixeltable column <code>tbl.sentence</code>
 of the table <code>tbl</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sentence_transformer</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">sentence</span><span class="p">,</span> <span class="n">model_id</span><span class="o">=</span><span class="s1">&#39;all-mpnet-base-v2&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.huggingface.vit_for_image_classification" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">vit_for_image_classification</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">vit_for_image_classification</span><span class="p">(</span>
+    <span class="n">image</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">top_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Computes image classifications for the specified image using a Vision Transformer (ViT) model.
+<code>model_id</code> should be a reference to a pretrained <a href="https://huggingface.co/docs/transformers/en/model_doc/vit">ViT Model</a>.</p>
+<p><strong>Note:</strong> Be sure the model is a ViT model that is trained for image classification (that is, a model designed for
+use with the
+<a href="https://huggingface.co/docs/transformers/en/model_doc/vit#transformers.ViTForImageClassification">ViTForImageClassification</a>
+class), such as <code>google/vit-base-patch16-224</code>. General feature-extraction models such as
+<code>google/vit-base-patch16-224-in21k</code> will not produce the desired results.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install transformers</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>image</code></b>
+              (<code>ImageT</code>)
+          –
+          <div class="doc-md-description">
+            <p>The image to classify.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>model_id</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The pretrained model to use for the classification.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>top_k</code></b>
+              (<code>int</code>, default:
+                  <code>5</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The number of classes to return.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>JsonT</code>
+          –
+          <div class="doc-md-description">
+            <p>A list of the <code>top_k</code> highest-scoring classes for each image. Each element in the list is a dictionary
+in the following format:</p>
+<pre><code class="language-python">{
+    'p': 0.230,  # class probability
+    'class': 935,  # class ID
+    'label': 'mashed potato',  # class label
+}
+</code></pre>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column that applies the model <code>google/vit-base-patch16-224</code> to an existing
+Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;image_class&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">vit_for_image_classification</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">image</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s1">&#39;google/vit-base-patch16-224&#39;</span>
+<span class="gp">... </span><span class="p">)</span>
 </code></pre></div>
 
     </div>

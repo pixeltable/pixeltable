@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="../../table/">
+        <link rel="prev" href="../audio/">
       
       
         <link rel="next" href="../json/">
@@ -527,6 +527,27 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../audio/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    audio
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -648,6 +669,15 @@
   <a href="#pixeltable.functions.image.entropy" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;entropy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.get_metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;get_metadata
     </span>
   </a>
   
@@ -989,6 +1019,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../anthropic/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    anthropic
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../fireworks/" class="md-nav__link">
         
   
@@ -1015,6 +1066,27 @@
   
   <span class="md-ellipsis">
     huggingface
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mistralai/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    mistralai
   </span>
   
 
@@ -1078,6 +1150,90 @@
   
   <span class="md-ellipsis">
     whisper
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Extended Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Extended Model and Inference Functions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ext/functions/whisperx/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    whisperx
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ext/functions/yolox/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    yolox
   </span>
   
 
@@ -1195,6 +1351,15 @@
   <a href="#pixeltable.functions.image.entropy" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;entropy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.get_metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;get_metadata
     </span>
   </a>
   
@@ -1530,7 +1695,7 @@ t.select(t.img_col.convert('L')).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">crop</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">ArrayT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">crop</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1621,6 +1786,25 @@ coordinates.</p>
           </div>
         </li>
     </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.get_metadata" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">get_metadata</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return metadata for the image.</p>
 
     </div>
 
@@ -2047,7 +2231,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">resize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">size</span><span class="p">:</span> <span class="n">ArrayT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">resize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">size</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

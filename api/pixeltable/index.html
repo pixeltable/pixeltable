@@ -693,6 +693,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/audio/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    audio
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/image/" class="md-nav__link">
         
   
@@ -903,6 +924,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/anthropic/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    anthropic
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/fireworks/" class="md-nav__link">
         
   
@@ -929,6 +971,27 @@
   
   <span class="md-ellipsis">
     huggingface
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/mistralai/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    mistralai
   </span>
   
 
@@ -992,6 +1055,90 @@
   
   <span class="md-ellipsis">
     whisper
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Extended Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Extended Model and Inference Functions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ext/functions/whisperx/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    whisperx
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ext/functions/yolox/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    yolox
   </span>
   
 
@@ -1363,7 +1510,7 @@ below.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_dir</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.Dir">Dir</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_dir</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.catalog.Dir">Dir</span></span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1427,17 +1574,17 @@ below.</p>
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_table</span><span class="p">(</span>
     <span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-    <span class="n">schema</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">],</span>
+    <span class="n">schema_or_df</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">],</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a></span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.InsertableTable">InsertableTable</span></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Create a new <code>InsertableTable</code>.</p>
+      <p>Create a new base table.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -1451,11 +1598,23 @@ below.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>schema</code></b>
-              (<code>dict[str, <span title="typing.Any">Any</span>]</code>)
+          <b><code>schema_or_df</code></b>
+              (<code><span title="typing.Union">Union</span>[dict[str, <span title="typing.Any">Any</span>], <a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a>]</code>)
           –
           <div class="doc-md-description">
-            <p>dictionary mapping column names to column types, value expressions, or to column specifications.</p>
+            <p>Either a dictionary that maps column names to column types, or a
+<a class="autorefs autorefs-internal" href="../data-frame/#pixeltable.DataFrame"><code>DataFrame</code></a> whose contents and schema will be used to pre-populate the table.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>primary_key</code></b>
+              (<code><span title="typing.Optional">Optional</span>[<span title="typing.Union">Union</span>[str, list[str]]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional column name or list of column names to use as the primary key(s) of the
+table.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -1468,16 +1627,26 @@ below.</p>
             <p>Number of versions of the table to retain.</p>
           </div>
         </li>
+        <li class="doc-section-item field-body">
+          <b><code>comment</code></b>
+              (<code>str</code>, default:
+                  <code>&#39;&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional comment; its meaning is user-defined.</p>
+          </div>
+        </li>
     </ul>
 
 
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><span title="pixeltable.catalog.InsertableTable">InsertableTable</span></code>
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></code>
           –
           <div class="doc-md-description">
-            <p>The newly created table.</p>
+            <p>A handle to the newly created <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a>.</p>
           </div>
         </li>
     </ul>
@@ -1497,7 +1666,10 @@ below.</p>
 
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Create a table with an int and a string column:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">table</span> <span class="o">=</span> <span class="n">cl</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;col1&#39;</span><span class="p">:</span> <span class="n">IntType</span><span class="p">(),</span> <span class="s1">&#39;col2&#39;</span><span class="p">:</span> <span class="n">StringType</span><span class="p">()})</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">table</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;col1&#39;</span><span class="p">:</span> <span class="n">IntType</span><span class="p">(),</span> <span class="s1">&#39;col2&#39;</span><span class="p">:</span> <span class="n">StringType</span><span class="p">()})</span>
+</code></pre></div>
+    <p>Create a table from a select statement over an existing table <code>tbl</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">table</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">,</span> <span class="n">tbl</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">col1</span> <span class="o">&lt;</span> <span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">col2</span><span class="p">))</span>
 </code></pre></div>
 
     </div>
@@ -1523,12 +1695,12 @@ below.</p>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.View">View</span></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Create a new <code>View</code>.</p>
+      <p>Create a view of an existing table object (which itself can be a view or a snapshot or a base table).</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -1546,7 +1718,8 @@ below.</p>
               (<code><span title="typing.Union">Union</span>[<a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a>, <a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a>]</code>)
           –
           <div class="doc-md-description">
-            <p>Table (i.e., table or view or snapshot) or DataFrame to base the view on.</p>
+            <p><a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a> (i.e., table or view or snapshot) or <a class="autorefs autorefs-internal" href="../data-frame/#pixeltable.DataFrame"><code>DataFrame</code></a> to
+base the view on.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -1601,6 +1774,16 @@ the base table.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
+          <b><code>comment</code></b>
+              (<code>str</code>, default:
+                  <code>&#39;&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Optional comment for the view.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
           <b><code>ignore_errors</code></b>
               (<code>bool</code>, default:
                   <code>False</code>
@@ -1616,10 +1799,17 @@ the base table.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><span title="pixeltable.catalog.View">View</span></code>
+              <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a>]</code>
           –
           <div class="doc-md-description">
-            <p>The newly created view.</p>
+            <p>A handle to the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a> representing the newly created view. If the path already</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a>]</code>
+          –
+          <div class="doc-md-description">
+            <p>exists or is invalid and <code>ignore_errors=True</code>, returns <code>None</code>.</p>
           </div>
         </li>
     </ul>
@@ -1631,7 +1821,7 @@ the base table.</p>
               <code><span title="pixeltable.exceptions.Error">Error</span></code>
             –
           <div class="doc-md-description">
-            <p>if the path already exists or is invalid.</p>
+            <p>if the path already exists or is invalid and <code>ignore_errors=False</code>.</p>
           </div>
         </li>
     </ul>
@@ -1667,7 +1857,7 @@ the base table.</p>
 
     <div class="doc doc-contents ">
 
-      <p>Drop a table.</p>
+      <p>Drop a table or view or snapshot.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -1677,7 +1867,7 @@ the base table.</p>
               (<code>str</code>)
           –
           <div class="doc-md-description">
-            <p>Path to the table.</p>
+            <p>Path to the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a>.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -1709,7 +1899,7 @@ the base table.</p>
               <code><span title="pixeltable.exceptions.Error">Error</span></code>
             –
           <div class="doc-md-description">
-            <p>If the path does not exist or does not designate a table and ignore_errors is False.</p>
+            <p>If the path does not exist or does not designate a table object and ignore_errors is False.</p>
           </div>
         </li>
     </ul>
@@ -1736,7 +1926,7 @@ the base table.</p>
 
     <div class="doc doc-contents ">
 
-      <p>Get a handle to a table (including views and snapshots).</p>
+      <p>Get a handle to an existing table or view or snapshot.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -1758,7 +1948,7 @@ the base table.</p>
               <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></code>
           –
           <div class="doc-md-description">
-            <p>A <code>InsertableTable</code> or <code>View</code> object.</p>
+            <p>A handle to the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a>.</p>
           </div>
         </li>
     </ul>
@@ -1770,7 +1960,7 @@ the base table.</p>
               <code><span title="pixeltable.exceptions.Error">Error</span></code>
             –
           <div class="doc-md-description">
-            <p>If the path does not exist or does not designate a table.</p>
+            <p>If the path does not exist or does not designate a table object.</p>
           </div>
         </li>
     </ul>
@@ -1823,7 +2013,7 @@ the base table.</p>
 
     <div class="doc doc-contents ">
 
-      <p>List the tables in a directory.</p>
+      <p>List the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a>s in a directory.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -1857,7 +2047,7 @@ the base table.</p>
               <code>list[str]</code>
           –
           <div class="doc-md-description">
-            <p>A list of table paths.</p>
+            <p>A list of <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a> paths.</p>
           </div>
         </li>
     </ul>

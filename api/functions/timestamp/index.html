@@ -530,6 +530,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../audio/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    audio
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../image/" class="md-nav__link">
         
   
@@ -645,6 +666,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.timestamp.astimezone" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;astimezone
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.timestamp.day" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;day
@@ -684,6 +714,15 @@
   <a href="#pixeltable.functions.timestamp.isoweekday" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isoweekday
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.timestamp.make_timestamp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;make_timestamp
     </span>
   </a>
   
@@ -926,6 +965,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../anthropic/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    anthropic
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../fireworks/" class="md-nav__link">
         
   
@@ -952,6 +1012,27 @@
   
   <span class="md-ellipsis">
     huggingface
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mistralai/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    mistralai
   </span>
   
 
@@ -1031,6 +1112,90 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Extended Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Extended Model and Inference Functions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ext/functions/whisperx/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    whisperx
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ext/functions/yolox/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    yolox
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1064,6 +1229,15 @@
   
     <nav class="md-nav" aria-label=" timestamp">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.timestamp.astimezone" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;astimezone
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#pixeltable.functions.timestamp.day" class="md-nav__link">
@@ -1105,6 +1279,15 @@
   <a href="#pixeltable.functions.timestamp.isoweekday" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isoweekday
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.timestamp.make_timestamp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;make_timestamp
     </span>
   </a>
   
@@ -1263,6 +1446,38 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.functions.timestamp.astimezone" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">astimezone</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">astimezone</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">datetime</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Convert the datetime to the given time zone.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>tz</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>The time zone to convert to. Must be a valid time zone name from the IANA Time Zone Database.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.functions.timestamp.day" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">day</span>
 
@@ -1381,6 +1596,34 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
       <p>Return the day of the week as an integer, where Monday is 1 and Sunday is 7.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/datetime.html#datetime.datetime.isoweekday"><code>datetime.isoweekday()</code></a>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.timestamp.make_timestamp" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">make_timestamp</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">make_timestamp</span><span class="p">(</span>
+    <span class="n">year</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">month</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">day</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">hour</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">minute</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">second</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">microsecond</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">datetime</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Create a timestamp.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/datetime.html#datetime.datetime"><code>datetime()</code></a>.</p>
 
     </div>
 
