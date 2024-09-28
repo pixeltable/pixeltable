@@ -1,8 +1,14 @@
+import sysconfig
+
+import pytest
+
 import pixeltable as pxt
-from ..utils import skip_test_if_not_installed, get_audio_files, validate_update_status
+
+from ..utils import get_audio_files, skip_test_if_not_installed, validate_update_status
 
 
 class TestWhisper:
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Unreliable on Linux ARM')
     def test_whisper(self, reset_db):
         skip_test_if_not_installed('whisper')
         from pixeltable.functions import whisper

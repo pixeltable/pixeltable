@@ -9,8 +9,7 @@ from .expr import Expr
 from .expr_set import ExprSet
 from .function_call import FunctionCall
 from .in_predicate import InPredicate
-from .inline_array import InlineArray
-from .inline_dict import InlineDict
+from .inline_expr import InlineArray, InlineDict, InlineList
 from .is_null import IsNull
 from .json_mapper import JsonMapper
 from .json_path import RELATIVE_PATH_ROOT, JsonPath

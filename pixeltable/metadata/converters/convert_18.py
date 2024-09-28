@@ -13,7 +13,7 @@ def _(engine: sql.engine.Engine) -> None:
     )
 
 
-def __substitute_md(k: Any, v: Any) -> Optional[tuple[Any, Any]]:
+def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
     # Migrate a few changed function names
     if k == 'path' and v == 'pixeltable.functions.string.str_format':
         return 'path', 'pixeltable.functions.string.format'
