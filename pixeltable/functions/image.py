@@ -92,7 +92,7 @@ def _(self: Expr, mode: str) -> pxt.ColumnType:
 
 # Image.crop()
 @pxt.udf(substitute_fn=PIL.Image.Image.crop, is_method=True)
-def crop(self: PIL.Image.Image, box: pxt.Array[(4,), int]) -> PIL.Image.Image:
+def crop(self: PIL.Image.Image, box: tuple[int, int, int, int]) -> PIL.Image.Image:
     """
     Return a rectangular region from the image. The box is a 4-tuple defining the left, upper, right, and lower pixel
     coordinates.
@@ -151,7 +151,7 @@ def _(self: Expr) -> pxt.ColumnType:
 
 # Image.resize()
 @pxt.udf(is_method=True)
-def resize(self: PIL.Image.Image, size: pxt.Array[(2,), int]) -> PIL.Image.Image:
+def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
     """
     Return a resized copy of the image. The size parameter is a tuple containing the width and height of the new image.
 
@@ -365,7 +365,7 @@ def quantize(
 
 
 @pxt.udf(substitute_fn=PIL.Image.Image.reduce, is_method=True)
-def reduce(self: PIL.Image.Image, factor: int, box: Optional[tuple[int]] = None) -> PIL.Image.Image:
+def reduce(self: PIL.Image.Image, factor: int, box: Optional[tuple[int, int, int, int]] = None) -> PIL.Image.Image:
     """
     Reduce the image by the given factor.
 

@@ -7,10 +7,11 @@ the [Working with Together AI](https://pixeltable.readme.io/docs/together-ai) tu
 
 import base64
 import io
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import numpy as np
 import PIL.Image
+import tenacity
 
 import pixeltable as pxt
 from pixeltable import env
@@ -24,12 +25,20 @@ if TYPE_CHECKING:
 @env.register_client('together')
 def _(api_key: str) -> 'together.Together':
     import together
-
     return together.Together(api_key=api_key)
 
 
 def _together_client() -> 'together.Together':
     return env.Env.get().get_client('together')
+
+
+def _retry(fn: Callable) -> Callable:
+    import together
+    return tenacity.retry(
+        retry=tenacity.retry_if_exception_type(together.error.RateLimitError),
+        wait=tenacity.wait_random_exponential(multiplier=1, max=60),
+        stop=tenacity.stop_after_attempt(20),
+    )(fn)
 
 
 @pxt.udf
@@ -74,8 +83,7 @@ def completions(
         >>> tbl['response'] = completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1')
     """
     return (
-        _together_client()
-        .completions.create(
+        _retry(_together_client().completions.create)(
             prompt=prompt,
             model=model,
             max_tokens=max_tokens,
@@ -139,8 +147,7 @@ def chat_completions(
         ... tbl['response'] = chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1')
     """
     return (
-        _together_client()
-        .chat.completions.create(
+        _retry(_together_client().chat.completions.create)(
             messages=messages,
             model=model,
             max_tokens=max_tokens,
@@ -198,7 +205,7 @@ def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), flo
 
         >>> tbl['response'] = embeddings(tbl.text, model='togethercomputer/m2-bert-80M-8k-retrieval')
     """
-    result = _together_client().embeddings.create(input=input, model=model)
+    result = _retry(_together_client().embeddings.create)(input=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
 
@@ -248,7 +255,7 @@ def image_generations(
         >>> tbl['response'] = image_generations(tbl.prompt, model='runwayml/stable-diffusion-v1-5')
     """
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    result = _together_client().images.generate(
+    result = _retry(_together_client().images.generate)(
         prompt=prompt, model=model, steps=steps, seed=seed, height=height, width=width, negative_prompt=negative_prompt
     )
     b64_str = result.data[0].b64_json

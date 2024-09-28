@@ -9,6 +9,7 @@ first `pip install openai-whisper`.
 from typing import TYPE_CHECKING, Optional
 
 import pixeltable as pxt
+from pixeltable.env import Env
 
 if TYPE_CHECKING:
     from whisper import Whisper  # type: ignore[import-untyped]
@@ -53,6 +54,8 @@ def transcribe(
 
         >>> tbl['result'] = transcribe(tbl.audio, model='base.en')
     """
+    Env.get().require_package('whisper')
+    Env.get().require_package('torch')
     import torch
 
     if decode_options is None:

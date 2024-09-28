@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Optional, Union
+from typing import Any, Iterable, Optional, Union
 from uuid import UUID
 
 import pandas as pd
@@ -487,3 +487,7 @@ def configure_logging(
         remove: comma-separated list of module names
     """
     return Env.get().configure_logging(to_stdout=to_stdout, level=level, add=add, remove=remove)
+
+
+def array(elements: Iterable) -> exprs.Expr:
+    return exprs.InlineArray(elements)

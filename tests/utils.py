@@ -139,7 +139,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
         'c7': JsonType(nullable=False),
     }
     t = pxt.create_table(name, schema, primary_key='c2')
-    t.add_column(c8=[[1, 2, 3], [4, 5, 6]])
+    t.add_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100
     d1 = {
