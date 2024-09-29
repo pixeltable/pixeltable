@@ -7,6 +7,7 @@ import json
 import typing
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
@@ -33,6 +34,7 @@ class ColumnType:
         VIDEO = 8
         AUDIO = 9
         DOCUMENT = 10
+        UUID = 11
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 255
@@ -162,6 +164,8 @@ class ColumnType:
             return AudioType()
         if t == cls.Type.DOCUMENT:
             return DocumentType()
+        if t == cls.Type.UUID:
+            return UuidType()
 
     def __str__(self) -> str:
         return self._type.name.lower()
@@ -230,6 +234,8 @@ class ColumnType:
                 return JsonType(nullable=nullable)
             except TypeError:
                 return None
+        if isinstance(val, uuid.UUID):
+            return UuidType(nullable=nullable)
         return None
 
     @classmethod
@@ -866,3 +872,24 @@ class DocumentType(ColumnType):
         dh = get_document_handle(val)
         if dh is None:
             raise excs.Error(f'Not a recognized document format: {val}')
+
+
+class UuidType(ColumnType):
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.UUID, nullable=nullable)
+
+    def to_sa_type(self) -> sql.types.TypeEngine:
+        return sql.UUID()
+
+    def _validate_literal(self, val: Any) -> None:
+        if not isinstance(val, uuid.UUID):
+            raise TypeError(f'Expected UUID, got {val.__class__.__name__}')
+
+    def _create_literal(self, val: Any) -> Any:
+        if isinstance(val, str):
+            return uuid.UUID(val)
+        if isinstance(val, bytes):
+            return uuid.UUID(bytes=val)
+        if isinstance(val, int):
+            return uuid.UUID(int=val)
+        return val
