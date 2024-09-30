@@ -222,7 +222,8 @@ Today's solutions for AI app development require extensive custom coding and inf
 ## 🐛 Contributions & Feedback
 
 Are you experiencing issues or bugs with Pixeltable? File an [Issue](https://github.com/pixeltable/pixeltable/issues).
-</br>Do you want to contribute? Feel free to open a [PR](https://github.com/pixeltable/pixeltable/pulls).
+</br>Do you want to contribute? Feel free to open a [PR](https://github.com/pixeltable/pixeltable/pulls), or see the [Contribution Guide](CONTRIBUTING.md).
+
 
 ## :classical_building: License
 
