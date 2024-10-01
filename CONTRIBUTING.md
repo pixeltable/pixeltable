@@ -13,5 +13,5 @@ https://github.com/pixeltable/pixeltable/blob/main/LICENSE
 
 
 ### Dev Dependencies
-We currently use [Poetry](https://python-poetry.org/) to manage our dependencies [ packaged, and dev ].  To contributin, you will need the 'dev' dependencies, those are defined in the 'dev' group in poetry.  You can install the dev dependencies by running `poetry install --with dev`
+We currently use [Poetry](https://python-poetry.org/) to manage our dependencies [ packaged, and dev ].  To contribute/develop, you will need the 'dev' dependencies, those are defined in the 'dev' group in poetry.  You can install the dev dependencies by running `poetry install --with dev`
 
