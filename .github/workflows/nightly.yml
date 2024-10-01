@@ -27,7 +27,7 @@ jobs:
         package-configs:
           - ""
           - "torch torchvision transformers sentence-transformers pyarrow"
-          - "openai together fireworks-ai"
+          - "openai together fireworks-ai anthropic mistralai"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy"
           - "label_studio_sdk"
         include:
