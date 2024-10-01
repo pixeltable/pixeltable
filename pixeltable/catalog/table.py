@@ -20,6 +20,7 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
+from pixeltable.utils.filecache import FileCache
 
 from .column import Column
 from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier
@@ -33,7 +34,12 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 class Table(SchemaObject):
-    """Base class for table objects (base tables, views, snapshots)."""
+    """
+    Base class for table objects (base tables, views, snapshots).
+
+    Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
+    FileCache.emit_eviction_warnings() at the end of the operation.
+    """
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -383,7 +389,9 @@ class Table(SchemaObject):
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
-        return self._tbl_version.add_column(new_col, print_stats=print_stats, on_error=on_error)
+        status = self._tbl_version.add_column(new_col, print_stats=print_stats, on_error=on_error)
+        FileCache.get().emit_eviction_warnings()
+        return status
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
@@ -596,6 +604,7 @@ class Table(SchemaObject):
         idx = EmbeddingIndex(col, metric=metric, string_embed=string_embed, image_embed=image_embed)
         status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
         # TODO: how to deal with exceptions here? drop the index and raise?
+        FileCache.get().emit_eviction_warnings()
 
     def drop_embedding_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
         """Drop an embedding index from the table.
@@ -741,7 +750,9 @@ class Table(SchemaObject):
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
         self._check_is_dropped()
-        return self._tbl_version.update(value_spec, where, cascade)
+        status = self._tbl_version.update(value_spec, where, cascade)
+        FileCache.get().emit_eviction_warnings()
+        return status
 
     def batch_update(
             self, rows: Iterable[dict[str, Any]], cascade: bool = True,
@@ -798,9 +809,11 @@ class Table(SchemaObject):
                     missing_cols = pk_col_names - set(col.name for col in col_vals.keys())
                     raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
-        return self._tbl_version.batch_update(
+        status = self._tbl_version.batch_update(
             row_updates, rowids, error_if_not_exists=if_not_exists == 'error',
             insert_if_not_exists=if_not_exists == 'insert', cascade=cascade)
+        FileCache.get().emit_eviction_warnings()
+        return status
 
     def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.

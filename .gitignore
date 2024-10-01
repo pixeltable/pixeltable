@@ -2,6 +2,7 @@
 .idea
 .ipynb_checkpoints
 .make-install
+.mypy_cache
 .venv
 **/__pycache__
 *.iml

@@ -8,6 +8,7 @@ import importlib.util
 import inspect
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -15,12 +16,12 @@ import uuid
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
-import yaml
+import toml
 from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
@@ -64,7 +65,7 @@ class Env:
     _log_to_stdout: bool
     _module_log_level: dict[str, int]  # module name -> log level
     _config_file: Optional[Path]
-    _config: Optional[dict[str, Any]]
+    _config: Optional[Config]
     _stdout_handler: logging.StreamHandler
     _initialized: bool
 
@@ -110,6 +111,7 @@ class Env:
         self._log_to_stdout = False
         self._module_log_level = {}  # module name -> log level
 
+        # config
         self._config_file = None
         self._config = None
 
@@ -119,7 +121,8 @@ class Env:
         self._initialized = False
 
     @property
-    def config(self):
+    def config(self) -> Config:
+        assert self._config is not None
         return self._config
 
     @property
@@ -227,29 +230,12 @@ class Env:
         home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         assert self._home is None or self._home == home
         self._home = home
-        self._config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(self._home / 'config.yaml')))
+        self._config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(self._home / 'config.toml')))
         self._media_dir = self._home / 'media'
         self._file_cache_dir = self._home / 'file_cache'
         self._dataset_cache_dir = self._home / 'dataset_cache'
         self._log_dir = self._home / 'logs'
         self._tmp_dir = self._home / 'tmp'
-
-        # Read in the config
-        if os.path.isfile(self._config_file):
-            with open(self._config_file, 'r') as stream:
-                try:
-                    self._config = yaml.safe_load(stream)
-                except yaml.YAMLError as exc:
-                    self._logger.error(f'Could not read config file: {self._config_file}')
-                    self._config = {}
-        else:
-            self._config = {}
-
-        # Disable spurious warnings
-        warnings.simplefilter('ignore', category=TqdmWarning)
-        if 'hide_warnings' in self._config and self._config['hide_warnings']:
-            # Disable more warnings
-            warnings.simplefilter('ignore', category=UserWarning)
 
         if self._home.exists() and not self._home.is_dir():
             raise RuntimeError(f'{self._home} is not a directory')
@@ -273,6 +259,22 @@ class Env:
             self._log_dir.mkdir()
         if not self._tmp_dir.exists():
             self._tmp_dir.mkdir()
+
+        # Read in the config
+        self._config = Config.from_file(self._config_file)
+        self._file_cache_size_g = self._config.get_float_value('file_cache_size_g')
+        if self._file_cache_size_g is None:
+            raise excs.Error(
+                'pixeltable/file_cache_size_g is missing from configuration\n'
+                f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {self._config_file},\n'
+                'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
+            )
+
+        # Disable spurious warnings
+        warnings.simplefilter('ignore', category=TqdmWarning)
+        if self._config.get_bool_value('hide_warnings'):
+            # Disable more warnings
+            warnings.simplefilter('ignore', category=UserWarning)
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
@@ -313,7 +315,7 @@ class Env:
         self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
         self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
 
-        tz_name = os.environ.get('PXT_TIME_ZONE', self._config.get('pxt_time_zone', None))
+        tz_name = self.config.get_string_value('time_zone')
         if tz_name is not None:
             # Validate tzname
             if not isinstance(tz_name, str):
@@ -440,21 +442,18 @@ class Env:
         if cl.client_obj is not None:
             return cl.client_obj  # Already initialized
 
-        # Construct a client. For each client parameter, first check if the parameter is in the environment;
-        # if not, look in Pixeltable config from `config.yaml`.
+        # Construct a client, retrieving each parameter from config.
 
         init_kwargs: dict[str, str] = {}
         for param in cl.param_names:
-            environ = f'{name.upper()}_{param.upper()}'
-            if environ in os.environ:
-                init_kwargs[param] = os.environ[environ]
-            elif name.lower() in self._config and param in self._config[name.lower()]:
-                init_kwargs[param] = self._config[name.lower()][param.lower()]
-            if param not in init_kwargs or init_kwargs[param] == '':
+            arg = self._config.get_string_value(param, section=name)
+            if arg is not None and len(arg) > 0:
+                init_kwargs[param] = arg
+            else:
                 raise excs.Error(
                     f'`{name}` client not initialized: parameter `{param}` is not configured.\n'
-                    f'To fix this, specify the `{environ}` environment variable, or put `{param.lower()}` in '
-                    f'the `{name.lower()}` section of $PIXELTABLE_HOME/config.yaml.'
+                    f'To fix this, specify the `{name.upper()}_{param.upper()}` environment variable, or put `{param.lower()}` in '
+                    f'the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
         cl.client_obj = cl.init_fn(**init_kwargs)
@@ -506,7 +505,6 @@ class Env:
         self.__register_package('spacy')
         self.__register_package('tiktoken')
         self.__register_package('together')
-        self.__register_package('toml')
         self.__register_package('torch')
         self.__register_package('torchvision')
         self.__register_package('transformers')
@@ -643,7 +641,7 @@ def register_client(name: str) -> Callable:
     Pixeltable will attempt to load the client parameters from config. For each
     config parameter:
     - If an environment variable named MY_CLIENT_API_KEY (for example) is set, use it;
-    - Otherwise, look for 'api_key' in the 'my_client' section of config.yaml.
+    - Otherwise, look for 'api_key' in the 'my_client' section of config.toml.
 
     If all config parameters are found, Pixeltable calls the initialization function;
     otherwise it throws an exception.
@@ -658,6 +656,79 @@ def register_client(name: str) -> Callable:
         _registered_clients[name] = ApiClient(init_fn=fn, param_names=param_names)
 
     return decorator
+
+
+class Config:
+    """
+    The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
+    configuration values, which can be set in the config file or as environment variables.
+    """
+    __config: dict[str, Any]
+
+    T = TypeVar('T')
+
+    @classmethod
+    def from_file(cls, path: Path) -> Config:
+        """
+        Loads configuration from the specified TOML file. If the file does not exist, it will be
+        created and populated with the default configuration.
+        """
+        if os.path.isfile(path):
+            with open(path, 'r') as stream:
+                try:
+                    config_dict = toml.load(stream)
+                except Exception as exc:
+                    raise excs.Error(f'Could not read config file: {str(path)}') from exc
+        else:
+            config_dict = cls.__create_default_config(path)
+            with open(path, 'w') as stream:
+                try:
+                    toml.dump(config_dict, stream)
+                except Exception as exc:
+                    raise excs.Error(f'Could not write config file: {str(path)}') from exc
+            logging.getLogger('pixeltable').info(f'Created default config file at: {str(path)}')
+        return cls(config_dict)
+
+    @classmethod
+    def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
+        free_disk_space_bytes = shutil.disk_usage(config_path.parent).free
+        # Default cache size is 1/5 of free disk space
+        file_cache_size_g = free_disk_space_bytes / 5 / (1 << 30)
+        return {
+            'pixeltable': {
+                'file_cache_size_g': round(file_cache_size_g, 1),
+                'hide_warnings': False,
+            }
+        }
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.__config = config
+
+    def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> Optional[T]:
+        env_var = f'{section.upper()}_{key.upper()}'
+        if env_var in os.environ:
+            value = os.environ[env_var]
+        elif section in self.__config and key in self.__config[section]:
+            value = self.__config[section][key]
+        else:
+            return None
+
+        try:
+            return expected_type(value)  # type: ignore[call-arg]
+        except ValueError:
+            raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}')
+
+    def get_string_value(self, key: str, section: str = 'pixeltable') -> Optional[str]:
+        return self.get_value(key, str, section)
+
+    def get_int_value(self, key: str, section: str = 'pixeltable') -> Optional[int]:
+        return self.get_value(key, int, section)
+
+    def get_float_value(self, key: str, section: str = 'pixeltable') -> Optional[float]:
+        return self.get_value(key, float, section)
+
+    def get_bool_value(self, key: str, section: str = 'pixeltable') -> Optional[bool]:
+        return self.get_value(key, bool, section)
 
 
 _registered_clients: dict[str, ApiClient] = {}

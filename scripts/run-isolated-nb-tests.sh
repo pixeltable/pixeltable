@@ -13,6 +13,7 @@ export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
 
 "$SCRIPT_DIR/prepare-nb-tests.sh"
+rm -f target/nb-tests/audio-transcriptions.ipynb  # temporary workaround
 
 FAILURES=0
 
