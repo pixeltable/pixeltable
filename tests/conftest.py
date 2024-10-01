@@ -14,6 +14,7 @@ from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion, TableVersion
 from pixeltable.type_system import FloatType
+from pixeltable.utils.filecache import FileCache
 
 from .utils import create_all_datatypes_tbl, create_img_tbl, create_test_tbl, reload_catalog, skip_test_if_not_installed
 
@@ -26,7 +27,7 @@ def init_env(tmp_path_factory) -> None:
     shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
-    os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.yaml')
+    os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
     test_db = 'test'
     os.environ['PIXELTABLE_DB'] = test_db
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
@@ -47,6 +48,7 @@ def reset_db(init_env) -> None:
     clean_db()
     Env.get().default_time_zone = None
     reload_catalog()
+    FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
 
 def clean_db(restore_tables: bool = True) -> None:

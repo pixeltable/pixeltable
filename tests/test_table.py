@@ -462,8 +462,7 @@ class TestTable:
 
         # start with fresh client and FileCache instance to test FileCache initialization with pre-existing files
         reload_catalog()
-        # is there a better way to do this?
-        FileCache._instance = None
+        FileCache.init()
         t = pxt.get_table('test')
         _ = t.show(0)
         cache_stats = FileCache.get().stats()
