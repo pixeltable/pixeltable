@@ -19,7 +19,7 @@ Data transformations, model inference, and custom logic are embedded as **comput
 - **Load/Query all data types**: Interact with [video data](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#import-media-data-into-pixeltable-videos-images-audio) at the [frame level](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#text-and-image-similarity-search-on-video-frames-with-embedding-indexes) and documents at the [chunk level](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#automate-data-operations-with-views-eg-split-documents-into-chunks)
 - **Incremental updates for data transformation**: Maintain an [embedding index](https://docs.pixeltable.com/docs/embedding-vector-indexes) colocated with your data
 - **Lazy evaluation and cache management**: Eliminates the need for [manual frame extraction](https://docs.pixeltable.com/docs/object-detection-in-videos)
-- **Integrates with existing Python code/libraries**: Use [built-in and custom functions (UDFs)](https://docs.pixeltable.com/docs/user-defined-functions-udfs) without complex pipelines
+- **Integrates with any Python libraries**: Use [built-in and custom functions (UDFs)](https://docs.pixeltable.com/docs/user-defined-functions-udfs) without complex pipelines
 - **Data format agnostic and extensibility**: Access tables as Parquet files, [PyTorch datasets](https://pixeltable.github.io/pixeltable/api/data-frame/#pixeltable.DataFrame.to_pytorch_dataset), or [COCO annotations](https://pixeltable.github.io/pixeltable/api/table/#pixeltable.Table.to_coco_dataset)
 
 ## 💾 Installation
