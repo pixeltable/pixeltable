@@ -10,10 +10,17 @@
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=darkorange)](https://pypi.org/project/pixeltable/)
 
-[Installation](https://pixeltable.github.io/pixeltable/getting-started/) | [Documentation](https://pixeltable.readme.io/) | [API Reference](https://pixeltable.github.io/pixeltable/) | [Code Samples](https://pixeltable.readme.io/recipes) | [Examples](https://github.com/pixeltable/pixeltable/tree/release/docs/release/tutorials)
+[Installation](https://pixeltable.github.io/pixeltable/getting-started/) | [Documentation](https://pixeltable.readme.io/) | [API Reference](https://pixeltable.github.io/pixeltable/) | [Code Samples](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#-code-samples) | [Computer Vision](https://docs.pixeltable.com/docs/object-detection-in-videos) | [LLM](https://docs.pixeltable.com/docs/document-indexing-and-rag)
 </div>
 
-Pixeltable is a Python library providing a declarative interface for multimodal data (text, images, audio, video). It features built-in versioning, lineage tracking, and incremental updates, enabling users to store, transform, index, and iterate on data for their ML workflows. Data transformations, model inference, and custom logic are embedded as computed columns.
+Pixeltable is a Python library providing a declarative interface for multimodal data (text, images, audio, video). It features built-in versioning, lineage tracking, and incremental updates, enabling users to **store**, **transform**, **index**, and **iterate** on data for their ML workflows.
+
+Data transformations, model inference, and custom logic are embedded as **computed columns**.
+- **Reference and query diverse data types in one place**: Interact with [video data](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#import-media-data-into-pixeltable-videos-images-audio) at the [frame level](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#text-and-image-similarity-search-on-video-frames-with-embedding-indexes) and with documents at the [chunk level](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#automate-data-operations-with-views-eg-split-documents-into-chunks)
+- **Incremental updates for data transformation**: Maintain an up-to-date [embedding index](https://docs.pixeltable.com/docs/embedding-vector-indexes) colocated with your data
+- **Lazy evaluation and cache management**: Eliminates the need for [manual frame extraction](https://docs.pixeltable.com/docs/object-detection-in-videos) and concerns about storage overload
+- **Integrates with any existing Python code or libraries**: Use [built-in and custom functions (UDFs)](https://docs.pixeltable.com/docs/user-defined-functions-udfs) without needing complex data pipelines
+- **Data format agnostic and extensibility**: Load any [data types](https://pixeltable.github.io/pixeltable/api/io/) and access tables as Parquet files, [PyTorch datasets](https://pixeltable.github.io/pixeltable/api/data-frame/#pixeltable.DataFrame.to_pytorch_dataset), or [COCO annotations](https://pixeltable.github.io/pixeltable/api/table/#pixeltable.Table.to_coco_dataset).
 
 ## 💾 Installation
 
