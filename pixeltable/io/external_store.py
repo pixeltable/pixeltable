@@ -129,7 +129,7 @@ class Project(ExternalStore, abc.ABC):
         # any *other* external store for this table.)
         deletions_needed: set[Column] = set(self.stored_proxies.values())
         for name, store in tbl_version.external_stores.items():
-            if name != self.name:
+            if isinstance(store, Project) and name != self.name:
                 deletions_needed = deletions_needed.difference(set(store.stored_proxies.values()))
         if len(deletions_needed) > 0:
             _logger.info(f'Removing stored proxies for columns: {[col.name for col in deletions_needed]}')
@@ -213,6 +213,8 @@ class Project(ExternalStore, abc.ABC):
         If validation fails, an exception will be raised. If validation succeeds, a new mapping will be returned
         in which the Pixeltable column names are resolved to the corresponding `Column` objects.
         """
+        from pixeltable import exprs
+
         is_user_specified_col_mapping = col_mapping is not None
         if col_mapping is None:
             col_mapping = {col: col for col in itertools.chain(export_cols.keys(), import_cols.keys())}
@@ -238,8 +240,9 @@ class Project(ExternalStore, abc.ABC):
                     f'Column name `{ext_col}` appears as a value in `col_mapping`, but the external store '
                     f'configuration has no column `{ext_col}`.'
                 )
-            col = table[t_col].col
-            resolved_col_mapping[col] = ext_col
+            col_ref = table[t_col]
+            assert isinstance(col_ref, exprs.ColumnRef)
+            resolved_col_mapping[col_ref.col] = ext_col
         # Validate column specs
         t_col_types = table._schema
         for t_col, ext_col in col_mapping.items():

@@ -4,17 +4,17 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Optional, Literal
+from typing import Any, Iterator, Literal, Optional
 from xml.etree import ElementTree
 
+import label_studio_sdk  # type: ignore[import-untyped]
 import PIL.Image
-import label_studio_sdk
 from requests.exceptions import HTTPError
 
 import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.exceptions as excs
-from pixeltable import Table, Column
+from pixeltable import Column, Table
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project, SyncStatus
 from pixeltable.utils import coco
