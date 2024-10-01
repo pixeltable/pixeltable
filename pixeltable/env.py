@@ -262,12 +262,12 @@ class Env:
 
         # Read in the config
         self._config = Config.from_file(self._config_file)
-        self._cache_size_gb = self._config.get_float_value('cache_size_gb')
-        if self._cache_size_gb is None:
+        self._file_cache_size_g = self._config.get_float_value('file_cache_size_g')
+        if self._file_cache_size_g is None:
             raise excs.Error(
-                'pixeltable/cache_size_gb is missing from configuration\n'
-                f'(either add a `cache_size_gb` entry to the `pixeltable` section of {self._config_file},\n'
-                'or set the PIXELTABLE_CACHE_SIZE_GB environment variable)'
+                'pixeltable/file_cache_size_g is missing from configuration\n'
+                f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {self._config_file},\n'
+                'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
             )
 
         # Disable spurious warnings
@@ -693,10 +693,10 @@ class Config:
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
         free_disk_space_bytes = shutil.disk_usage(config_path.parent).free
         # Default cache size is 1/5 of free disk space
-        cache_size_gb = free_disk_space_bytes / 5 / (1 << 30)
+        file_cache_size_g = free_disk_space_bytes / 5 / (1 << 30)
         return {
             'pixeltable': {
-                'cache_size_gb': round(cache_size_gb, 1),
+                'file_cache_size_g': round(file_cache_size_g, 1),
                 'hide_warnings': False,
             }
         }

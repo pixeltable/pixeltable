@@ -96,7 +96,7 @@ class FileCache:
     def __init__(self):
         self.cache = OrderedDict()
         self.total_size = 0
-        self.capacity_bytes = Env.get()._cache_size_gb * (1 << 30)
+        self.capacity_bytes = Env.get()._file_cache_size_g * (1 << 30)
         self.num_requests = 0
         self.num_hits = 0
         self.num_evictions = 0
@@ -153,7 +153,7 @@ class FileCache:
                 f'of the evicted file(s) is {round(extra_capacity_needed / (1 << 30), 1)} GiB.\n'
                 f'Consider increasing the cache size to at least {round(suggested_cache_size / (1 << 30), 1)} GiB '
                 f'(it is currently {round(self.capacity_bytes / (1 << 30), 1)} GiB).\n'
-                f'You can do this by setting the value of `cache_size_gb` in: {str(Env.get()._config_file)}',
+                f'You can do this by setting the value of `file_cache_size_g` in: {str(Env.get()._config_file)}',
                 excs.PixeltableWarning
             )
             self.new_redownload_witnessed = False
