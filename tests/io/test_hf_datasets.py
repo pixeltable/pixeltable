@@ -1,7 +1,9 @@
 import pathlib
 import sysconfig
 from collections import namedtuple
+from typing import TYPE_CHECKING
 
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -9,13 +11,16 @@ import pixeltable.exceptions as excs
 
 from ..utils import skip_test_if_not_installed
 
+if TYPE_CHECKING:
+    import datasets
+
 
 class TestHfDatasets:
     @pytest.mark.skipif(
         sysconfig.get_platform() == 'linux-aarch64',
         reason='libsndfile.so is missing on Linux ARM instances in CI'
     )
-    def test_import_huggingface_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
+    def test_import_hf_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -47,7 +52,7 @@ class TestHfDatasets:
             {
                 'dataset_name': 'rotten_tomatoes',
                 'dataset': datasets.load_dataset('rotten_tomatoes'),
-            },
+            }
         ]
 
         # test a column name for splits other than the default of 'split'
@@ -73,10 +78,6 @@ class TestHfDatasets:
                     self._assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
             else:
                 assert False
-
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.io.import_huggingface_dataset('test', {})
-        assert 'type(dataset)' in str(exc_info.value)
 
     @classmethod
     def _assert_hf_dataset_equal(
@@ -121,3 +122,19 @@ class TestHfDatasets:
 
             check_tup = DatasetTuple(**encoded_tup)
             assert check_tup in acc_dataset
+
+    def test_import_hf_dataset_with_images(self, reset_db) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        # Test that datasets with images load properly
+        t = pxt.io.import_huggingface_dataset('mnist', datasets.load_dataset('ylecun/mnist', split='test'))
+        assert t.count() == 10000
+        img = t.head(1)['image'][0]
+        assert isinstance(img, PIL.Image.Image)
+        assert img.size == (28, 28)
+
+    def test_import_hf_dataset_invalid(self, reset_db) -> None:
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.io.import_huggingface_dataset('test', {})
+        assert 'type(dataset)' in str(exc_info.value)
