@@ -43,7 +43,7 @@ def create_label_studio_project(
     The API key and URL for a valid Label Studio server must be specified in Pixeltable config. Either:
 
     * Set the `LABEL_STUDIO_API_KEY` and `LABEL_STUDIO_URL` environment variables; or
-    * Specify `api_key` and `url` fields in the `label-studio` section of `$PIXELTABLE_HOME/config.yaml`.
+    * Specify `api_key` and `url` fields in the `label-studio` section of `$PIXELTABLE_HOME/config.toml`.
 
     __Requirements:__
 
