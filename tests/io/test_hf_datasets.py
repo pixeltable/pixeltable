@@ -15,11 +15,11 @@ if TYPE_CHECKING:
     import datasets
 
 
+@pytest.mark.skipif(
+    sysconfig.get_platform() == 'linux-aarch64',
+    reason='libsndfile.so is missing on Linux ARM instances in CI'
+)
 class TestHfDatasets:
-    @pytest.mark.skipif(
-        sysconfig.get_platform() == 'linux-aarch64',
-        reason='libsndfile.so is missing on Linux ARM instances in CI'
-    )
     def test_import_hf_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
