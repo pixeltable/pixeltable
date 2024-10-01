@@ -34,7 +34,12 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 class Table(SchemaObject):
-    """Base class for table objects (base tables, views, snapshots)."""
+    """
+    Base class for table objects (base tables, views, snapshots).
+
+    Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
+    FileCache.emit_eviction_warnings() at the end of the operation.
+    """
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)

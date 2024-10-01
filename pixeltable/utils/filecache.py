@@ -64,8 +64,8 @@ class FileCache:
     num_requests: int
     num_hits: int
     num_evictions: int
-    keys_retrieved_this_session: set[str]  # keys retrieved (downloaded or accessed) this session
-    keys_evicted_this_session: set[str]  # keys that were evicted after having been retrieved this session
+    keys_retrieved: set[str]  # keys retrieved (downloaded or accessed) this session
+    keys_evicted_after_retrieval: set[str]  # keys that were evicted after having been retrieved this session
 
     # A key is added to this set when it is already present in `keys_evicted_this_session` and is downloaded again.
     # In other words, for a key to be added to this set, the following sequence of events must occur in this order:
@@ -74,7 +74,7 @@ class FileCache:
     # - It is subsequently evicted
     # - It is subsequently retrieved a second time ("download after a previous retrieval")
     # The contents of this set will be used to generate a more informative warning.
-    keys_multiply_downloaded: set[str]
+    evicted_working_set_keys: set[str]
     new_redownload_witnessed: bool  # whether a new re-download has occurred since the last time a warning was issued
 
     ColumnStats = namedtuple('FileCacheColumnStats', ('tbl_id', 'col_id', 'num_files', 'total_size'))
@@ -100,9 +100,9 @@ class FileCache:
         self.num_requests = 0
         self.num_hits = 0
         self.num_evictions = 0
-        self.keys_retrieved_this_session = set()
-        self.keys_evicted_this_session = set()
-        self.keys_multiply_downloaded = set()
+        self.keys_retrieved = set()
+        self.keys_evicted_after_retrieval = set()
+        self.evicted_working_set_keys = set()
         self.new_redownload_witnessed = False
         paths = glob.glob(str(Env.get().file_cache_dir / '*'))
         entries = [CacheEntry.from_file(Path(path_str)) for path_str in paths]
@@ -131,8 +131,8 @@ class FileCache:
             entries_to_remove = list(self.cache.values())
             _logger.debug(f'clearing {self.num_files()} entries from file cache')
             self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
-            self.keys_retrieved_this_session.clear()
-            self.keys_evicted_this_session.clear()
+            self.keys_retrieved.clear()
+            self.keys_evicted_after_retrieval.clear()
             self.new_redownload_witnessed = False
         else:
             entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
@@ -145,10 +145,10 @@ class FileCache:
     def emit_eviction_warnings(self) -> None:
         if self.new_redownload_witnessed:
             # Compute the additional capacity that would be needed in order to retain all the re-downloaded files
-            extra_capacity_needed = sum(self.cache[key].size for key in self.keys_multiply_downloaded)
+            extra_capacity_needed = sum(self.cache[key].size for key in self.evicted_working_set_keys)
             suggested_cache_size = self.capacity_bytes + extra_capacity_needed + (1 << 30)
             warnings.warn(
-                f'{len(self.keys_multiply_downloaded)} media file(s) had to be downloaded multiple times this session, '
+                f'{len(self.evicted_working_set_keys)} media file(s) had to be downloaded multiple times this session, '
                 'because they were evicted\nfrom the file cache after their first access. The total size '
                 f'of the evicted file(s) is {round(extra_capacity_needed / (1 << 30), 1)} GiB.\n'
                 f'Consider increasing the cache size to at least {round(suggested_cache_size / (1 << 30), 1)} GiB '
@@ -177,7 +177,7 @@ class FileCache:
         entry.last_used = file_info.st_mtime
         self.cache.move_to_end(key, last=True)
         self.num_hits += 1
-        self.keys_retrieved_this_session.add(key)
+        self.keys_retrieved.add(key)
         _logger.debug(f'file cache hit for {url}')
         return path
 
@@ -189,12 +189,12 @@ class FileCache:
         self.ensure_capacity(file_info.st_size)
         key = self._url_hash(url)
         assert key not in self.cache
-        if key in self.keys_evicted_this_session:
+        if key in self.keys_evicted_after_retrieval:
             # This key was evicted after being retrieved earlier this session, and is now being retrieved again.
             # Add it to `keys_multiply_downloaded` so that we may generate a warning later.
-            self.keys_multiply_downloaded.add(key)
+            self.evicted_working_set_keys.add(key)
             self.new_redownload_witnessed = True
-        self.keys_retrieved_this_session.add(key)
+        self.keys_retrieved.add(key)
         entry = CacheEntry(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime, path.suffix)
         self.cache[key] = entry
         self.total_size += entry.size
@@ -212,10 +212,10 @@ class FileCache:
             _, lru_entry = self.cache.popitem(last=False)
             self.total_size -= lru_entry.size
             self.num_evictions += 1
-            if lru_entry.key in self.keys_retrieved_this_session:
+            if lru_entry.key in self.keys_retrieved:
                 # This key was retrieved at some point earlier this session and is now being evicted.
                 # Make a record of the eviction, so that we can generate a warning later if the key is retrieved again.
-                self.keys_evicted_this_session.add(lru_entry.key)
+                self.keys_evicted_after_retrieval.add(lru_entry.key)
             os.remove(str(lru_entry.path))
             _logger.debug(f'evicted entry for cell {lru_entry.key} from file cache (of size {lru_entry.size // (1 << 20)} MiB)')
 
