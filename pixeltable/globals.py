@@ -16,6 +16,7 @@ from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
+from pixeltable.utils.filecache import FileCache
 
 _logger = logging.getLogger('pixeltable')
 
@@ -193,6 +194,7 @@ def create_view(
     )
     Catalog.get().paths[path] = view
     _logger.info(f'Created view `{path_str}`.')
+    FileCache.get().emit_eviction_warnings()
     return view
 
 

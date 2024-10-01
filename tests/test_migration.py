@@ -30,7 +30,6 @@ class TestMigration:
     @pytest.mark.skipif(sys.version_info >= (3, 10), reason='Runs only on Python 3.9 (due to pickling issue)')
     def test_db_migration(self, init_env) -> None:
         skip_test_if_not_installed('transformers')
-        skip_test_if_not_installed('toml')
         import toml
 
         env = Env.get()

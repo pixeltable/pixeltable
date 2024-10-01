@@ -22,6 +22,7 @@ pandas = ">=2.0,<3.0"
 pillow = ">=9.3.0"
 opencv-python-headless = "^4.7.0.68"
 tqdm = ">=4.64"
+toml = ">=0.10"
 jmespath = "^1.0.1"
 more-itertools = "^10.2"
 cloudpickle = "^2.2.1"
@@ -48,7 +49,6 @@ optional = true
 pytest = "^7.2.1"
 pytest-xdist = { extras = ["psutil"], version = "^3.3.1" }
 coverage = "^7.4"
-toml = "^0.10.2"
 # type checking
 mypy = "^1.11.2"
 boto3-stubs = "==1.35.5"
