@@ -413,6 +413,15 @@ class TestExprs:
             _ = t.select(pxt.array([t.c1, t.c2])).collect()
         assert 'element of type `int` at index 1 is not compatible with type `string` of preceding elements' in str(excinfo.value)
 
+    def test_json_path(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        t['attr'] = t.c6.f5
+        t['item'] = t['c6']['f5']
+        t['index'] = t['c6'].f5[2]
+        res = t.collect()
+        assert all(res['attr'][i] == res['item'][i] for i in range(len(res)))
+        assert all(res['attr'][i][2] == res['index'][i] for i in range(len(res)))
+
     def test_json_slice(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         t['orig'] = t.c6.f5
