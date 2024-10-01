@@ -34,9 +34,7 @@ _hf_to_pxt: dict[str, ts.ColumnType] = {
 }
 
 
-def _to_pixeltable_type(
-    feature_type: Union[datasets.ClassLabel, datasets.Value, datasets.Sequence],
-) -> Optional[ts.ColumnType]:
+def _to_pixeltable_type(feature_type: Any) -> Optional[ts.ColumnType]:
     """Convert a huggingface feature type to a pixeltable ColumnType if one is defined."""
     import datasets
 
@@ -51,6 +49,8 @@ def _to_pixeltable_type(
         dtype = _to_pixeltable_type(feature_type.feature)
         length = feature_type.length if feature_type.length != -1 else None
         return ts.ArrayType(shape=(length,), dtype=dtype)
+    elif isinstance(feature_type, datasets.Image):
+        return ts.ImageType(nullable=True)
     else:
         return None
 
