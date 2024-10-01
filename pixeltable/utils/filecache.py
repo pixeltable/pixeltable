@@ -1,28 +1,33 @@
 from __future__ import annotations
-from typing import Optional, List, Tuple, Dict
-from collections import OrderedDict, defaultdict, namedtuple
-import os
+
 import glob
-from pathlib import Path
-from time import time
-import logging
-from uuid import UUID
 import hashlib
+import logging
+import os
+import warnings
+from collections import OrderedDict, defaultdict, namedtuple
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+from uuid import UUID
 
+import pixeltable.exceptions as excs
 from pixeltable.env import Env
-
 
 _logger = logging.getLogger('pixeltable')
 
+@dataclass
 class CacheEntry:
-    def __init__(self, key: str, tbl_id: UUID, col_id: int, size: int, last_accessed_ts: int, ext: str):
-        self.key = key
-        self.tbl_id = tbl_id
-        self.col_id = col_id
-        self.size = size
-        self.last_accessed_ts = last_accessed_ts
-        self.ext = ext
 
+    key: str
+    tbl_id: UUID
+    col_id: int
+    size: int
+    last_used: datetime
+    ext: str
+
+    @property
     def path(self) -> Path:
         return Env.get().file_cache_dir / f'{self.tbl_id.hex}_{self.col_id}_{self.key}{self.ext}'
 
@@ -34,7 +39,11 @@ class CacheEntry:
         col_id = int(components[1])
         key = components[2]
         file_info = os.stat(str(path))
-        return cls(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime, path.suffix)
+        # We use the last modified time (file_info.st_mtime) as the timestamp; `FileCache` will touch the file
+        # each time it is retrieved, so that the mtime of the file will always represent the last used time of
+        # the cache entry.
+        last_used = datetime.fromtimestamp(file_info.st_mtime, tz=timezone.utc)
+        return cls(key, tbl_id, col_id, file_info.st_size, last_used, path.suffix)
 
 
 class FileCache:
@@ -45,31 +54,60 @@ class FileCache:
     access of a cache entries is its file's mtime.
 
     TODO:
-    - enforce a maximum capacity with LRU eviction
     - implement MRU eviction for queries that exceed the capacity
     """
-    _instance: Optional[FileCache] = None
-    ColumnStats = namedtuple('FileCacheColumnStats', ['tbl_id', 'col_id', 'num_files', 'total_size'])
+    __instance: Optional[FileCache] = None
+
+    cache: OrderedDict[str, CacheEntry]
+    total_size: int
+    capacity_bytes: int
+    num_requests: int
+    num_hits: int
+    num_evictions: int
+    keys_retrieved: set[str]  # keys retrieved (downloaded or accessed) this session
+    keys_evicted_after_retrieval: set[str]  # keys that were evicted after having been retrieved this session
+
+    # A key is added to this set when it is already present in `keys_evicted_this_session` and is downloaded again.
+    # In other words, for a key to be added to this set, the following sequence of events must occur in this order:
+    # - It is retrieved during this session (either because it was newly downloaded, or because it was in the cache
+    #   at the start of the session and was accessed at some point during the session)
+    # - It is subsequently evicted
+    # - It is subsequently retrieved a second time ("download after a previous retrieval")
+    # The contents of this set will be used to generate a more informative warning.
+    evicted_working_set_keys: set[str]
+    new_redownload_witnessed: bool  # whether a new re-download has occurred since the last time a warning was issued
+
+    ColumnStats = namedtuple('FileCacheColumnStats', ('tbl_id', 'col_id', 'num_files', 'total_size'))
     CacheStats = namedtuple(
-        'FileCacheStats', ['total_size', 'num_requests', 'num_hits', 'num_evictions', 'column_stats'])
+        'FileCacheStats',
+        ('total_size', 'num_requests', 'num_hits', 'num_evictions', 'column_stats')
+    )
 
     @classmethod
     def get(cls) -> FileCache:
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+        if cls.__instance is None:
+            cls.init()
+        return cls.__instance
+
+    @classmethod
+    def init(cls) -> None:
+        cls.__instance = cls()
 
     def __init__(self):
-        self.cache: OrderedDict[str, CacheEntry] = OrderedDict()  # ordered by entry.last_accessed_ts
+        self.cache = OrderedDict()
         self.total_size = 0
-        #self.capacity = Env.get().max_filecache_size
+        self.capacity_bytes = Env.get()._file_cache_size_g * (1 << 30)
         self.num_requests = 0
         self.num_hits = 0
         self.num_evictions = 0
+        self.keys_retrieved = set()
+        self.keys_evicted_after_retrieval = set()
+        self.evicted_working_set_keys = set()
+        self.new_redownload_witnessed = False
         paths = glob.glob(str(Env.get().file_cache_dir / '*'))
         entries = [CacheEntry.from_file(Path(path_str)) for path_str in paths]
-        # we need to insert entries in order of last_accessed_ts
-        entries.sort(key=lambda e: e.last_accessed_ts)
+        # we need to insert entries in access order
+        entries.sort(key=lambda e: e.last_used)
         for entry in entries:
             self.cache[entry.key] = entry
             self.total_size += entry.size
@@ -82,30 +120,43 @@ class FileCache:
     def num_files(self, tbl_id: Optional[UUID] = None) -> int:
         if tbl_id is None:
             return len(self.cache)
-        entries = [e for e in self.cache.values() if e.tbl_id == tbl_id]
-        return len(entries)
+        return sum(e.tbl_id == tbl_id for e in self.cache.values())
 
-    def clear(self, tbl_id: Optional[UUID] = None, capacity: Optional[int] = None) -> None:
+    def clear(self, tbl_id: Optional[UUID] = None) -> None:
         """
         For testing purposes: allow resetting capacity and stats.
         """
-        self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
-        entries = list(self.cache.values())  # list(): avoid dealing with values() return type
-        if tbl_id is not None:
-            entries = [e for e in entries if e.tbl_id == tbl_id]
-            _logger.debug(f'clearing {len(entries)} entries from file cache for table {tbl_id}')
+        if tbl_id is None:
+            # We need to store the entries to remove in a list, because we can't remove items from a dict while iterating
+            entries_to_remove = list(self.cache.values())
+            _logger.debug(f'clearing {self.num_files()} entries from file cache')
+            self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
+            self.keys_retrieved.clear()
+            self.keys_evicted_after_retrieval.clear()
+            self.new_redownload_witnessed = False
         else:
-            _logger.debug(f'clearing {len(entries)} entries from file cache')
-        for entry in entries:
+            entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
+            _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
+        for entry in entries_to_remove:
+            os.remove(entry.path)
             del self.cache[entry.key]
             self.total_size -= entry.size
-            os.remove(entry.path())
-        # if capacity is not None:
-        #     self.capacity = capacity
-        # else:
-        #     # need to reset to default
-        #     self.capacity = Env.get().max_filecache_size
-        # _logger.debug(f'setting file cache capacity to {self.capacity}')
+
+    def emit_eviction_warnings(self) -> None:
+        if self.new_redownload_witnessed:
+            # Compute the additional capacity that would be needed in order to retain all the re-downloaded files
+            extra_capacity_needed = sum(self.cache[key].size for key in self.evicted_working_set_keys)
+            suggested_cache_size = self.capacity_bytes + extra_capacity_needed + (1 << 30)
+            warnings.warn(
+                f'{len(self.evicted_working_set_keys)} media file(s) had to be downloaded multiple times this session, '
+                'because they were evicted\nfrom the file cache after their first access. The total size '
+                f'of the evicted file(s) is {round(extra_capacity_needed / (1 << 30), 1)} GiB.\n'
+                f'Consider increasing the cache size to at least {round(suggested_cache_size / (1 << 30), 1)} GiB '
+                f'(it is currently {round(self.capacity_bytes / (1 << 30), 1)} GiB).\n'
+                f'You can do this by setting the value of `file_cache_size_g` in: {str(Env.get()._config_file)}',
+                excs.PixeltableWarning
+            )
+            self.new_redownload_witnessed = False
 
     def _url_hash(self, url: str) -> str:
         h = hashlib.sha256()
@@ -120,66 +171,62 @@ class FileCache:
             _logger.debug(f'file cache miss for {url}')
             return None
         # update mtime and cache
-        path = entry.path()
+        path = entry.path
         path.touch(exist_ok=True)
         file_info = os.stat(str(path))
-        entry.last_accessed_ts = file_info.st_mtime
+        entry.last_used = file_info.st_mtime
         self.cache.move_to_end(key, last=True)
         self.num_hits += 1
+        self.keys_retrieved.add(key)
         _logger.debug(f'file cache hit for {url}')
         return path
-
-    # def can_admit(self, query_ts: int) -> bool:
-    #     if self.total_size + self.avg_file_size <= self.capacity:
-    #         return True
-    #     assert len(self.cache) > 0
-    #     # check whether we can evict the current lru entry
-    #     lru_entry = next(iter(self.cache.values()))
-    #     if lru_entry.last_accessed_ts >= query_ts:
-    #         # the current query brought this entry in: we're not going to evict it
-    #         return False
-    #     return True
 
     def add(self, tbl_id: UUID, col_id: int, url: str, path: Path) -> Path:
         """Adds url at 'path' to cache and returns its new path.
         'path' will not be accessible after this call. Retains the extension of 'path'.
         """
         file_info = os.stat(str(path))
-        _ = time()
-        #if self.total_size + file_info.st_size > self.capacity:
-        if False:
-            if len(self.cache) == 0:
-                # nothing to evict
-                return
-            # evict entries until we're below the limit or until we run into entries the current query brought in
-            while True:
-                lru_entry = next(iter(self.cache.values()))
-                if lru_entry.last_accessed_ts >= query_ts:
-                    # the current query brought this entry in: switch to MRU and ignore this put()
-                    _logger.debug('file cache switched to MRU')
-                    return
-                self.cache.popitem(last=False)
-                self.total_size -= lru_entry.size
-                self.num_evictions += 1
-                os.remove(str(lru_entry.path()))
-                _logger.debug(f'evicted entry for cell {lru_entry.cell_id} from file cache')
-                if self.total_size + file_info.st_size <= self.capacity:
-                    break
-
+        self.ensure_capacity(file_info.st_size)
         key = self._url_hash(url)
         assert key not in self.cache
+        if key in self.keys_evicted_after_retrieval:
+            # This key was evicted after being retrieved earlier this session, and is now being retrieved again.
+            # Add it to `keys_multiply_downloaded` so that we may generate a warning later.
+            self.evicted_working_set_keys.add(key)
+            self.new_redownload_witnessed = True
+        self.keys_retrieved.add(key)
         entry = CacheEntry(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime, path.suffix)
         self.cache[key] = entry
         self.total_size += entry.size
-        new_path = entry.path()
+        new_path = entry.path
         os.rename(str(path), str(new_path))
+        new_path.touch(exist_ok=True)
         _logger.debug(f'added entry for cell {url} to file cache')
         return new_path
+
+    def ensure_capacity(self, size: int) -> None:
+        """
+        Evict entries from the cache until there is at least 'size' bytes of free space.
+        """
+        while len(self.cache) > 0 and self.total_size + size > self.capacity_bytes:
+            _, lru_entry = self.cache.popitem(last=False)
+            self.total_size -= lru_entry.size
+            self.num_evictions += 1
+            if lru_entry.key in self.keys_retrieved:
+                # This key was retrieved at some point earlier this session and is now being evicted.
+                # Make a record of the eviction, so that we can generate a warning later if the key is retrieved again.
+                self.keys_evicted_after_retrieval.add(lru_entry.key)
+            os.remove(str(lru_entry.path))
+            _logger.debug(f'evicted entry for cell {lru_entry.key} from file cache (of size {lru_entry.size // (1 << 20)} MiB)')
+
+    def set_capacity(self, capacity_bytes: int) -> None:
+        self.capacity_bytes = capacity_bytes
+        self.ensure_capacity(0)  # evict entries if necessary
 
     def stats(self) -> CacheStats:
         # collect column stats
         # (tbl_id, col_id) -> (num_files, total_size)
-        d: Dict[Tuple[int, int], List[int]] = defaultdict(lambda: [0, 0])
+        d: dict[tuple[int, int], list[int]] = defaultdict(lambda: [0, 0])
         for entry in self.cache.values():
             t = d[(entry.tbl_id, entry.col_id)]
             t[0] += 1

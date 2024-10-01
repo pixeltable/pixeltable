@@ -10,6 +10,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+from pixeltable.utils.filecache import FileCache
 
 from .catalog import Catalog
 from .globals import UpdateStatus
@@ -101,21 +102,22 @@ class InsertableTable(Table):
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
         self._validate_input_rows(rows)
-        result = self._tbl_version.insert(rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception)
+        status = self._tbl_version.insert(rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
-        if result.num_excs == 0:
+        if status.num_excs == 0:
             cols_with_excs_str = ''
         else:
             cols_with_excs_str = \
-                f' across {len(result.cols_with_excs)} column{"" if len(result.cols_with_excs) == 1 else "s"}'
-            cols_with_excs_str += f' ({", ".join(result.cols_with_excs)})'
+                f' across {len(status.cols_with_excs)} column{"" if len(status.cols_with_excs) == 1 else "s"}'
+            cols_with_excs_str += f' ({", ".join(status.cols_with_excs)})'
         msg = (
-            f'Inserted {result.num_rows} row{"" if result.num_rows == 1 else "s"} '
-            f'with {result.num_excs} error{"" if result.num_excs == 1 else "s"}{cols_with_excs_str}.'
+            f'Inserted {status.num_rows} row{"" if status.num_rows == 1 else "s"} '
+            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}{cols_with_excs_str}.'
         )
         print(msg)
         _logger.info(f'InsertableTable {self._name}: {msg}')
-        return result
+        FileCache.get().emit_eviction_warnings()
+        return status
 
     def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
