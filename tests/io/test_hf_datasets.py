@@ -135,6 +135,7 @@ class TestHfDatasets:
         assert img.size == (28, 28)
 
     def test_import_hf_dataset_invalid(self, reset_db) -> None:
+        skip_test_if_not_installed('datasets')
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.import_huggingface_dataset('test', {})
         assert 'type(dataset)' in str(exc_info.value)
