@@ -41,37 +41,49 @@ class ComponentIterationNode(ExecNode):
             for input_row in input_batch:
                 self.row_builder.eval(input_row, self.iterator_args_ctx)
                 iterator_args = input_row[self.iterator_args.slot_idx]
-                iterator = self.view.iterator_cls(**iterator_args)
-                for pos, component_dict in enumerate(iterator):
-                    output_row = output_batch.add_row()
-                    input_row.copy(output_row)
-                    # we're expanding the input and need to add the iterator position to the pk
-                    pk = output_row.pk[:-1] + (pos,) + output_row.pk[-1:]
-                    output_row.set_pk(pk)
+                assert isinstance(iterator_args, dict)
+                # We need to ensure that all of the required (non-nullable) parameters of the iterator are
+                # specified and are not null. If any of them are null, then we skip this row (i.e., we emit 0
+                # output rows for this input row).
+                if self.__all_required_args_specified(iterator_args):
+                    iterator = self.view.iterator_cls(**iterator_args)
+                    for pos, component_dict in enumerate(iterator):
+                        output_row = output_batch.add_row()
+                        input_row.copy(output_row)
+                        # we're expanding the input and need to add the iterator position to the pk
+                        pk = output_row.pk[:-1] + (pos,) + output_row.pk[-1:]
+                        output_row.set_pk(pk)
 
-                    # verify and copy component_dict fields to their respective slots in output_row
-                    for field_name, field_val in component_dict.items():
-                        if field_name not in self.iterator_output_fields:
+                        # verify and copy component_dict fields to their respective slots in output_row
+                        for field_name, field_val in component_dict.items():
+                            if field_name not in self.iterator_output_fields:
+                                raise excs.Error(
+                                    f'Invalid field name {field_name} in output of {self.view.iterator_cls.__name__}')
+                            if field_name not in self.refd_output_slot_idxs:
+                                # we can ignore this
+                                continue
+                            output_col = self.iterator_output_cols[field_name]
+                            output_col.col_type.validate_literal(field_val)
+                            output_row[self.refd_output_slot_idxs[field_name]] = field_val
+                        if len(component_dict) != len(self.iterator_output_fields):
+                            missing_fields = set(self.refd_output_slot_idxs.keys()) - set(component_dict.keys())
                             raise excs.Error(
-                                f'Invalid field name {field_name} in output of {self.view.iterator_cls.__name__}')
-                        if field_name not in self.refd_output_slot_idxs:
-                            # we can ignore this
-                            continue
-                        output_col = self.iterator_output_cols[field_name]
-                        output_col.col_type.validate_literal(field_val)
-                        output_row[self.refd_output_slot_idxs[field_name]] = field_val
-                    if len(component_dict) != len(self.iterator_output_fields):
-                        missing_fields = set(self.refd_output_slot_idxs.keys()) - set(component_dict.keys())
-                        raise excs.Error(
-                            f'Invalid output of {self.view.iterator_cls.__name__}: '
-                            f'missing fields {", ".join(missing_fields)}')
+                                f'Invalid output of {self.view.iterator_cls.__name__}: '
+                                f'missing fields {", ".join(missing_fields)}')
 
-                    if len(output_batch) == self.OUTPUT_BATCH_SIZE:
-                        yield output_batch
-                        output_batch = DataRowBatch(self.view, self.row_builder)
+                        if len(output_batch) == self.OUTPUT_BATCH_SIZE:
+                            yield output_batch
+                            output_batch = DataRowBatch(self.view, self.row_builder)
 
         if len(output_batch) > 0:
             yield output_batch
+
+    def __all_required_args_specified(self, iterator_args: dict) -> bool:
+        """Returns true if all required (non-nullable) iterator arguments are specified and not null."""
+        for param_name, param_type in self.view.iterator_cls.input_schema().items():
+            if not param_type.nullable and iterator_args.get(param_name, None) is None:
+                return False
+        return True
 
     def __next__(self) -> DataRowBatch:
         if self._output is None:
