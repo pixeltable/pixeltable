@@ -97,26 +97,13 @@ class DataFrameResultSet:
             return self._rows[index[0]][col_idx]
         raise excs.Error(f'Bad index: {index}')
 
-    def __iter__(self) -> DataFrameResultSetIterator:
-        return DataFrameResultSetIterator(self)
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        return (self._row_to_dict(i) for i in range(len(self)))
 
     def __eq__(self, other):
         if not isinstance(other, DataFrameResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())
-
-
-class DataFrameResultSetIterator:
-    def __init__(self, result_set: DataFrameResultSet):
-        self._result_set = result_set
-        self._idx = 0
-
-    def __next__(self) -> Dict[str, Any]:
-        if self._idx >= len(self._result_set):
-            raise StopIteration
-        row = self._result_set._row_to_dict(self._idx)
-        self._idx += 1
-        return row
 
 
 # # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
