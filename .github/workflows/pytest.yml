@@ -166,7 +166,7 @@ jobs:
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
-        run: mypy pixeltable/*.py pixeltable/catalog pixeltable/ext pixeltable/func pixeltable/functions pixeltable/index pixeltable/iterators pixeltable/utils
+        run: mypy pixeltable/*.py pixeltable/catalog pixeltable/ext pixeltable/func pixeltable/functions pixeltable/index pixeltable/iterators pixeltable/metadata pixeltable/utils
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: mkdocs build --strict
