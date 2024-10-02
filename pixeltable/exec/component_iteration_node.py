@@ -1,10 +1,11 @@
-from typing import Generator, Optional
+from typing import Iterator, Optional
+
+import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-import pixeltable.catalog as catalog
-import pixeltable.exprs as exprs
-import pixeltable.exceptions as excs
 
 
 class ComponentIterationNode(ExecNode):
@@ -12,7 +13,7 @@ class ComponentIterationNode(ExecNode):
 
     Returns row batches of OUTPUT_BATCH_SIZE size.
     """
-    OUTPUT_BATCH_SIZE = 1024
+    __OUTPUT_BATCH_SIZE = 1024
 
     def __init__(self, view: catalog.TableVersion, input: ExecNode):
         assert view.is_component_view()
@@ -23,19 +24,21 @@ class ComponentIterationNode(ExecNode):
         self.iterator_args = iterator_args[0]
         assert isinstance(self.iterator_args, exprs.InlineDict)
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args])
-        self.iterator_output_schema, self.unstored_column_names = \
+        self.iterator_output_schema, self.unstored_column_names = (
             self.view.iterator_cls.output_schema(**self.iterator_args.to_kwargs())
+        )
         self.iterator_output_fields = list(self.iterator_output_schema.keys())
-        self.iterator_output_cols = \
-            {field_name: self.view.cols_by_name[field_name] for field_name in self.iterator_output_fields}
+        self.iterator_output_cols = {
+            field_name: self.view.cols_by_name[field_name] for field_name in self.iterator_output_fields
+        }
         # referenced iterator output fields
         self.refd_output_slot_idxs = {
             e.col.name: e.slot_idx for e in self.row_builder.unique_exprs
             if isinstance(e, exprs.ColumnRef) and e.col.name in self.iterator_output_fields
         }
-        self._output: Optional[Generator[DataRowBatch, None, None]] = None
+        self.__output: Optional[Iterator[DataRowBatch]] = None
 
-    def _output_batches(self) -> Generator[DataRowBatch, None, None]:
+    def __output_batches(self) -> Iterator[DataRowBatch]:
         output_batch = DataRowBatch(self.view, self.row_builder)
         for input_batch in self.input:
             for input_row in input_batch:
@@ -51,27 +54,8 @@ class ComponentIterationNode(ExecNode):
                         output_row = output_batch.add_row()
                         input_row.copy(output_row)
                         # we're expanding the input and need to add the iterator position to the pk
-                        pk = output_row.pk[:-1] + (pos,) + output_row.pk[-1:]
-                        output_row.set_pk(pk)
-
-                        # verify and copy component_dict fields to their respective slots in output_row
-                        for field_name, field_val in component_dict.items():
-                            if field_name not in self.iterator_output_fields:
-                                raise excs.Error(
-                                    f'Invalid field name {field_name} in output of {self.view.iterator_cls.__name__}')
-                            if field_name not in self.refd_output_slot_idxs:
-                                # we can ignore this
-                                continue
-                            output_col = self.iterator_output_cols[field_name]
-                            output_col.col_type.validate_literal(field_val)
-                            output_row[self.refd_output_slot_idxs[field_name]] = field_val
-                        if len(component_dict) != len(self.iterator_output_fields):
-                            missing_fields = set(self.refd_output_slot_idxs.keys()) - set(component_dict.keys())
-                            raise excs.Error(
-                                f'Invalid output of {self.view.iterator_cls.__name__}: '
-                                f'missing fields {", ".join(missing_fields)}')
-
-                        if len(output_batch) == self.OUTPUT_BATCH_SIZE:
+                        self.__populate_output_row(output_row, pos, component_dict)
+                        if len(output_batch) == self.__OUTPUT_BATCH_SIZE:
                             yield output_batch
                             output_batch = DataRowBatch(self.view, self.row_builder)
 
@@ -85,7 +69,27 @@ class ComponentIterationNode(ExecNode):
                 return False
         return True
 
+    def __populate_output_row(self, output_row: exprs.DataRow, pos: int, component_dict: dict) -> None:
+        pk = output_row.pk[:-1] + (pos,) + output_row.pk[-1:]
+        output_row.set_pk(pk)
+        # verify and copy component_dict fields to their respective slots in output_row
+        for field_name, field_val in component_dict.items():
+            if field_name not in self.iterator_output_fields:
+                raise excs.Error(
+                    f'Invalid field name {field_name} in output of {self.view.iterator_cls.__name__}')
+            if field_name not in self.refd_output_slot_idxs:
+                # we can ignore this
+                continue
+            output_col = self.iterator_output_cols[field_name]
+            output_col.col_type.validate_literal(field_val)
+            output_row[self.refd_output_slot_idxs[field_name]] = field_val
+        if len(component_dict) != len(self.iterator_output_fields):
+            missing_fields = set(self.refd_output_slot_idxs.keys()) - set(component_dict.keys())
+            raise excs.Error(
+                f'Invalid output of {self.view.iterator_cls.__name__}: '
+                f'missing fields {", ".join(missing_fields)}')
+
     def __next__(self) -> DataRowBatch:
-        if self._output is None:
-            self._output = self._output_batches()
-        return next(self._output)
+        if self.__output is None:
+            self.__output = self.__output_batches()
+        return next(self.__output)
