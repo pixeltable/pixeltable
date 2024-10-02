@@ -1,7 +1,7 @@
 import dataclasses
 import enum
 import logging
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Iterable, Iterator, Optional, Union
 
 import ftfy
 
@@ -176,7 +176,7 @@ class DocumentSplitter(ComponentIterator):
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ColumnType], list[str]]:
-        schema = {'text': StringType()}
+        schema: dict[str, ColumnType] = {'text': StringType()}
         md_fields = _parse_metadata(kwargs['metadata']) if 'metadata' in kwargs else []
 
         for md_field in md_fields:
@@ -214,7 +214,7 @@ class DocumentSplitter(ComponentIterator):
             section = next(self._sections)
             if section.text is None:
                 continue
-            result = {'text': section.text}
+            result: dict[str, Any] = {'text': section.text}
             for md_field in self._metadata_fields:
                 if md_field == ChunkMetadata.TITLE:
                     result[md_field.name.lower()] = self._doc_title
@@ -234,7 +234,7 @@ class DocumentSplitter(ComponentIterator):
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
         emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
         # current state
-        accumulated_text = []  # currently accumulated text
+        accumulated_text: list[str] = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
 
         headings: dict[str, str] = {}   # current state of observed headings (level -> text)
@@ -260,9 +260,10 @@ class DocumentSplitter(ComponentIterator):
                 yield DocumentSection(text=full_text, metadata=md)
                 accumulated_text = []
 
-        def process_element(el: bs4.PageElement) -> Iterator[DocumentSection]:
+        def process_element(el: Union[bs4.element.Tag, bs4.NavigableString]) -> Iterator[DocumentSection]:
             # process the element and emit sections as necessary
             nonlocal accumulated_text, headings, sourceline, emit_on_heading, emit_on_paragraph
+
             if el.name in self._skip_tags:
                 return
 
@@ -282,6 +283,7 @@ class DocumentSplitter(ComponentIterator):
                     yield from emit()
                 update_metadata(el)
             for child in el.children:
+                assert isinstance(child, (bs4.element.Tag, bs4.NavigableString)), type(el)
                 yield from process_element(child)
 
         yield from process_element(self._doc_handle.bs_doc)
@@ -293,7 +295,7 @@ class DocumentSplitter(ComponentIterator):
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
         emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
         # current state
-        accumulated_text = []  # currently accumulated text
+        accumulated_text: list[str] = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
         headings: dict[str, str] = {}   # current state of observed headings (level -> text)
 
@@ -347,7 +349,7 @@ class DocumentSplitter(ComponentIterator):
 
     def _pdf_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections reflecting the pdf-specific separators"""
-        import fitz
+        import fitz  # type: ignore[import-untyped]
         doc: fitz.Document = self._doc_handle.pdf_doc
         assert doc is not None
 
