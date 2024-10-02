@@ -316,8 +316,8 @@ class Table(SchemaObject):
                 row.
 
                 - If `on_error='raise'`, then an Exception will be raised and the column will not be added.
-                - If `on_error='continue'`, then execution will continue and the column will be added. Any rows that
-                  had errors will have a `None` value for the column, with information about the error stored in the
+                - If `on_error='continue'`, then execution will continue and the column will be added. Any rows
+                  with errors will have a `None` value for the column, with information about the error stored in the
                   corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
         Returns:

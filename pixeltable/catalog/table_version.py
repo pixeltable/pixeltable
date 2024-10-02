@@ -453,7 +453,9 @@ class TableVersion:
         self.idxs_by_name[idx_name] = idx_info
 
         # add the columns and update the metadata
-        status = self._add_columns([val_col, undo_col], conn, False, 'continue')
+        # TODO support on_error='raise' for indices; it's tricky because of the way metadata changes are entangled
+        # with the database operations
+        status = self._add_columns([val_col, undo_col], conn, print_stats=False, on_error='continue')
         # now create the index structure
         idx.create_index(self._store_idx_name(idx_id), val_col, conn)
 
@@ -500,7 +502,6 @@ class TableVersion:
         with Env.get().engine.begin() as conn:
             status = self._add_columns([col], conn, print_stats=print_stats, on_error=on_error)
             _ = self._add_default_index(col, conn)
-            # TODO: what to do about errors?
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'Added column {col.name} to table {self.name}, new version: {self.version}')
 
