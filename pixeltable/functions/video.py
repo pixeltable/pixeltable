@@ -120,7 +120,7 @@ def extract_audio(
 
 
 @pxt.udf(is_method=True)
-def get_metadata(video: pxt.Video) -> dict:
+def get_metadata(video: pxt.Video[pxt.NotNull]) -> dict:
     """
     Gets various metadata associated with a video file and returns it as a dictionary.
     """

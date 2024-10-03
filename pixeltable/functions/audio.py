@@ -16,7 +16,7 @@ from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf(is_method=True)
-def get_metadata(audio: pxt.Audio) -> dict:
+def get_metadata(audio: pxt.Audio[pxt.NotNull]) -> dict:
     """
     Gets various metadata associated with an audio file and returns it as a dictionary.
     """

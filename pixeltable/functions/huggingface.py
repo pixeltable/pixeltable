@@ -10,7 +10,6 @@ UDFs).
 from typing import Callable, TypeVar, Optional, Any
 
 import PIL.Image
-import numpy as np
 
 import pixeltable as pxt
 import pixeltable.env as env
