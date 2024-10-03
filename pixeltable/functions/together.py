@@ -275,7 +275,7 @@ def image_generations(
                 image.load()
                 return image
         except Exception as exc:
-            raise excs.Error(f'Failed to download generated image from together.ai.') from exc
+            raise excs.Error('Failed to download generated image from together.ai.') from exc
     raise excs.Error('Response does not contain a generated image.')
 
 
