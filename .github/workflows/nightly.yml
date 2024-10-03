@@ -55,6 +55,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          ref: release
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
@@ -106,6 +108,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          ref: release
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
