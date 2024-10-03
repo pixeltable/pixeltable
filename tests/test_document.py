@@ -14,10 +14,10 @@ from pixeltable.utils.documents import get_document_handle
 from .utils import get_audio_files, get_documents, get_image_files, get_video_files, skip_test_if_not_installed
 
 
-def _check_pdf_metadata(rec, sep1):
-    if sep1 in ['page', 'paragraph', 'sentence']:
+def _check_pdf_metadata(rec, sep1, metadata: list[str]):
+    if 'page' in metadata and sep1 in ['page', 'paragraph', 'sentence']:
         assert rec.get('page') is not None
-    if sep1 in ['paragraph', 'sentence']:
+    if 'bounding_box' in metadata and sep1 in ['paragraph', 'sentence']:
         box = rec.get('bounding_box')
         assert box is not None
         assert box.get('x1') is not None
@@ -137,7 +137,7 @@ class TestDocument:
         combinations: list[tuple[str, str, int, list[str]]] = [
             (sep1, None, None, metadata) for sep1, metadata in itertools.product(
                 ['', 'heading', 'page', 'paragraph', 'sentence'],
-                [all_metadata]
+                [[], all_metadata]
             )
         ]
         combinations += [
@@ -157,7 +157,7 @@ class TestDocument:
                 'document': doc_t.doc,
                 'separators': sep1 if sep2 is None else ','.join([sep1, sep2]),
             }
-            if metadata is not None:
+            if len(metadata) > 0:
                 args['metadata'] = ','.join(metadata)
             if sep2 is not None:
                 args['limit'] = limit
@@ -174,8 +174,7 @@ class TestDocument:
                 # check that all the expected metadata exists as a field
                 for r in res:
                     assert r['text']  # non-empty text
-                    if metadata is not None:
-                        assert all(md in r for md in metadata)
+                    assert all(md in r for md in metadata)
 
                 all_text_reference = normalize(''.join(r['text'] for r in res))
 
@@ -208,14 +207,9 @@ class TestDocument:
 
                 # check expected metadata is present
                 for r in res:
-                    assert 'title' in r
-                    assert 'heading' in r
-                    assert 'sourceline' in r
-                    assert 'page' in r
-                    assert 'bounding_box' in r
-
                     if r['doc'].endswith('pdf'):
-                        _check_pdf_metadata(r, sep1)
+                        _check_pdf_metadata(r, sep1, metadata)
+                    assert all(md in r for md in metadata)
 
             pxt.drop_table('chunks')
 

@@ -1,3 +1,4 @@
+import inspect
 from typing import Iterator, Optional
 
 import pixeltable.catalog as catalog
@@ -48,7 +49,7 @@ class ComponentIterationNode(ExecNode):
                 # We need to ensure that all of the required (non-nullable) parameters of the iterator are
                 # specified and are not null. If any of them are null, then we skip this row (i.e., we emit 0
                 # output rows for this input row).
-                if self.__all_required_args_specified(iterator_args):
+                if self.__non_nullable_args_specified(iterator_args):
                     iterator = self.view.iterator_cls(**iterator_args)
                     for pos, component_dict in enumerate(iterator):
                         output_row = output_batch.add_row()
@@ -62,10 +63,13 @@ class ComponentIterationNode(ExecNode):
         if len(output_batch) > 0:
             yield output_batch
 
-    def __all_required_args_specified(self, iterator_args: dict) -> bool:
-        """Returns true if all required (non-nullable) iterator arguments are specified and not null."""
-        for param_name, param_type in self.view.iterator_cls.input_schema().items():
-            if not param_type.nullable and iterator_args.get(param_name, None) is None:
+    def __non_nullable_args_specified(self, iterator_args: dict) -> bool:
+        """
+        Returns true if all non-nullable iterator arguments are not `None`.
+        """
+        for arg_name, arg_value in iterator_args.items():
+            col_type = self.view.iterator_cls.input_schema()[arg_name]
+            if arg_value is None and not col_type.nullable:
                 return False
         return True
 
