@@ -8,12 +8,13 @@ import typing
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional, Sequence, Union, _AnnotatedAlias, _GenericAlias
+from typing import Any, Iterable, Mapping, Optional, Sequence, Union
 
 import av  # type: ignore
 import numpy as np
 import PIL.Image
 import sqlalchemy as sql
+from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
 
@@ -255,7 +256,7 @@ class ColumnType:
         return inferred_type
 
     @classmethod
-    def from_python_type(cls, t: Union[type, _GenericAlias]) -> Optional[ColumnType]:
+    def from_python_type(cls, t: Union[type, _AnnotatedAlias]) -> Optional[ColumnType]:
         if typing.get_origin(t) is typing.Union:
             union_args = typing.get_args(t)
             if union_args[1] is type(None):

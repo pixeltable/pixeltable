@@ -297,7 +297,7 @@ def getpalette(self: PIL.Image.Image, mode: Optional[str] = None) -> tuple[int]:
 
 
 @pxt.udf(is_method=True)
-def getpixel(self: PIL.Image.Image, xy: pxt.Array[(2,), int, pxt.NotNull]) -> tuple[int]:
+def getpixel(self: PIL.Image.Image, xy: list) -> tuple[int]:
     """
     Return the pixel value at the given position. The position `xy` is a tuple containing the x and y coordinates.
 
@@ -308,7 +308,7 @@ def getpixel(self: PIL.Image.Image, xy: pxt.Array[(2,), int, pxt.NotNull]) -> tu
         xy: The coordinates, given as (x, y).
     """
     # `xy` will be a list; `tuple(xy)` is necessary for pillow 9 compatibility
-    return self.getpixel(tuple(xy))  # type: ignore[arg-type]
+    return self.getpixel(tuple(xy))
 
 
 @pxt.udf(substitute_fn=PIL.Image.Image.getprojection, is_method=True)
