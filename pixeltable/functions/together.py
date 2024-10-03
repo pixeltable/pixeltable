@@ -7,13 +7,15 @@ the [Working with Together AI](https://pixeltable.readme.io/docs/together-ai) tu
 
 import base64
 import io
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional, TypeVar
 
 import numpy as np
 import PIL.Image
+import requests
 import tenacity
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
@@ -32,7 +34,10 @@ def _together_client() -> 'together.Together':
     return env.Env.get().get_client('together')
 
 
-def _retry(fn: Callable) -> Callable:
+T = TypeVar('T')
+
+
+def _retry(fn: Callable[..., T]) -> Callable[..., T]:
     import together
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(together.error.RateLimitError),
@@ -249,20 +254,29 @@ def image_generations(
         The generated image.
 
     Examples:
-        Add a computed column that applies the model `runwayml/stable-diffusion-v1-5`
+        Add a computed column that applies the model `stabilityai/stable-diffusion-xl-base-1.0`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl['response'] = image_generations(tbl.prompt, model='runwayml/stable-diffusion-v1-5')
+        >>> tbl['response'] = image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0')
     """
-    # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     result = _retry(_together_client().images.generate)(
         prompt=prompt, model=model, steps=steps, seed=seed, height=height, width=width, negative_prompt=negative_prompt
     )
-    b64_str = result.data[0].b64_json
-    b64_bytes = base64.b64decode(b64_str)
-    img = PIL.Image.open(io.BytesIO(b64_bytes))
-    img.load()
-    return img
+    if result.data[0].b64_json is not None:
+        b64_bytes = base64.b64decode(result.data[0].b64_json)
+        img = PIL.Image.open(io.BytesIO(b64_bytes))
+        img.load()
+        return img
+    if result.data[0].url is not None:
+        try:
+            resp = requests.get(result.data[0].url)
+            with io.BytesIO(resp.content) as fp:
+                image = PIL.Image.open(fp)
+                image.load()
+                return image
+        except Exception as exc:
+            raise excs.Error(f'Failed to download generated image from together.ai.') from exc
+    raise excs.Error('Response does not contain a generated image.')
 
 
 __all__ = local_public_names(__name__)
