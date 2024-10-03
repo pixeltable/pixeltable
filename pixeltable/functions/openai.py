@@ -132,7 +132,13 @@ def transcriptions(
 
 
 @pxt.udf
-def translations(audio: pxt.Audio, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
+def translations(
+    audio: pxt.Audio[pxt.NotNull],
+    *,
+    model: str,
+    prompt: Optional[str] = None,
+    temperature: Optional[float] = None
+) -> dict:
     """
     Translates audio into English.
 
