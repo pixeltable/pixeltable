@@ -2,47 +2,26 @@ import datetime
 import math
 import os
 import random
-from typing import List, Tuple
 
-import PIL
 import cv2
 import numpy as np
 import pandas as pd
+import PIL
 import pytest
 
 import pixeltable as pxt
-import pixeltable.functions as ptf
+import pixeltable.functions as pxtf
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.type_system import (
-    StringType,
-    IntType,
-    FloatType,
-    TimestampType,
-    ImageType,
-    VideoType,
-    JsonType,
-    BoolType,
-    ArrayType,
-    AudioType,
-    DocumentType,
-)
+from pixeltable.type_system import (ArrayType, AudioType, BoolType, DocumentType, FloatType, ImageType, IntType,
+                                    JsonType, StringType, TimestampType, VideoType)
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
-from .utils import (
-    make_tbl,
-    create_table_data,
-    read_data_file,
-    get_video_files,
-    get_audio_files,
-    get_image_files,
-    get_documents,
-    assert_resultset_eq,
-    validate_update_status,
-    skip_test_if_not_installed,
-    reload_catalog,
-)
+
+from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
+                    get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed,
+                    validate_update_status)
 
 
 class TestTable:
@@ -178,6 +157,65 @@ class TestTable:
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('test3', ['I am a string.'])
         assert '`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame' in str(exc_info.value)
+
+    # Test that we can specify a schema using Pixeltable type hints in place of ColumnType instances.
+    def test_schema_types(self, reset_db) -> None:
+        t = pxt.create_table(
+            'test',
+            {
+                'str_col': pxt.String,
+                'req_str_col': pxt.String[pxt.NotNull],
+                'int_col': pxt.Int,
+                'req_int_col': pxt.Int[pxt.NotNull],
+                'float_col': pxt.Float,
+                'req_float_col': pxt.Float[pxt.NotNull],
+                'bool_col': pxt.Bool,
+                'req_bool_col': pxt.Bool[pxt.NotNull],
+                'ts_col': pxt.Timestamp,
+                'req_ts_col': pxt.Timestamp[pxt.NotNull],
+                'json_col': pxt.Json,
+                'req_json_col': pxt.Json[pxt.NotNull],
+                'array_col': pxt.Array[(5, None, 3), pxt.Int],
+                'req_array_col': pxt.Array[(5, None, 3), pxt.Int, pxt.NotNull],
+                'img_col': pxt.Image,
+                'req_img_col': pxt.Image[pxt.NotNull],
+                'video_col': pxt.Video,
+                'req_video_col': pxt.Video[pxt.NotNull],
+                'audio_col': pxt.Audio,
+                'req_audio_col': pxt.Audio[pxt.NotNull],
+                'doc_col': pxt.Document,
+                'req_doc_col': pxt.Document[pxt.NotNull],
+            },
+        )
+        # Try with add_column
+        t.add_column(new_str_col=pxt.String)
+        t.add_column(new_req_str_col=pxt.String[pxt.NotNull])
+        assert t._schema == {
+            'str_col': StringType(nullable=True),
+            'req_str_col': StringType(nullable=False),
+            'int_col': IntType(nullable=True),
+            'req_int_col': IntType(nullable=False),
+            'float_col': FloatType(nullable=True),
+            'req_float_col': FloatType(nullable=False),
+            'bool_col': BoolType(nullable=True),
+            'req_bool_col': BoolType(nullable=False),
+            'ts_col': TimestampType(nullable=True),
+            'req_ts_col': TimestampType(nullable=False),
+            'json_col': JsonType(nullable=True),
+            'req_json_col': JsonType(nullable=False),
+            'array_col': ArrayType((5, None, 3), dtype=IntType(), nullable=True),
+            'req_array_col': ArrayType((5, None, 3), dtype=IntType(), nullable=False),
+            'img_col': ImageType(nullable=True),
+            'req_img_col': ImageType(nullable=False),
+            'video_col': VideoType(nullable=True),
+            'req_video_col': VideoType(nullable=False),
+            'audio_col': AudioType(nullable=True),
+            'req_audio_col': AudioType(nullable=False),
+            'doc_col': DocumentType(nullable=True),
+            'req_doc_col': DocumentType(nullable=False),
+            'new_str_col': StringType(nullable=True),
+            'new_req_str_col': StringType(nullable=False),
+        }
 
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
@@ -333,7 +371,7 @@ class TestTable:
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
     def check_bad_media(
-        self, rows: List[Tuple[str, bool]], col_type: pxt.ColumnType, validate_local_path: bool = True
+        self, rows: list[tuple[str, bool]], col_type: pxt.ColumnType, validate_local_path: bool = True
     ) -> None:
         schema = {
             'media': col_type,
@@ -934,7 +972,7 @@ class TestTable:
 
         # unstored cols that compute window functions aren't currently supported
         with pytest.raises((excs.Error)):
-            t.add_column(c10=ptf.sum(t.c1, group_by=t.c1), stored=False)
+            t.add_column(c10=pxtf.sum(t.c1, group_by=t.c1), stored=False)
 
         # Column.dependent_cols are computed correctly
         assert len(t.c1.col.dependent_cols) == 3
@@ -1088,7 +1126,7 @@ class TestTable:
     def test_computed_window_fn(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # backfill
-        t.add_column(c9=ptf.sum(t.c2, group_by=t.c4, order_by=t.c3))
+        t.add_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
         schema = {
             'c2': IntType(nullable=False),
@@ -1097,7 +1135,7 @@ class TestTable:
         }
         new_t = pxt.create_table('insert_test', schema)
         new_t.add_column(c5=lambda c2: c2 * c2, type=IntType())
-        new_t.add_column(c6=ptf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
+        new_t.add_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.show(0)

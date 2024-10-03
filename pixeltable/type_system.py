@@ -5,12 +5,10 @@ import datetime
 import enum
 import json
 import typing
-from typing_extensions import _AnnotatedAlias
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union
-from typing_extensions import Self
+from typing import Any, Iterable, Mapping, Optional, Sequence, Union, _AnnotatedAlias, _GenericAlias
 
 import av  # type: ignore
 import numpy as np
@@ -18,7 +16,6 @@ import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
-from pixeltable.env import Env
 
 
 class ColumnType:
@@ -43,7 +40,7 @@ class ColumnType:
         def supertype(
                 cls, type1: 'ColumnType.Type', type2: 'ColumnType.Type',
                 # we need to pass this in because we can't easily append it as a class member
-                common_supertypes: Dict[Tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type']
+                common_supertypes: dict[tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type']
         ) -> Optional['ColumnType.Type']:
             if type1 == type2:
                 return type1
@@ -105,16 +102,16 @@ class ColumnType:
             return self.__class__(nullable=nullable)  # type: ignore[call-arg]
 
     @classmethod
-    def serialize_list(cls, type_list: List[ColumnType]) -> str:
+    def serialize_list(cls, type_list: list[ColumnType]) -> str:
         return json.dumps([t.as_dict() for t in type_list])
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> dict:
         return {
             '_classname': self.__class__.__name__,
             **self._as_dict(),
         }
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         return {'nullable': self.nullable}
 
     @classmethod
@@ -123,18 +120,18 @@ class ColumnType:
         return cls.from_dict(type_dict)
 
     @classmethod
-    def deserialize_list(cls, type_list_str: str) -> List[ColumnType]:
+    def deserialize_list(cls, type_list_str: str) -> list[ColumnType]:
         type_dict_list = json.loads(type_list_str)
         return [cls.from_dict(type_dict) for type_dict in type_dict_list]
 
     @classmethod
-    def from_dict(cls, type_dict: Dict) -> ColumnType:
+    def from_dict(cls, type_dict: dict) -> ColumnType:
         assert '_classname' in type_dict
         type_class = globals()[type_dict['_classname']]
         return type_class._from_dict(type_dict)
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> ColumnType:
+    def _from_dict(cls, d: dict) -> ColumnType:
         """
         Default implementation: simply invoke c'tor
         """
@@ -258,7 +255,7 @@ class ColumnType:
         return inferred_type
 
     @classmethod
-    def from_python_type(cls, t: type) -> Optional[ColumnType]:
+    def from_python_type(cls, t: Union[type, _GenericAlias]) -> Optional[ColumnType]:
         if typing.get_origin(t) is typing.Union:
             union_args = typing.get_args(t)
             if union_args[1] is type(None):
@@ -506,7 +503,7 @@ class TimestampType(ColumnType):
 
 class JsonType(ColumnType):
     # TODO: type_spec also needs to be able to express lists
-    def __init__(self, type_spec: Optional[Dict[str, ColumnType]] = None, nullable: bool = False):
+    def __init__(self, type_spec: Optional[dict[str, ColumnType]] = None, nullable: bool = False):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_spec = type_spec
 
@@ -541,7 +538,7 @@ class JsonType(ColumnType):
                 type_spec[other_field_name] = field_type
         return JsonType(type_spec, nullable=(self.nullable or other.nullable))
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         result = super()._as_dict()
         if self.type_spec is not None:
             type_spec_dict = {field_name: field_type.serialize() for field_name, field_type in self.type_spec.items()}
@@ -549,7 +546,7 @@ class JsonType(ColumnType):
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> ColumnType:
+    def _from_dict(cls, d: dict) -> ColumnType:
         type_spec = None
         if 'type_spec' in d:
             type_spec = {
@@ -619,7 +616,7 @@ class ArrayType(ColumnType):
         shape = [n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape)]
         return ArrayType(tuple(shape), self.make_type(base_type), nullable=(self.nullable or other.nullable))
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         result = super()._as_dict()
         result.update(shape=list(self.shape), dtype=self.dtype.value)
         return result
@@ -628,7 +625,7 @@ class ArrayType(ColumnType):
         return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name})'
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> ColumnType:
+    def _from_dict(cls, d: dict) -> ColumnType:
         assert 'shape' in d
         assert 'dtype' in d
         shape = tuple(d['shape'])
@@ -699,7 +696,7 @@ class ArrayType(ColumnType):
 
 class ImageType(ColumnType):
     def __init__(
-            self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[Tuple[int, int]] = None,
+            self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[tuple[int, int]] = None,
             mode: Optional[str] = None, nullable: bool = False
     ):
         """
@@ -757,18 +754,18 @@ class ImageType(ColumnType):
         return ImageType(width=width, height=height, mode=mode, nullable=(self.nullable or other.nullable))
 
     @property
-    def size(self) -> Optional[Tuple[int, int]]:
+    def size(self) -> Optional[tuple[int, int]]:
         if self.width is None or self.height is None:
             return None
         return (self.width, self.height)
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         result = super()._as_dict()
         result.update(width=self.width, height=self.height, mode=self.mode)
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> ColumnType:
+    def _from_dict(cls, d: dict) -> ColumnType:
         assert 'width' in d
         assert 'height' in d
         assert 'mode' in d
