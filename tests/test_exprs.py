@@ -413,21 +413,27 @@ class TestExprs:
             _ = t.select(pxt.array([t.c1, t.c2])).collect()
         assert 'element of type `int` at index 1 is not compatible with type `string` of preceding elements' in str(excinfo.value)
 
-    def test_json_slice(self, test_tbl: catalog.Table) -> None:
+    def test_json_path(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        t['orig'] = t.c6.f5
+        t['attr'] = t.c6.f5
+        t['item'] = t['c6']['f5']
+        t['index'] = t['c6'].f5[2]
         t['slice_all'] = t.c6.f5[:]
         t['slice_to'] = t.c6.f5[:7]
         t['slice_from'] = t.c6.f5[3:]
         t['slice_range'] = t.c6.f5[3:7]
         t['slice_range_step'] = t.c6.f5[3:7:2]
+        t['slice_range_step_item'] = t['c6'].f5[3:7:2]
         res = t.collect()
-        orig = res['orig']
+        orig = res['attr']
+        assert all(res['item'][i] == orig[i] for i in range(len(res)))
+        assert all(res['index'][i] == orig[i][2] for i in range(len(res)))
         assert all(res['slice_all'][i] == orig[i] for i in range(len(orig)))
         assert all(res['slice_to'][i] == orig[i][:7] for i in range(len(orig)))
         assert all(res['slice_from'][i] == orig[i][3:] for i in range(len(orig)))
         assert all(res['slice_range'][i] == orig[i][3:7] for i in range(len(orig)))
         assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
+        assert all(res['slice_range_step_item'][i] == orig[i][3:7:2] for i in range(len(orig)))
 
     def test_json_mapper(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
