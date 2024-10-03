@@ -274,6 +274,8 @@ class ColumnType:
             parameters = annotated_args[1]
             if isinstance(parameters, ColumnType):
                 return parameters
+        elif isinstance(t, _PxtType):
+            return t.as_col_type()
         else:
             # Discard type parameters to ensure that parameterized types such as `list[T]`
             # are correctly mapped to Pixeltable types.
@@ -950,33 +952,6 @@ class Json(_PxtType):
     def as_col_type(cls) -> ColumnType:
         return JsonType(nullable=True)
 
-
-class Image(PIL.Image.Image, _PxtType):
-    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
-        params = item if isinstance(item, tuple) else (item,)
-        size: Optional[tuple] = None
-        mode: Optional[str] = None
-        nullable: bool = True
-        for param in params:
-            if param is NotNull:
-                nullable = False
-            elif isinstance(param, tuple):
-                if len(param) != 2 or not isinstance(param[0], (int, type(None))) or not isinstance(param[1], (int, type(None))):
-                    raise TypeError(f'Invalid Image type parameter: {param}')
-                if size is not None:
-                    raise TypeError(f'Duplicate Image type parameter: {param}')
-                size = param
-            elif isinstance(param, str):
-                if mode not in PIL.Image.MODES:
-                    raise TypeError(f'Invalid Image type parameter: {param}')
-                if mode is not None:
-                    raise TypeError(f'Duplicate Image type parameter: {param}')
-                mode = param
-            else:
-                raise TypeError(f'Invalid Image type parameter: {param}')
-        return typing.Annotated[PIL.Image.Image, ImageType(size=size, mode=mode, nullable=nullable)]
-
-
 class Array(np.ndarray, _PxtType):
     def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
         params = item if isinstance(item, tuple) else (item,)
@@ -998,7 +973,49 @@ class Array(np.ndarray, _PxtType):
                 dtype = ColumnType.from_python_type(param)
             else:
                 raise TypeError(f'Invalid Array type parameter: {param}')
+        if shape is None:
+            raise TypeError('Array type is missing parameter: shape')
+        if dtype is None:
+            raise TypeError('Array type is missing parameter: dtype')
         return typing.Annotated[np.ndarray, ArrayType(shape=shape, dtype=dtype, nullable=nullable)]
+
+
+class Image(PIL.Image.Image, _PxtType):
+    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+        if isinstance(item, tuple) and all(isinstance(n, int) for n in item):
+            # It's a tuple of the form (width, height)
+            params = (item,)
+        elif isinstance(item, tuple):
+            # It's a compound tuple (multiple parameters)
+            params = item
+        else:
+            # Not a tuple (single arg)
+            params = (item,)
+        size: Optional[tuple] = None
+        mode: Optional[str] = None
+        nullable: bool = True
+        for param in params:
+            if param is NotNull:
+                nullable = False
+            elif isinstance(param, tuple):
+                if len(param) != 2 or not isinstance(param[0], (int, type(None))) or not isinstance(param[1], (int, type(None))):
+                    raise TypeError(f'Invalid Image type parameter: {param}')
+                if size is not None:
+                    raise TypeError(f'Duplicate Image type parameter: {param}')
+                size = param
+            elif isinstance(param, str):
+                if param not in PIL.Image.MODES:
+                    raise TypeError(f'Invalid Image type parameter: {param!r}')
+                if mode is not None:
+                    raise TypeError(f'Duplicate Image type parameter: {param!r}')
+                mode = param
+            else:
+                raise TypeError(f'Invalid Image type parameter: {param}')
+        return typing.Annotated[PIL.Image.Image, ImageType(size=size, mode=mode, nullable=nullable)]
+
+    @classmethod
+    def as_col_type(cls) -> ColumnType:
+        return ImageType(nullable=True)
 
 
 class Video(str, _PxtType):
