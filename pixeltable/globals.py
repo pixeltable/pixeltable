@@ -54,11 +54,13 @@ def create_table(
     Examples:
         Create a table with an int and a string column:
 
-        >>> table = pxt.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
+        >>> tbl = pxt.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
 
-        Create a table from a select statement over an existing table `tbl`:
+        Create a table from a select statement over an existing table `orig_table` (this will create a new table
+        containing the exact contents of the query):
 
-        >>> table = pxt.create_table('my_table', tbl.where(tbl.col1 < 10).select(tbl.col2))
+        >>> tbl1 = pxt.get_table('orig_table')
+        ... tbl2 = pxt.create_table('new_table', tbl1.where(tbl1.col1 < 10).select(tbl1.col2))
     """
     path = catalog.Path(path_str)
     Catalog.get().paths.check_is_valid(path, expected=None)
@@ -106,7 +108,6 @@ def create_view(
     base: Union[catalog.Table, DataFrame],
     *,
     schema: Optional[dict[str, Any]] = None,
-    filter: Optional[exprs.Expr] = None,
     is_snapshot: bool = False,
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
     num_retained_versions: int = 10,
@@ -116,11 +117,11 @@ def create_view(
     """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
 
     Args:
-        path_str: Path to the view.
+        path_str: A name for the view; can be either a simple name such as `my_view`, or a pathname such as
+            `dir1.my_view`.
         base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`DataFrame`][pixeltable.DataFrame] to
             base the view on.
         schema: dictionary mapping column names to column types, value expressions, or to column specifications.
-        filter: predicate to filter rows of the base table.
         is_snapshot: Whether the view is a snapshot.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
@@ -130,36 +131,28 @@ def create_view(
 
     Returns:
         A handle to the [`Table`][pixeltable.Table] representing the newly created view. If the path already
-        exists or is invalid and `ignore_errors=True`, returns `None`.
+            exists or is invalid and `ignore_errors=True`, returns `None`.
 
     Raises:
         Error: if the path already exists or is invalid and `ignore_errors=False`.
 
     Examples:
-        Create a view with an additional int and a string column and a filter:
+        Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
 
-        >>> view = cl.create_view(
-            'my_view', base, schema={'col3': IntType(), 'col4': StringType()}, filter=base.col1 > 10)
+        >>> tbl = pxt.get_table('my_table')
+        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
 
-        Create a table snapshot:
+        Create a snapshot of `my_table`:
 
-        >>> snapshot_view = cl.create_view('my_snapshot_view', base, is_snapshot=True)
-
-        Create an immutable view with additional computed columns and a filter:
-
-        >>> snapshot_view = cl.create_view(
-            'my_snapshot', base, schema={'col3': base.col2 + 1}, filter=base.col1 > 10, is_snapshot=True)
+        >>> tbl = pxt.get_table('my_table')
+        ... snapshot_view = pxt.create_view('my_snapshot_view', tbl, is_snapshot=True)
     """
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
     elif isinstance(base, DataFrame):
         base._validate_mutable('create_view')
         tbl_version_path = base.tbl
-        if base.where_clause is not None and filter is not None:
-            raise excs.Error(
-                'Cannot specify a `filter` directly if one is already declared in a `DataFrame.where` clause'
-            )
-        filter = base.where_clause
+        where = base.where_clause
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, catalog.Table) or isinstance(base, DataFrame)
@@ -185,7 +178,7 @@ def create_view(
         path.name,
         base=tbl_version_path,
         schema=schema,
-        predicate=filter,
+        predicate=where,
         is_snapshot=is_snapshot,
         iterator_cls=iterator_class,
         iterator_args=iterator_args,
@@ -199,7 +192,7 @@ def create_view(
 
 
 def get_table(path: str) -> catalog.Table:
-    """Get a handle to an existing table or view or snapshot.
+    """Get a handle to an existing table, view, or snapshot.
 
     Args:
         path: Path to the table.
@@ -213,15 +206,15 @@ def get_table(path: str) -> catalog.Table:
     Examples:
         Get handle for a table in the top-level directory:
 
-        >>> table = cl.get_table('my_table')
+        >>> tbl = pxt.get_table('my_table')
 
         For a table in a subdirectory:
 
-        >>> table = cl.get_table('subdir.my_table')
+        >>> tbl = pxt.get_table('subdir.my_table')
 
-        For a snapshot in the top-level directory:
+        Handles to views and snapshots are retrieved in the same way:
 
-        >>> table = cl.get_table('my_snapshot')
+        >>> tbl = pxt.get_table('my_snapshot')
     """
     p = catalog.Path(path)
     Catalog.get().paths.check_is_valid(p, expected=catalog.Table)
@@ -243,11 +236,11 @@ def move(path: str, new_path: str) -> None:
     Examples:
         Move a table to a different directory:
 
-        >>>> cl.move('dir1.my_table', 'dir2.my_table')
+        >>>> pxt.move('dir1.my_table', 'dir2.my_table')
 
         Rename a table:
 
-        >>>> cl.move('dir1.my_table', 'dir1.new_name')
+        >>>> pxt.move('dir1.my_table', 'dir1.new_name')
     """
     p = catalog.Path(path)
     Catalog.get().paths.check_is_valid(p, expected=catalog.SchemaObject)
@@ -260,18 +253,18 @@ def move(path: str, new_path: str) -> None:
 
 
 def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> None:
-    """Drop a table or view or snapshot.
+    """Drop a table, view, or snapshot.
 
     Args:
         path: Path to the [`Table`][pixeltable.Table].
-        force: If `True`, will also drop all views or sub-views of this table.
-        ignore_errors: Whether to ignore errors if the table does not exist.
+        force: If `True`, will also drop all views and sub-views of this table.
+        ignore_errors: If `True`, return silently if the table does not exist (without throwing an exception).
 
     Raises:
-        Error: If the path does not exist or does not designate a table object and ignore_errors is False.
+        Error: If the path does not exist or does not designate a table object, and `ignore_errors=False`.
 
     Examples:
-        >>> cl.drop_table('my_table')
+        >>> pxt.drop_table('my_table')
     """
     cat = Catalog.get()
     path_obj = catalog.Path(path)
@@ -302,7 +295,8 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
     Args:
         dir_path: Path to the directory. Defaults to the root directory.
-        recursive: Whether to list tables in subdirectories as well.
+        recursive: If `False`, returns only those tables that are directly contained in specified directory; if
+            `True`, returns all tables that are descendants of the specified directory, recursively.
 
     Returns:
         A list of [`Table`][pixeltable.Table] paths.
@@ -313,13 +307,11 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     Examples:
         List tables in top-level directory:
 
-        >>> cl.list_tables()
-        ['my_table', ...]
+        >>> pxt.list_tables()
 
         List tables in 'dir1':
 
-        >>> cl.list_tables('dir1')
-        [...]
+        >>> pxt.list_tables('dir1')
     """
     assert dir_path is not None
     path = catalog.Path(dir_path, empty_is_valid=True)
@@ -332,17 +324,17 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> Optional[catalog.D
 
     Args:
         path_str: Path to the directory.
-        ignore_errors: if True, silently returns on error
+        ignore_errors: if `True`, will return silently instead of throwing an exception if an error occurs.
 
     Raises:
-        Error: If the path already exists or the parent is not a directory.
+        Error: If the path already exists or the parent is not a directory, and `ignore_errors=False`.
 
     Examples:
-        >>> cl.create_dir('my_dir')
+        >>> pxt.create_dir('my_dir')
 
         Create a subdirectory:
 
-        >>> cl.create_dir('my_dir.sub_dir')
+        >>> pxt.create_dir('my_dir.sub_dir')
     """
     try:
         path = catalog.Path(path_str)
@@ -373,17 +365,21 @@ def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) ->
     """Remove a directory.
 
     Args:
-        path_str: Path to the directory.
+        path_str: Name or path of the directory.
+        force: If `True`, will also drop all tables and subdirectories of this directory, recursively, along
+            with any views or snapshots that depend on any of the dropped tables.
+        ignore_errors: if `True`, will return silently instead of throwing an exception if the directory
+            does not exist.
 
     Raises:
-        Error: If the path does not exist or does not designate a directory or if the directory is not empty.
+        Error: If the path does not exist or does not designate a directory, or if the directory is not empty.
 
     Examples:
-        >>> cl.drop_dir('my_dir')
+        >>> pxt.drop_dir('my_dir')
 
         Remove a subdirectory:
 
-        >>> cl.drop_dir('my_dir.sub_dir')
+        >>> pxt.drop_dir('my_dir.sub_dir')
     """
     cat = Catalog.get()
     path = catalog.Path(path_str)
@@ -428,14 +424,14 @@ def list_dirs(path_str: str = '', recursive: bool = True) -> list[str]:
     """List the directories in a directory.
 
     Args:
-        path_str: Path to the directory.
-        recursive: Whether to list subdirectories recursively.
+        path_str: Name or path of the directory.
+        recursive: If `True`, lists all descendants of this directory recursively.
 
     Returns:
         List of directory paths.
 
     Raises:
-        Error: If the path does not exist or does not designate a directory.
+        Error: If `path_str` does not exist or does not designate a directory.
 
     Examples:
         >>> cl.list_dirs('my_dir', recursive=True)
