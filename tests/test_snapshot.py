@@ -89,7 +89,7 @@ class TestSnapshot:
                     } if has_cols else {}
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
                     filter = tbl.c2 < 10 if has_filter else None
-                    snap = pxt.create_view(snap_path, tbl, schema=schema, filter=filter, is_snapshot=True)
+                    snap = pxt.create_view(snap_path, tbl, additional_columns=schema, filter=filter, is_snapshot=True)
                     self.run_basic_test(tbl, snap, extra_items=extra_items, filter=filter, reload_md=reload_md)
 
     def test_errors(self, reset_db) -> None:
@@ -189,7 +189,7 @@ class TestSnapshot:
         t = create_test_tbl()
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
         orig_c3 = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']
-        v = pxt.create_view('v', base=t, schema={'v1': t.c3 + 1})
+        v = pxt.create_view('v', base=t, additional_columns={'v1': t.c3 + 1})
         s1 = pxt.create_view('s1', v, is_snapshot=True)
         t.drop_column('c4')
         # s2 references the same view version as s1, but a different version of t (due to a schema change)

@@ -107,7 +107,7 @@ def create_view(
     path_str: str,
     base: Union[catalog.Table, DataFrame],
     *,
-    schema: Optional[dict[str, Any]] = None,
+    additional_columns: Optional[dict[str, Any]] = None,
     is_snapshot: bool = False,
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
     num_retained_versions: int = 10,
@@ -121,7 +121,9 @@ def create_view(
             `dir1.my_view`.
         base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`DataFrame`][pixeltable.DataFrame] to
             base the view on.
-        schema: dictionary mapping column names to column types, value expressions, or to column specifications.
+        additional_columns: If specified, will add additional columns to the view once it is created. The format
+            of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
+            [`create_table`][pixeltable.create_table].
         is_snapshot: Whether the view is a snapshot.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
@@ -147,6 +149,7 @@ def create_view(
         >>> tbl = pxt.get_table('my_table')
         ... snapshot_view = pxt.create_view('my_snapshot_view', tbl, is_snapshot=True)
     """
+    where: Optional[exprs.Expr] = None
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
     elif isinstance(base, DataFrame):
@@ -166,8 +169,8 @@ def create_view(
             raise e
     dir = Catalog.get().paths[path.parent]
 
-    if schema is None:
-        schema = {}
+    if additional_columns is None:
+        additional_columns = {}
     if iterator is None:
         iterator_class, iterator_args = None, None
     else:
@@ -177,7 +180,7 @@ def create_view(
         dir._id,
         path.name,
         base=tbl_version_path,
-        schema=schema,
+        additional_columns=additional_columns,
         predicate=where,
         is_snapshot=is_snapshot,
         iterator_cls=iterator_class,

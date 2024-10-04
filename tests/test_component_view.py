@@ -141,7 +141,7 @@ class TestComponentView:
         video_t = pxt.create_table('video_tbl', {'video': VideoType()})
         # create frame view with manually updated column
         view_t = pxt.create_view(
-            'test_view', video_t, schema={'annotation': JsonType(nullable=True)},
+            'test_view', video_t, additional_columns={'annotation': JsonType(nullable=True)},
             iterator=FrameIterator.create(video=video_t.video, fps=1))
 
         video_filepaths = get_test_video_files()
@@ -166,7 +166,7 @@ class TestComponentView:
 
         with pytest.raises(excs.Error) as excinfo:
             _ = pxt.create_view(
-                'bad_view', video_t, schema={'annotation': JsonType(nullable=False)},
+                'bad_view', video_t, additional_columns={'annotation': JsonType(nullable=False)},
                 iterator=FrameIterator.create(video=video_t.video, fps=1))
         assert 'must be nullable' in str(excinfo.value)
 
@@ -231,7 +231,7 @@ class TestComponentView:
         # create snapshot of view
         filter = view_t.frame_idx < 10 if has_filter else None
         schema = {'c1': view_t.cropped.width * view_t.cropped.height} if has_column else {}
-        snap_t = pxt.create_view(snap_path, view_t, schema=schema, filter=filter, is_snapshot=True)
+        snap_t = pxt.create_view(snap_path, view_t, additional_columns=schema, filter=filter, is_snapshot=True)
         snap_cols = [snap_t.c1] if has_column else []
         snap_query = \
             snap_t.select(
