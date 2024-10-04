@@ -67,8 +67,9 @@ class ComponentIterationNode(ExecNode):
         """
         Returns true if all non-nullable iterator arguments are not `None`.
         """
+        input_schema = self.view.iterator_cls.input_schema()
         for arg_name, arg_value in iterator_args.items():
-            col_type = self.view.iterator_cls.input_schema()[arg_name]
+            col_type = input_schema[arg_name]
             if arg_value is None and not col_type.nullable:
                 return False
         return True
