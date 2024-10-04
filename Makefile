@@ -34,8 +34,8 @@ YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info
 
 .make-install/poetry:
 	@echo "Installing poetry ..."
-	@python -m pip install --upgrade pip
-	@python -m pip install poetry==1.8.2
+	@python -m pip install -qU pip
+	@python -m pip install -q poetry==1.8.2
 	@poetry self add "poetry-dynamic-versioning[plugin]"
 	@touch .make-install/poetry
 
@@ -48,7 +48,8 @@ YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info
 ifeq ($(YOLOX_OK), True)
 	# YOLOX only works on python <= 3.10 and cannot be installed via poetry
 	@echo "Installing YOLOX ..."
-	@python -m pip install -q git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
+	# We have to include protobuf in the `pip install` or else YOLOX will downgrade it
+	@python -m pip install -q git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a protobuf==5.27.0
 else
 	@echo "Python version is >= 3.11; skipping YOLOX installation."
 endif

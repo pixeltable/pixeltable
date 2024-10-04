@@ -166,7 +166,7 @@ class DocumentSplitter(ComponentIterator):
         return {
             'document': DocumentType(nullable=False),
             'separators': StringType(nullable=False),
-            'metadata': StringType(nullable=True),
+            'metadata': StringType(nullable=False),
             'limit': IntType(nullable=True),
             'overlap': IntType(nullable=True),
             'skip_tags': StringType(nullable=True),
