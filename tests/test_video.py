@@ -18,7 +18,7 @@ class TestVideo:
     ) -> Tuple[catalog.InsertableTable, catalog.Table]:
         pxt.drop_table(view_name, ignore_errors=True)
         pxt.drop_table(base_name, ignore_errors=True)
-        base_t = pxt.create_table(base_name, {'video': VideoType()})
+        base_t = pxt.create_table(base_name, {'video': VideoType(nullable=True)})
         view_t = pxt.create_view(view_name, base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         return base_t, view_t
 
@@ -34,6 +34,10 @@ class TestVideo:
         assert len(result) == total_num_rows - len(paths) * 5
         result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(3)
         assert len(result) == 3
+        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(0)
+        assert len(result) == total_num_rows
+        # Try inserting a row with a `None` video; confirm that it produces no additional rows in the view
+        base_t.insert(video=None)
         result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(0)
         assert len(result) == total_num_rows
         return base_t, view_t
