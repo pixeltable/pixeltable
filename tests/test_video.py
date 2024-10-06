@@ -38,7 +38,7 @@ class TestVideo:
         assert len(result) == total_num_rows
         # Try inserting a row with a `None` video; confirm that it produces no additional rows in the view
         base_t.insert(video=None)
-        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(0)
+        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
         assert len(result) == total_num_rows
         return base_t, view_t
 
