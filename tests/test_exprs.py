@@ -153,7 +153,7 @@ class TestExprs:
         print(_)
         _ = t.where(t.c1n == None).show()
         print(_)
-        _ = t.where(t.c1n != None).show(0)
+        _ = t.where(t.c1n != None).collect()
         print(_)
 
     def test_exception_handling(self, test_tbl: catalog.Table) -> None:
@@ -194,14 +194,14 @@ class TestExprs:
 
         img_t = img_tbl
         # fileurl
-        res = img_t.select(img_t.img.fileurl).show(0).to_pandas()
+        res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
         all_urls = set(urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files())
         assert stored_urls <= all_urls
 
         # localpath
-        res = img_t.select(img_t.img.localpath).show(0).to_pandas()
+        res = img_t.select(img_t.img.localpath).collect().to_pandas()
         stored_paths = set(res.iloc[:, 0])
         assert len(stored_paths) == len(res)
         all_paths  = set(get_image_files())
@@ -262,15 +262,15 @@ class TestExprs:
         t.add_column(c3n=FloatType(nullable=True))
         t.where(t.c2 % 7 != 0).update({'c2n': t.c2, 'c3n': t.c3})
 
-        _ = t[t.c2, t.c6.f3, t.c2 + t.c6.f3, (t.c2 + t.c6.f3) / (t.c6.f3 + 1)].show()
-        _ = t[t.c2 + t.c2].show()
+        _ = t.select(t.c2, t.c6.f3, t.c2 + t.c6.f3, (t.c2 + t.c6.f3) / (t.c6.f3 + 1)).collect()
+        _ = t.select(t.c2 + t.c2).collect()
         for op1, op2 in [(t.c2, t.c2), (t.c3, t.c3), (t.c2, t.c2n), (t.c2n, t.c2)]:
-            _ = t.select(op1 + op2).show()
-            _ = t.select(op1 - op2).show()
-            _ = t.select(op1 * op2).show()
-            _ = t.where(op1 > 0).select(op1 / op2).show()
-            _ = t.where(op1 > 0).select(op1 % op2).show()
-            _ = t.where(op1 > 0).select(op1 // op2).show()
+            _ = t.select(op1 + op2).collect()
+            _ = t.select(op1 - op2).collect()
+            _ = t.select(op1 * op2).collect()
+            _ = t.where(op1 > 0).select(op1 / op2).collect()
+            _ = t.where(op1 > 0).select(op1 % op2).collect()
+            _ = t.where(op1 > 0).select(op1 // op2).collect()
 
         # non-numeric types
         for op1, op2 in [
@@ -278,36 +278,36 @@ class TestExprs:
             (t.c1, t.c3), (t.c1, 1.0), (t.c3, t.c1), (t.c3, 'a')
         ]:
             with pytest.raises(excs.Error):
-                _ = t[op1 + op2]
+                _ = t.select(op1 + op2).collect()
             with pytest.raises(excs.Error):
-                _ = t[op1 - op2]
+                _ = t.select(op1 - op2).collect()
             with pytest.raises(excs.Error):
-                _ = t[op1 * op2]
+                _ = t.select(op1 * op2).collect()
             with pytest.raises(excs.Error):
-                _ = t[op1 / op2]
+                _ = t.select(op1 / op2).collect()
             with pytest.raises(excs.Error):
-                _ = t[op1 % op2]
+                _ = t.select(op1 % op2).collect()
             with pytest.raises(excs.Error):
-                _ = t[op1 // op2]
+                _ = t.select(op1 // op2).collect()
 
         # TODO: test division; requires predicate
         for op1, op2 in [(t.c6.f2, t.c6.f2), (t.c6.f3, t.c6.f3)]:
-            _ = t[op1 + op2].show()
-            _ = t[op1 - op2].show()
-            _ = t[op1 * op2].show()
+            _ = t.select(op1 + op2).collect()
+            _ = t.select(op1 - op2).collect()
+            _ = t.select(op1 * op2).collect()
             with pytest.raises(excs.Error):
-                _ = t[op1 / op2].show()
+                _ = t.select(op1 / op2).collect()
 
         for op1, op2 in [
             (t.c6.f1, t.c6.f2), (t.c6.f1, t.c6.f3), (t.c6.f1, 1), (t.c6.f1, 1.0),
             (t.c6.f2, t.c6.f1), (t.c6.f3, t.c6.f1), (t.c6.f2, 'a'), (t.c6.f3, 'a'),
         ]:
             with pytest.raises(excs.Error):
-                _ = t[op1 + op2].show()
+                _ = t.select(op1 + op2).collect()
             with pytest.raises(excs.Error):
-                _ = t[op1 - op2].show()
+                _ = t.select(op1 - op2).collect()
             with pytest.raises(excs.Error):
-                _ = t[op1 * op2].show()
+                _ = t.select(op1 * op2).collect()
 
         # Test literal exprs
         results = t.where(t.c2 == 7).select(
@@ -866,7 +866,7 @@ class TestExprs:
         new_t.add_column(c2_sum=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
-        _ = new_t.show(0)
+        _ = new_t.collect()
 
     def test_make_list(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

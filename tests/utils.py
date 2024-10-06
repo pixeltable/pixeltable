@@ -340,16 +340,17 @@ def get_sentences(n: int = 100) -> List[str]:
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)  # we don't care about the actual column names
-    r1_pd = r1.to_pandas()
-    r2_pd = r2.to_pandas()
-    for i in range(len(r1.schema)):
+    assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+    for r1_col, r2_col in zip(r1.schema, r2.schema):
         # only compare column values
-        s1 = r1_pd.iloc[:, i]
-        s2 = r2_pd.iloc[:, i]
-        if s1.dtype == np.float64:
-            assert np.allclose(s1, s2)
+        s1 = r1[r1_col]
+        s2 = r2[r2_col]
+        if r1.schema[r1_col].is_float_type():
+            assert np.allclose(np.array(s1), np.array(s2))
+        elif r1.schema[r1_col].is_array_type():
+            assert all(np.array_equal(a1, a2) for a1, a2 in zip(s1, s2))
         else:
-            assert s1.equals(s2)
+            assert s1 == s2
 
 
 def skip_test_if_not_installed(package) -> None:

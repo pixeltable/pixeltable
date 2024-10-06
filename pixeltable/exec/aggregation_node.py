@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Iterable, List, Optional, Any
+from typing import Iterable, Optional, Any, Iterator
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -13,15 +13,24 @@ from .exec_node import ExecNode
 _logger = logging.getLogger('pixeltable')
 
 class AggregationNode(ExecNode):
+    """
+    In-memory aggregation for UDAs.
+    """
+    group_by: Optional[list[exprs.Expr]]
+    input_exprs: list[exprs.Expr]
+    agg_fn_eval_ctx: exprs.RowBuilder.EvalCtx
+    agg_fn_calls: list[exprs.FunctionCall]
+    output_batch: DataRowBatch
+
     def __init__(
-            self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder, group_by: List[exprs.Expr],
-            agg_fn_calls: List[exprs.FunctionCall], input_exprs: Iterable[exprs.Expr], input: ExecNode
+            self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder, group_by: Optional[list[exprs.Expr]],
+            agg_fn_calls: list[exprs.FunctionCall], input_exprs: Iterable[exprs.Expr], input: ExecNode
     ):
         super().__init__(row_builder, group_by + agg_fn_calls, input_exprs, input)
         self.input = input
         self.group_by = group_by
         self.input_exprs = list(input_exprs)
-        self.agg_fn_eval_ctx = row_builder.create_eval_ctx(agg_fn_calls, exclude=input_exprs)
+        self.agg_fn_eval_ctx = row_builder.create_eval_ctx(agg_fn_calls, exclude=self.input_exprs)
         # we need to make sure to refer to the same exprs that RowBuilder.eval() will use
         self.agg_fn_calls = self.agg_fn_eval_ctx.target_exprs
         self.output_batch = DataRowBatch(tbl, row_builder, 0)
@@ -45,17 +54,14 @@ class AggregationNode(ExecNode):
                 input_vals = [row[d.slot_idx] for d in fn_call.dependencies()]
                 raise excs.ExprEvalError(fn_call, expr_msg, e, exc_tb, input_vals, row_num)
 
-    def __next__(self) -> DataRowBatch:
-        if self.output_batch is None:
-            raise StopIteration
-
+    def __iter__(self) -> Iterator[DataRowBatch]:
         prev_row: Optional[exprs.DataRow] = None
-        current_group: Optional[List[Any]] = None  # the values of the group-by exprs
+        current_group: Optional[list[Any]] = None  # the values of the group-by exprs
         num_input_rows = 0
         for row_batch in self.input:
             num_input_rows += len(row_batch)
             for row in row_batch:
-                group = [row[e.slot_idx] for e in self.group_by]
+                group = [row[e.slot_idx] for e in self.group_by] if self.group_by is not None else None
                 if current_group is None:
                     current_group = group
                     self._reset_agg_state(0)
@@ -71,9 +77,7 @@ class AggregationNode(ExecNode):
         self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
         self.output_batch.add_row(prev_row)
 
-        result = self.output_batch
-        result.flush_imgs(None, self.stored_img_cols, self.flushed_img_slots)
-        self.output_batch = None
-        _logger.debug(f'AggregateNode: consumed {num_input_rows} rows, returning {len(result.rows)} rows')
-        return result
+        self.output_batch.flush_imgs(None, self.stored_img_cols, self.flushed_img_slots)
+        _logger.debug(f'AggregateNode: consumed {num_input_rows} rows, returning {len(self.output_batch.rows)} rows')
+        yield self.output_batch
 

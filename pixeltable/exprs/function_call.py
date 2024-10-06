@@ -294,6 +294,10 @@ class FunctionCall(Expr):
     def get_window_sort_exprs(self) -> tuple[list[Expr], list[Expr]]:
         return self.group_by, self.order_by
 
+    def get_window_ordering(self) -> list[tuple[Expr, bool]]:
+        # ordering is implicitly ascending
+        return [(e, None) for e in self.group_by] + [(e, True) for e in self.order_by]
+
     @property
     def is_agg_fn_call(self) -> bool:
         return isinstance(self.fn, func.AggregateFunction)
@@ -303,6 +307,10 @@ class FunctionCall(Expr):
         return self.order_by
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+        # we currently can't translate aggregate functions with grouping and/or ordering to SQL
+        if self.has_group_by() or len(self.order_by) > 0:
+            return None
+
         # try to construct args and kwargs to call self.fn._to_sql()
         kwargs: dict[str, sql.ColumnElement] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():

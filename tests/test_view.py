@@ -388,8 +388,8 @@ class TestView:
         }
         v = pxt.create_view('test_view', t, schema=schema)
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).order_by(t.c2).show(0))
+            v.select(v.v1).order_by(v.c2).collect(),
+            t.select(t.c3 * 2.0).order_by(t.c2).collect())
         # computed columns that don't reference the base table
         v.add_column(v3=v.v1 * 2.0)
         v.add_column(v4=v.v2[0])
@@ -404,22 +404,22 @@ class TestView:
         t.insert(rows)
         assert t.count() == 200
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).order_by(t.c2).show(0))
+            v.select(v.v1).order_by(v.c2).collect(),
+            t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
         # update data: cascade to view
         t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         assert t.count() == 200
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).order_by(t.c2).show(0))
+            v.select(v.v1).order_by(v.c2).collect(),
+            t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
         assert t.count() == 190
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).order_by(t.c2).show(0))
+            v.select(v.v1).order_by(v.c2).collect(),
+            t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
     def test_filter(self, reset_db) -> None:
         t = create_test_tbl()
@@ -427,8 +427,8 @@ class TestView:
         # create view with filter
         v = pxt.create_view('test_view', t, filter=t.c2 < 10)
         assert_resultset_eq(
-            v.order_by(v.c2).show(0),
-            t.where(t.c2 < 10).order_by(t.c2).show(0))
+            v.order_by(v.c2).collect(),
+            t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # use view md after reload
         reload_catalog()
@@ -440,22 +440,22 @@ class TestView:
         t.insert(rows)
         assert t.count() == 120
         assert_resultset_eq(
-            v.order_by(v.c2).show(0),
-            t.where(t.c2 < 10).order_by(t.c2).show(0))
+            v.order_by(v.c2).collect(),
+            t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # update data
         t.update({'c4': True, 'c3': t.c3 + 1.0}, where=t.c2 < 5, cascade=True)
         assert t.count() == 120
         assert_resultset_eq(
-            v.order_by(v.c2).show(0),
-            t.where(t.c2 < 10).order_by(t.c2).show(0))
+            v.order_by(v.c2).collect(),
+            t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
         assert t.count() == 110
         assert_resultset_eq(
-            v.order_by(v.c2).show(0),
-            t.where(t.c2 < 10).order_by(t.c2).show(0))
+            v.order_by(v.c2).collect(),
+            t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # create view with filter containing datetime
         _ = pxt.create_view('test_view_2', t, filter=t.c5 < datetime.datetime.now())

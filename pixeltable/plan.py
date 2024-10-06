@@ -1,4 +1,3 @@
-import itertools
 from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
 
@@ -9,6 +8,7 @@ import pixeltable.exec as exec
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable import exprs
+from pixeltable.exec.sql_node import Ordering, combine_orderings, print_ordering
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -46,11 +46,9 @@ class Analyzer:
     tbl: catalog.TableVersionPath
     all_exprs: list[exprs.Expr]
     select_list: list[exprs.Expr]
-    group_by_clause: list[exprs.Expr]
+    group_by_clause: Optional[list[exprs.Expr]]  # None for non-aggregate queries; [] for agg query w/o grouping
+    grouping_exprs: list[exprs.Expr]  # [] for non-aggregate queries or agg query w/o grouping
     order_by_clause: list[tuple[exprs.Expr, bool]]
-
-    # exprs that can be expressed in SQL and are retrieved directly from the store
-    #sql_exprs: list[exprs.Expr]
 
     sql_elements: exprs.SqlElementCache
 
@@ -60,15 +58,14 @@ class Analyzer:
     # filter predicate applied to output rows of the SQL scan
     filter: Optional[exprs.Expr]
 
-    agg_fn_calls: list[exprs.FunctionCall]
+    agg_fn_calls: list[exprs.FunctionCall]  # grouping aggregation (ie, not window functions)
+    window_fn_calls: list[exprs.FunctionCall]
     agg_order_by: list[exprs.Expr]
 
     def __init__(
             self, tbl: catalog.TableVersionPath, select_list: Sequence[exprs.Expr],
             where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[list[exprs.Expr]] = None,
             order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None):
-        if group_by_clause is None:
-            group_by_clause = []
         if order_by_clause is None:
             order_by_clause = []
         self.tbl = tbl
@@ -78,7 +75,9 @@ class Analyzer:
         self.select_list = [e.resolve_computed_cols() for e in select_list]
         if where_clause is not None:
             where_clause = where_clause.resolve_computed_cols()
-        self.group_by_clause = [e.resolve_computed_cols() for e in group_by_clause]
+        self.group_by_clause = (
+            [e.resolve_computed_cols() for e in group_by_clause] if group_by_clause is not None else None
+        )
         self.order_by_clause = [(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
 
         self.sql_where_clause = None
@@ -89,20 +88,36 @@ class Analyzer:
 
         # all exprs that are evaluated in Python; not executable
         self.all_exprs = self.select_list.copy()
-        self.all_exprs.extend(self.group_by_clause)
+        if self.group_by_clause is not None:
+            self.all_exprs.extend(self.group_by_clause)
         self.all_exprs.extend(e for e, _ in self.order_by_clause)
         if self.filter is not None:
             self.all_exprs.append(self.filter)
 
         self.agg_order_by = []
+        self.agg_fn_calls = []
+        self.window_fn_calls = []
         self._analyze_agg()
+        self.grouping_exprs = self.group_by_clause if self.group_by_clause is not None else []
 
     def _analyze_agg(self) -> None:
         """Check semantic correctness of aggregation and fill in agg-specific fields of Analyzer"""
-        self.agg_fn_calls = [e for e in self.all_exprs if isinstance(e, exprs.FunctionCall) and _is_agg_fn_call(e)]
+        candidates = self.select_list
+        agg_fn_calls = exprs.ExprSet(
+            exprs.Expr.list_subexprs(
+                candidates, expr_class=exprs.FunctionCall,
+                filter=lambda e: e.is_agg_fn_call and not e.is_window_fn_call))
+        self.agg_fn_calls = list(agg_fn_calls)
+        window_fn_calls = exprs.ExprSet(
+            exprs.Expr.list_subexprs(candidates, expr_class=exprs.FunctionCall, filter=lambda e: e.is_window_fn_call))
+        self.window_fn_calls = list(window_fn_calls)
+        #self.agg_fn_calls = [e for e in self.all_exprs if isinstance(e, exprs.FunctionCall) and _is_agg_fn_call(e)]
         if len(self.agg_fn_calls) == 0:
             # nothing to do
             return
+        # if we're doing grouping aggregation and don't have an explicit Group By clause, we're creating a single group
+        if self.group_by_clause is None:
+            self.group_by_clause = []
 
         # check that select list only contains aggregate output
         grouping_expr_ids = {e.id for e in self.group_by_clause}
@@ -125,26 +140,6 @@ class Analyzer:
             if e._contains(filter=lambda e: _is_agg_fn_call(e)):
                 raise excs.Error(f'Grouping expression contains aggregate function: {e}')
 
-        # check that agg fn calls don't have contradicting ordering requirements
-        order_by: list[exprs.Expr] = []
-        order_by_origin: Optional[exprs.Expr] = None  # the expr that determines the ordering
-        for agg_fn_call in self.agg_fn_calls:
-            fn_call_order_by = agg_fn_call.get_agg_order_by()
-            if len(fn_call_order_by) == 0:
-                continue
-            if len(order_by) == 0:
-                order_by = fn_call_order_by
-                order_by_origin = agg_fn_call
-            else:
-                combined = _get_combined_ordering(
-                    [(e, True) for e in order_by], [(e, True) for e in fn_call_order_by])
-                if len(combined) == 0:
-                    raise excs.Error((
-                        f"Incompatible ordering requirements between expressions '{order_by_origin}' and "
-                        f"'{agg_fn_call}':\n"
-                        f"{exprs.Expr.print_list(order_by)} vs {exprs.Expr.print_list(fn_call_order_by)}"
-                    ))
-        self.agg_order_by = order_by
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
         """Determine whether expr is the input to or output of an aggregate function.
@@ -182,7 +177,8 @@ class Analyzer:
         """
         # maintain original composition of select list
         row_builder.set_slot_idxs(self.select_list, remove_duplicates=False)
-        row_builder.set_slot_idxs(self.group_by_clause)
+        if self.group_by_clause is not None:
+            row_builder.set_slot_idxs(self.group_by_clause)
         order_by_exprs = [e for e, _ in self.order_by_clause]
         row_builder.set_slot_idxs(order_by_exprs)
         row_builder.set_slot_idxs(self.all_exprs)
@@ -190,6 +186,19 @@ class Analyzer:
             row_builder.set_slot_idxs([self.filter])
         row_builder.set_slot_idxs(self.agg_fn_calls)
         row_builder.set_slot_idxs(self.agg_order_by)
+
+
+    def get_window_fn_ordering(self) -> Optional[Ordering]:
+        orderings: list[Ordering] = []
+        for fn_call in self.window_fn_calls:
+            # window functions require ordering by the group_by/order_by clauses
+            gb, ob = fn_call.get_window_sort_exprs()
+            orderings.append([(e, None) for e in gb] + [(e, True) for e in ob])
+        return combine_orderings(orderings)
+
+    def has_agg(self) -> bool:
+        """True if there is any kind of aggregation in the query"""
+        return self.group_by_clause is not None or len(self.agg_fn_calls) > 0 or len(self.window_fn_calls) > 0
 
 
 class Planner:
@@ -507,11 +516,37 @@ class Planner:
         return plan, len(row_builder.default_eval_ctx.target_exprs)
 
     @classmethod
+    def _verify_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> None:
+        """Verify that the various ordering requirements don't conflict"""
+        orderings: list[Ordering] = [analyzer.order_by_clause.copy()]
+
+        if verify_agg:
+            ordering: Ordering = []
+            for fn_call in analyzer.window_fn_calls:
+                # window functions require ordering by the group_by/order_by clauses
+                gb, ob = fn_call.get_window_sort_exprs()
+                ordering = [(e, None) for e in gb] + [(e, True) for e in ob]
+                orderings.append(ordering)
+            for fn_call in analyzer.agg_fn_calls:
+                # agg functions with an ordering requirement are implicitly ascending
+                ordering = [(e, None) for e in analyzer.group_by_clause] + [(e, True) for e in fn_call.get_agg_order_by()]
+                orderings.append(ordering)
+        if len(orderings) <= 1:
+            return
+
+        combined_ordering = orderings[0]
+        for ordering in orderings[1:]:
+            combined = combine_orderings([combined_ordering, ordering])
+            if combined is None:
+                raise excs.Error(
+                    f'Incompatible ordering requirements: {print_ordering(combined_ordering)} vs {print_ordering(ordering)}')
+            combined_ordering = combined
+
+    @classmethod
     def _determine_ordering(cls, analyzer: Analyzer) -> list[tuple[exprs.Expr, bool]]:
         """Returns the exprs for the ORDER BY clause of the SqlScanNode"""
         order_by_items: list[tuple[exprs.Expr, Optional[bool]]] = []
         order_by_origin: Optional[exprs.Expr] = None  # the expr that determines the ordering
-
 
         # window functions require ordering by the group_by/order_by clauses
         window_fn_calls = [
@@ -519,9 +554,7 @@ class Planner:
         ]
         if len(window_fn_calls) > 0:
             for fn_call in window_fn_calls:
-                gb, ob = fn_call.get_window_sort_exprs()
-                # for now, the ordering is implicitly ascending
-                fn_call_ordering = [(e, None) for e in gb] + [(e, True) for e in ob]
+                fn_call_ordering = fn_call.get_window_ordering()
                 if len(order_by_items) == 0:
                     order_by_items = fn_call_ordering
                     order_by_origin = fn_call
@@ -537,7 +570,7 @@ class Planner:
                         ))
                     order_by_items = combined
 
-        if len(analyzer.group_by_clause) > 0:
+        if analyzer.group_by_clause is not None and len(analyzer.group_by_clause) > 0:
             agg_ordering = [(e, None) for e in analyzer.group_by_clause] + [(e, True) for e in analyzer.agg_order_by]
             if len(order_by_items) > 0:
                 # check for compatibility
@@ -632,8 +665,6 @@ class Planner:
         """
         if select_list is None:
             select_list = []
-        if group_by_clause is None:
-            group_by_clause = []
         if order_by_clause is None:
             order_by_clause = []
         if exact_version_only is None:
@@ -641,16 +672,12 @@ class Planner:
         analyzer = Analyzer(
             tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
             order_by_clause=order_by_clause)
-        input_exprs = exprs.ExprSet(exprs.Expr.list_subexprs(
-            analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False))
-        # remove Literals from sql_exprs, we don't want to materialize them via a Select
-        input_exprs = exprs.ExprSet(e for e in input_exprs if not isinstance(e, exprs.Literal))
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], input_exprs)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
         # with_pk: for now, we always retrieve the PK, because we need it for the file cache
-        eval_ctx = row_builder.create_eval_ctx(analyzer.all_exprs)
+        eval_ctx = row_builder.create_eval_ctx(analyzer.select_list)
         plan = cls._create_query_plan(
             tbl, row_builder, analyzer=analyzer, eval_ctx=eval_ctx, limit=limit, with_pk=True,
             exact_version_only=exact_version_only)
@@ -677,47 +704,87 @@ class Planner:
         if exact_version_only is None:
             exact_version_only = []
         assert isinstance(tbl, catalog.TableVersionPath)
-        is_agg_query = len(analyzer.group_by_clause) > 0 or len(analyzer.agg_fn_calls) > 0
+        sql_elements = analyzer.sql_elements
+        is_python_agg = (
+                not sql_elements.contains(analyzer.agg_fn_calls) or not sql_elements.contains(analyzer.window_fn_calls)
+        )
         ctx = exec.ExecContext(row_builder)
+        cls._verify_ordering(analyzer, verify_agg=is_python_agg)
 
-        order_by_items = cls._determine_ordering(analyzer)
-        sql_limit = 0 if is_agg_query else limit  # if we're aggregating, the limit applies to the agg output
-        sql_exprs = [
-            e for e in eval_ctx.exprs if analyzer.sql_elements.contains(e) and not isinstance(e, exprs.Literal)
-        ]
+        # materialized with SQL scan:
+        # - select list subexprs that aren't aggregates
+        # - Where clause conjuncts that can't be run in SQL
+        # - all grouping exprs, if any aggregate function call can't be run in SQL (in that case, they all have to be
+        #   run in Python)
+        candidates = list(exprs.Expr.list_subexprs(
+            analyzer.select_list,
+            filter=lambda e: (
+                sql_elements.contains(e)
+                and not e._contains(cls=exprs.FunctionCall, filter=lambda e: e.is_agg_fn_call)
+            ),
+            traverse_matches=False))
+        if analyzer.filter is not None:
+            candidates.extend(exprs.Expr.subexprs(
+                analyzer.filter, filter=lambda e: sql_elements.contains(e), traverse_matches=False))
+        if is_python_agg and analyzer.group_by_clause is not None:
+            candidates.extend(exprs.Expr.list_subexprs(
+                analyzer.group_by_clause, filter=lambda e: sql_elements.contains(e), traverse_matches=False))
+        sql_scan_exprs = exprs.ExprSet(candidates)
+        # we don't want to materialize Literals via a Select
+        sql_scan_exprs -= exprs.ExprSet(e for e in sql_scan_exprs if isinstance(e, exprs.Literal))
+
         plan = exec.SqlScanNode(
-            tbl, row_builder, select_list=sql_exprs, where_clause=analyzer.sql_where_clause,
-            filter=analyzer.filter, order_by_items=order_by_items,
-            limit=sql_limit, set_pk=with_pk, exact_version_only=exact_version_only)
+            tbl, row_builder, select_list=sql_scan_exprs, where_clause=analyzer.sql_where_clause,
+            filter=analyzer.filter, set_pk=with_pk, exact_version_only=exact_version_only)
+        if len(analyzer.window_fn_calls) > 0:
+            # we need to order the input for window functions
+            plan.add_order_by(analyzer.get_window_fn_ordering())
         plan = cls._insert_prefetch_node(tbl.tbl_version.id, analyzer.select_list, row_builder, plan)
 
-        if len(analyzer.group_by_clause) > 0 or len(analyzer.agg_fn_calls) > 0:
-            # we're doing aggregation; the input of the AggregateNode are the grouping exprs plus the
+        if analyzer.group_by_clause is not None:
+            # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
             # args of the agg fn calls
-            agg_input = exprs.ExprSet(analyzer.group_by_clause.copy())
+            agg_input = exprs.ExprSet(analyzer.grouping_exprs.copy())
             for fn_call in analyzer.agg_fn_calls:
                 agg_input.update(fn_call.components)
-            if not exprs.ExprSet(sql_exprs).issuperset(agg_input):
+            if not sql_scan_exprs.issuperset(agg_input):
                 # we need an ExprEvalNode
-                plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
+                plan = exec.ExprEvalNode(row_builder, agg_input, sql_scan_exprs, input=plan)
 
             # batch size for aggregation input: this could be the entire table, so we need to divide it into
             # smaller batches; at the same time, we need to make the batches large enough to amortize the
             # function call overhead
             ctx.batch_size = 16
 
-            plan = exec.AggregationNode(
-                tbl.tbl_version, row_builder, analyzer.group_by_clause, analyzer.agg_fn_calls, agg_input, input=plan)
-            agg_output = exprs.ExprSet(itertools.chain(analyzer.group_by_clause, analyzer.agg_fn_calls))
-            if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
-                # we need an ExprEvalNode to evaluate the remaining output exprs
-                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
+            # do aggregation in SQL if all agg exprs can be translated
+            if (sql_elements.contains(analyzer.select_list)
+                    and sql_elements.contains(analyzer.grouping_exprs)
+                    and isinstance(plan, exec.SqlNode)
+                    and plan.to_cte() is not None):
+                plan = exec.SqlAggregationNode(
+                    row_builder, input=plan, select_list=analyzer.select_list, group_by_items=analyzer.group_by_clause)
+            else:
+                plan = exec.AggregationNode(
+                    tbl.tbl_version, row_builder, analyzer.group_by_clause,
+                    analyzer.agg_fn_calls + analyzer.window_fn_calls, agg_input, input=plan)
+                agg_output = exprs.ExprSet(analyzer.grouping_exprs + analyzer.agg_fn_calls + analyzer.window_fn_calls)
+                if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
+                    # we need an ExprEvalNode to evaluate the remaining output exprs
+                    plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
         else:
-            if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
+            if not exprs.ExprSet(sql_scan_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
-                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
+                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_scan_exprs, input=plan)
             # we're returning everything to the user, so we might as well do it in a single batch
             ctx.batch_size = 0
+
+        sql_node = plan.get_sql_node()
+        assert sql_node is not None
+        if len(analyzer.order_by_clause) > 0:
+            sql_node.add_order_by(analyzer.order_by_clause)
+
+        if limit is not None:
+            plan.set_limit(limit)
 
         plan.set_ctx(ctx)
         return plan

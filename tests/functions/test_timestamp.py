@@ -160,12 +160,22 @@ class TestTimestamp:
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
         from pixeltable.functions.timestamp import make_timestamp
-        res = t.select(
-            out=make_timestamp(
-                year=t.dt.year, month=t.dt.month, day=t.dt.day, hour=t.dt.hour,
-                # omit minute in order to force FunctionCall.sql_expr() to deal with kw args
-                second=t.dt.second)
-        ).collect()
+        res = (
+            t.select(
+                out=make_timestamp(
+                    year=t.dt.year, month=t.dt.month, day=t.dt.day, hour=t.dt.hour,
+                    # omit minute in order to force FunctionCall.sql_expr() to deal with kw args
+                    second=t.dt.second))
+            #.order_by(t.dt.day, asc=False)
+            .collect()
+        )
         assert (
             res['out'] == [dt.replace(minute=0).astimezone(Env.get().default_time_zone) for dt in test_dts]
         )
+        _ = (t.group_by(t.dt.month)
+            .select(t.dt.month, sum=pxt.functions.sum(t.dt.year) + pxt.functions.sum(t.dt.day))
+            .order_by(t.dt.month, asc=True)
+            .limit(3)
+            .collect()
+        )
+        pass

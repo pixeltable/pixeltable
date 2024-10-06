@@ -30,11 +30,11 @@ class TestVideo:
         view_t.add_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
         total_num_rows = view_t.count()
-        result = view_t.where(view_t.frame_idx >= 5).select(view_t.frame_idx, view_t.frame, view_t.transform).show(0)
+        result = view_t.where(view_t.frame_idx >= 5).select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
         assert len(result) == total_num_rows - len(paths) * 5
         result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(3)
         assert len(result) == 3
-        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(0)
+        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
         assert len(result) == total_num_rows
         # Try inserting a row with a `None` video; confirm that it produces no additional rows in the view
         base_t.insert(video=None)
@@ -108,7 +108,7 @@ class TestVideo:
         for name in ['c1', 'c2', 'c3', 'c4']:
             assert view_t._tbl_version_path.tbl_version.cols_by_name[name].is_stored
         base_t.insert({'video': p} for p in video_filepaths)
-        _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].show(0)
+        _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].collect()
 
     def test_get_metadata(self, reset_db) -> None:
         video_filepaths = get_video_files()

@@ -20,77 +20,77 @@ class TestDataFrame:
 
     def test_select_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        res1 = t.show(0)
-        res2 = t.select().show(0)
-        assert res1 == res2
+        res1 = t.collect()
+        res2 = t.select().collect()
+        assert len(res1) > 0 and res1 == res2
 
-        res1 = t[t.c1, t.c2, t.c3].show(0)
-        res2 = t.select(t.c1, t.c2, t.c3).show(0)
-        assert res1 == res2
+        res1 = t[t.c1, t.c2, t.c3].collect()
+        res2 = t.select(t.c1, t.c2, t.c3).collect()
+        assert len(res1) > 0 and res1 == res2
 
-        res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).show(0)
+        res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).collect()
         # this is no longer supported; TODO: do we want this?
-        #res2 = t[t.c2 < 10][t.c1, t.c2, t.c3].show(0)
+        #res2 = t[t.c2 < 10][t.c1, t.c2, t.c3].collect()
         #assert res1 == res2
 
-        res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).show(0)
+        res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).collect()
         assert res1 == res3
 
-        res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).show(0)
+        res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).collect()
         assert res1 == res4
 
         from pixeltable.functions.string import contains
-        _ = t.where(contains(t.c1, 'test')).select(t.c1).show(0)
-        _ = t.where(contains(t.c1, 'test') & contains(t.c1, '1')).select(t.c1).show(0)
-        _ = t.where(contains(t.c1, 'test') & (t.c2 >= 10)).select(t.c1).show(0)
+        _ = t.where(contains(t.c1, 'test')).select(t.c1).collect()
+        _ = t.where(contains(t.c1, 'test') & contains(t.c1, '1')).select(t.c1).collect()
+        _ = t.where(contains(t.c1, 'test') & (t.c2 >= 10)).select(t.c1).collect()
 
-        _ = t.where(t.c2 < 10).select(t.c2, t.c2).show(0) # repeated name no error
+        _ = t.where(t.c2 < 10).select(t.c2, t.c2).collect() # repeated name no error
 
         # where clause needs to be a predicate
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.where(t.c1).select(t.c2).show(0)
+            _ = t.where(t.c1).select(t.c2).collect()
         assert 'needs to return bool' in str(exc_info.value)
 
         # where clause needs to be a predicate
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.where(15).select(t.c2).show(0)
+            _ = t.where(15).select(t.c2).collect()
         assert 'requires a pixeltable expression' in str(exc_info.value).lower()
 
         # duplicate select list
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1).select(t.c2).show(0)
+            _ = t.select(t.c1).select(t.c2).collect()
         assert 'already specified' in str(exc_info.value)
 
         # invalid expr in select list: Callable is not a valid literal
         with pytest.raises(TypeError) as exc_info:
-            _ = t.select(datetime.datetime.now).show(0)
+            _ = t.select(datetime.datetime.now).collect()
         assert 'Not a valid literal' in str(exc_info.value)
 
         # catch invalid name in select list from user input
         # only check stuff that's not caught by python kwargs checker
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1, **{'c2-1': t.c2}).show(0)
+            _ = t.select(t.c1, **{'c2-1': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1, **{'': t.c2}).show(0)
+            _ = t.select(t.c1, **{'': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1, **{'foo.bar': t.c2}).show(0)
+            _ = t.select(t.c1, **{'foo.bar': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1, _c3=t.c2).show(0)
+            _ = t.select(t.c1, _c3=t.c2).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         # catch repeated name from user input
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c2, c2=t.c1).show(0)
+            _ = t.select(t.c2, c2=t.c1).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c2+1, col_0=t.c2).show(0)
+            _ = t.select(t.c2+1, col_0=t.c2).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
     def test_result_set_iterator(self, test_tbl: catalog.Table) -> None:
@@ -141,11 +141,11 @@ class TestDataFrame:
 
     def test_order_by(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).show(0)
+        res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).collect()
 
         # invalid expr in order_by()
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.order_by(datetime.datetime.now()).show(0)
+            _ = t.order_by(datetime.datetime.now()).collect()
         assert 'Invalid expression' in str(exc_info.value)
 
     def test_head_tail(self, test_tbl: catalog.Table) -> None:

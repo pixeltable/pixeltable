@@ -1,13 +1,25 @@
 from __future__ import annotations
-from typing import Iterable, Optional, List
-import abc
 
+import abc
+from typing import Iterable, Optional, List, TYPE_CHECKING, Iterator
+
+import pixeltable.exprs as exprs
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
-import pixeltable.exprs as exprs
+
+if TYPE_CHECKING:
+    from pixeltable import exec
 
 class ExecNode(abc.ABC):
     """Base class of all execution nodes"""
+    output_exprs: Iterable[exprs.Expr]
+    row_builder: exprs.RowBuilder
+    input: Optional[ExecNode]
+    flushed_img_slots: list[int]  # idxs of image slots of our output_exprs dependencies
+    stored_img_cols: list[exprs.ColumnSlotIdx]
+    ctx: Optional[ExecContext]
+    __iter: Optional[Iterator[DataRowBatch]]
+
     def __init__(
             self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr],
             input_exprs: Iterable[exprs.Expr], input: Optional[ExecNode] = None):
@@ -21,8 +33,9 @@ class ExecNode(abc.ABC):
             e.slot_idx for e in output_dependencies
             if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
-        self.stored_img_cols: List[exprs.ColumnSlotIdx] = []
-        self.ctx: Optional[ExecContext] = None  # all nodes of a tree share the same context
+        self.stored_img_cols = []
+        self.ctx = None  # all nodes of a tree share the same context
+        self.__iter = None
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
@@ -35,12 +48,15 @@ class ExecNode(abc.ABC):
         if self.input is not None:
             self.input.set_stored_img_cols(stored_img_cols)
 
-    def __iter__(self):
+    #@abc.abstractmethod
+    def __iter__(self) -> Iterator[DataRowBatch]:
         return self
 
-    @abc.abstractmethod
+    #@abc.abstractmethod
     def __next__(self) -> DataRowBatch:
-        pass
+        if self.__iter is None:
+            self.__iter = iter(self)
+        return next(self.__iter)
 
     def open(self) -> None:
         """Bottom-up initialization of nodes for execution. Must be called before __next__."""
@@ -60,3 +76,15 @@ class ExecNode(abc.ABC):
     def _close(self) -> None:
         pass
 
+    def get_sql_node(self) -> Optional['exec.SqlNode']:
+        from .sql_node import SqlNode
+        if isinstance(self, SqlNode):
+            return self
+        if self.input is not None:
+            return self.input.get_sql_node()
+        return None
+
+    def set_limit(self, limit: int) -> None:
+        """Default implementation propagates to input"""
+        if self.input is not None:
+            self.input.set_limit(limit)

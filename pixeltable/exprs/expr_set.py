@@ -60,3 +60,10 @@ class ExprSet:
 
     def __le__(self, other: ExprSet) -> bool:
         return other.issuperset(self)
+
+    def difference(self, *others: Iterable[Expr]) -> ExprSet:
+        id_diff = set(self.exprs.keys()).difference(e.id for other_set in others for e in other_set)
+        return ExprSet(self.exprs[id] for id in id_diff)
+
+    def __sub__(self, other: ExprSet) -> ExprSet:
+        return self.difference(other)
