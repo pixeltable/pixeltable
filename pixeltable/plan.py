@@ -1,4 +1,4 @@
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -106,12 +106,12 @@ class Analyzer:
         agg_fn_calls = exprs.ExprSet(
             exprs.Expr.list_subexprs(
                 candidates, expr_class=exprs.FunctionCall,
-                filter=lambda e: e.is_agg_fn_call and not e.is_window_fn_call))
+                filter=lambda e: bool(e.is_agg_fn_call and not e.is_window_fn_call)))
         self.agg_fn_calls = list(agg_fn_calls)
         window_fn_calls = exprs.ExprSet(
-            exprs.Expr.list_subexprs(candidates, expr_class=exprs.FunctionCall, filter=lambda e: e.is_window_fn_call))
+            exprs.Expr.list_subexprs(
+                candidates, expr_class=exprs.FunctionCall, filter=lambda e: bool(e.is_window_fn_call)))
         self.window_fn_calls = list(window_fn_calls)
-        #self.agg_fn_calls = [e for e in self.all_exprs if isinstance(e, exprs.FunctionCall) and _is_agg_fn_call(e)]
         if len(self.agg_fn_calls) == 0:
             # nothing to do
             return
@@ -128,8 +128,9 @@ class Analyzer:
 
         # check that filter doesn't contain aggregates
         if self.filter is not None:
-            agg_fn_calls = [e for e in self.filter.subexprs(expr_class=exprs.FunctionCall, filter=lambda e: _is_agg_fn_call(e))]
-            if len(agg_fn_calls) > 0:
+            if bool(
+                next(self.filter.subexprs(expr_class=exprs.FunctionCall, filter=lambda e: _is_agg_fn_call(e)), False)
+            ):
                 raise excs.Error(f'Filter cannot contain aggregate functions: {self.filter}')
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
@@ -720,7 +721,7 @@ class Planner:
             analyzer.select_list,
             filter=lambda e: (
                 sql_elements.contains(e)
-                and not e._contains(cls=exprs.FunctionCall, filter=lambda e: e.is_agg_fn_call)
+                and not e._contains(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call))
             ),
             traverse_matches=False))
         if analyzer.filter is not None:
@@ -767,7 +768,9 @@ class Planner:
                 plan = exec.AggregationNode(
                     tbl.tbl_version, row_builder, analyzer.group_by_clause,
                     analyzer.agg_fn_calls + analyzer.window_fn_calls, agg_input, input=plan)
-                agg_output = exprs.ExprSet(analyzer.grouping_exprs + analyzer.agg_fn_calls + analyzer.window_fn_calls)
+                agg_output = exprs.ExprSet(
+                    # explicit cast to avoid typechecking error
+                    cast(list[exprs.Expr], analyzer.grouping_exprs + analyzer.agg_fn_calls + analyzer.window_fn_calls))
                 if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                     # we need an ExprEvalNode to evaluate the remaining output exprs
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)

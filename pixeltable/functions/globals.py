@@ -1,4 +1,4 @@
-from typing import Optional, Union, Any
+from typing import Optional, Union
 
 import sqlalchemy as sql
 
@@ -28,9 +28,10 @@ class sum(func.Aggregator):
         return self.sum
 
 
-@sum.to_sql
+# disable type checking: mypy doesn't seem to understand that 'sum' is an instance of Function
+@sum.to_sql  # type: ignore
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
-    return sql.sql.functions.sum(val)
+    return sql.sql.func.sum(val)
 
 
 @func.uda(update_types=[ts.IntType()], value_type=ts.IntType(), allows_window=True, requires_order_by=False)
@@ -46,9 +47,9 @@ class count(func.Aggregator):
         return self.count
 
 
-@count.to_sql
+@count.to_sql  # type: ignore
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
-    return sql.sql.functions.count(val)
+    return sql.sql.func.count(val)
 
 
 @func.uda(update_types=[ts.FloatType()], value_type=ts.FloatType(nullable=True), allows_window=True, requires_order_by=False)
@@ -68,9 +69,9 @@ class max(func.Aggregator):
         return self.val
 
 
-@max.to_sql
+@max.to_sql  # type: ignore
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
-    return sql.sql.functions.max(val)
+    return sql.sql.func.max(val)
 
 
 @func.uda(update_types=[ts.FloatType()], value_type=ts.FloatType(nullable=True), allows_window=True, requires_order_by=False)
@@ -90,9 +91,9 @@ class min(func.Aggregator):
         return self.val
 
 
-@min.to_sql
+@min.to_sql  # type: ignore
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
-    return sql.sql.functions.min(val)
+    return sql.sql.func.min(val)
 
 
 @func.uda(update_types=[ts.IntType()], value_type=ts.FloatType(), allows_window=False, requires_order_by=False)
@@ -112,9 +113,9 @@ class mean(func.Aggregator):
         return self.sum / self.count
 
 
-@mean.to_sql
+@mean.to_sql  # type: ignore
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
-    return sql.sql.functions.avg(val)
+    return sql.sql.func.avg(val)
 
 
 __all__ = local_public_names(__name__)
