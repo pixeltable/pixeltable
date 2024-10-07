@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 import numpy as np
 import pytest
@@ -6,22 +6,24 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.type_system import IntType
-from .utils import create_test_tbl, assert_resultset_eq, create_img_tbl, clip_img_embed, reload_catalog
+
+from .utils import assert_resultset_eq, clip_img_embed, create_img_tbl, create_test_tbl, reload_catalog
 
 
 class TestSnapshot:
     def run_basic_test(
-            self, tbl: pxt.Table, snap: pxt.Table, extra_items: Dict[str, Any], filter: Any,
-            reload_md: bool
+        self,
+        tbl: pxt.Table,
+        orig_query: Union[pxt.Table, pxt.DataFrame],
+        snap: pxt.Table,
+        extra_items: Dict[str, Any],
+        reload_md: bool
     ) -> None:
         tbl_path, snap_path = tbl._path, snap._path
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
         tbl_select_list = [tbl[col_name] for col_name in tbl._schema.keys()]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
-        orig_resultset_df = tbl.select(*tbl_select_list)
-        if filter is not None:
-            orig_resultset_df = orig_resultset_df.where(filter)
-        orig_resultset = orig_resultset_df.order_by(tbl.c2).collect()
+        orig_resultset = orig_query.select(*tbl_select_list).order_by(tbl.c2).collect()
 
         if reload_md:
             # reload md
@@ -88,9 +90,9 @@ class TestSnapshot:
                         'v2': {'value': lambda c3: c3 * 2.0, 'type': pxt.FloatType()}
                     } if has_cols else {}
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
-                    filter = tbl.c2 < 10 if has_filter else None
-                    snap = pxt.create_view(snap_path, tbl, additional_columns=schema, filter=filter, is_snapshot=True)
-                    self.run_basic_test(tbl, snap, extra_items=extra_items, filter=filter, reload_md=reload_md)
+                    query = tbl.where(tbl.c2 < 10) if has_filter else tbl
+                    snap = pxt.create_view(snap_path, query, additional_columns=schema, is_snapshot=True)
+                    self.run_basic_test(tbl, query, snap, extra_items=extra_items, reload_md=reload_md)
 
     def test_errors(self, reset_db) -> None:
         tbl = create_test_tbl()

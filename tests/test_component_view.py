@@ -1,16 +1,17 @@
-from typing import Dict, Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
-import PIL
 import numpy as np
 import pandas as pd
+import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exceptions as excs
 from pixeltable.iterators import ComponentIterator
 from pixeltable.iterators.video import FrameIterator
-from pixeltable.type_system import IntType, VideoType, JsonType
-from .utils import assert_resultset_eq, get_test_video_files, validate_update_status, reload_catalog
+from pixeltable.type_system import IntType, JsonType, VideoType
+
+from .utils import assert_resultset_eq, get_test_video_files, reload_catalog, validate_update_status
 
 
 class ConstantImgIterator(ComponentIterator):
@@ -229,9 +230,9 @@ class TestComponentView:
         orig_resultset = view_query.collect()
 
         # create snapshot of view
-        filter = view_t.frame_idx < 10 if has_filter else None
+        query = view_t.where(view_t.frame_idx < 10) if has_filter else view_t
         schema = {'c1': view_t.cropped.width * view_t.cropped.height} if has_column else {}
-        snap_t = pxt.create_view(snap_path, view_t, additional_columns=schema, filter=filter, is_snapshot=True)
+        snap_t = pxt.create_view(snap_path, query, additional_columns=schema, is_snapshot=True)
         snap_cols = [snap_t.c1] if has_column else []
         snap_query = \
             snap_t.select(

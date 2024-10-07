@@ -149,18 +149,18 @@ class Dumper:
         pxt.create_dir('views')
 
         # simple view
-        v = pxt.create_view('views.view', t, filter=(t.c2 < 50))
+        v = pxt.create_view('views.view', t.where(t.c2 < 50))
         self.__add_expr_columns(v, 'view')
 
         # snapshot
-        _ = pxt.create_view('views.snapshot', t, filter=(t.c2 >= 75), is_snapshot=True)
+        _ = pxt.create_view('views.snapshot', t.where(t.c2 >= 75), is_snapshot=True)
 
         # view of views
-        vv = pxt.create_view('views.view_of_views', v, filter=(t.c2 >= 25))
+        vv = pxt.create_view('views.view_of_views', v.where(t.c2 >= 25))
         self.__add_expr_columns(vv, 'view_of_views')
 
         # empty view
-        e = pxt.create_view('views.empty_view', t, filter=t.c2 == 4171780)
+        e = pxt.create_view('views.empty_view', t.where(t.c2 == 4171780))
         assert e.count() == 0
         self.__add_expr_columns(e, 'empty_view', include_expensive_functions=True)
 
