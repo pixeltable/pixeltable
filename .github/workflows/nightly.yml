@@ -32,7 +32,7 @@ jobs:
           - "label_studio_sdk"
         include:
           # Test the basic pixeltable installation on other platforms.
-          - os: macos-12
+          - os: macos-13
             python-version: "3.9"
             package-configs: ""
           - os: macos-latest
