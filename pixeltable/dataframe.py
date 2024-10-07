@@ -8,7 +8,7 @@ import logging
 import mimetypes
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Hashable, Iterator, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Hashable, Iterator, List, Optional, Sequence, Set, Tuple, Union
 
 import pandas as pd
 import pandas.io.formats.style
@@ -616,17 +616,15 @@ class DataFrame:
         if self.limit_val is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `limit`')
 
-    def __getitem__(self, index: object) -> DataFrame:
+    def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> DataFrame:
         """
         Allowed:
         - [List[Expr]]/[Tuple[Expr]]: setting the select list
         - [Expr]: setting a single-col select list
         """
-        if isinstance(index, tuple):
-            index = list(index)
         if isinstance(index, exprs.Expr):
-            index = [index]
-        if isinstance(index, list):
+            return self.select(index)
+        if isinstance(index, Sequence):
             return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
 

@@ -68,8 +68,9 @@ def __substitute_md_rec(
     substitution_fn: Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]
 ) -> Any:
     if isinstance(md, dict):
-        updated_dict = {}
+        updated_dict: dict[str, Any] = {}
         for k, v in md.items():
+            assert isinstance(k, str)
             substitute = substitution_fn(k, v)
             if substitute is not None:
                 updated_k, updated_v = substitute

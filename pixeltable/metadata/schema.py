@@ -8,9 +8,9 @@ import sqlalchemy.orm as orm
 from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm.decl_api import DeclarativeMeta
 
-Base: type = declarative_base()
-base_metadata = Base.metadata  # type: ignore[attr-defined]
+Base: DeclarativeMeta = declarative_base()
 
 T = TypeVar('T')
 
@@ -26,10 +26,8 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
         if origin is Union and type(None) in type_args:
             # Handling Optional types
             non_none_args = [arg for arg in type_args if arg is not type(None)]
-            if len(non_none_args) == 1:
-                return md_from_dict(non_none_args[0], data) if data is not None else None
-            else:
-                assert False
+            assert len(non_none_args) == 1
+            return md_from_dict(non_none_args[0], data) if data is not None else None
         elif origin is list:
             return [md_from_dict(type_args[0], elem) for elem in data]  # type: ignore[return-value]
         elif origin is dict:

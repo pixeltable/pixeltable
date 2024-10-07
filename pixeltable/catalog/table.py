@@ -5,7 +5,7 @@ import builtins
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Sequence, Set, Tuple, Type, Union, overload
 from uuid import UUID
 
 import pandas as pd
@@ -95,7 +95,7 @@ class Table(SchemaObject):
     def __getitem__(self, name: str) -> Union['pxt.exprs.ColumnRef', 'pxt.func.QueryTemplateFunction']: ...
 
     @overload
-    def __getitem__(self, index: Union[slice, exprs.Expr]) -> 'pxt.DataFrame': ...
+    def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> 'pxt.DataFrame': ...
 
     def __getitem__(self, index):
         """Return a ColumnRef or QueryTemplateFunction for the given name, or a DataFrame for the given slice.
