@@ -121,7 +121,7 @@ def create_view(
             `dir1.my_view`.
         base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`DataFrame`][pixeltable.DataFrame] to
             base the view on.
-        additional_columns: If specified, will add additional columns to the view once it is created. The format
+        additional_columns: If specified, will add these columns to the view once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
             [`create_table`][pixeltable.create_table].
         is_snapshot: Whether the view is a snapshot.
