@@ -14,8 +14,9 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
 from pixeltable.functions.string import format
-from ..utils import (skip_test_if_not_installed, get_image_files, validate_update_status, reload_catalog,
-                     SAMPLE_IMAGE_URL, get_video_files, get_audio_files, validate_sync_status)
+
+from ..utils import (SAMPLE_IMAGE_URL, get_audio_files, get_image_files, get_video_files, reload_catalog,
+                     skip_test_if_not_installed, validate_sync_status, validate_update_status)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -320,8 +321,8 @@ class TestLabelStudio:
 
         t = ls_image_table
         t['annotations_col'] = pxt.JsonType(nullable=True)
-        v1 = pxt.create_view('view_1', t, filter=t.id < 20)
-        v2 = pxt.create_view('view_2', v1, filter=t.id < 10)
+        v1 = pxt.create_view('view_1', t.where(t.id < 20))
+        v2 = pxt.create_view('view_2', v1.where(t.id < 10))
 
         # Link a project to the view, but with annotations going to a column of the base table,
         # and ensure that they propagate correctly.
