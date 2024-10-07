@@ -10,7 +10,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
-Base: DeclarativeMeta = declarative_base()
+Base: type = declarative_base()
+assert isinstance(Base, DeclarativeMeta)
+base_metadata = Base.metadata
 
 T = TypeVar('T')
 
