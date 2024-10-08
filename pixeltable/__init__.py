@@ -1,4 +1,4 @@
-from .catalog import Column, InsertableTable, Table, View
+from .catalog import Column, InsertableTable, Table, UpdateStatus, View
 from .dataframe import DataFrame
 from .exceptions import Error
 from .exprs import RELATIVE_PATH_ROOT

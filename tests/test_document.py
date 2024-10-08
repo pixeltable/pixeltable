@@ -2,7 +2,7 @@ import difflib
 import itertools
 import json
 import re
-from typing import List, Optional, Set
+from typing import Optional
 
 import pytest
 
@@ -14,10 +14,10 @@ from pixeltable.utils.documents import get_document_handle
 from .utils import get_audio_files, get_documents, get_image_files, get_video_files, skip_test_if_not_installed
 
 
-def _check_pdf_metadata(rec, sep1):
-    if sep1 in ['page', 'paragraph', 'sentence']:
+def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]):
+    if 'page' in metadata and sep1 in ['page', 'paragraph', 'sentence']:
         assert rec.get('page') is not None
-    if sep1 in ['paragraph', 'sentence']:
+    if 'bounding_box' in metadata and sep1 in ['paragraph', 'sentence']:
         box = rec.get('bounding_box')
         assert box is not None
         assert box.get('x1') is not None
@@ -37,10 +37,10 @@ def diff_snippet(text1: str, text2: str, diff_line_limit: Optional[int] = 20) ->
 
 
 class TestDocument:
-    def valid_doc_paths(self) -> List[str]:
+    def valid_doc_paths(self) -> list[str]:
         return get_documents()
 
-    def invalid_doc_paths(self) -> List[str]:
+    def invalid_doc_paths(self) -> list[str]:
         return [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
 
     def test_insert(self, reset_db) -> None:
@@ -132,76 +132,86 @@ class TestDocument:
 
         # run all combinations of (headings, paragraph, sentence) x (token_limit, char_limit, None)
         # and make sure they extract the same text in aggregate
+        all_metadata = ['title', 'heading', 'sourceline', 'page', 'bounding_box']
+        # combinations are given as (sep1, sep2, limit, metadata)
+        combinations: list[tuple[str, str, int, list[str]]] = [
+            (sep1, None, None, metadata) for sep1, metadata in itertools.product(
+                ['', 'heading', 'page', 'paragraph', 'sentence'],
+                [[], all_metadata]
+            )
+        ]
+        combinations += [
+            (sep1, sep2, limit, all_metadata) for sep1, sep2, limit in itertools.product(
+                ['', 'heading', 'page', 'paragraph', 'sentence'],
+                ['token_limit', 'char_limit'],
+                [10, 20, 100]
+            )
+        ]
+
         all_text_reference: Optional[str] = None  # all text as a single string; normalized
-        headings_reference: Set[str] = {}  # headings metadata as a json-serialized string
-        import itertools
-        for (sep1, sep2) in itertools.product(['', 'heading', 'page', 'paragraph', 'sentence'],
-                                              ['', 'token_limit', 'char_limit']):
-            chunk_limits = [10, 20, 100] if sep2 else [None]
-            for limit in chunk_limits:
-                chunks_t = pxt.create_view(
-                    'chunks', doc_t,
-                    iterator=DocumentSplitter.create(
-                        document=doc_t.doc,
-                        separators=','.join([sep1, sep2]),
-                        metadata='title,heading,sourceline,page,bounding_box',
-                        limit=limit if sep2 else None,
-                        overlap=0 if sep2 else None)
-                )
-                res = list(chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect())
+        headings_reference: set[str] = set()  # headings metadata as a json-serialized string
+        for sep1, sep2, limit, metadata in combinations:
+            # Intentionally omit args that are not specified in this combination, to test that the iterator
+            # applies defaults properly.
+            args = {
+                'document': doc_t.doc,
+                'separators': sep1 if sep2 is None else ','.join([sep1, sep2]),
+            }
+            if len(metadata) > 0:
+                args['metadata'] = ','.join(metadata)
+            if sep2 is not None:
+                args['limit'] = limit
+                args['overlap'] = 0
+            print(f'Testing with args: {args}')
 
-                if all_text_reference is None:
-                    assert sep1 == '' and sep2 == ''
-                    # when sep1 and sep2 are both '', there should be a single result per input file.
-                    assert len(res) == len(file_paths)
-                    # check that all the expected metadata exists as a field
-                    for r in res:
-                        assert 'title' in r
-                        assert 'heading' in r
-                        assert 'sourceline' in r
-                        assert 'page' in r
-                        assert 'bounding_box' in r
-                        assert r['text'] # non-empty text
+            chunks_t = pxt.create_view('chunks', doc_t, iterator=DocumentSplitter.create(**args))
+            res: list[dict] = list(chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect())
 
-                    all_text_reference = normalize(''.join([r['text'] for r in res]))
+            if all_text_reference is None:
+                assert sep1 == '' and sep2 is None
+                # when sep1 and sep2 are both '', there should be a single result per input file.
+                assert len(res) == len(file_paths)
+                # check that all the expected metadata exists as a field
+                for r in res:
+                    assert r['text']  # non-empty text
+                    assert all(md in r for md in metadata)
 
-                    # check reference text is not empty
-                    assert all_text_reference
+                all_text_reference = normalize(''.join(r['text'] for r in res))
 
-                    # exclude markdown from heading checks at the moment
+                # check reference text is not empty
+                assert all_text_reference
+
+                # exclude markdown from heading checks at the moment
+                if 'heading' in metadata:
                     headings_reference = {json.dumps(r['heading']) for r in res if not r['doc'].endswith('md')}
-                else:
-                    all_text = normalize(''.join([r['text'] for r in res]))
+            else:
+                all_text = normalize(''.join([r['text'] for r in res]))
+                if 'heading' in metadata:
                     headings = {json.dumps(r['heading']) for r in res if not r['doc'].endswith('md')}
 
-                    diff = diff_snippet(all_text, all_text_reference)
-                    assert not diff, f'{sep1}, {sep2}, {limit}\n{diff}'
+                diff = diff_snippet(all_text, all_text_reference)
+                assert not diff, f'{sep1}, {sep2}, {limit}\n{diff}'
 
-                    # disable headings checks, currently failing strict equality,
-                    # but headings look reasonable and text is correct
-                    #assert headings == headings_reference, f'{sep1}, {sep2}, {limit}'
+                # disable headings checks, currently failing strict equality,
+                # but headings look reasonable and text is correct
+                #assert headings == headings_reference, f'{sep1}, {sep2}, {limit}'
 
-                    # check splitter honors limits
-                    if sep2 == 'char_limit':
-                        for r in res:
-                            assert len(r['text']) <= limit
-                    if sep2 == 'token_limit':
-                        for r in res:
-                            tokens = encoding.encode(r['text'])
-                            assert len(tokens) <= limit
-
-                    # check expected metadata is present
+                # check splitter honors limits
+                if sep2 == 'char_limit':
                     for r in res:
-                        assert 'title' in r
-                        assert 'heading' in r
-                        assert 'sourceline' in r
-                        assert 'page' in r
-                        assert 'bounding_box' in r
+                        assert len(r['text']) <= limit
+                if sep2 == 'token_limit':
+                    for r in res:
+                        tokens = encoding.encode(r['text'])
+                        assert len(tokens) <= limit
 
-                        if r['doc'].endswith('pdf'):
-                            _check_pdf_metadata(r, sep1)
+                # check expected metadata is present
+                for r in res:
+                    if r['doc'].endswith('pdf'):
+                        _check_pdf_metadata(r, sep1, metadata)
+                    assert all(md in r for md in metadata)
 
-                pxt.drop_table('chunks')
+            pxt.drop_table('chunks')
 
     def test_doc_splitter_headings(self, reset_db) -> None:
         skip_test_if_not_installed('spacy')
