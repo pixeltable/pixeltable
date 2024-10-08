@@ -16,6 +16,9 @@ _PREDEF_SYMBOLS: Optional[set[str]] = None
 
 @dataclasses.dataclass
 class UpdateStatus:
+    """
+    Information about updates that resulted from a table operation.
+    """
     num_rows: int = 0
     # TODO: disambiguate what this means: # of slots computed or # of columns computed?
     num_computed_values: int = 0
