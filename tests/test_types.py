@@ -66,8 +66,9 @@ class TestTypes:
         for py_type, pxt_type in test_cases.items():
             assert ColumnType.from_python_type(py_type) == pxt_type
             assert ColumnType.from_python_type(Optional[py_type]) == pxt_type.copy(nullable=True)
+            assert ColumnType.from_python_type(Union[None, py_type]) == pxt_type.copy(nullable=True)
 
-        # Pixeltable types that are nullable by default and use T[NotNull] syntax
+        # Pixeltable types that are nullable by default and accept T[NotNull] syntax
         pxt_test_cases = {
             String: StringType(nullable=True),
             Int: IntType(nullable=True),

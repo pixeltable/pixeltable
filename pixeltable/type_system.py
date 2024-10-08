@@ -259,13 +259,13 @@ class ColumnType:
     def from_python_type(cls, t: Union[type, _AnnotatedAlias]) -> Optional[ColumnType]:
         if typing.get_origin(t) is typing.Union:
             union_args = typing.get_args(t)
-            if union_args[1] is type(None):
-                # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
+            if len(union_args) == 2 and type(None) in union_args:
+                # `t` is a type of the form Optional[T] (equivalently, Union[T, None] or Union[None, T]).
                 # We treat it as the underlying type but with nullable=True.
-                underlying = cls.from_python_type(union_args[0])
+                underlying_py_type = union_args[0] if union_args[1] is type(None) else union_args[1]
+                underlying = cls.from_python_type(underlying_py_type)
                 if underlying is not None:
-                    underlying._nullable = True
-                    return underlying
+                    return underlying.copy(nullable=True)
         elif typing.get_origin(t) is typing.Annotated:
             annotated_args = typing.get_args(t)
             origin = annotated_args[0]
@@ -897,6 +897,17 @@ T = typing.TypeVar('T')
 
 
 class _PxtType:
+    """
+    Base class for the Pixeltable type-hint family. Subclasses of this class are meant to be used as type hints, both
+    in schema definitions and in UDF signatures. Whereas `ColumnType`s are instantiable and carry semantic information
+    about the Pixeltable type system, `_PxtType` subclasses are purely for convenience: they are not instantiable and
+    must be resolved to a `ColumnType` (by calling `ColumnType.from_python_type()`) in order to do anything meaningful
+    with them.
+
+    `_PxtType` subclasses can be specialized (as type hints) with type parameters; for example:
+    `Image[(300, 300), 'RGB']`. The specialized forms resolve to `typing.Annotated` instances whose annotation is a
+    `ColumnType`.
+    """
     def __init__(self):
         raise TypeError(f'Type `{type(self)}` cannot be instantiated.')
 
@@ -952,6 +963,13 @@ class Json(_PxtType):
 
 class Array(np.ndarray, _PxtType):
     def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+        """
+        `item` (the type subscript) must be a tuple with exactly two or three elements (in any order):
+        - (Required) A tuple of `Optional[int]`s, specifying the shape of the array
+        - (Required) A type, specifying the dtype of the array
+        - (Optional) `NotNull`
+        Example: Array[(3, None, 2), float, NotNull]
+        """
         params = item if isinstance(item, tuple) else (item,)
         shape: Optional[tuple] = None
         dtype: Optional[ColumnType] = None
@@ -980,6 +998,14 @@ class Array(np.ndarray, _PxtType):
 
 class Image(PIL.Image.Image, _PxtType):
     def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+        """
+        `item` (the type subscript) must be one of the following, or a tuple containing any number of them
+        in any order:
+        - A 2-tuple of `int`s, specifying the size of the image
+        - A string, specifying the mode of the image
+        - `NotNull`
+        Example: Image[(300, 300), 'RGB', NotNull]
+        """
         if isinstance(item, tuple) and all(isinstance(n, int) for n in item):
             # It's a tuple of the form (width, height)
             params = (item,)
