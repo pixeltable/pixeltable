@@ -56,11 +56,6 @@ class QueryTemplateFunction(Function):
             literal_default = exprs.Literal(param.default, col_type=param_type)
             self.defaults[param.name] = literal_default
 
-    # We need this so that the type checker will accept dot-resolution of Union types that include
-    # QueryTemplateFunction
-    def __getattr__(self, item: str) -> 'exprs.Expr':
-        raise AttributeError(f"'QueryTemplateFunction' object has no attribute '{item}'")
-
     def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
         self.conn = conn
 

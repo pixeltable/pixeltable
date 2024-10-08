@@ -46,6 +46,7 @@ class Table(SchemaObject):
         self._is_dropped = False
         self._tbl_version_path = tbl_version_path
         self._queries: dict[str, pxt.func.QueryTemplateFunction] = {}
+        self.__query_scope = self.QueryScope(self)
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         super()._move(new_name, new_dir_id)
@@ -84,15 +85,13 @@ class Table(SchemaObject):
         if self._is_dropped:
             raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
 
-    def __getattr__(self, name: str) -> Union['pxt.exprs.ColumnRef', 'pxt.func.QueryTemplateFunction']:
-        """Return a ColumnRef or QueryTemplateFunction for the given name.
+    def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
+        """Return a ColumnRef for the given name.
         """
-        if name in self._queries:
-            return self._queries[name]
         return getattr(self._tbl_version_path, name)
 
     @overload
-    def __getitem__(self, name: str) -> Union['pxt.exprs.ColumnRef', 'pxt.func.QueryTemplateFunction']: ...
+    def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef': ...
 
     @overload
     def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> 'pxt.DataFrame': ...
@@ -127,6 +126,10 @@ class Table(SchemaObject):
         """
         # local import: avoid circular imports
         return pxt.DataFrame(self._tbl_version_path)
+
+    @property
+    def queries(self) -> 'Table.QueryScope':
+        return self.__query_scope
 
     def select(self, *items: Any, **named_items: Any) -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
@@ -955,3 +958,14 @@ class Table(SchemaObject):
 
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._schema.keys()) + self._query_names
+
+    class QueryScope:
+        __table: 'Table'
+
+        def __init__(self, table: 'Table') -> None:
+            self.__table = table
+
+        def __getattr__(self, name: str) -> 'pxt.func.QueryTemplateFunction':
+            if name in self.__table._queries:
+                return self.__table._queries[name]
+            raise AttributeError(f'Table {self.__table._name!r} has no query with that name: {name!r}')
