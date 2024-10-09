@@ -29,6 +29,7 @@ nav:
       - FrameIterator: api/iterators/frame-iterator.md
     - DataFrame: api/data-frame.md
     - Table: api/table.md
+    - UpdateStatus: api/update-status.md
   - Built-in Functions and Operators:
     - audio: api/functions/audio.md
     - image: api/functions/image.md
