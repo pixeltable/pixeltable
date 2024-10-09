@@ -5,11 +5,18 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    - cron: "24 1 * * 2"  # Tuesday at 01:24 UTC
   workflow_dispatch:
     inputs:
       enable_tmate:
         type: boolean
         description: 'Enable SSH debugging with tmate'
+        required: false
+        default: false
+      run_on_all_platforms:
+        type: boolean
+        description: 'Run on all platforms (including expensive ones)'
         required: false
         default: false
 
@@ -29,11 +36,12 @@ jobs:
       fail-fast: false
       matrix:
         # Test with Python 3.9 and 3.12 (minimum and maximum supported versions) on every platform.
-        # After a PR, test only the basic (free) platforms: ubuntu-22.04, macos-13, macos-latest, windows-2022.
-        # On other event types (push and workflow_dispatch), test also ubuntu-arm64 and ubuntu-x64-t4.
-        os: ${{ github.event_name == 'pull_request'
-                && fromJSON('["ubuntu-22.04", "macos-13", "windows-2022"]')
-                || fromJSON('["ubuntu-22.04", "macos-13", "windows-2022", "ubuntu-arm64", "ubuntu-x64-t4"]') }}
+        # In most cases, test only the basic (free) platforms: ubuntu-22.04, macos-13, windows-2022.
+        # On a scheduled run, also test ubuntu-arm64 and ubuntu-x64-t4 (which cost money).
+        # A workflow_dispatch trigger can (optionally) also be used to trigger a full run on all platforms.
+        os: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms))
+                && fromJSON('["ubuntu-22.04", "macos-13", "windows-2022", "ubuntu-arm64", "ubuntu-x64-t4"]')
+                || fromJSON('["ubuntu-22.04", "macos-13", "windows-2022"]') }}
         python-version: ["3.9", "3.12"]
         test-category: ["py"]
         poetry-options: ["--with dev"]
