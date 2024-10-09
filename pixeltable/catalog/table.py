@@ -318,7 +318,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
         if not isinstance(spec, (ts.ColumnType, exprs.Expr)):
             raise excs.Error(f'Column spec must be a ColumnType or an Expr, got {type(spec)}')
-        self.add_column(type=None, stored=None, print_stats=False, **{col_name: spec})
+        self.add_column(type=None, stored=None, print_stats=False, on_error='raise', **{col_name: spec})
 
     def add_column(
             self,
