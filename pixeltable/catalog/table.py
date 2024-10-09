@@ -333,10 +333,10 @@ class Table(SchemaObject):
         Adds a column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form `column-name=type|value-expression`.
+            kwargs: Exactly one keyword argument of the form `column_name=type` or `column_name=expression`.
             type: The type of the column. Only valid and required if `value-expression` is a Callable.
             stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
-            print_stats: If `True`, print execution metrics.
+            print_stats: If `True`, print execution metrics during evaluation.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
 
@@ -346,11 +346,10 @@ class Table(SchemaObject):
                   corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
         Returns:
-            An [`UpdateStatus`][pixeltable.catalog.UpdateStatus] object containing information about the execution
-                status of the operation.
+            Information about the execution status of the operation.
 
         Raises:
-            [`Error`][pixeltable.exceptions.Error]: If the column name is invalid or already exists.
+            Error: If the column name is invalid or already exists.
 
         Examples:
             Add an int column:

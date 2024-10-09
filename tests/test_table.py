@@ -2,47 +2,26 @@ import datetime
 import math
 import os
 import random
-from typing import List, Tuple
 
-import PIL
 import cv2
 import numpy as np
 import pandas as pd
+import PIL
 import pytest
 
 import pixeltable as pxt
-import pixeltable.functions as ptf
+import pixeltable.functions as pxtf
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.type_system import (
-    StringType,
-    IntType,
-    FloatType,
-    TimestampType,
-    ImageType,
-    VideoType,
-    JsonType,
-    BoolType,
-    ArrayType,
-    AudioType,
-    DocumentType,
-)
+from pixeltable.type_system import (ArrayType, AudioType, BoolType, DocumentType, FloatType, ImageType, IntType,
+                                    JsonType, StringType, TimestampType, VideoType)
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
-from .utils import (
-    make_tbl,
-    create_table_data,
-    read_data_file,
-    get_video_files,
-    get_audio_files,
-    get_image_files,
-    get_documents,
-    assert_resultset_eq,
-    validate_update_status,
-    skip_test_if_not_installed,
-    reload_catalog,
-)
+
+from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
+                    get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed,
+                    validate_update_status)
 
 
 class TestTable:
@@ -333,7 +312,7 @@ class TestTable:
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
     def check_bad_media(
-        self, rows: List[Tuple[str, bool]], col_type: pxt.ColumnType, validate_local_path: bool = True
+        self, rows: list[tuple[str, bool]], col_type: pxt.ColumnType, validate_local_path: bool = True
     ) -> None:
         schema = {
             'media': col_type,
@@ -934,7 +913,7 @@ class TestTable:
 
         # unstored cols that compute window functions aren't currently supported
         with pytest.raises((excs.Error)):
-            t.add_column(c10=ptf.sum(t.c1, group_by=t.c1), stored=False)
+            t.add_column(c10=pxtf.sum(t.c1, group_by=t.c1), stored=False)
 
         # Column.dependent_cols are computed correctly
         assert len(t.c1.col.dependent_cols) == 3
@@ -1027,10 +1006,23 @@ class TestTable:
         status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
-        status = t.add_column(add1=self.f2(self.f1(t.c2)))
+
+        with pytest.raises(excs.Error) as exc:
+            t.add_column(add1=self.f2(self.f1(t.c2)))
+        assert 'division by zero' in str(exc.value)
+
+        # on_error='raise' is the default
+        with pytest.raises(excs.Error) as exc:
+            t.add_column(add1=self.f2(self.f1(t.c2)), on_error='raise')
+        assert 'division by zero' in str(exc.value)
+
+        # on_error='continue' stores the exception in errortype/errormsg
+        status = t.add_column(add1=self.f2(self.f1(t.c2)), on_error='continue')
         assert status.num_excs == 10
         assert 'test_add_column.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
+        msgs = t.select(msg=t.add1.errormsg).collect()['msg']
+        assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
     def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
@@ -1088,7 +1080,7 @@ class TestTable:
     def test_computed_window_fn(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # backfill
-        t.add_column(c9=ptf.sum(t.c2, group_by=t.c4, order_by=t.c3))
+        t.add_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
         schema = {
             'c2': IntType(nullable=False),
@@ -1097,7 +1089,7 @@ class TestTable:
         }
         new_t = pxt.create_table('insert_test', schema)
         new_t.add_column(c5=lambda c2: c2 * c2, type=IntType())
-        new_t.add_column(c6=ptf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
+        new_t.add_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.show(0)
@@ -1319,13 +1311,13 @@ class TestTable:
             t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
 
         # with exception in Python for c6.f2 == 10
-        status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10))
+        status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10), on_error='continue')
         assert status.num_excs == 1
         result = t.where(t.add2.errortype != None).select(t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg).show()
         assert len(result) == 1
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
-        status = t.add_column(add3=self.f2(self.f1(t.c2)))
+        status = t.add_column(add3=self.f2(self.f1(t.c2)), on_error='continue')
         assert status.num_excs == 10
         result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10

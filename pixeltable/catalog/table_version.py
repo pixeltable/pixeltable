@@ -517,8 +517,8 @@ class TableVersion:
         self,
         cols: Iterable[Column],
         conn: sql.engine.Connection,
-        print_stats: bool,
-        on_error: Literal['raise', 'continue']
+        print_stats: bool = False,
+        on_error: Literal['raise', 'continue'] = 'continue'
     ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
         cols = list(cols)
