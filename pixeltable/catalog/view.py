@@ -52,11 +52,11 @@ class View(Table):
 
     @classmethod
     def _create(
-            cls, dir_id: UUID, name: str, base: TableVersionPath, schema: Dict[str, Any],
-            predicate: 'pxt.exprs.Expr', is_snapshot: bool, num_retained_versions: int, comment: str,
+            cls, dir_id: UUID, name: str, base: TableVersionPath, additional_columns: Dict[str, Any],
+            predicate: Optional['pxt.exprs.Expr'], is_snapshot: bool, num_retained_versions: int, comment: str,
             iterator_cls: Optional[Type[ComponentIterator]], iterator_args: Optional[Dict]
     ) -> View:
-        columns = cls._create_columns(schema)
+        columns = cls._create_columns(additional_columns)
         cls._verify_schema(columns)
 
         # verify that filter can be evaluated in the context of the base

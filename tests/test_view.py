@@ -7,8 +7,9 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
-from pixeltable.type_system import IntType, FloatType, ImageType
-from .utils import create_test_tbl, assert_resultset_eq, reload_catalog, validate_update_status
+from pixeltable.type_system import FloatType, ImageType, IntType
+
+from .utils import assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status
 
 logger = logging.getLogger('pixeltable')
 
@@ -54,7 +55,7 @@ class TestView:
             'v1': t.c3 * 2.0,
             'v2': t.c6.f5,
         }
-        v = pxt.create_view('test_view', t, schema=schema, filter=t.c2 < 10)
+        v = pxt.create_view('test_view', t.where(t.c2 < 10), additional_columns=schema)
         # TODO: test repr more thoroughly
         _ = v.__repr__()
         assert_resultset_eq(
@@ -111,7 +112,7 @@ class TestView:
         check_view(t, v)
 
         # check alternate view creation syntax (via a DataFrame)
-        v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), schema=schema)
+        v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), additional_columns=schema)
         validate_update_status(v2.add_column(v3=v2.v1 * 2.0), expected_rows=10)
         validate_update_status(v2.add_column(v4=v2.v2[0]), expected_rows=10)
         check_view(t, v2)
@@ -129,7 +130,7 @@ class TestView:
 
         t = pxt.get_table('test_tbl')
         with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_view('lambda_view', t, schema={'v1': lambda c3: c3 * 2.0})
+            _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
         assert 'computed with a callable' in str(exc_info.value).lower()
 
     def test_from_dataframe(self, reset_db) -> None:
@@ -152,19 +153,14 @@ class TestView:
             pxt.create_view('test_view', t.limit(10))
         assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
 
-        # combination of filter + dataframe
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_view('test_view', t.where(t.c2 < 10), filter=t.c2 >= 8)
-        assert 'Cannot specify a `filter` directly' in str(exc_info.value)
-
     def test_parallel_views(self, reset_db) -> None:
         """Two views over the same base table, with non-overlapping filters"""
         t = self.create_tbl()
 
         # create view with filter and computed columns
-        v1 = pxt.create_view('v1', t, schema={'v1': t.c3 * 2}, filter=t.c2 < 10)
+        v1 = pxt.create_view('v1', t.where(t.c2 < 10), additional_columns={'v1': t.c3 * 2})
         # create another view with a non-overlapping filter and computed columns
-        v2 = pxt.create_view('v2', t, schema={'v1': t.c3 * 3}, filter=(t.c2 < 20) & (t.c2 >= 10))
+        v2 = pxt.create_view('v2', t.where((t.c2 < 20) & (t.c2 >= 10)), additional_columns={'v1': t.c3 * 3})
 
         # sanity checks
         v1_query = v1.select(v1.v1).order_by(v1.c2)
@@ -209,14 +205,14 @@ class TestView:
         t = self.create_tbl()
 
         # create view with filter and computed columns
-        v1 = pxt.create_view('v1', t, schema={'col1': t.c3 * 2}, filter=t.c2 < 10)
+        v1 = pxt.create_view('v1', t.where(t.c2 < 10), additional_columns={'col1': t.c3 * 2})
         # create a view on top of v1
         v2_schema = {
             'col2': t.c3 * 3,  # only base
             'col3': v1.col1 / 2,  # only v1
             'col4': t.c10 + v1.col1,  # both base and v1
         }
-        v2 = pxt.create_view('v2', v1, schema=v2_schema, filter=t.c2 < 5)
+        v2 = pxt.create_view('v2', v1.where(t.c2 < 5), additional_columns=v2_schema)
 
         def check_views():
             assert_resultset_eq(
@@ -330,7 +326,7 @@ class TestView:
             'int4': IntType(nullable=True),  # TODO: add default
         }
         logger.debug('******************* CREATE V1')
-        v1 = pxt.create_view('v1', t, schema=v1_schema)
+        v1 = pxt.create_view('v1', t, additional_columns=v1_schema)
         v1.update({'int4': 1})
         _ = v1.select(v1.img2.width, v1.img2.height).collect()
 
@@ -343,7 +339,7 @@ class TestView:
               },
         }
         logger.debug('******************* CREATE V2')
-        v2 = pxt.create_view('v2', v1, schema=v2_schema, filter=v1.int1 < 10)
+        v2 = pxt.create_view('v2', v1.where(v1.int1 < 10), additional_columns=v2_schema)
 
         def check_views() -> None:
             assert_resultset_eq(
@@ -386,7 +382,7 @@ class TestView:
             'v1': t.c3 * 2.0,
             'v2': t.c6.f5,
         }
-        v = pxt.create_view('test_view', t, schema=schema)
+        v = pxt.create_view('test_view', t, additional_columns=schema)
         assert_resultset_eq(
             v.select(v.v1).order_by(v.c2).show(0),
             t.select(t.c3 * 2.0).order_by(t.c2).show(0))
@@ -425,7 +421,7 @@ class TestView:
         t = create_test_tbl()
 
         # create view with filter
-        v = pxt.create_view('test_view', t, filter=t.c2 < 10)
+        v = pxt.create_view('test_view', t.where(t.c2 < 10))
         assert_resultset_eq(
             v.order_by(v.c2).show(0),
             t.where(t.c2 < 10).order_by(t.c2).show(0))
@@ -458,7 +454,7 @@ class TestView:
             t.where(t.c2 < 10).order_by(t.c2).show(0))
 
         # create view with filter containing datetime
-        _ = pxt.create_view('test_view_2', t, filter=t.c5 < datetime.datetime.now())
+        _ = pxt.create_view('test_view_2', t.where(t.c5 < datetime.datetime.now()))
 
     def test_view_of_snapshot(self, reset_db) -> None:
         """Test view over a snapshot"""
@@ -470,7 +466,7 @@ class TestView:
             'v1': snap.c3 * 2.0,
             'v2': snap.c6.f5,
         }
-        v = pxt.create_view('test_view', snap, schema=schema, filter=snap.c2 < 10)
+        v = pxt.create_view('test_view', snap.where(snap.c2 < 10), additional_columns=schema)
 
         def check_view(s: pxt.Table, v: pxt.Table) -> None:
             assert v.count() == s.where(s.c2 < 10).count()
@@ -516,11 +512,11 @@ class TestView:
         assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
 
         with pytest.raises(excs.Error) as exc_info:
-            v = pxt.create_view('test_view', s, schema={'v1': t.c3 * 2.0})
+            v = pxt.create_view('test_view', s, additional_columns={'v1': t.c3 * 2.0})
         assert 'value expression cannot be computed in the context of the base test_tbl' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            v = pxt.create_view('test_view', s, filter=t.c2 < 10)
+            v = pxt.create_view('test_view', s.where(t.c2 < 10))
         assert 'filter cannot be computed in the context of the base test_tbl' in str(exc_info.value).lower()
 
         # create view with filter and computed columns
@@ -528,7 +524,7 @@ class TestView:
             'v1': s.c3 * 2.0,
             'v2': s.c6.f5,
         }
-        v = pxt.create_view('test_view', s, schema=schema, filter=s.c2 < 10)
+        v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._schema.keys()
         view_s = pxt.create_view('test_view_snap', v, is_snapshot=True)
         assert set(view_s._schema.keys()) == set(orig_view_cols)
@@ -585,7 +581,7 @@ class TestView:
         validate_update_status(t.insert(id=0, json_0={'a': 'b'}), expected_rows=1)
         assert t.where(t.computed_0 == None).count() == 0
 
-        v = pxt.create_view('view_1', t, schema={'json_1': pxt.JsonType(nullable=True)}, filter=(t.id >= 0))
+        v = pxt.create_view('view_1', t.where(t.id >= 0), additional_columns={'json_1': pxt.JsonType(nullable=True)})
         # computed column depends on nullable non-computed column json_1
         validate_update_status(v.add_column(computed_1=v.json_1.a))
         assert v.where(v.computed_1 == None).count() == 1

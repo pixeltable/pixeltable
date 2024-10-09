@@ -27,12 +27,12 @@ jobs:
         package-configs:
           - ""
           - "torch torchvision transformers sentence-transformers pyarrow"
-          - "openai together fireworks-ai"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy"
+          - "openai together fireworks-ai anthropic mistralai"
+          - "datasets boto3 openpyxl tiktoken pymupdf mistune 'spacy<3.8'"  # spacy 3.8 is problematic on python 3.12
           - "label_studio_sdk"
         include:
           # Test the basic pixeltable installation on other platforms.
-          - os: macos-12
+          - os: macos-13
             python-version: "3.9"
             package-configs: ""
           - os: macos-latest
@@ -55,6 +55,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          ref: release
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
@@ -106,6 +108,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          ref: release
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |

@@ -105,12 +105,9 @@ class JsonPath(Expr):
         return JsonPath(self._anchor, self.path_elements + [name])
 
     def __getitem__(self, index: object) -> 'JsonPath':
-        if isinstance(index, str):
-            if index != '*':
-                raise excs.Error(f'Invalid json list index: {index}')
-        elif not isinstance(index, (int, slice)):
-                raise excs.Error(f'Invalid json list index: {index}')
-        return JsonPath(self._anchor, self.path_elements + [index])
+        if isinstance(index, (int, slice, str)):
+            return JsonPath(self._anchor, self.path_elements + [index])
+        raise excs.Error(f'Invalid json list index: {index}')
 
     def __rshift__(self, other: object) -> 'JsonMapper':
         rhs_expr = Expr.from_object(other)

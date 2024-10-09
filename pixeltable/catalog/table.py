@@ -35,11 +35,11 @@ _logger = logging.getLogger('pixeltable')
 
 class Table(SchemaObject):
     """
-    Base class for table objects (base tables, views, snapshots).
-
-    Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
-    FileCache.emit_eviction_warnings() at the end of the operation.
+    A handle to a table, view, or snapshot. This class is the primary interface through which table operations
+    (queries, insertions, updates, etc.) are performed in Pixeltable.
     """
+    # Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
+    # FileCache.emit_eviction_warnings() at the end of the operation.
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -59,6 +59,28 @@ class Table(SchemaObject):
             conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
     def get_metadata(self) -> dict[str, Any]:
+        """
+        Retrieves metadata associated with this table.
+
+        Returns:
+            A dictionary containing the metadata, in the following format:
+
+                ```python
+                {
+                    'base': None,  # If this is a view or snapshot, will contain the name of its base table
+                    'schema': {
+                        'col1': StringType(),
+                        'col2': IntType(),
+                    },
+                    'version': 22,
+                    'schema_version': 1,
+                    'comment': '',
+                    'num_retained_versions': 10,
+                    'is_view': False,
+                    'is_snapshot': False,
+                }
+                ```
+        """
         md = super().get_metadata()
         md['base'] = self._base._path if self._base is not None else None
         md['schema'] = self._schema
@@ -112,6 +134,9 @@ class Table(SchemaObject):
         Args:
             recursive: If `False`, returns only the immediate successor views of this `Table`. If `True`, returns
                 all sub-views (including views of views, etc.)
+
+        Returns:
+            A list of view paths.
         """
         return [t._path for t in self._get_views(recursive=recursive)]
 
@@ -328,23 +353,19 @@ class Table(SchemaObject):
             [`Error`][pixeltable.exceptions.Error]: If the column name is invalid or already exists.
 
         Examples:
-            Add an int column with `None` values:
+            Add an int column:
 
-            >>> tbl.add_column(new_col=IntType())
+            >>> tbl.add_column(new_col=IntType(nullable=True))
 
             Alternatively, this can also be expressed as:
 
-            >>> tbl['new_col'] = IntType()
+            >>> tbl['new_col'] = IntType(nullable=True)
 
-            For a table with int column ``int_col``, add a column that is the factorial of ``int_col``. The names of
+            For a table with int column `int_col`, add a column that is the factorial of ``int_col``. The names of
             the parameters of the Callable must correspond to existing column names (the column values are then passed
             as arguments to the Callable). In this case, the column type needs to be specified explicitly:
 
             >>> tbl.add_column(factorial=lambda int_col: math.factorial(int_col), type=IntType())
-
-            Alternatively, this can also be expressed as:
-
-            >>> tbl['factorial'] = {'value': lambda int_col: math.factorial(int_col), 'type': IntType()}
 
             For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
             90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
@@ -356,13 +377,9 @@ class Table(SchemaObject):
 
             >>> tbl['rotated'] = tbl.frame.rotate(90)
 
-            Do the same, but now the column is stored:
+            Do the same, but now the column is unstored:
 
-            >>> tbl.add_column(rotated=tbl.frame.rotate(90), stored=True)
-
-            Alternatively, this can also be expressed as:
-
-            >>> tbl['rotated'] = {'value': tbl.frame.rotate(90), 'stored': True}
+            >>> tbl.add_column(rotated=tbl.frame.rotate(90), stored=False)
         """
         self._check_is_dropped()
         # verify kwargs and construct column schema dict
@@ -504,12 +521,13 @@ class Table(SchemaObject):
             name: The name of the column to drop.
 
         Raises:
-            Error: If the column does not exist or if it is referenced by a computed column.
+            Error: If the column does not exist or if it is referenced by a dependent computed column.
 
         Examples:
-            Drop column ``factorial``:
+            Drop the column `col` from the table `my_table`:
 
-            >>> tbl.drop_column('factorial')
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.drop_column('col')
         """
         self._check_is_dropped()
 
@@ -552,12 +570,13 @@ class Table(SchemaObject):
             new_name: The new name of the column.
 
         Raises:
-            Error: If the column does not exist or if the new name is invalid or already exists.
+            Error: If the column does not exist, or if the new name is invalid or already exists.
 
         Examples:
-            Rename column ``factorial`` to ``fac``:
+            Rename the column `col1` to `col2` of the table `my_table`:
 
-            >>> tbl.rename_column('factorial', 'fac')
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.rename_column('col1', 'col2')
         """
         self._check_is_dropped()
         self._tbl_version.rename_column(old_name, new_name)
@@ -567,28 +586,43 @@ class Table(SchemaObject):
             string_embed: Optional[pixeltable.Function] = None, image_embed: Optional[pixeltable.Function] = None,
             metric: str = 'cosine'
     ) -> None:
-        """Add an index to the table.
+        """
+        Add an embedding index to the table. Once the index is added, it will be automatically kept up to data as new
+        rows are inserted into the table.
+
+        Indices are currently supported only for `StringType()` and `ImageType()` columns. The index must specify, at
+        minimum, an embedding of the appropriate type (string or image). It may optionally specify _both_ a string
+        and image embedding (into the same vector space); in particular, this can be used to provide similarity search
+        of text over an image column.
 
         Args:
-            col_name: name of column to index
-            idx_name: name of index, which needs to be unique for the table; if not provided, a name will be generated
-            string_embed: function to embed text; required if the column is a text column
-            image_embed: function to embed images; required if the column is an image column
-            metric: distance metric to use for the index; one of 'cosine', 'ip', 'l2'; default is 'cosine'
+            col_name: The name of column to index; must be a `StringType()` or `ImageType()` column.
+            idx_name: The name of index. If not specified, a name such as `'idx0'` will be generated automatically.
+                If specified, the name must be unique for this table.
+            string_embed: A function to embed text; required if the column is a `StringType()` column.
+            image_embed: A function to embed images; required if the column is an `ImageType()` column.
+            metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`;
+                the default is `'cosine'`.
 
         Raises:
-            Error: If an index with that name already exists for the table or if the column does not exist.
+            Error: If an index with that name already exists for the table, or if the specified column does not exist.
 
         Examples:
-            Add an index to the ``img`` column:
+            Add an index to the `img` column of the table `my_table`:
 
-            >>> tbl.add_embedding_index('img', image_embed=...)
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.add_embedding_index('img', image_embed=my_image_func)
 
-            Add another index to the ``img`` column, using the inner product as the distance metric,
-            and with a specific name; ``string_embed`` is also specified in order to search with text:
+            Add another index to the `img` column, using the inner product as the distance metric,
+            and with a specific name; `string_embed` is also specified in order to search with text:
 
             >>> tbl.add_embedding_index(
-                'img', idx_name='clip_idx', image_embed=..., string_embed=..., metric='ip')
+            ...     'img',
+            ...     idx_name='clip_idx',
+            ...     image_embed=my_image_func,
+            ...     string_embed=my_string_func,
+            ...     metric='ip'
+            ... )
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
@@ -607,37 +641,50 @@ class Table(SchemaObject):
         FileCache.get().emit_eviction_warnings()
 
     def drop_embedding_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
-        """Drop an embedding index from the table.
+        """
+        Drop an embedding index from the table. Either a column name or an index name (but not both) must be
+        specified. If a column name is specified, it must be a column containing exactly one embedding index;
+        otherwise the specific index name must be provided instead.
 
         Args:
-            column_name: The name of the column whose embedding index to drop. Invalid if the column has multiple
+            column_name: The name of the column from which to drop the index. Invalid if the column has multiple
                 embedding indices.
             idx_name: The name of the index to drop.
 
         Raises:
-            Error: If the index does not exist.
+            Error: If `column_name` is specified, but the column does not exist, or it contains no embedding
+                indices or multiple embedding indices.
+            Error: If `idx_name` is specified, but the index does not exist or is not an embedding index.
 
         Examples:
-            Drop embedding index on the ``img`` column:
+            Drop the embedding index on the `img` column of the table `my_table`:
 
-            >>> tbl.drop_embedding_index(column_name='img')
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.drop_embedding_index(column_name='img')
         """
         self._drop_index(column_name=column_name, idx_name=idx_name, _idx_class=index.EmbeddingIndex)
 
     def drop_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
-        """Drop an index from the table.
+        """
+        Drop an index from the table. Either a column name or an index name (but not both) must be
+        specified. If a column name is specified, it must be a column containing exactly one index;
+        otherwise the specific index name must be provided instead.
 
         Args:
-            column_name: The name of the column whose index to drop. Invalid if the column has multiple indices.
+            column_name: The name of the column from which to drop the index. Invalid if the column has multiple
+                indices.
             idx_name: The name of the index to drop.
 
         Raises:
-            Error: If the index does not exist.
+            Error: If `column_name` is specified, but the column does not exist, or it contains no
+                indices or multiple indices.
+            Error: If `idx_name` is specified, but the index does not exist.
 
         Examples:
-            Drop index on the ``img`` column:
+            Drop the index on the `img` column of the table `my_table`:
 
-            >>> tbl.drop_index(column_name='img')
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.drop_index(column_name='img')
         """
         self._drop_index(column_name=column_name, idx_name=idx_name)
 
@@ -690,7 +737,7 @@ class Table(SchemaObject):
         To insert multiple rows at a time:
         ``insert(rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True)``
 
-        To insert just a single row, you can use the more convenient syntax:
+        To insert just a single row, you can use the more concise syntax:
         ``insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
 
         Args:
@@ -706,19 +753,26 @@ class Table(SchemaObject):
                 If ``True``, raise an exception that aborts the insert.
 
         Returns:
-            execution status
+            An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
 
         Raises:
-            Error: if a row does not match the table schema or contains values for computed columns
+            Error: If one of the following conditions occurs:
+
+                - The table is a view or snapshot.
+                - The table has been dropped.
+                - One of the rows being inserted does not conform to the table schema.
+                - An error occurs during processing of computed columns, and `fail_on_exception=True`.
 
         Examples:
-            Insert two rows into a table with three int columns ``a``, ``b``, and ``c``. Column ``c`` is nullable.
+            Insert two rows into the table `my_table` with three int columns ``a``, ``b``, and ``c``.
+            Column ``c`` is nullable:
 
-            >>> tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])
 
-            Insert a single row into a table with three int columns ``a``, ``b``, and ``c``.
+            Insert a single row using the alternative syntax:
 
-            >>> tbl.insert(a=1, b=1, c=1)
+            >>> tbl.insert(a=3, b=3, c=3)
         """
         raise NotImplementedError
 
