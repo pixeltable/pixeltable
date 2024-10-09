@@ -318,7 +318,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
         if not isinstance(spec, (ts.ColumnType, exprs.Expr)):
             raise excs.Error(f'Column spec must be a ColumnType or an Expr, got {type(spec)}')
-        self.add_column(type=None, stored=None, print_stats=False, **{col_name: spec})
+        self.add_column(type=None, stored=None, print_stats=False, on_error='raise', **{col_name: spec})
 
     def add_column(
             self,
@@ -326,19 +326,27 @@ class Table(SchemaObject):
             type: Optional[ts.ColumnType] = None,
             stored: Optional[bool] = None,
             print_stats: bool = False,
+            on_error: Literal['raise', 'continue'] = 'raise',
             **kwargs: Union[ts.ColumnType, exprs.Expr, Callable]
     ) -> UpdateStatus:
         """
         Adds a column to the table.
 
         Args:
+            kwargs: Exactly one keyword argument of the form `column_name=type` or `column_name=expression`.
             type: The type of the column. Only valid and required if `value-expression` is a Callable.
             stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
             print_stats: If `True`, print execution metrics during evaluation.
-            kwargs: Exactly one keyword argument of the form `column-name=type|value-expression`.
+            on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
+                row.
+
+                - If `on_error='raise'`, then an Exception will be raised and the column will not be added.
+                - If `on_error='continue'`, then execution will continue and the column will be added. Any rows
+                  with errors will have a `None` value for the column, with information about the error stored in the
+                  corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
         Returns:
-            An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
+            Information about the execution status of the operation.
 
         Raises:
             Error: If the column name is invalid or already exists.
@@ -397,10 +405,9 @@ class Table(SchemaObject):
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
-        status = self._tbl_version.add_column(new_col, print_stats=print_stats)
+        status = self._tbl_version.add_column(new_col, print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
         return status
-
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:

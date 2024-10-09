@@ -4,7 +4,6 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
 
 import numpy as np
 import PIL.Image
@@ -558,7 +557,7 @@ class TestExprs:
             assert isinstance(row['compound_as_float'], float)
             assert row['c2'] + 1 == row['compound_as_float']
         # Type conversion error
-        status = t.add_column(c2_as_string=t.c2.astype(StringType()))
+        status = t.add_column(c2_as_string=t.c2.astype(StringType()), on_error='continue')
         assert status.num_excs == t.count()
 
     def test_astype_str_to_img(self, reset_db) -> None:
@@ -784,11 +783,11 @@ class TestExprs:
             _ = t[t.img.nearest('musical instrument')].show(10)
 
     def test_ids(
-            self, test_tbl: catalog.Table, test_tbl_exprs: List[exprs.Expr],
-            img_tbl: catalog.Table, img_tbl_exprs: List[exprs.Expr]
+            self, test_tbl: catalog.Table, test_tbl_exprs: list[exprs.Expr],
+            img_tbl: catalog.Table, img_tbl_exprs: list[exprs.Expr]
     ) -> None:
         skip_test_if_not_installed('transformers')
-        d: Dict[int, exprs.Expr] = {}
+        d: dict[int, exprs.Expr] = {}
         for e in test_tbl_exprs:
             assert e.id is not None
             d[e.id] = e
@@ -798,7 +797,7 @@ class TestExprs:
         assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs)
 
     def test_serialization(
-            self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]
+            self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr]
     ) -> None:
         """Test as_dict()/from_dict() (via serialize()/deserialize()) for all exprs."""
         skip_test_if_not_installed('transformers')
@@ -812,7 +811,7 @@ class TestExprs:
             e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
-    def test_print(self, test_tbl_exprs: List[exprs.Expr], img_tbl_exprs: List[exprs.Expr]) -> None:
+    def test_print(self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr]) -> None:
         skip_test_if_not_installed('transformers')
         _ = func.FunctionRegistry.get().module_fns
         for e in test_tbl_exprs:
