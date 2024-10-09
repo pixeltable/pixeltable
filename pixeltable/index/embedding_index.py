@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from typing import Optional, Any
 import enum
+from typing import Any, Optional
 
-import PIL.Image
 import numpy as np
-import pgvector.sqlalchemy
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import PIL.Image
 import sqlalchemy as sql
 
-import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.func as func
 import pixeltable.type_system as ts
+from pixeltable import catalog, exprs, func
+
 from .base import IndexBase
 
 
@@ -58,16 +57,15 @@ class EmbeddingIndex(IndexBase):
             self._validate_embedding_fn(image_embed, 'image_embed', ts.ColumnType.Type.IMAGE)
 
         self.metric = self.Metric[metric.upper()]
-        from pixeltable.exprs import ColumnRef
-        self.value_expr = string_embed(ColumnRef(c)) if c.col_type.is_string_type() else image_embed(ColumnRef(c))
-        assert self.value_expr.col_type.is_array_type()
+        self.value_expr = string_embed(exprs.ColumnRef(c)) if c.col_type.is_string_type() else image_embed(exprs.ColumnRef(c))
+        assert isinstance(self.value_expr.col_type, ts.ArrayType)
         self.string_embed = string_embed
         self.image_embed = image_embed
         vector_size = self.value_expr.col_type.shape[0]
         assert vector_size is not None
         self.index_col_type = pgvector.sqlalchemy.Vector(vector_size)
 
-    def index_value_expr(self) -> 'pixeltable.exprs.Expr':
+    def index_value_expr(self) -> exprs.Expr:
         """Return expression that computes the value that goes into the index"""
         return self.value_expr
 
@@ -151,7 +149,7 @@ class EmbeddingIndex(IndexBase):
             img = PIL.Image.new('RGB', (512, 512))
             return_type = embed_fn.call_return_type({param_name: img})
         assert return_type is not None
-        if not return_type.is_array_type():
+        if not isinstance(return_type, ts.ArrayType):
             raise excs.Error(f'{name} must return an array, but returns {return_type}')
         else:
             shape = return_type.shape

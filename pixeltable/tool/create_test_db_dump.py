@@ -278,13 +278,13 @@ class Dumper:
             # this breaks; TODO: why?
             #return t.where(t.c2 < i)
             return t.where(t.c2 < i).select(t.c1, t.c2)
-        add_column('query_output', t.q1(t.c2))
+        add_column('query_output', t.queries.q1(t.c2))
 
         @t.query
         def q2(s: str):
             sim = t[f'{col_prefix}_function_call'].similarity(s)
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
-        add_column('sim_output', t.q2(t.c1))
+        add_column('sim_output', t.queries.q2(t.c1))
 
 
 @pxt.udf(_force_stored=True)

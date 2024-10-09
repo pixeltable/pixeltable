@@ -7,24 +7,23 @@ import random
 import typing
 from collections import deque
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Any, Optional
 
-import PIL.Image
 import numpy as np
+import PIL.Image
 
 import pixeltable.exceptions as exc
 import pixeltable.type_system as ts
 from pixeltable.utils.transactional_directory import transactional_directory
 
 if typing.TYPE_CHECKING:
-    import pixeltable as pxt
     import pyarrow as pa
-    from pyarrow import parquet
+    import pixeltable as pxt
 
 _logger = logging.getLogger(__name__)
 
 
-def _write_batch(value_batch: Dict[str, deque], schema: pa.Schema, output_path: Path) -> None:
+def _write_batch(value_batch: dict[str, deque], schema: pa.Schema, output_path: Path) -> None:
     import pyarrow as pa
     from pyarrow import parquet
 
@@ -37,7 +36,7 @@ def _write_batch(value_batch: Dict[str, deque], schema: pa.Schema, output_path: 
             pydict[field.name] = value_batch[field.name]
 
     tab = pa.Table.from_pydict(pydict, schema=schema)
-    parquet.write_table(tab, output_path)
+    parquet.write_table(tab, str(output_path))
 
 
 def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int = 100_000_000) -> None:
@@ -67,7 +66,7 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
         json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
         batch_num = 0
-        current_value_batch: Dict[str, deque] = {k: deque() for k in df.schema.keys()}
+        current_value_batch: dict[str, deque] = {k: deque() for k in df.schema.keys()}
         current_byte_estimate = 0
 
         for data_row in df._exec():
@@ -128,13 +127,14 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
         _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
 
 
-def parquet_schema_to_pixeltable_schema(parquet_path: str) -> Dict[str, Optional[ts.ColumnType]]:
+def parquet_schema_to_pixeltable_schema(parquet_path: str) -> dict[str, Optional[ts.ColumnType]]:
     """Generate a default pixeltable schema for the given parquet file. Returns None for unknown types."""
     from pyarrow import parquet
+
     from pixeltable.utils.arrow import to_pixeltable_schema
 
     input_path = Path(parquet_path).expanduser()
-    parquet_dataset = parquet.ParquetDataset(input_path)
+    parquet_dataset = parquet.ParquetDataset(str(input_path))
     return to_pixeltable_schema(parquet_dataset.schema)
 
 
@@ -142,7 +142,7 @@ def import_parquet(
     table_path: str,
     *,
     parquet_path: str,
-    schema_overrides: Optional[Dict[str, ts.ColumnType]] = None,
+    schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
     **kwargs: Any,
 ) -> pxt.Table:
     """Creates a new base table from a Parquet file or set of files. Requires pyarrow to be installed.
@@ -159,12 +159,13 @@ def import_parquet(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    import pixeltable as pxt
     from pyarrow import parquet
+
+    import pixeltable as pxt
     from pixeltable.utils.arrow import iter_tuples
 
     input_path = Path(parquet_path).expanduser()
-    parquet_dataset = parquet.ParquetDataset(input_path)
+    parquet_dataset = parquet.ParquetDataset(str(input_path))
 
     schema = parquet_schema_to_pixeltable_schema(parquet_path)
     if schema_overrides is None:
@@ -181,7 +182,7 @@ def import_parquet(
     try:
         tmp_name = f'{table_path}_tmp_{random.randint(0, 100000000)}'
         tab = pxt.create_table(tmp_name, schema, **kwargs)
-        for fragment in parquet_dataset.fragments:
+        for fragment in parquet_dataset.fragments:  # type: ignore[attr-defined]
             for batch in fragment.to_batches():
                 dict_batch = list(iter_tuples(batch))
                 tab.insert(dict_batch)

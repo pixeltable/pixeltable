@@ -8,7 +8,7 @@ import logging
 import mimetypes
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Hashable, Iterator, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Hashable, Iterator, List, Optional, Sequence, Set, Tuple, Union
 
 import pandas as pd
 import pandas.io.formats.style
@@ -97,26 +97,13 @@ class DataFrameResultSet:
             return self._rows[index[0]][col_idx]
         raise excs.Error(f'Bad index: {index}')
 
-    def __iter__(self) -> DataFrameResultSetIterator:
-        return DataFrameResultSetIterator(self)
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        return (self._row_to_dict(i) for i in range(len(self)))
 
     def __eq__(self, other):
         if not isinstance(other, DataFrameResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())
-
-
-class DataFrameResultSetIterator:
-    def __init__(self, result_set: DataFrameResultSet):
-        self._result_set = result_set
-        self._idx = 0
-
-    def __next__(self) -> Dict[str, Any]:
-        if self._idx >= len(self._result_set):
-            raise StopIteration
-        row = self._result_set._row_to_dict(self._idx)
-        self._idx += 1
-        return row
 
 
 # # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
@@ -629,17 +616,15 @@ class DataFrame:
         if self.limit_val is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `limit`')
 
-    def __getitem__(self, index: object) -> DataFrame:
+    def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> DataFrame:
         """
         Allowed:
         - [List[Expr]]/[Tuple[Expr]]: setting the select list
         - [Expr]: setting a single-col select list
         """
-        if isinstance(index, tuple):
-            index = list(index)
         if isinstance(index, exprs.Expr):
-            index = [index]
-        if isinstance(index, list):
+            return self.select(index)
+        if isinstance(index, Sequence):
             return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
 

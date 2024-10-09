@@ -1,11 +1,8 @@
 import http
 import http.server
 import logging
-import urllib
-import posixpath
 import pathlib
-import os
-import string
+import urllib
 
 _logger = logging.getLogger('pixeltable.http.server')
 
@@ -43,7 +40,7 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args) -> None:
         """override logging to stderr in http.server.BaseHTTPRequestHandler"""
         message = format % args
-        _logger.info(message.translate(self._control_char_table))
+        _logger.info(message.translate(self._control_char_table))  # type: ignore[attr-defined]
 
 
 class LoggingHTTPServer(http.server.ThreadingHTTPServer):

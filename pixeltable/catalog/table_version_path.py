@@ -91,14 +91,6 @@ class TableVersionPath:
         col = self.tbl_version.cols_by_name[col_name]
         return ColumnRef(col)
 
-    def __getitem__(self, index: object) -> Union[exprs.ColumnRef, pxt.DataFrame]:
-        """Return a ColumnRef for the given column name, or a DataFrame for the given slice.
-        """
-        if isinstance(index, str):
-            # basically <tbl>.<colname>
-            return self.__getattr__(index)
-        return pxt.DataFrame(self).__getitem__(index)
-
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
         result = list(self.tbl_version.cols_by_name.values())

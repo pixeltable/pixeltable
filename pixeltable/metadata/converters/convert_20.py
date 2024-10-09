@@ -35,7 +35,7 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
             # but it might actually be transformed into an InlineList when it is instantiated
             # (unfortunately, there is no way to disambiguate at this stage; see comments in
             # InlineArray._from_dict() for more details).
-            updated_v = {'_classname': 'InlineList' if v.get('is_json') else 'InlineArray'}
+            updated_v: dict[str, Any] = {'_classname': 'InlineList' if v.get('is_json') else 'InlineArray'}
             if len(updated_components) > 0:
                 updated_v['components'] = updated_components
             return k, updated_v

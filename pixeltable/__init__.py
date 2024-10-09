@@ -19,7 +19,6 @@ from .type_system import (
     AudioType,
     DocumentType,
 )
-from .utils.help import help
 
 from . import ext, functions, io, iterators
 from .__version__ import __version__, __version_tuple__

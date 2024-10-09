@@ -2,7 +2,7 @@ import dataclasses
 from typing import Optional
 
 import bs4
-import fitz  # (pymupdf)
+import fitz  # type: ignore[import-untyped]
 import puremagic
 
 import pixeltable.type_system as ts

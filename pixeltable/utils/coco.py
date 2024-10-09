@@ -1,11 +1,11 @@
-from typing import List, Dict, Any, Set
-from pathlib import Path
 import json
+from pathlib import Path
+from typing import Any, Dict, List, Set
 
 import PIL
 
+import pixeltable as pxt
 import pixeltable.exceptions as excs
-
 
 format_msg = """
 
@@ -48,7 +48,7 @@ def _verify_input_dict(input_dict: Dict[str, Any]) -> None:
         if not isinstance(annotation['category'], (str, int)):
             raise excs.Error(f'Value for "category" is not a str or int: {annotation}{format_msg}')
 
-def write_coco_dataset(df: 'pixeltable.DataFrame', dest_path: Path) -> Path:
+def write_coco_dataset(df: pxt.DataFrame, dest_path: Path) -> Path:
     """Export a DataFrame result set as a COCO dataset in dest_path and return the path of the data.json file."""
     # TODO: validate schema
     if len(df._select_list_exprs) != 1 or not df._select_list_exprs[0].col_type.is_json_type():

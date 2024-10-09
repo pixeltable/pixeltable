@@ -4,7 +4,7 @@ import dataclasses
 import importlib
 import logging
 import sys
-from typing import Optional, Dict, List
+from typing import Optional
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -14,7 +14,6 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.metadata import schema
 from .function import Function
-from .globals import get_caller_module_path
 
 _logger = logging.getLogger('pixeltable')
 
@@ -32,15 +31,15 @@ class FunctionRegistry:
         return cls._instance
 
     def __init__(self):
-        self.stored_fns_by_id: Dict[UUID, Function] = {}
-        self.module_fns: Dict[str, Function] = {}  # fqn -> Function
+        self.stored_fns_by_id: dict[UUID, Function] = {}
+        self.module_fns: dict[str, Function] = {}  # fqn -> Function
         self.type_methods: dict[ts.ColumnType.Type, dict[str, Function]] = {}
 
     def clear_cache(self) -> None:
         """
         Useful during testing
         """
-        self.stored_fns_by_id: Dict[UUID, Function] = {}
+        self.stored_fns_by_id = {}
 
     # def register_std_modules(self) -> None:
     #     """Register all submodules of pixeltable.functions"""
@@ -76,7 +75,7 @@ class FunctionRegistry:
                 raise excs.Error(f'Duplicate method name for type {base_type}: {fn.name}')
             self.type_methods[base_type][fn.name] = fn
 
-    def list_functions(self) -> List[Function]:
+    def list_functions(self) -> list[Function]:
         # retrieve Function.Metadata data for all existing stored functions from store directly
         # (self.stored_fns_by_id isn't guaranteed to contain all functions)
         # TODO: have the client do this, once the client takes over the Db functionality
@@ -85,7 +84,7 @@ class FunctionRegistry:
         #         schema.Db.name, schema.Dir.path, sql_func.length(schema.Function.init_obj))\
         #     .where(schema.Function.db_id == schema.Db.id)\
         #     .where(schema.Function.dir_id == schema.Dir.id)
-        # stored_fn_md: List[Function.Metadata] = []
+        # stored_fn_md: list[Function.Metadata] = []
         # with Env.get().engine.begin() as conn:
         #     rows = conn.execute(stmt)
         #     for name, md_dict, db_name, dir_path, init_obj_len in rows:

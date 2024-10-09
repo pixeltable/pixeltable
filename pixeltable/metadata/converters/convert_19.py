@@ -44,3 +44,4 @@ def __update_timestamp_literals(k: Any, v: Any) -> Optional[tuple[Any, Any]]:
         dt_utc = dt.astimezone(datetime.timezone.utc)
         v['val'] = dt_utc.isoformat()
         return k, v
+    return None

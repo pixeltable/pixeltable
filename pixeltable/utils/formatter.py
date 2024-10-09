@@ -201,7 +201,7 @@ class Formatter:
         # try generating a thumbnail for different types and use that if successful
         if file_path.lower().endswith('.pdf'):
             try:
-                import fitz
+                import fitz  # type: ignore[import-untyped]
 
                 doc = fitz.open(file_path)
                 p = doc.get_page_pixmap(0)

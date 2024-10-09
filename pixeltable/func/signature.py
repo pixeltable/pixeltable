@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 import dataclasses
 import enum
 import inspect
+import json
 import logging
 import typing
-from typing import Optional, Callable, Dict, List, Any, Union, Tuple
+from typing import Any, Callable, Optional, Union
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -18,7 +18,7 @@ _logger = logging.getLogger('pixeltable')
 class Parameter:
     name: str
     col_type: Optional[ts.ColumnType]  # None for variable parameters
-    kind: enum.Enum  # inspect.Parameter.kind; inspect._ParameterKind is private
+    kind: inspect._ParameterKind
     # for some reason, this needs to precede is_batched in the dataclass definition,
     # otherwise Python complains that an argument with a default is followed by an argument without a default
     default: Any = inspect.Parameter.empty  # default value for the parameter
@@ -82,7 +82,7 @@ class Signature:
     """
     SPECIAL_PARAM_NAMES = ['group_by', 'order_by']
 
-    def __init__(self, return_type: ts.ColumnType, parameters: List[Parameter], is_batched: bool = False):
+    def __init__(self, return_type: ts.ColumnType, parameters: list[Parameter], is_batched: bool = False):
         assert isinstance(return_type, ts.ColumnType)
         self.return_type = return_type
         self.is_batched = is_batched
@@ -97,7 +97,7 @@ class Signature:
         assert isinstance(self.return_type, ts.ColumnType)
         return self.return_type
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         result = {
             'return_type': self.get_return_type().as_dict(),
             'parameters': [p.as_dict() for p in self.parameters.values()],
@@ -106,11 +106,13 @@ class Signature:
         return result
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> Signature:
+    def from_dict(cls, d: dict[str, Any]) -> Signature:
         parameters = [Parameter.from_dict(param_dict) for param_dict in d['parameters']]
         return cls(ts.ColumnType.from_dict(d['return_type']), parameters, d['is_batched'])
 
-    def __eq__(self, other: Signature) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Signature):
+            return False
         if self.get_return_type() != other.get_return_type():
             return False
         if len(self.parameters) != len(other.parameters):
@@ -122,7 +124,7 @@ class Signature:
         return True
 
     def __str__(self) -> str:
-        param_strs: List[str] = []
+        param_strs: list[str] = []
         for p in self.parameters.values():
             if p.kind == inspect.Parameter.VAR_POSITIONAL:
                 param_strs.append(f'*{p.name}')
@@ -133,7 +135,7 @@ class Signature:
         return f'({", ".join(param_strs)}) -> {str(self.get_return_type())}'
 
     @classmethod
-    def _infer_type(cls, annotation: Optional[type]) -> Tuple[Optional[ts.ColumnType], Optional[bool]]:
+    def _infer_type(cls, annotation: Optional[type]) -> tuple[Optional[ts.ColumnType], Optional[bool]]:
         """Returns: (column type, is_batched) or (None, ...) if the type cannot be inferred"""
         if annotation is None:
             return (None, None)
@@ -154,13 +156,13 @@ class Signature:
     @classmethod
     def create_parameters(
             cls, py_fn: Optional[Callable] = None, py_params: Optional[list[inspect.Parameter]] = None,
-            param_types: Optional[List[ts.ColumnType]] = None
-    ) -> List[Parameter]:
+            param_types: Optional[list[ts.ColumnType]] = None
+    ) -> list[Parameter]:
         assert (py_fn is None) != (py_params is None)
         if py_fn is not None:
             sig = inspect.signature(py_fn)
             py_params = list(sig.parameters.values())
-        parameters: List[Parameter] = []
+        parameters: list[Parameter] = []
 
         for idx, param in enumerate(py_params):
             if param.name in cls.SPECIAL_PARAM_NAMES:
@@ -187,9 +189,9 @@ class Signature:
 
     @classmethod
     def create(
-            cls, py_fn: Callable,
-            param_types: Optional[List[ts.ColumnType]] = None,
-            return_type: Optional[Union[ts.ColumnType, Callable]] = None
+        cls, py_fn: Callable,
+        param_types: Optional[list[ts.ColumnType]] = None,
+        return_type: Optional[ts.ColumnType] = None
     ) -> Signature:
         """Create a signature for the given Callable.
         Infer the parameter and return types, if none are specified.

@@ -2,13 +2,13 @@ import datetime
 import io
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterator
+from typing import Any, Iterator, Sequence
 
 import numpy as np
 import PIL.Image
-import pyarrow as pa
 import torch
 import torch.utils.data
+import torchvision  # type: ignore[import-untyped]
 from pyarrow import parquet
 
 from pixeltable.type_system import ColumnType
@@ -41,7 +41,7 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
         with column_type_path.open() as f:
             column_types = json.load(f)
         self.column_types = {k: ColumnType.from_dict(v) for k, v in column_types.items()}
-        self.part_metadata = parquet.ParquetDataset(path).files
+        self.part_metadata: list = parquet.ParquetDataset(str(path)).files
 
     def _unmarshall(self, k: str, v: Any) -> Any:
         if self.column_types[k].is_image_type():
@@ -54,7 +54,6 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
                 return arr
 
             assert self.image_format == "pt"
-            import torchvision
 
             # use arr instead of im in ToTensor() to guarantee array input
             # to torch.from_numpy is writable. Using im is a suspected cause of
@@ -77,14 +76,14 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
             assert not isinstance(v, np.ndarray) # all array outputs should be handled above
             return v
 
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
-        import pixeltable.utils.arrow as arrow
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        from pixeltable.utils import arrow
+
         worker_info = torch.utils.data.get_worker_info()
 
-        if worker_info is None:
-            part_list = range(len(self.part_metadata))
-        else:
-            part_list = [ i for i in part_list if (i % worker_info.num_workers) == worker_info.id ]
+        part_list: Sequence[int] = range(len(self.part_metadata))
+        if worker_info is not None:
+            part_list = [i for i in part_list if (i % worker_info.num_workers) == worker_info.id]
 
         for part_no in part_list:
             pqf = parquet.ParquetFile(self.part_metadata[part_no])

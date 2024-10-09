@@ -1,7 +1,7 @@
 import logging
 import math
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import cv2
 import PIL.Image
@@ -29,6 +29,15 @@ class FrameIterator(ComponentIterator):
             num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
                 `num_frames` is greater than the number of frames in the video, all frames will be extracted.
     """
+
+    video_path: Path
+    video_reader: cv2.VideoCapture
+    fps: Optional[float]
+    num_frames: Optional[int]
+    frames_to_extract: Sequence[int]
+    frames_set: set[int]
+    next_frame_idx: int
+
     def __init__(self, video: str, *, fps: Optional[float] = None, num_frames: Optional[int] = None):
         if fps is not None and num_frames is not None:
             raise Error('At most one of `fps` or `num_frames` may be specified')

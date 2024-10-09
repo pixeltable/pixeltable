@@ -1,13 +1,14 @@
 import logging
-from typing import Any, Dict, Iterable, Iterator, Optional
+from typing import Any, Iterator, Optional, Union
 
+import numpy as np
 import pyarrow as pa
 
 import pixeltable.type_system as ts
 
 _logger = logging.getLogger(__name__)
 
-_pa_to_pt: Dict[pa.DataType, ts.ColumnType] = {
+_pa_to_pt: dict[pa.DataType, ts.ColumnType] = {
     pa.string(): ts.StringType(nullable=True),
     pa.timestamp('us'): ts.TimestampType(nullable=True),
     pa.bool_(): ts.BoolType(nullable=True),
@@ -20,7 +21,7 @@ _pa_to_pt: Dict[pa.DataType, ts.ColumnType] = {
     pa.float32(): ts.FloatType(nullable=True),
 }
 
-_pt_to_pa: Dict[ts.ColumnType, pa.DataType] = {
+_pt_to_pa: dict[type[ts.ColumnType], pa.DataType] = {
     ts.StringType: pa.string(),
     ts.TimestampType: pa.timestamp('us'),  # postgres timestamp is microseconds
     ts.BoolType: pa.bool_(),
@@ -61,19 +62,19 @@ def to_arrow_type(pixeltable_type: ts.ColumnType) -> Optional[pa.DataType]:
         return None
 
 
-def to_pixeltable_schema(arrow_schema: pa.Schema) -> Dict[str, ts.ColumnType]:
+def to_pixeltable_schema(arrow_schema: pa.Schema) -> dict[str, ts.ColumnType]:
     return {field.name: to_pixeltable_type(field.type) for field in arrow_schema}
 
 
-def to_arrow_schema(pixeltable_schema: Dict[str, Any]) -> pa.Schema:
-    return pa.schema((name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items())
+def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
+    return pa.schema((name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items())  # type: ignore[misc]
 
 
-def to_pydict(batch: pa.RecordBatch) -> Dict[str, Iterable[Any]]:
+def to_pydict(batch: pa.RecordBatch) -> dict[str, Union[list, np.ndarray]]:
     """Convert a RecordBatch to a dictionary of lists, unlike pa.lib.RecordBatch.to_pydict,
     this function will not convert numpy arrays to lists, and will preserve the original numpy dtype.
     """
-    out = {}
+    out: dict[str, Union[list, np.ndarray]] = {}
     for k, name in enumerate(batch.schema.names):
         col = batch.column(k)
         if isinstance(col.type, pa.FixedShapeTensorType):
@@ -86,7 +87,7 @@ def to_pydict(batch: pa.RecordBatch) -> Dict[str, Iterable[Any]]:
     return out
 
 
-def iter_tuples(batch: pa.RecordBatch) -> Iterator[Dict[str, Any]]:
+def iter_tuples(batch: pa.RecordBatch) -> Iterator[dict[str, Any]]:
     """Convert a RecordBatch to an iterator of dictionaries. also works with pa.Table and pa.RowGroup"""
     pydict = to_pydict(batch)
     assert len(pydict) > 0, 'empty record batch'
