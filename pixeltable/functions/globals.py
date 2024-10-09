@@ -1,3 +1,4 @@
+import builtins
 from typing import Optional, Union
 
 import sqlalchemy as sql
@@ -14,14 +15,20 @@ def cast(expr: exprs.Expr, target_type: ts.ColumnType) -> exprs.Expr:
     return expr
 
 
-@func.uda(update_types=[ts.IntType()], value_type=ts.IntType(), allows_window=True, requires_order_by=False)
+@func.uda(
+    update_types=[ts.IntType(nullable=True)], value_type=ts.IntType(nullable=False),
+    allows_window=True, requires_order_by=False)
 class sum(func.Aggregator):
     """Sums the selected integers or floats."""
     def __init__(self):
-        self.sum: Union[int, float] = 0
+        self.sum: Optional[int] = None
 
-    def update(self, val: Union[int, float]) -> None:
-        if val is not None:
+    def update(self, val: Optional[int]) -> None:
+        if val is None:
+            return
+        if self.sum is None:
+            self.sum = val
+        else:
             self.sum += val
 
     def value(self) -> Union[int, float]:
@@ -34,12 +41,12 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.sum(val)
 
 
-@func.uda(update_types=[ts.IntType()], value_type=ts.IntType(), allows_window=True, requires_order_by=False)
+@func.uda(update_types=[ts.IntType(nullable=True)], value_type=ts.IntType(), allows_window=True, requires_order_by=False)
 class count(func.Aggregator):
     def __init__(self):
         self.count = 0
 
-    def update(self, val: int) -> None:
+    def update(self, val: Optional[int]) -> None:
         if val is not None:
             self.count += 1
 
@@ -52,42 +59,22 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.count(val)
 
 
-@func.uda(update_types=[ts.FloatType()], value_type=ts.FloatType(nullable=True), allows_window=True, requires_order_by=False)
-class max(func.Aggregator):
-    def __init__(self):
-        self.val = None
-
-    def update(self, val: Optional[float]) -> None:
-        if val is not None:
-            if self.val is None:
-                self.val = val
-            else:
-                import builtins
-                self.val = builtins.max(self.val, val)
-
-    def value(self) -> Optional[float]:
-        return self.val
-
-
-@max.to_sql  # type: ignore
-def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
-    return sql.sql.func.max(val)
-
-
-@func.uda(update_types=[ts.FloatType()], value_type=ts.FloatType(nullable=True), allows_window=True, requires_order_by=False)
+@func.uda(
+    update_types=[ts.IntType(nullable=True)], value_type=ts.IntType(nullable=True), allows_window=True,
+    requires_order_by=False)
 class min(func.Aggregator):
     def __init__(self):
-        self.val = None
+        self.val: Optional[int] = None
 
-    def update(self, val: Optional[float]) -> None:
-        if val is not None:
-            if self.val is None:
-                self.val = val
-            else:
-                import builtins
-                self.val = builtins.min(self.val, val)
+    def update(self, val: Optional[int]) -> None:
+        if val is None:
+            return
+        if self.val is None:
+            self.val = val
+        else:
+            self.val = builtins.min(self.val, val)
 
-    def value(self) -> Optional[float]:
+    def value(self) -> Optional[int]:
         return self.val
 
 
@@ -96,18 +83,48 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.min(val)
 
 
-@func.uda(update_types=[ts.IntType()], value_type=ts.FloatType(), allows_window=False, requires_order_by=False)
+@func.uda(
+    update_types=[ts.IntType(nullable=True)], value_type=ts.IntType(nullable=True), allows_window=True,
+    requires_order_by=False)
+class max(func.Aggregator):
+    def __init__(self):
+        self.val: Optional[int] = None
+
+    def update(self, val: Optional[int]) -> None:
+        if val is None:
+            return
+        if self.val is None:
+            self.val = val
+        else:
+            self.val = builtins.max(self.val, val)
+
+    def value(self) -> Optional[int]:
+        return self.val
+
+
+@max.to_sql  # type: ignore
+def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
+    return sql.sql.func.max(val)
+
+
+@func.uda(
+    update_types=[ts.IntType(nullable=True)], value_type=ts.FloatType(nullable=True), allows_window=False,
+    requires_order_by=False)
 class mean(func.Aggregator):
     def __init__(self):
-        self.sum = 0
+        self.sum: Optional[int] = None
         self.count = 0
 
-    def update(self, val: int) -> None:
-        if val is not None:
+    def update(self, val: Optional[int]) -> None:
+        if val is None:
+            return
+        if self.sum is None:
+            self.sum = val
+        else:
             self.sum += val
-            self.count += 1
+        self.count += 1
 
-    def value(self) -> float:
+    def value(self) -> Optional[float]:
         if self.count == 0:
             return None
         return self.sum / self.count

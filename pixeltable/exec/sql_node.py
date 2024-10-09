@@ -385,8 +385,6 @@ class SqlAggregationNode(SqlNode):
     """
 
     group_by_items: Optional[list[exprs.Expr]]
-    #input_cte: sql.CTE
-    #input_col_map: exprs.ExprDict[sql.ColumnElement]
 
     def __init__(
             self, row_builder: exprs.RowBuilder,
@@ -401,7 +399,7 @@ class SqlAggregationNode(SqlNode):
             group_by_items: list of expressions to group by
             limit: max number of rows to return: None = no limit
         """
-        input_cte, input_col_map = input.to_cte()
+        _, input_col_map = input.to_cte()
         sql_elements = exprs.SqlElementCache(input_col_map)
         super().__init__(None, row_builder, select_list, sql_elements)
         self.group_by_items = group_by_items

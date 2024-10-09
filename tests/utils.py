@@ -235,6 +235,42 @@ def create_all_datatypes_tbl() -> catalog.Table:
     return tbl
 
 
+def create_scalars_tbl(num_rows, seed: int = 0, percent_nulls: int = 10) -> catalog.Table:
+    """
+    Creates a table with scalar columns, each of which contains randomly generated data.
+    """
+    assert percent_nulls >= 0 and percent_nulls <= 100
+    rng = np.random.default_rng(seed)
+    schema = {
+        'row_id': IntType(nullable=False),  # used for row selection
+        'c_bool': BoolType(nullable=True),
+        'c_float': FloatType(nullable=True),
+        'c_int': IntType(nullable=True),
+        'c_string': StringType(nullable=True),
+        'c_timestamp': TimestampType(nullable=True),
+    }
+    tbl = pxt.create_table('scalars_tbl', schema)
+
+    example_rows: list[dict[str, Any]] = []
+    str_chars = 'abcdefghijklmnopqrstuvwxyzab'
+    start_date = datetime.datetime(2010, 1, 1)
+    end_date = datetime.datetime(2019, 12, 31)
+    delta_days = (end_date - start_date).days
+    for i in range(num_rows):
+        str_idx = int(rng.integers(0, 26))
+        days = int(rng.integers(0, delta_days))
+        seconds = int(rng.integers(0, 60*60*24))
+        example_rows.append({
+            'row_id': i,
+            'c_bool': None if rng.integers(0, 100) < percent_nulls else bool(rng.choice([True, False])),
+            'c_float': None if rng.integers(0, 100) < percent_nulls else float(rng.uniform(0, 1)),
+            'c_int': None if rng.integers(0, 100) < percent_nulls else int(rng.integers(0, 10)),
+            'c_string': None if rng.integers(0, 100) < percent_nulls else str_chars[str_idx:str_idx + 3],
+            'c_timestamp': None if rng.integers(0, 100) < percent_nulls else start_date + datetime.timedelta(days=days, seconds=seconds),
+        })
+    tbl.insert(example_rows)
+    return tbl
+
 def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """
     Locate dir_name, create df out of file_name.
@@ -317,7 +353,7 @@ def __image_mode(path: str) -> str:
 
 def get_audio_files(include_bad_audio: bool = False) -> List[str]:
     tests_dir = os.path.dirname(__file__)
-    glob_result = glob.glob(f'{tests_dir}/**/audio/*', recursive=True)
+    glob_result = glob.glob(f'{tests_dir}/data/audio/*', recursive=True)
     if not include_bad_audio:
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
     return glob_result
@@ -325,7 +361,7 @@ def get_audio_files(include_bad_audio: bool = False) -> List[str]:
 
 def get_documents() -> List[str]:
     tests_dir = os.path.dirname(__file__)
-    return [p for p in glob.glob(f'{tests_dir}/**/documents/*', recursive=True)]
+    return [p for p in glob.glob(f'{tests_dir}/data/documents/*', recursive=True)]
 
 
 def get_sentences(n: int = 100) -> List[str]:

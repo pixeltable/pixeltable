@@ -6,24 +6,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-import numpy as np
 import PIL.Image
+import numpy as np
+import pandas as pd
 import pytest
 import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.func as func
+import pixeltable.functions as pxtf
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable import exprs
-from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.exprs import ColumnRef, Expr
+from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions import cast
-from pixeltable.functions.globals import count, sum
 from pixeltable.iterators import FrameIterator
 from pixeltable.type_system import ArrayType, BoolType, ColumnType, FloatType, IntType, StringType, VideoType
-
-from .utils import get_image_files, reload_catalog, skip_test_if_not_installed, validate_update_status
+from .utils import get_image_files, reload_catalog, skip_test_if_not_installed, validate_update_status, \
+    create_scalars_tbl
 
 
 class TestExprs:
@@ -836,26 +837,28 @@ class TestExprs:
 
     def test_window_fns(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
+        _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
         # conflicting ordering requirements
         with pytest.raises(excs.Error):
-            _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3), sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
+            _ = t.select(
+                pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
         with pytest.raises(excs.Error):
-            _ = t.select(sum(t.c2, group_by=t.c4, order_by=t.c3), sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
+            _ = t.select(
+                pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
 
         # backfill works
-        t.add_column(c9=sum(t.c2, group_by=t.c4, order_by=t.c3))
+        t.add_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
         _ = t.c9.col.has_window_fn_call()
 
         # ordering conflict between frame extraction and window fn
         base_t = pxt.create_table('videos', {'video': VideoType(), 'c2': IntType(nullable=False)})
         v = pxt.create_view('frame_view', base_t, iterator=FrameIterator.create(video=base_t.video, fps=0))
         # compatible ordering
-        _ = v.select(v.frame, sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
+        _ = v.select(v.frame, pxtf.sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
         with pytest.raises(excs.Error):
             # incompatible ordering
-            _ = v.select(v.frame, sum(v.c2, order_by=base_t, group_by=v.pos)).show(100)
+            _ = v.select(v.frame, pxtf.sum(v.c2, order_by=base_t, group_by=v.pos)).show(100)
 
         schema = {
             'c2': IntType(nullable=False),
@@ -863,7 +866,7 @@ class TestExprs:
             'c4': BoolType(nullable=False),
         }
         new_t = pxt.create_table('insert_test', schema)
-        new_t.add_column(c2_sum=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
+        new_t.add_column(c2_sum=pxtf.sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.collect()
@@ -882,24 +885,99 @@ class TestExprs:
         # need to use frozensets because dicts are not hashable
         assert set(frozenset(d.items()) for d in val) == set(frozenset(d.items()) for d in res2)
 
-    def test_aggregates(self, test_tbl: catalog.Table) -> None:
+    def test_agg(self, reset_db) -> None:
+        t = create_scalars_tbl(1000)
+        df = t.select().collect().to_pandas()
+        def series_to_list(series):
+            return [int(x) if pd.notna(x) else None for x in series]
+        int_sum = pxtf.sum(t.c_int)
+        _ = t.group_by(t.c_int).select(t.c_int, out=int_sum).order_by(int_sum, asc=False).limit(5).collect()
+
+        for pxt_fn, pd_fn in [
+            (pxtf.sum, 'sum'),
+            (pxtf.mean, 'mean'),
+            (pxtf.min, 'min'),
+            (pxtf.max, 'max'),
+            (pxtf.count, 'count'),
+        ]:
+            pxt_sql_result = t.group_by(t.c_int).select(out=pxt_fn(t.c_int)).order_by(t.c_int).collect()
+            pxt_py_result = (
+                t
+                .group_by(t.c_int)
+                # apply(): force execution in Python
+                .select(out=pxt_fn(t.c_int.apply(lambda x: x, col_type=t.c_int.col_type)))
+                .order_by(t.c_int)
+                .collect()
+            )
+            pd_result = (
+                df
+                .groupby('c_int', dropna=False)
+                .agg(out=('c_int', pd_fn))
+                .reset_index()
+                .sort_values('c_int', na_position='last')
+            )
+            if pd_fn != 'sum':
+                # pandas doesn't return NaN for sum of NaNs
+                assert pxt_sql_result['out'] == series_to_list(pd_result['out']), pd_fn
+            assert pxt_py_result['out'] == pxt_sql_result['out'], pd_fn
+
+        # agg with order-by is currently not supported on the Python path
+        for pxt_fn, pd_fn in [
+            (pxtf.mean, 'mean'),
+            (pxtf.min, 'min'),
+            (pxtf.max, 'max'),
+            (pxtf.count, 'count'),
+        ]:
+            int_agg = pxt_fn(t.c_int)
+            pxt_sql_result = (
+                t
+                .where(t.c_int != None)
+                .group_by(t.c_int)
+                .select(out=int_agg)
+                .order_by(int_agg, asc=False)
+                .limit(5)
+                .collect()
+            )
+            pd_result = (
+                df
+                .groupby('c_int')
+                .agg(out=('c_int', pd_fn))
+                .nlargest(5, 'out')
+                .reset_index()
+                .sort_values('out', ascending=False)
+            )
+            assert pxt_sql_result['out'] == series_to_list(pd_result['out']), pd_fn
+
+        # sum()
+        pxt_sql_result = (
+            t.where(t.c_int != None).group_by(t.c_int).select(out=pxtf.sum(t.c_int)).order_by(t.c_int).collect()
+        )
+        pd_result = (
+            df
+            .groupby('c_int', dropna=True)
+            .agg(out=('c_int', 'sum'))
+            .reset_index()
+            .sort_values('c_int')
+        )
+        assert pxt_sql_result['out'] == series_to_list(pd_result['out'])
+
+    def test_agg_errors(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        _ = t[t.c2 % 2, sum(t.c2), count(t.c2), sum(t.c2) + count(t.c2), sum(t.c2) + (t.c2 % 2)]\
-            .group_by(t.c2 % 2).show()
+        from pixeltable.functions import count, sum
 
         # check that aggregates don't show up in the wrong places
         with pytest.raises(excs.Error):
             # aggregate in where clause
-            _ = t[sum(t.c2) > 0][sum(t.c2)].group_by(t.c2 % 2).show()
+            _ = t.group_by(t.c2 % 2).where(sum(t.c2) > 0).select(sum(t.c2)).collect()
         with pytest.raises(excs.Error):
             # aggregate in group_by clause
-            _ = t[sum(t.c2)].group_by(sum(t.c2)).show()
+            _ = t.group_by(sum(t.c2)).select(sum(t.c2)).collect()
         with pytest.raises(excs.Error):
             # mixing aggregates and non-aggregates
-            _ = t[sum(t.c2) + t.c2].group_by(t.c2 % 2).show()
+            _ = t.group_by(t.c2 % 2).select(sum(t.c2) + t.c2).collect()
         with pytest.raises(excs.Error):
             # nested aggregates
-            _ = t[sum(count(t.c2))].group_by(t.c2 % 2).show()
+            _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
 
     @pxt.uda(
         init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
