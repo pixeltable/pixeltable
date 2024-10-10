@@ -8,11 +8,6 @@ import pixeltable as pxt
 
 class PxtPlugin(Plugin):
     __TYPE_MAP = {
-        pxt.String: 'builtins.str',
-        pxt.Int: 'builtins.int',
-        pxt.Float: 'builtins.float',
-        pxt.Bool: 'builtins.bool',
-        pxt.Timestamp: 'datetime.datetime',
         pxt.Json: 'typing.Any',
         pxt.Array: 'numpy.ndarray',
         pxt.Image: 'PIL.Image.Image',

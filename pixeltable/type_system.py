@@ -14,7 +14,7 @@ import av  # type: ignore
 import numpy as np
 import PIL.Image
 import sqlalchemy as sql
-from typing import _GenericAlias
+from typing import _GenericAlias  # type: ignore[attr-defined]
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
