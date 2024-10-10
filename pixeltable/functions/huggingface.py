@@ -10,20 +10,18 @@ UDFs).
 from typing import Callable, TypeVar, Optional, Any
 
 import PIL.Image
-import numpy as np
 
 import pixeltable as pxt
 import pixeltable.env as env
-import pixeltable.type_system as ts
 from pixeltable.func import Batch
 from pixeltable.functions.util import resolve_torch_device, normalize_image_mode
 from pixeltable.utils.code import local_public_names
 
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
+@pxt.udf(batch_size=32)
 def sentence_transformer(
     sentence: Batch[str], *, model_id: str, normalize_embeddings: bool = False
-) -> Batch[np.ndarray]:
+) -> Batch[pxt.Array[(None,), float]]:
     """
     Computes sentence embeddings. `model_id` should be a pretrained Sentence Transformers model, as described
     in the [Sentence Transformers Pretrained Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html)
@@ -59,14 +57,14 @@ def sentence_transformer(
 
 
 @sentence_transformer.conditional_return_type
-def _(model_id: str) -> ts.ArrayType:
+def _(model_id: str) -> pxt.ArrayType:
     try:
         from sentence_transformers import SentenceTransformer
 
         model = _lookup_model(model_id, SentenceTransformer)
-        return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
+        return pxt.ArrayType((model.get_sentence_embedding_dimension(),), dtype=pxt.FloatType(), nullable=False)
     except ImportError:
-        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+        return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
 
 
 @pxt.udf
@@ -128,8 +126,8 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
     return array.tolist()
 
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
-def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
+@pxt.udf(batch_size=32)
+def clip_text(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), float]]:
     """
     Computes a CLIP embedding for the specified text. `model_id` should be a reference to a pretrained
     [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
@@ -166,8 +164,8 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[np.ndarray]:
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False))
-def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndarray]:
+@pxt.udf(batch_size=32)
+def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,), float]]:
     """
     Computes a CLIP embedding for the specified image. `model_id` should be a reference to a pretrained
     [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
@@ -206,14 +204,14 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[np.ndar
 
 @clip_text.conditional_return_type
 @clip_image.conditional_return_type
-def _(model_id: str) -> ts.ArrayType:
+def _(model_id: str) -> pxt.ArrayType:
     try:
         from transformers import CLIPModel
 
         model = _lookup_model(model_id, CLIPModel.from_pretrained)
-        return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
+        return pxt.ArrayType((model.config.projection_dim,), dtype=pxt.FloatType(), nullable=False)
     except ImportError:
-        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+        return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
 
 
 @pxt.udf(batch_size=4)

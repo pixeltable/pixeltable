@@ -5,7 +5,8 @@ import builtins
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, overload
+from typing import (TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, _GenericAlias,
+                    overload)
 from uuid import UUID
 
 import pandas as pd
@@ -388,6 +389,8 @@ class Table(SchemaObject):
         col_schema: dict[str, Any] = {}
         if isinstance(spec, ts.ColumnType):
             col_schema['type'] = spec
+        elif isinstance(spec, builtins.type) or isinstance(spec, _GenericAlias):
+            col_schema['type'] = ts.ColumnType.from_python_type(spec, nullable_default=True)
         else:
             col_schema['value'] = spec
         if type is not None:
@@ -453,16 +456,17 @@ class Table(SchemaObject):
             stored = True
 
             if isinstance(spec, ts.ColumnType):
-                # TODO: create copy
                 col_type = spec
+            elif isinstance(spec, type) or isinstance(spec, _GenericAlias):
+                col_type = ts.ColumnType.from_python_type(spec, nullable_default=True)
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
             elif callable(spec):
-                raise excs.Error((
+                raise excs.Error(
                     f'Column {name} computed with a Callable: specify using a dictionary with '
                     f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": IntType()}})'
-                ))
+                )
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 col_type = spec.get('type')

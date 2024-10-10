@@ -16,7 +16,6 @@ import PIL.Image
 import tenacity
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
@@ -51,10 +50,10 @@ def _retry(fn: Callable) -> Callable:
 # Audio Endpoints
 
 
-@pxt.udf(return_type=ts.AudioType())
+@pxt.udf
 def speech(
     input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
-) -> str:
+) -> pxt.Audio:
     """
     Generates audio from the input text.
 
@@ -91,17 +90,9 @@ def speech(
     return output_filename
 
 
-@pxt.udf(
-    param_types=[
-        ts.AudioType(),
-        ts.StringType(),
-        ts.StringType(nullable=True),
-        ts.StringType(nullable=True),
-        ts.FloatType(nullable=True),
-    ]
-)
+@pxt.udf
 def transcriptions(
-    audio: str,
+    audio: pxt.Audio,
     *,
     model: str,
     language: Optional[str] = None,
@@ -140,8 +131,14 @@ def transcriptions(
     return transcription.dict()
 
 
-@pxt.udf(param_types=[ts.AudioType(), ts.StringType(), ts.StringType(nullable=True), ts.FloatType(nullable=True)])
-def translations(audio: str, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None) -> dict:
+@pxt.udf
+def translations(
+    audio: pxt.Audio,
+    *,
+    model: str,
+    prompt: Optional[str] = None,
+    temperature: Optional[float] = None
+) -> dict:
     """
     Translates audio into English.
 
@@ -304,10 +301,10 @@ _embedding_dimensions_cache: dict[str, int] = {
 }
 
 
-@pxt.udf(batch_size=32, return_type=ts.ArrayType((None,), dtype=ts.FloatType()))
+@pxt.udf(batch_size=32)
 def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
-) -> Batch[np.ndarray]:
+) -> Batch[pxt.Array[(None,), float]]:
     """
     Creates an embedding vector representing the input text.
 
@@ -342,13 +339,13 @@ def embeddings(
 
 
 @embeddings.conditional_return_type
-def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
+def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
     if dimensions is None:
         if model not in _embedding_dimensions_cache:
             # TODO: find some other way to retrieve a sample
-            return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+            return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
         dimensions = _embedding_dimensions_cache.get(model, None)
-    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
+    return pxt.ArrayType((dimensions,), dtype=pxt.FloatType(), nullable=False)
 
 
 #####################################
@@ -408,17 +405,17 @@ def image_generations(
 
 
 @image_generations.conditional_return_type
-def _(size: Optional[str] = None) -> ts.ImageType:
+def _(size: Optional[str] = None) -> pxt.ImageType:
     if size is None:
-        return ts.ImageType(size=(1024, 1024))
+        return pxt.ImageType(size=(1024, 1024))
     x_pos = size.find('x')
     if x_pos == -1:
-        return ts.ImageType()
+        return pxt.ImageType()
     try:
         width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
     except ValueError:
-        return ts.ImageType()
-    return ts.ImageType(size=(width, height))
+        return pxt.ImageType()
+    return pxt.ImageType(size=(width, height))
 
 
 #####################################

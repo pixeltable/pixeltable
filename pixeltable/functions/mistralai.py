@@ -140,8 +140,8 @@ _embedding_dimensions_cache: dict[str, int] = {
 }
 
 
-@pxt.udf(batch_size=16, return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()))
-def embeddings(input: Batch[str], *, model: str) -> Batch[np.ndarray]:
+@pxt.udf(batch_size=16)
+def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), float]]:
     """
     Embeddings API.
 
