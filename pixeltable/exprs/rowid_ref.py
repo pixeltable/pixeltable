@@ -68,8 +68,8 @@ class RowidRef(Expr):
         """
         if self.tbl_id == tbl.tbl_version.id:
             return
-        tbl_version_ids = [tbl_version.id for tbl_version in tbl.get_tbl_versions()]
-        assert self.tbl_id in tbl_version_ids
+        base_ids = [tbl_version.id for tbl_version in tbl.get_tbl_versions()]
+        assert self.tbl_id in base_ids  # our current TableVersion is a base of the new TableVersion
         self.tbl = tbl.tbl_version
         self.tbl_id = self.tbl.id
 

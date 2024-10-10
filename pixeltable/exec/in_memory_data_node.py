@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Iterator
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
@@ -18,6 +18,11 @@ class InMemoryDataNode(ExecNode):
     - with the values provided in the input rows
     - if an input row doesn't provide a value, sets the slot to the column default
     """
+    tbl: catalog.TableVersion
+    input_rows: list[dict[str, Any]]
+    start_row_id: int
+    output_rows: Optional[DataRowBatch]
+
     def __init__(
         self, tbl: catalog.TableVersion, rows: list[dict[str, Any]],
         row_builder: exprs.RowBuilder, start_row_id: int,
@@ -29,8 +34,7 @@ class InMemoryDataNode(ExecNode):
         self.tbl = tbl
         self.input_rows = rows
         self.start_row_id = start_row_id
-        self.has_returned_data = False
-        self.output_rows: Optional[DataRowBatch] = None
+        self.output_rows = None
 
     def _open(self) -> None:
         """Create row batch and populate with self.input_rows"""
@@ -67,12 +71,8 @@ class InMemoryDataNode(ExecNode):
                 assert col_info is not None
                 self.output_rows[row_idx][col_info.slot_idx] = None
 
-        self.output_rows.set_row_ids([self.start_row_id + i for i in range(len(self.output_rows))])
         self.ctx.num_rows = len(self.output_rows)
 
-    def __next__(self) -> DataRowBatch:
-        if self.has_returned_data:
-            raise StopIteration
-        self.has_returned_data = True
+    def __iter__(self) -> Iterator[DataRowBatch]:
         _logger.debug(f'InMemoryDataNode: created row batch with {len(self.output_rows)} output_rows')
-        return self.output_rows
+        yield self.output_rows

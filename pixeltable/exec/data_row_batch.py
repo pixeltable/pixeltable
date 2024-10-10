@@ -14,6 +14,13 @@ class DataRowBatch:
 
     Contains the metadata needed to initialize DataRows.
     """
+    tbl: Optional[catalog.TableVersion]
+    row_builder: exprs.RowBuilder
+    img_slot_idxs: list[int]
+    media_slot_idxs: list[int]  # non-image media slots
+    array_slot_idxs: list[int]
+    rows: list[exprs.DataRow]
+
     def __init__(self, tbl: Optional[catalog.TableVersion], row_builder: exprs.RowBuilder, len: int = 0):
         self.tbl = tbl
         self.row_builder = row_builder
@@ -38,13 +45,6 @@ class DataRowBatch:
 
     def pop_row(self) -> exprs.DataRow:
         return self.rows.pop()
-
-    def set_row_ids(self, row_ids: List[int]) -> None:
-        """Sets pks for rows in batch"""
-        assert self.tbl is not None
-        assert len(row_ids) == len(self.rows)
-        for row, row_id in zip(self.rows, row_ids):
-            row.set_pk((row_id, self.tbl))
 
     def __len__(self) -> int:
         return len(self.rows)

@@ -7,7 +7,7 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar, Union, overload, Iterable
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -281,9 +281,10 @@ class Expr(abc.ABC):
         """
         Iterate over all subexprs, including self.
         """
-        is_match = filter is None or filter(self)
-        if expr_class is not None:
-            is_match = is_match and isinstance(self, expr_class)
+        is_match = isinstance(self, expr_class) if expr_class is not None else True
+        # apply filter after checking for expr_class
+        if filter is not None and is_match:
+            is_match = filter(self)
         if not is_match or traverse_matches:
             for c in self.components:
                 yield from c.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
@@ -292,7 +293,7 @@ class Expr(abc.ABC):
 
     @overload
     def list_subexprs(
-        expr_list: list[Expr], *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        expr_list: Iterable[Expr], *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[Expr]: ...
 
     @overload
@@ -312,13 +313,11 @@ class Expr(abc.ABC):
 
     def _contains(self, cls: Optional[type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
-        Returns True if any subexpr is an instance of cls.
+        Returns True if any subexpr is an instance of cls and/or matches filter.
         """
-        assert (cls is not None) != (filter is not None)  # need one of them
-        if cls is not None:
-            filter = lambda e: isinstance(e, cls)
+        assert cls is not None or filter is not None
         try:
-            _ = next(self.subexprs(filter=filter, traverse_matches=False))
+            _ = next(self.subexprs(expr_class=cls, filter=filter, traverse_matches=False))
             return True
         except StopIteration:
             return False

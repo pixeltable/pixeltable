@@ -6,6 +6,7 @@ from .comparison import Comparison
 from .compound_predicate import CompoundPredicate
 from .data_row import DataRow
 from .expr import Expr
+from .expr_dict import ExprDict
 from .expr_set import ExprSet
 from .function_call import FunctionCall
 from .in_predicate import InPredicate
