@@ -352,16 +352,18 @@ def __image_mode(path: str) -> str:
 
 
 def get_audio_files(include_bad_audio: bool = False) -> List[str]:
-    tests_dir = os.path.dirname(__file__)
-    glob_result = glob.glob(f'{tests_dir}/data/audio/*', recursive=True)
+    tests_dir = Path(os.path.dirname(__file__))
+    audio_dir = tests_dir / 'data' / 'audio'
+    glob_result = glob.glob(f'{audio_dir}/*', recursive=True)
     if not include_bad_audio:
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
     return glob_result
 
 
 def get_documents() -> List[str]:
-    tests_dir = os.path.dirname(__file__)
-    return [p for p in glob.glob(f'{tests_dir}/data/documents/*', recursive=True)]
+    tests_dir = Path(os.path.dirname(__file__))
+    docs_dir = tests_dir / 'data' / 'documents'
+    return glob.glob(f'{docs_dir}/*', recursive=True)
 
 
 def get_sentences(n: int = 100) -> List[str]:
