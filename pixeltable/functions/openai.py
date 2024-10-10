@@ -53,7 +53,7 @@ def _retry(fn: Callable) -> Callable:
 @pxt.udf
 def speech(
     input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
-) -> pxt.Audio[pxt.NotNull]:
+) -> pxt.Audio:
     """
     Generates audio from the input text.
 
@@ -92,7 +92,7 @@ def speech(
 
 @pxt.udf
 def transcriptions(
-    audio: pxt.Audio[pxt.NotNull],
+    audio: pxt.Audio,
     *,
     model: str,
     language: Optional[str] = None,
@@ -133,7 +133,7 @@ def transcriptions(
 
 @pxt.udf
 def translations(
-    audio: pxt.Audio[pxt.NotNull],
+    audio: pxt.Audio,
     *,
     model: str,
     prompt: Optional[str] = None,

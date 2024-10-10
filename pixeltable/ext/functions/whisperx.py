@@ -10,7 +10,7 @@ import pixeltable as pxt
 
 @pxt.udf
 def transcribe(
-    audio: pxt.Audio[pxt.NotNull],
+    audio: pxt.Audio,
     *,
     model: str,
     compute_type: Optional[str] = None,

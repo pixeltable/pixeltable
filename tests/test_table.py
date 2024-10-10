@@ -2,6 +2,7 @@ import datetime
 import math
 import os
 import random
+from typing import Union, _GenericAlias
 
 import cv2
 import numpy as np
@@ -160,37 +161,38 @@ class TestTable:
 
     # Test that we can specify a schema using Pixeltable type hints in place of ColumnType instances.
     def test_schema_types(self, reset_db) -> None:
-        t = pxt.create_table(
-            'test',
-            {
-                'str_col': pxt.String,
-                'req_str_col': pxt.String[pxt.NotNull],
-                'int_col': pxt.Int,
-                'req_int_col': pxt.Int[pxt.NotNull],
-                'float_col': pxt.Float,
-                'req_float_col': pxt.Float[pxt.NotNull],
-                'bool_col': pxt.Bool,
-                'req_bool_col': pxt.Bool[pxt.NotNull],
-                'ts_col': pxt.Timestamp,
-                'req_ts_col': pxt.Timestamp[pxt.NotNull],
-                'json_col': pxt.Json,
-                'req_json_col': pxt.Json[pxt.NotNull],
-                'array_col': pxt.Array[(5, None, 3), pxt.Int],
-                'req_array_col': pxt.Array[(5, None, 3), pxt.Int, pxt.NotNull],
-                'img_col': pxt.Image,
-                'req_img_col': pxt.Image[pxt.NotNull],
-                'video_col': pxt.Video,
-                'req_video_col': pxt.Video[pxt.NotNull],
-                'audio_col': pxt.Audio,
-                'req_audio_col': pxt.Audio[pxt.NotNull],
-                'doc_col': pxt.Document,
-                'req_doc_col': pxt.Document[pxt.NotNull],
-            },
-        )
-        # Try with add_column
-        t.add_column(new_str_col=pxt.String)
-        t.add_column(new_req_str_col=pxt.String[pxt.NotNull])
-        assert t._schema == {
+        test_columns: dict[str, Union[type, _GenericAlias]] = {
+            'str_col': pxt.String,
+            'req_str_col': pxt.Required[pxt.String],
+            'int_col': pxt.Int,
+            'req_int_col': pxt.Required[pxt.Int],
+            'float_col': pxt.Float,
+            'req_float_col': pxt.Required[pxt.Float],
+            'bool_col': pxt.Bool,
+            'req_bool_col': pxt.Required[pxt.Bool],
+            'ts_col': pxt.Timestamp,
+            'req_ts_col': pxt.Required[pxt.Timestamp],
+            'json_col': pxt.Json,
+            'req_json_col': pxt.Required[pxt.Json],
+            'array_col': pxt.Array[(5, None, 3), pxt.Int],
+            'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],
+            'img_col': pxt.Image,
+            'req_img_col': pxt.Required[pxt.Image],
+            'video_col': pxt.Video,
+            'req_video_col': pxt.Required[pxt.Video],
+            'audio_col': pxt.Audio,
+            'req_audio_col': pxt.Required[pxt.Audio],
+            'doc_col': pxt.Document,
+            'req_doc_col': pxt.Required[pxt.Document],
+        }
+
+        t = pxt.create_table('test', test_columns)
+
+        # Test all the types with add_column as well
+        for col_name, col_type in test_columns.items():
+            t.add_column(**{f'added_{col_name}': col_type})
+
+        expected_schema = {
             'str_col': StringType(nullable=True),
             'req_str_col': StringType(nullable=False),
             'int_col': IntType(nullable=True),
@@ -213,9 +215,12 @@ class TestTable:
             'req_audio_col': AudioType(nullable=False),
             'doc_col': DocumentType(nullable=True),
             'req_doc_col': DocumentType(nullable=False),
-            'new_str_col': StringType(nullable=True),
-            'new_req_str_col': StringType(nullable=False),
         }
+        expected_schema.update({
+            f'added_{col_name}': col_type for col_name, col_type in expected_schema.items()
+        })
+
+        assert t._schema == expected_schema
 
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
