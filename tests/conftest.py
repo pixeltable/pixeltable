@@ -13,7 +13,6 @@ from pixeltable import exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion, TableVersion
-from pixeltable.type_system import FloatType
 from pixeltable.utils.filecache import FileCache
 
 from .utils import create_all_datatypes_tbl, create_img_tbl, create_test_tbl, reload_catalog, skip_test_if_not_installed
@@ -81,14 +80,6 @@ def clean_db(restore_tables: bool = True) -> None:
 def test_tbl(reset_db) -> catalog.Table:
     return create_test_tbl()
 
-# @pytest.fixture(scope='function')
-# def test_stored_fn(reset_db) -> pxt.Function:
-#     @pxt.udf(return_type=pxt.IntType(), param_types=[pxt.IntType()])
-#     def test_fn(x):
-#         return x + 1
-#     pxt.create_function('test_fn', test_fn)
-#     return test_fn
-
 @pytest.fixture(scope='function')
 def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
     t = test_tbl
@@ -111,8 +102,8 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
         t.c8[0, 1:],
         t.c2.isin([1, 2, 3]),
         t.c2.isin(t.c6.f5),
-        t.c2.astype(FloatType()),
-        (t.c2 + 1).astype(FloatType()),
+        t.c2.astype(pxt.Float),
+        (t.c2 + 1).astype(pxt.Float),
         t.c2.apply(str),
         (t.c2 + 1).apply(str),
         t.c3.apply(str),

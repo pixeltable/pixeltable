@@ -302,6 +302,15 @@ class ColumnType:
                 return JsonType(nullable=nullable_default)
         return None
 
+    @classmethod
+    def normalize_type(cls, t: Union[ColumnType, type, _AnnotatedAlias]) -> ColumnType:
+        if isinstance(t, ColumnType):
+            return t
+        col_type = cls.from_python_type(t)
+        if col_type is None:
+            raise excs.Error(f'Unknown type: {t}')
+        return col_type
+
     def validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
         if val is None:

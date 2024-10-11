@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import _GenericAlias  # type: ignore[attr-defined]
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, overload
+from typing_extensions import _AnnotatedAlias
 from uuid import UUID
 
 import pandas as pd
@@ -317,8 +318,8 @@ class Table(SchemaObject):
         """
         if not isinstance(col_name, str):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
-        if not isinstance(spec, (ts.ColumnType, exprs.Expr)):
-            raise excs.Error(f'Column spec must be a ColumnType or an Expr, got {type(spec)}')
+        if not isinstance(spec, (ts.ColumnType, exprs.Expr, type, _GenericAlias)):
+            raise excs.Error(f'Column spec must be a ColumnType, Expr, or type, got {type(spec)}')
         self.add_column(type=None, stored=None, print_stats=False, **{col_name: spec})
 
     def add_column(

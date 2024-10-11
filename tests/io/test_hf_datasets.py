@@ -46,7 +46,7 @@ class TestHfDatasets:
                 # so filter out that column.
                 # cr subdir has a small number of rows, avoid running out of space in CI runner
                 # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
-                'schema_override': {'emb': pxt.ArrayType((1024,), dtype=pxt.FloatType(), nullable=False)},
+                'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},
             },
             # example of dataset dictionary with multiple splits
             {

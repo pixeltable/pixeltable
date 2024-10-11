@@ -1266,7 +1266,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t['add2'] = {'value': t.c2 + 1, 'type': pxt.StringType()}
-        assert 'column spec must be a columntype or an expr' in str(exc_info.value).lower()
+        assert 'column spec must be a columntype, expr, or type' in str(exc_info.value).lower()
 
         # duplicate name
         with pytest.raises(excs.Error) as exc_info:
