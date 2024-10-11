@@ -8,7 +8,7 @@ import pixeltable.exec as exec
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable import exprs
-from pixeltable.exec.sql_node import Ordering, combine_orderings, print_ordering
+from pixeltable.exec.sql_node import OrderByItem, OrderByClause, combine_order_by_clauses, print_order_by_clause
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -48,7 +48,7 @@ class Analyzer:
     select_list: list[exprs.Expr]
     group_by_clause: Optional[list[exprs.Expr]]  # None for non-aggregate queries; [] for agg query w/o grouping
     grouping_exprs: list[exprs.Expr]  # [] for non-aggregate queries or agg query w/o grouping
-    order_by_clause: list[tuple[exprs.Expr, bool]]
+    order_by_clause: OrderByClause
 
     sql_elements: exprs.SqlElementCache
 
@@ -78,7 +78,7 @@ class Analyzer:
         self.group_by_clause = (
             [e.resolve_computed_cols() for e in group_by_clause] if group_by_clause is not None else None
         )
-        self.order_by_clause = [(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
+        self.order_by_clause = [OrderByItem(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
 
         self.sql_where_clause = None
         self.filter = None
@@ -128,9 +128,7 @@ class Analyzer:
 
         # check that filter doesn't contain aggregates
         if self.filter is not None:
-            if bool(
-                next(self.filter.subexprs(expr_class=exprs.FunctionCall, filter=lambda e: _is_agg_fn_call(e)), False)
-            ):
+            if any(_is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)):
                 raise excs.Error(f'Filter cannot contain aggregate functions: {self.filter}')
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
@@ -140,7 +138,6 @@ class Analyzer:
                 raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
             if e._contains(filter=lambda e: _is_agg_fn_call(e)):
                 raise excs.Error(f'Grouping expression contains aggregate function: {e}')
-
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
         """Determine whether expr is the input to or output of an aggregate function.
@@ -171,7 +168,6 @@ class Analyzer:
                 raise excs.Error(f'Invalid expression, mixes aggregate with non-aggregate: {e}')
             return is_output, is_input
 
-
     def finalize(self, row_builder: exprs.RowBuilder) -> None:
         """Make all exprs executable
         TODO: add EvalCtx for each expr list?
@@ -188,14 +184,14 @@ class Analyzer:
         row_builder.set_slot_idxs(self.agg_fn_calls)
         row_builder.set_slot_idxs(self.agg_order_by)
 
-
-    def get_window_fn_ordering(self) -> Optional[Ordering]:
-        orderings: list[Ordering] = []
+    def get_window_fn_ob_clause(self) -> Optional[OrderByClause]:
+        clause: list[OrderByClause] = []
         for fn_call in self.window_fn_calls:
             # window functions require ordering by the group_by/order_by clauses
-            gb, ob = fn_call.get_window_sort_exprs()
-            orderings.append([(e, None) for e in gb] + [(e, True) for e in ob])
-        return combine_orderings(orderings)
+            group_by_exprs, order_by_exprs = fn_call.get_window_sort_exprs()
+            clause.append(
+                [OrderByItem(e, None) for e in group_by_exprs] + [OrderByItem(e, True) for e in order_by_exprs])
+        return combine_order_by_clauses(clause)
 
     def has_agg(self) -> bool:
         """True if there is any kind of aggregation in the query"""
@@ -519,28 +515,32 @@ class Planner:
     @classmethod
     def _verify_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> None:
         """Verify that the various ordering requirements don't conflict"""
-        orderings: list[Ordering] = [analyzer.order_by_clause.copy()]
+        ob_clauses: list[OrderByClause] = [analyzer.order_by_clause.copy()]
 
         if verify_agg:
-            ordering: Ordering = []
+            ordering: OrderByClause = []
             for fn_call in analyzer.window_fn_calls:
                 # window functions require ordering by the group_by/order_by clauses
                 gb, ob = fn_call.get_window_sort_exprs()
-                ordering = [(e, None) for e in gb] + [(e, True) for e in ob]
-                orderings.append(ordering)
+                ordering = [OrderByItem(e, None) for e in gb] + [OrderByItem(e, True) for e in ob]
+                ob_clauses.append(ordering)
             for fn_call in analyzer.agg_fn_calls:
                 # agg functions with an ordering requirement are implicitly ascending
-                ordering = [(e, None) for e in analyzer.group_by_clause] + [(e, True) for e in fn_call.get_agg_order_by()]
-                orderings.append(ordering)
-        if len(orderings) <= 1:
+                ordering = (
+                    [OrderByItem(e, None) for e in analyzer.group_by_clause]
+                    + [OrderByItem(e, True) for e in fn_call.get_agg_order_by()]
+                )
+                ob_clauses.append(ordering)
+        if len(ob_clauses) <= 1:
             return
 
-        combined_ordering = orderings[0]
-        for ordering in orderings[1:]:
-            combined = combine_orderings([combined_ordering, ordering])
+        combined_ordering = ob_clauses[0]
+        for ordering in ob_clauses[1:]:
+            combined = combine_order_by_clauses([combined_ordering, ordering])
             if combined is None:
                 raise excs.Error(
-                    f'Incompatible ordering requirements: {print_ordering(combined_ordering)} vs {print_ordering(ordering)}')
+                    f'Incompatible ordering requirements: '
+                    f'{print_order_by_clause(combined_ordering)} vs {print_order_by_clause(ordering)}')
             combined_ordering = combined
 
     @classmethod
@@ -621,7 +621,7 @@ class Planner:
         assert isinstance(tbl, catalog.TableVersionPath)
         sql_elements = analyzer.sql_elements
         is_python_agg = (
-                not sql_elements.contains(analyzer.agg_fn_calls) or not sql_elements.contains(analyzer.window_fn_calls)
+            not sql_elements.contains(analyzer.agg_fn_calls) or not sql_elements.contains(analyzer.window_fn_calls)
         )
         ctx = exec.ExecContext(row_builder)
         cls._verify_ordering(analyzer, verify_agg=is_python_agg)
@@ -644,16 +644,15 @@ class Planner:
         if is_python_agg and analyzer.group_by_clause is not None:
             candidates.extend(exprs.Expr.list_subexprs(
                 analyzer.group_by_clause, filter=lambda e: sql_elements.contains(e), traverse_matches=False))
-        sql_scan_exprs = exprs.ExprSet(candidates)
-        # we don't want to materialize Literals via a Select
-        sql_scan_exprs -= exprs.ExprSet(e for e in sql_scan_exprs if isinstance(e, exprs.Literal))
+        # not isinstance(...): we don't want to materialize Literals via a Select
+        sql_scan_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
         plan = exec.SqlScanNode(
             tbl, row_builder, select_list=sql_scan_exprs, where_clause=analyzer.sql_where_clause,
             filter=analyzer.filter, set_pk=with_pk, exact_version_only=exact_version_only)
         if len(analyzer.window_fn_calls) > 0:
             # we need to order the input for window functions
-            plan.add_order_by(analyzer.get_window_fn_ordering())
+            plan.add_order_by(analyzer.get_window_fn_ob_clause())
         plan = cls._insert_prefetch_node(tbl.tbl_version.id, analyzer.select_list, row_builder, plan)
 
         if analyzer.group_by_clause is not None:
@@ -682,9 +681,8 @@ class Planner:
                 plan = exec.AggregationNode(
                     tbl.tbl_version, row_builder, analyzer.group_by_clause,
                     analyzer.agg_fn_calls + analyzer.window_fn_calls, agg_input, input=plan)
-                agg_output = exprs.ExprSet(
-                    # explicit cast to avoid typechecking error
-                    cast(list[exprs.Expr], analyzer.grouping_exprs + analyzer.agg_fn_calls + analyzer.window_fn_calls))
+                typecheck_dummy = analyzer.grouping_exprs + analyzer.agg_fn_calls + analyzer.window_fn_calls
+                agg_output = exprs.ExprSet(typecheck_dummy)
                 if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                     # we need an ExprEvalNode to evaluate the remaining output exprs
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)

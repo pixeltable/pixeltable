@@ -1,7 +1,7 @@
 import logging
-from decimal import Decimal
 import warnings
-from typing import Optional, Iterable, Iterator
+from decimal import Decimal
+from typing import Optional, Iterable, Iterator, NamedTuple
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -14,34 +14,45 @@ from .exec_node import ExecNode
 _logger = logging.getLogger('pixeltable')
 
 
-Ordering = list[tuple[exprs.Expr, Optional[bool]]]
+class OrderByItem(NamedTuple):
+    expr: exprs.Expr
+    asc: Optional[bool]
 
 
-def combine_orderings(orderings: Iterable[Ordering]) -> Optional[Ordering]:
-    """Returns an ordering that's compatible with orderings, or None if no such ordering exists"""
-    result: Ordering = []
-    for ordering in orderings:
-        combined: Ordering = []
-        for (e1, asc1), (e2, asc2) in zip(result, ordering):
-            if e1.id != e2.id:
+OrderByClause = list[OrderByItem]
+
+
+def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> Optional[OrderByClause]:
+    """Returns a clause that's compatible with 'clauses', or None if that doesn't exist.
+    Two clauses are compatible if for each item a) the exprs are identical and b) the asc values are identical or
+    at least one is None (None serves as a wildcard).
+    """
+    result: OrderByClause = []
+    for clause in clauses:
+        combined: OrderByClause = []
+        for item1, item2 in zip(result, clause):
+            if item1.expr.id != item2.expr.id:
                 return None
-            if asc1 is not None and asc2 is not None and asc1 != asc2:
+            if item1.asc is not None and item2.asc is not None and item1.asc != item2.asc:
                 return None
-            asc = asc1 if asc1 is not None else asc2
-            combined.append((e1, asc))
+            asc = item1.asc if item1.asc is not None else item2.asc
+            combined.append(OrderByItem(item1.expr, asc))
 
         # add remaining ordering of the longer list
-        prefix_len = min(len(result), len(ordering))
+        prefix_len = min(len(result), len(clause))
         if len(result) > prefix_len:
             combined.extend(result[prefix_len:])
-        elif len(ordering) > prefix_len:
-            combined.extend(ordering[prefix_len:])
+        elif len(clause) > prefix_len:
+            combined.extend(clause[prefix_len:])
         result = combined
     return result
 
-def print_ordering(ordering: Ordering) -> str:
-    return ', '.join(
-        [f'({e}{", asc=True" if asc is True else ""}{", asc=False" if asc is False else ""})' for e, asc in ordering])
+
+def print_order_by_clause(clause: OrderByClause) -> str:
+    return ', '.join([
+        f'({item.expr}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
+        for item in clause
+    ])
 
 
 class SqlNode(ExecNode):
@@ -59,7 +70,7 @@ class SqlNode(ExecNode):
     cte: Optional[sql.CTE]
     sql_elements: exprs.SqlElementCache
     limit: Optional[int]
-    ordering: Ordering
+    order_by_clause: OrderByClause
 
     def __init__(
             self, tbl: Optional[catalog.TableVersionPath], row_builder: exprs.RowBuilder,
@@ -103,7 +114,7 @@ class SqlNode(ExecNode):
         self.filter_eval_ctx = None
         self.cte = None
         self.limit = None
-        self.ordering = []
+        self.order_by_clause = []
 
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
@@ -115,7 +126,7 @@ class SqlNode(ExecNode):
         stmt = sql.select(*sql_select_list)
 
         order_by_clause: list[sql.ClauseElement] = []
-        for e, asc in self.ordering:
+        for e, asc in self.order_by_clause:
             if isinstance(e, exprs.SimilarityExpr):
                 order_by_clause.append(e.as_order_by_clause(asc))
             else:
@@ -129,7 +140,7 @@ class SqlNode(ExecNode):
         return stmt
 
     def _ordering_tbl_ids(self) -> set[UUID]:
-        return exprs.Expr.list_tbl_ids([e for e, _ in self.ordering])
+        return exprs.Expr.list_tbl_ids(e for e, _ in self.order_by_clause)
 
     def to_cte(self) -> Optional[tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]]:
         """
@@ -201,15 +212,15 @@ class SqlNode(ExecNode):
             prev_tbl = tbl
         return stmt
 
-    def add_order_by(self, ordering: Ordering) -> None:
+    def add_order_by(self, ordering: OrderByClause) -> None:
         """Add Order By clause to stmt"""
         if self.tbl is not None:
             # change rowid refs against a base table to rowid refs against the target table, so that we minimize
             # the number of tables that need to be joined to the target table
             self.retarget_rowid_refs(self.tbl, [e for e, _ in ordering])
-        combined_ordering = combine_orderings([self.ordering, ordering])
-        assert combined_ordering is not None
-        self.ordering = combined_ordering
+        combined = combine_order_by_clauses([self.order_by_clause, ordering])
+        assert combined is not None
+        self.order_by_clause = combined
 
     def set_limit(self, limit: int) -> None:
         self.limit = limit

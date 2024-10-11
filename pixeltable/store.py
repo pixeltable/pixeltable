@@ -7,7 +7,7 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Optional, Dict, Any, Union, Iterator
+from typing import Optional, Any, Union, Iterator
 
 import sqlalchemy as sql
 from tqdm import tqdm, TqdmWarning
@@ -133,7 +133,7 @@ class StoreBase:
         return new_file_url
 
     def _move_tmp_media_files(
-            self, table_rows: list[Dict[str, Any]], media_cols: list[catalog.Column], v_min: int
+            self, table_rows: list[dict[str, Any]], media_cols: list[catalog.Column], v_min: int
     ) -> None:
         """Move tmp media files that we generated to a permanent location"""
         for c in media_cols:
@@ -143,7 +143,7 @@ class StoreBase:
 
     def _create_table_row(
             self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, exc_col_ids: set[int], pk: tuple[int, ...]
-    ) -> tuple[Dict[str, Any], int]:
+    ) -> tuple[dict[str, Any], int]:
         """Return Tuple[complete table row, # of exceptions] for insert()
         Creates a row that includes the PK columns, with the values from input_row.pk.
         Returns:
@@ -313,7 +313,7 @@ class StoreBase:
                 num_rows += len(row_batch)
                 for batch_start_idx in range(0, len(row_batch), self.__INSERT_BATCH_SIZE):
                     # compute batch of rows and convert them into table rows
-                    table_rows: list[Dict[str, Any]] = []
+                    table_rows: list[dict[str, Any]] = []
                     for row_idx in range(batch_start_idx, min(batch_start_idx + self.__INSERT_BATCH_SIZE, len(row_batch))):
                         row = row_batch[row_idx]
 

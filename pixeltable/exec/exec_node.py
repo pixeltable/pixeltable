@@ -48,11 +48,11 @@ class ExecNode(abc.ABC):
         if self.input is not None:
             self.input.set_stored_img_cols(stored_img_cols)
 
-    #@abc.abstractmethod
+    # TODO: make this an abstractmethod when __next__() is removed
     def __iter__(self) -> Iterator[DataRowBatch]:
         return self
 
-    #@abc.abstractmethod
+    # TODO: remove this and switch every subclass over to implementing __iter__
     def __next__(self) -> DataRowBatch:
         if self.__iter is None:
             self.__iter = iter(self)

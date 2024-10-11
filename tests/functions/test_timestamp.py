@@ -172,10 +172,3 @@ class TestTimestamp:
         assert (
             res['out'] == [dt.replace(minute=0).astimezone(Env.get().default_time_zone) for dt in test_dts]
         )
-        _ = (t.group_by(t.dt.month)
-            .select(t.dt.month, sum=pxt.functions.sum(t.dt.year) + pxt.functions.sum(t.dt.day))
-            .order_by(t.dt.month, asc=True)
-            .limit(3)
-            .collect()
-        )
-        pass

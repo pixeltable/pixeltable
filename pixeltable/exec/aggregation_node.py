@@ -15,6 +15,8 @@ _logger = logging.getLogger('pixeltable')
 class AggregationNode(ExecNode):
     """
     In-memory aggregation for UDAs.
+
+    At the moment, this returns all results in a single DataRowBatch.
     """
     group_by: Optional[list[exprs.Expr]]
     input_exprs: list[exprs.Expr]
@@ -33,6 +35,7 @@ class AggregationNode(ExecNode):
         self.agg_fn_eval_ctx = row_builder.create_eval_ctx(agg_fn_calls, exclude=self.input_exprs)
         # we need to make sure to refer to the same exprs that RowBuilder.eval() will use
         self.agg_fn_calls = self.agg_fn_eval_ctx.target_exprs
+        # create output_batch here, rather than in __iter__(), so we don't need to remember tbl and row_builder
         self.output_batch = DataRowBatch(tbl, row_builder, 0)
 
     def _reset_agg_state(self, row_num: int) -> None:
