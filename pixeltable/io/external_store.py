@@ -116,7 +116,7 @@ class Project(ExternalStore, abc.ABC):
             tbl_version.schema_version = tbl_version.version
             proxy_cols = [self.create_stored_proxy(tbl_version, col) for col in stored_proxies_needed]
             # Add the columns; this will also update table metadata.
-            tbl_version._add_columns(proxy_cols, conn)
+            tbl_version._add_columns(proxy_cols, conn, print_stats=False, on_error='ignore')
             # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
             # invisible to the user.
             tbl_version._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)

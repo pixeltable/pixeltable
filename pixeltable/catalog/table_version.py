@@ -453,9 +453,9 @@ class TableVersion:
         self.idxs_by_name[idx_name] = idx_info
 
         # add the columns and update the metadata
-        # TODO support on_error='raise' for indices; it's tricky because of the way metadata changes are entangled
+        # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
         # with the database operations
-        status = self._add_columns([val_col, undo_col], conn, print_stats=False, on_error='continue')
+        status = self._add_columns([val_col, undo_col], conn, print_stats=False, on_error='ignore')
         # now create the index structure
         idx.create_index(self._store_idx_name(idx_id), val_col, conn)
 
@@ -480,7 +480,7 @@ class TableVersion:
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
             _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
-    def add_column(self, col: Column, print_stats: bool, on_error: Literal['raise', 'continue']) -> UpdateStatus:
+    def add_column(self, col: Column, print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
         """Adds a column to the table.
         """
         assert not self.is_snapshot
@@ -517,8 +517,8 @@ class TableVersion:
         self,
         cols: Iterable[Column],
         conn: sql.engine.Connection,
-        print_stats: bool = False,
-        on_error: Literal['raise', 'continue'] = 'continue'
+        print_stats: bool,
+        on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
         cols = list(cols)

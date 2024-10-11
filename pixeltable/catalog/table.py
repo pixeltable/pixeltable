@@ -318,7 +318,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
         if not isinstance(spec, (ts.ColumnType, exprs.Expr)):
             raise excs.Error(f'Column spec must be a ColumnType or an Expr, got {type(spec)}')
-        self.add_column(type=None, stored=None, print_stats=False, on_error='raise', **{col_name: spec})
+        self.add_column(type=None, stored=None, print_stats=False, on_error='abort', **{col_name: spec})
 
     def add_column(
             self,
@@ -326,7 +326,7 @@ class Table(SchemaObject):
             type: Optional[ts.ColumnType] = None,
             stored: Optional[bool] = None,
             print_stats: bool = False,
-            on_error: Literal['raise', 'continue'] = 'raise',
+            on_error: Literal['abort', 'ignore'] = 'abort',
             **kwargs: Union[ts.ColumnType, exprs.Expr, Callable]
     ) -> UpdateStatus:
         """
@@ -340,8 +340,8 @@ class Table(SchemaObject):
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
 
-                - If `on_error='raise'`, then an Exception will be raised and the column will not be added.
-                - If `on_error='continue'`, then execution will continue and the column will be added. Any rows
+                - If `on_error='abort'`, then an exception will be raised and the column will not be added.
+                - If `on_error='ignore'`, then execution will continue and the column will be added. Any rows
                   with errors will have a `None` value for the column, with information about the error stored in the
                   corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 

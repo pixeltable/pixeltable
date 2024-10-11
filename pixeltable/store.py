@@ -218,7 +218,7 @@ class StoreBase:
         exec_plan: ExecNode,
         value_expr_slot_idx: int,
         conn: sql.engine.Connection,
-        on_error: Literal['raise', 'continue']
+        on_error: Literal['abort', 'ignore']
     ) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
@@ -226,7 +226,7 @@ class StoreBase:
             number of rows with exceptions
         Raises:
             sql.exc.DBAPIError if there was a SQL error during execution
-            excs.Error if on_error='raise' and there was an exception during row evaluation
+            excs.Error if on_error='abort' and there was an exception during row evaluation
         """
         num_excs = 0
         num_rows = 0
@@ -260,7 +260,7 @@ class StoreBase:
                         if result_row.has_exc(value_expr_slot_idx):
                             num_excs += 1
                             value_exc = result_row.get_exc(value_expr_slot_idx)
-                            if on_error == 'raise':
+                            if on_error == 'abort':
                                 raise excs.Error(
                                     f'Error while evaluating computed column `{col.name}`:\n{value_exc}'
                                 ) from value_exc
