@@ -45,8 +45,20 @@ class Table(SchemaObject):
         super().__init__(id, name, dir_id)
         self._is_dropped = False
         self._tbl_version_path = tbl_version_path
-        self._queries: dict[str, pxt.func.QueryTemplateFunction] = {}
         self.__query_scope = self.QueryScope(self)
+
+    class QueryScope:
+        __table: 'Table'
+        _queries: dict[str, pxt.func.QueryTemplateFunction]
+
+        def __init__(self, table: 'Table') -> None:
+            self.__table = table
+            self._queries = {}
+
+        def __getattr__(self, name: str) -> pxt.func.QueryTemplateFunction:
+            if name in self._queries:
+                return self._queries[name]
+            raise AttributeError(f'Table {self.__table._name!r} has no query with that name: {name!r}')
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         super()._move(new_name, new_dir_id)
@@ -210,7 +222,7 @@ class Table(SchemaObject):
     @property
     def _query_names(self) -> list[str]:
         """Return the names of the registered queries for this table."""
-        return list(self._queries.keys())
+        return list(self.__query_scope._queries.keys())
 
     @property
     def _base(self) -> Optional['Table']:
@@ -901,11 +913,11 @@ class Table(SchemaObject):
             query_name = py_fn.__name__
             if query_name in self._schema.keys():
                 raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
-            if query_name in self._queries and function_path is not None:
+            if query_name in self.__query_scope._queries and function_path is not None:
                 raise excs.Error(f'Duplicate query name: {query_name!r}')
             query_fn = pxt.func.QueryTemplateFunction.create(
                 py_fn, param_types=param_types, path=function_path, name=query_name)
-            self._queries[query_name] = query_fn
+            self.__query_scope._queries[query_name] = query_fn
             return query_fn
 
             # TODO: verify that the inferred return type matches that of the template
@@ -1012,14 +1024,3 @@ class Table(SchemaObject):
 
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._schema.keys()) + self._query_names
-
-    class QueryScope:
-        __table: 'Table'
-
-        def __init__(self, table: 'Table') -> None:
-            self.__table = table
-
-        def __getattr__(self, name: str) -> 'pxt.func.QueryTemplateFunction':
-            if name in self.__table._queries:
-                return self.__table._queries[name]
-            raise AttributeError(f'Table {self.__table._name!r} has no query with that name: {name!r}')

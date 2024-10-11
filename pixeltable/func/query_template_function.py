@@ -17,7 +17,7 @@ class QueryTemplateFunction(Function):
 
     @classmethod
     def create(
-            cls, template_callable: Callable, param_types: Optional[list[pxt.ColumnType]], path: str, name: str
+        cls, template_callable: Callable, param_types: Optional[list[pxt.ColumnType]], path: str, name: str
     ) -> QueryTemplateFunction:
         # we need to construct a template df and a signature
         py_sig = inspect.signature(template_callable)

@@ -391,6 +391,11 @@ class TestFunction:
             t.add_column(c=pxt.IntType(nullable=True))
         assert 'conflicts with a registered query' in str(exc_info.value).lower()
 
+        # unknown query
+        with pytest.raises(AttributeError) as exc_info:
+            _ = t.queries.not_a_query
+        assert "table 'test' has no query with that name: 'not_a_query'" in str(exc_info.value).lower()
+
     @pxt.expr_udf
     def add1(x: int) -> int:
         return x + 1
