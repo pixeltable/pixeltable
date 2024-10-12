@@ -10,13 +10,12 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
+import PIL.Image
 import av  # type: ignore
 import numpy as np
-import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
-from pixeltable.env import Env
 
 
 class ColumnType:

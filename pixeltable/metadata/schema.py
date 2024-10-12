@@ -87,6 +87,10 @@ class ColumnMd:
     # if True, is part of the primary key
     is_pk: bool
 
+    # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
+    # stores column.MediaValiation.value
+    media_validation: Optional[int]
+
     # if set, this is a computed column
     value_expr: Optional[dict]
 
@@ -150,6 +154,10 @@ class TableMd:
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: Optional[ViewMd]
+
+    # default validation strategy for any media column of this table
+    # stores column.MediaValiation.value
+    media_validation: int
 
 
 class Table(Base):

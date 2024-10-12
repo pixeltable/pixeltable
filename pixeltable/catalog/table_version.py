@@ -26,7 +26,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, UpdateStatus, is_valid_identifier
+from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, UpdateStatus, is_valid_identifier, MediaValidation
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
@@ -57,6 +57,7 @@ class TableVersion:
     schema_version: int
     view_md: Optional[schema.ViewMd]
     is_snapshot: bool
+    media_validation: MediaValidation
     effective_version: Optional[int]
     path: Optional[pxt.catalog.TableVersionPath]
     base: Optional[TableVersion]
@@ -109,6 +110,7 @@ class TableVersion:
         self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
         is_view = tbl_md.view_md is not None
         self.is_snapshot = (is_view and tbl_md.view_md.is_snapshot) or bool(is_snapshot)
+        self.media_validation = MediaValidation(tbl_md.media_validation)
         # a mutable TableVersion doesn't have a static version
         self.effective_version = self.version if self.is_snapshot else None
 
@@ -182,7 +184,7 @@ class TableVersion:
     @classmethod
     def create(
             cls, session: orm.Session, dir_id: UUID, name: str, cols: list[Column], num_retained_versions: int,
-            comment: str, base_path: Optional[pxt.catalog.TableVersionPath] = None,
+            comment: str, media_validation: MediaValidation, base_path: Optional[pxt.catalog.TableVersionPath] = None,
             view_md: Optional[schema.ViewMd] = None
     ) -> tuple[UUID, Optional[TableVersion]]:
         # assign ids
@@ -202,7 +204,8 @@ class TableVersion:
         column_md = cls._create_column_md(cols)
         table_md = schema.TableMd(
             name=name, current_version=0, current_schema_version=0, next_col_id=len(cols),
-            next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, external_stores=[], view_md=view_md)
+            next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, external_stores=[], view_md=view_md,
+            media_validation=media_validation.value)
         # create a schema.Table here, we need it to call our c'tor;
         # don't add it to the session yet, we might add index metadata
         tbl_id = uuid.uuid4()
@@ -286,9 +289,10 @@ class TableVersion:
         self.cols_by_id = {}
         for col_md in tbl_md.column_md.values():
             col_name = schema_version_md.columns[col_md.id].name if col_md.id in schema_version_md.columns else None
+            media_val = MediaValidation(col_md.media_validation) if col_md.media_validation is not None else None
             col = Column(
                 col_id=col_md.id, name=col_name, col_type=ts.ColumnType.from_dict(col_md.col_type),
-                is_pk=col_md.is_pk, stored=col_md.stored,
+                is_pk=col_md.is_pk, stored=col_md.stored, media_validation=media_val,
                 schema_version_add=col_md.schema_version_add, schema_version_drop=col_md.schema_version_drop,
                 value_expr_dict=col_md.value_expr)
             col.tbl = self
@@ -349,7 +353,8 @@ class TableVersion:
             self.store_tbl = StoreTable(self)
 
     def _update_md(
-            self, timestamp: float, conn: sql.engine.Connection, update_tbl_version: bool = True, preceding_schema_version: Optional[int] = None
+        self, timestamp: float, conn: sql.engine.Connection, update_tbl_version: bool = True,
+        preceding_schema_version: Optional[int] = None
     ) -> None:
         """Writes table metadata to the database.
 
@@ -1166,6 +1171,7 @@ class TableVersion:
             value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
             column_md[col.id] = schema.ColumnMd(
                 id=col.id, col_type=col.col_type.as_dict(), is_pk=col.is_pk,
+                media_validation=col._media_validation.value if col._media_validation is not None else None,
                 schema_version_add=col.schema_version_add, schema_version_drop=col.schema_version_drop,
                 value_expr=value_expr_dict, stored=col.stored)
         return column_md
@@ -1185,7 +1191,9 @@ class TableVersion:
             name=self.name, current_version=self.version, current_schema_version=self.schema_version,
             next_col_id=self.next_col_id, next_idx_id=self.next_idx_id, next_row_id=self.next_rowid,
             column_md=self._create_column_md(self.cols), index_md=self.idx_md,
-            external_stores=self._create_stores_md(self.external_stores.values()), view_md=self.view_md)
+            external_stores=self._create_stores_md(self.external_stores.values()), view_md=self.view_md,
+            media_validation=self.media_validation.value
+        )
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(created_at=timestamp, version=self.version, schema_version=self.schema_version)
